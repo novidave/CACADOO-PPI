@@ -1,0 +1,33 @@
+{
+  "site": {
+    "name": "PPI",
+    "tagline": "What local shops in Michalovce have in stock right now",
+    "description": "Find a product in local shops in Michalovce: who has it in stock, at what price, and how fresh that information is."
+  },
+  "search": {
+    "placeholder": "Search a product, brand or EAN",
+    "button": "Search",
+    "radius": "Radius",
+    "only_available": "Only available now",
+    "empty": "No shop nearby has this right now.",
+    "widen": "Widen the radius to {n} km",
+    "results": "Results",
+    "distance": "{n} km",
+    "not_connected": "The database is not connected yet. Set the Supabase environment variables (see SETUP.md)."
+  },
+  "stock": {
+    "in_stock": "In stock",
+    "in_stock_count": "{n} in stock",
+    "low_stock": "Low stock",
+    "out_of_stock": "Out of stock",
+    "available": "Available",
+    "not_available": "Not available",
+    "updated_ago": "Updated {n} min ago",
+    "confirmed_today": "Last confirmed today at {time}",
+    "confirmed_yesterday": "Last confirmed yesterday at {time}",
+    "stale": "Stock information not currently available"
+  },
+  "shop": {
+    "open_now": "Open now"
+  }
+}
