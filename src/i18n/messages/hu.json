@@ -1,0 +1,33 @@
+{
+  "site": {
+    "name": "PPI",
+    "tagline": "Mi van most raktáron a nagymihályi üzletekben",
+    "description": "Keressen terméket a nagymihályi helyi üzletekben: kinél van raktáron, mennyiért, és mennyire friss az információ."
+  },
+  "search": {
+    "placeholder": "Termék, márka vagy EAN keresése",
+    "button": "Keresés",
+    "radius": "Körzet",
+    "only_available": "Csak a most elérhetők",
+    "empty": "A közelben most egyik üzletben sincs ilyen.",
+    "widen": "Körzet bővítése {n} km-re",
+    "results": "Találatok",
+    "distance": "{n} km",
+    "not_connected": "Az adatbázis még nincs csatlakoztatva. Állítsa be a Supabase környezeti változókat (lásd SETUP.md)."
+  },
+  "stock": {
+    "in_stock": "Raktáron",
+    "in_stock_count": "{n} db raktáron",
+    "low_stock": "Kevés raktáron",
+    "out_of_stock": "Elfogyott",
+    "available": "Elérhető",
+    "not_available": "Nem elérhető",
+    "updated_ago": "{n} perce frissítve",
+    "confirmed_today": "Utoljára megerősítve ma {time}-kor",
+    "confirmed_yesterday": "Utoljára megerősítve tegnap {time}-kor",
+    "stale": "A készletinformáció jelenleg nem elérhető"
+  },
+  "shop": {
+    "open_now": "Nyitva"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "site": {
+    "name": "PPI",
+    "tagline": "Čo majú obchody v Michalovciach práve na sklade",
+    "description": "Nájdite výrobok v miestnych obchodoch v Michalovciach: kto ho má na sklade, za koľko a aká čerstvá je informácia."
+  },
+  "search": {
+    "placeholder": "Hľadať výrobok, značku alebo EAN",
+    "button": "Hľadať",
+    "radius": "Okruh",
+    "only_available": "Len dostupné teraz",
+    "empty": "Žiadny obchod v okolí to teraz nemá.",
+    "widen": "Rozšíriť okruh na {n} km",
+    "results": "Výsledky",
+    "distance": "{n} km",
+    "not_connected": "Databáza ešte nie je pripojená. Nastavte premenné prostredia Supabase (pozri SETUP.md)."
+  },
+  "stock": {
+    "in_stock": "Na sklade",
+    "in_stock_count": "{n} ks na sklade",
+    "low_stock": "Málo na sklade",
+    "out_of_stock": "Vypredané",
+    "available": "Dostupné",
+    "not_available": "Nedostupné",
+    "updated_ago": "Aktualizované pred {n} min",
+    "confirmed_today": "Naposledy potvrdené dnes o {time}",
+    "confirmed_yesterday": "Naposledy potvrdené včera o {time}",
+    "stale": "Informácia o zásobe momentálne nie je dostupná"
+  },
+  "shop": {
+    "open_now": "Otvorené"
+  }
+}
