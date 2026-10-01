@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { createClient } from "@/lib/supabase/server";
-import { missingSupabaseEnv } from "@/lib/supabase/env";
+import { missingSupabaseEnv, supabaseEnv } from "@/lib/supabase/env";
 import { formatPrice } from "@/lib/format";
 import { availabilityText, freshnessText, type StockRow } from "@/lib/stock";
 
@@ -41,7 +41,10 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
         radius_km: radius,
         only_available: onlyAvailable,
       });
-      if (result.error) error = result.error.message;
+      if (result.error) {
+        // Name the (public) project address so setup mistakes are visible.
+        error = `${result.error.message} · Supabase: ${supabaseEnv()?.url}`;
+      }
       rows = (result.data ?? []) as StockRow[];
     }
   } catch (e) {
