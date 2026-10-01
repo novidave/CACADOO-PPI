@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { createClient } from "@/lib/supabase/server";
+import { missingSupabaseEnv } from "@/lib/supabase/env";
 import { formatPrice } from "@/lib/format";
 import { availabilityText, freshnessText, type StockRow } from "@/lib/stock";
 
@@ -25,22 +26,27 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
   const radius = (RADII as readonly number[]).includes(radiusParam) ? radiusParam : DEFAULT_RADIUS;
   const onlyAvailable = first(sp.only) === "1";
 
-  const supabase = await createClient();
   let rows: StockRow[] = [];
   let error: string | null = null;
 
-  if (!supabase) {
-    error = dict.search.not_connected;
-  } else if (q) {
-    const result = await supabase.rpc("search_stock", {
-      q,
-      lat: MICHALOVCE.lat,
-      lng: MICHALOVCE.lng,
-      radius_km: radius,
-      only_available: onlyAvailable,
-    });
-    if (result.error) error = result.error.message;
-    rows = (result.data ?? []) as StockRow[];
+  try {
+    const supabase = await createClient();
+    if (!supabase) {
+      error = `${dict.search.not_connected} (${missingSupabaseEnv().join(", ")})`;
+    } else if (q) {
+      const result = await supabase.rpc("search_stock", {
+        q,
+        lat: MICHALOVCE.lat,
+        lng: MICHALOVCE.lng,
+        radius_km: radius,
+        only_available: onlyAvailable,
+      });
+      if (result.error) error = result.error.message;
+      rows = (result.data ?? []) as StockRow[];
+    }
+  } catch (e) {
+    // e.g. a mistyped Supabase URL: show it instead of a blank 500 page.
+    error = `${dict.search.not_connected} (${e instanceof Error ? e.message : String(e)})`;
   }
 
   const widerRadius = RADII.find((r) => r > radius);

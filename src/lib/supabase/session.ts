@@ -7,18 +7,23 @@ export async function refreshSession(request: NextRequest, response: NextRespons
   const env = supabaseEnv();
   if (!env) return response;
 
-  const supabase = createServerClient(env.url, env.key, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
+  try {
+    const supabase = createServerClient(env.url, env.key, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+        },
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
-      },
-    },
-  });
+    });
 
-  // Do not remove: this validates and refreshes the session token.
-  await supabase.auth.getClaims();
+    // Do not remove: this validates and refreshes the session token.
+    await supabase.auth.getClaims();
+  } catch (e) {
+    // A broken Supabase setting must not take the whole site down; the page shows the error.
+    console.error("Supabase session refresh failed:", e);
+  }
   return response;
 }
