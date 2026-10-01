@@ -78,10 +78,10 @@ Keep this tab open for Part B.
 
 Supabase → **Authentication** → **URL Configuration**:
 
-- **Site URL**: your Vercel production address, e.g. `https://cacadoo-ppi.vercel.app` (you get it in Part B)
+- **Site URL**: your Vercel production address, e.g. `https://cacadooppivercel.vercel.app` (you get it in Part B)
 - **Redirect URLs** → **Add URL**, add each of these:
   - `http://localhost:3000/**`
-  - `https://cacadoo-ppi.vercel.app/**` (your real Vercel address)
+  - `https://cacadooppivercel.vercel.app/**` (your real Vercel address)
   - `https://*-YOUR-VERCEL-TEAM.vercel.app/**` (so preview links can log in too; copy the team part from any preview URL)
 
 ---
@@ -97,7 +97,7 @@ Vercel → your project → **Settings** → **Environment Variables**. Add thes
 |-----|-------|
 | `NEXT_PUBLIC_SUPABASE_URL` | the Project URL from A5 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the anon / publishable key from A5 |
-| `NEXT_PUBLIC_SITE_URL` | your Vercel address, e.g. `https://cacadoo-ppi.vercel.app` (no `/` at the end) |
+| `NEXT_PUBLIC_SITE_URL` | your Vercel address, e.g. `https://cacadooppivercel.vercel.app` (no `/` at the end) |
 
 If you connected Supabase through Vercel's **Integrations / Marketplace**, the first two may already exist —
 check the names match exactly. Do **not** add `SUPABASE_SERVICE_ROLE_KEY`; if the integration added it, delete it.
