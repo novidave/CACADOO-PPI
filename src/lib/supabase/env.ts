@@ -13,7 +13,19 @@ export function supabaseEnv(): { url: string; key: string } | null {
     process.env.SUPABASE_ANON_KEY ??
     process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return { url, key };
+  return { url: projectOrigin(url), key: key.trim() };
+}
+
+/**
+ * Keep only "https://xxxx.supabase.co". A pasted ".../rest/v1/" or a trailing
+ * slash makes Supabase answer "Invalid path specified in request URL".
+ */
+function projectOrigin(url: string): string {
+  try {
+    return new URL(url.trim()).origin;
+  } catch {
+    return url.trim(); // let the Supabase client report the invalid URL
+  }
 }
 
 /** Names of the missing settings, to show on screen while setting up. */
