@@ -1,8 +1,8 @@
 {
   "site": {
     "name": "PPI",
-    "tagline": "What local shops in Michalovce have in stock right now",
-    "description": "Find a product in local shops in Michalovce: who has it in stock, at what price, and how fresh that information is."
+    "tagline": "What shops near you have in stock right now",
+    "description": "Find a product in shops near you: who has it in stock, at what price, and how fresh that information is."
   },
   "search": {
     "placeholder": "Search a product, brand or EAN",
@@ -12,8 +12,16 @@
     "empty": "No shop nearby has this right now.",
     "widen": "Widen the radius to {n} km",
     "results": "Results",
-    "distance": "{n} km",
-    "not_connected": "The database is not connected yet. Set the Supabase environment variables (see SETUP.md)."
+    "not_connected": "The database is not connected yet. Set the Supabase environment variables (see SETUP.md).",
+    "empty_everywhere": "No shop has this right now.",
+    "near_device": "Searching around your location",
+    "near_approx": "Approximate location: {place}",
+    "near_approx_unknown": "Approximate location from your connection",
+    "everywhere": "Location unknown – searching all shops",
+    "use_location": "Use my location",
+    "use_precise": "Use my exact location",
+    "locating": "Finding your location…",
+    "location_failed": "Could not get your location."
   },
   "stock": {
     "in_stock": "In stock",

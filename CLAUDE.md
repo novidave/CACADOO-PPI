@@ -16,7 +16,10 @@ Setup steps for humans are in `SETUP.md`.
   Visitors read stock only through `public_stock` / `search_stock`, never `inventory`.
 - Every database change is a new file in `supabase/migrations/` (never edit an applied one).
   Add a check to `supabase/tests/database_test.sql` for every rule you add.
-- Times stored in UTC, shown in Europe/Bratislava (`@/lib/format`). Prices via `formatPrice`.
+- **Europe-wide, no home town.** Never hard-code a city, country, currency or time zone.
+  Location comes from `@/lib/location` (device → IP city → unknown = search all shops).
+- Times stored in UTC, shown in the **shop's** time zone (`shops.timezone`) via `@/lib/format`.
+  Prices via `formatPrice(value, locale, currency)` with the item's own currency.
 - All visible text comes from `src/i18n/messages/{sk,hu,en}.json`; add every new key to all three.
 
 ## Design

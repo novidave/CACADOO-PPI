@@ -31,6 +31,9 @@ For **each** file below:
 | 3 | `supabase/migrations/20261001000003_auth_helpers.sql` | Login profiles, admin/owner checks, protection rules |
 | 4 | `supabase/migrations/20261001000004_rls.sql` | Row Level Security: who may see and change what |
 | 5 | `supabase/migrations/20261001000005_stock_logic.sql` | Freshness, availability labels, `public_stock` view, `search_stock` search |
+| 6 | `supabase/migrations/20261003000001_europe_wide.sql` | Europe-wide: shop country + time zone, search with or without a location |
+
+> **Already ran files 1–5 earlier?** Only run file 6, then the test data (A3) again.
 
 **If something goes wrong**
 
@@ -40,13 +43,14 @@ For **each** file below:
 
 ### A3. Add test data
 
-Same way, copy and run **`supabase/seed.sql`**. It creates 3 test shops in Michalovce with 16 items:
+Same way, copy and run **`supabase/seed.sql`**. It creates 4 test shops in two countries with 19 items:
 
 | Test shop | Stock file age | What the site must show |
 |-----------|----------------|-------------------------|
 | Potraviny Centrum | 10 min | "Na sklade" / "Málo na sklade" + "Aktualizované pred 10 min" |
 | Drogéria Kostolné | 3 hours | Exact count, e.g. "5 ks na sklade" + "Naposledy potvrdené dnes o …" |
 | Železiarstvo Východ | 25 hours | **No stock status**, only "Informácia o zásobe momentálne nie je dostupná" |
+| Kisbolt Budapest (HU, forints) | 5 min | Prices like **1890 Ft**, times in Budapest time |
 
 The ages are counted from the moment you run the file. Run it again any time to reset them.
 **Before launch**, delete the test shops (Part D).
@@ -120,11 +124,17 @@ Environment variables only apply to new deployments:
 Open the preview link and check:
 
 - [ ] The address changes to `/sk` and the page is plain white with "PPI" and **SK · HU · EN** at the top.
+- [ ] Below the search box: **"Približná poloha: <your city>"** (or "Poloha neznáma – hľadá sa vo všetkých obchodoch") and a **Použiť … polohu** link.
 - [ ] Search **kava** → 4 results; "Káva mletá 250 g" says **Málo na sklade · Aktualizované pred 10 min**.
+  The test shops are in Michalovce and Budapest, and the site now searches around **your** location.
+  If you are elsewhere, test with this address, which pretends you are in Michalovce:
+  `/sk?q=kava&lat=48.755&lng=21.918`
 - [ ] "Kávovar prekvapkávací" shows only **Informácia o zásobe momentálne nie je dostupná**.
 - [ ] Tick **Len dostupné teraz** and search again → Kávovar disappears.
 - [ ] Click **EN** → same results in English, prices like **€4.49**. Click **HU** → Hungarian.
-- [ ] Search **xyz** with radius 5 km → "Žiadny obchod v okolí to teraz nemá." and a link to widen the radius.
+- [ ] Search **xyz** → "Žiadny obchod … to teraz nemá."
+- [ ] Open `/hu?q=kave&lat=47.498&lng=19.04` (pretends you are in Budapest) → **Kávé őrölt 250 g · 1890 Ft · Kisbolt Budapest · 1,6 km**.
+- [ ] Tap **Použiť moju polohu** on your phone and allow it → results show distances from where you are.
 
 If the page says *"Databáza ešte nie je pripojená"*, the variables from B1 are missing or misspelled, or you did not redeploy.
 
@@ -144,7 +154,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001
 ```
 
 ---
@@ -162,7 +172,7 @@ where user_id = (select id from auth.users where email = 'YOUR-EMAIL@example.com
 
 ```sql
 delete from public.shops
-where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod');
+where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 'kisbolt-budapest');
 ```
 
 ---
@@ -173,7 +183,8 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod');
 |-------|--------|
 | 1. Foundation — Next.js 16, Supabase connection, SK/HU/EN, plain white layout | ✅ done |
 | 2. Database — tables, RLS, freshness, availability, `public_stock`, `search_stock`, test data, automatic checks | ✅ done |
-| 3. Public pages — map, "use my location", shop pages, item pages, JSON-LD | next |
+| 2b. Europe-wide — no home town, any currency and time zone, device / IP / no location | ✅ done |
+| 3. Public pages — map, shop pages, item pages, "open now", JSON-LD | next |
 | 4. Login, owner dashboard, admin | |
 | 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | |
 | 6. Stock pull Edge Function + AI field mapping | |

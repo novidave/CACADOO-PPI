@@ -1,6 +1,6 @@
 import type { Dictionary } from "@/i18n/dictionaries";
 import { t } from "@/i18n/dictionaries";
-import { bratislavaDay, formatTime } from "./format";
+import { formatTime, localDay } from "./format";
 
 /** Label keys computed by the database (public.availability_label). */
 export type AvailabilityKey =
@@ -24,6 +24,8 @@ export interface StockRow {
   shop_name: string;
   shop_address: string | null;
   shop_city: string | null;
+  shop_country: string | null;
+  shop_timezone: string | null;
   shop_lat: number | null;
   shop_lng: number | null;
   price: number | null;
@@ -35,7 +37,8 @@ export interface StockRow {
   freshness_age_minutes: number | null;
   latest_file_time: string | null;
   updated_at: string | null;
-  distance_km: number;
+  /** NULL when the visitor's location is unknown. */
+  distance_km: number | null;
 }
 
 /** Availability text. Null when stale: the page shows the stale text instead. */
@@ -48,20 +51,21 @@ export function availabilityText(
   return t(dict.stock[key], { n: quantity ?? "" });
 }
 
-/** "Updated 8 min ago", "Last confirmed today at 14:05", or the stale text. */
+/** "Updated 8 min ago", "Last confirmed today at 14:05" (shop's local time), or the stale text. */
 export function freshnessText(
   dict: Dictionary,
   state: FreshnessState,
   ageMinutes: number | null,
   latestFileTime: string | null,
+  timeZone: string | null,
   now: Date = new Date(),
 ): string {
   if (state === "stale" || !latestFileTime) return dict.stock.stale;
   if (state === "current") return t(dict.stock.updated_ago, { n: ageMinutes ?? 0 });
 
   const fileTime = new Date(latestFileTime);
-  const time = formatTime(fileTime);
-  return bratislavaDay(fileTime) === bratislavaDay(now)
+  const time = formatTime(fileTime, timeZone);
+  return localDay(fileTime, timeZone) === localDay(now, timeZone)
     ? t(dict.stock.confirmed_today, { time })
     : t(dict.stock.confirmed_yesterday, { time });
 }
