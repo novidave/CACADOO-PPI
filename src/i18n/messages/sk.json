@@ -36,6 +36,32 @@
     "stale": "Informácia o zásobe momentálne nie je dostupná"
   },
   "shop": {
-    "open_now": "Otvorené"
+    "open_now": "Otvorené",
+    "closed": "Zatvorené",
+    "closes_at": "Zatvára o {time}",
+    "opens_at": "Otvára o {time}",
+    "opens_tomorrow": "Otvára zajtra o {time}",
+    "opens_day": "Otvára: {day} {time}",
+    "hours": "Otváracie hodiny",
+    "directions": "Navigovať",
+    "phone": "Telefón",
+    "website": "Web",
+    "items": "Tovar v obchode",
+    "search_items": "Hľadať v tomto obchode",
+    "no_items": "Nič sa nenašlo.",
+    "stock": "Zásoby",
+    "page_of": "Strana {page} z {pages}",
+    "prev": "Predchádzajúca",
+    "next": "Ďalšia",
+    "map": "Mapa obchodov",
+    "meta_description": "{name}, {city}: otváracie hodiny, kontakt a čo majú práve na sklade."
+  },
+  "item": {
+    "brand": "Značka",
+    "ean": "EAN",
+    "shop": "Obchod",
+    "also_at": "Dostupné aj v",
+    "none_elsewhere": "V iných obchodoch sme tento výrobok nenašli.",
+    "meta_description": "{name} – {shop}, {city}: cena a dostupnosť na sklade."
   }
 }

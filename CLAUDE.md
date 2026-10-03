@@ -26,7 +26,8 @@ Setup steps for humans are in `SETUP.md`.
 
 Plain white background, black text, thin light-grey lines (`border-line`, `text-muted`).
 **No colours**, no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
-Mobile-first.
+Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), black dot pins;
+always an extra — every page must work and show its data without it.
 
 ## Commands
 

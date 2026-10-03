@@ -223,6 +223,7 @@ Acceptance:
 ## 9. Design
 
 - Mobile-first; most visitors are on phones
+- Map: light-grey street map (OpenFreeMap "positron" tiles: free, no API key, commercial use allowed) with black dot pins; the visitor's position is a hollow ring
 - Clean, local and trustworthy; avoid e-commerce look (no cart icons)
 - Plain white background with black text and thin light-grey lines. No brand colours, no coloured status badges, no dark mode (decided 2026-10-01; replaces the earlier blue/green/amber palette)
 - Availability always written out as text (e.g. "Low stock"), emphasised with bold weight, never with colour

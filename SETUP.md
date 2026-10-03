@@ -32,8 +32,9 @@ For **each** file below:
 | 4 | `supabase/migrations/20261001000004_rls.sql` | Row Level Security: who may see and change what |
 | 5 | `supabase/migrations/20261001000005_stock_logic.sql` | Freshness, availability labels, `public_stock` view, `search_stock` search |
 | 6 | `supabase/migrations/20261003000001_europe_wide.sql` | Europe-wide: shop country + time zone, search with or without a location |
+| 7 | `supabase/migrations/20261004000001_public_pages.sql` | Shop and item pages: `public_shops` view, `shop_stock` item list |
 
-> **Already ran files 1–5 earlier?** Only run file 6, then the test data (A3) again.
+> **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
 **If something goes wrong**
 
@@ -135,6 +136,11 @@ Open the preview link and check:
 - [ ] Search **xyz** → "Žiadny obchod … to teraz nemá."
 - [ ] Open `/hu?q=kave&lat=47.498&lng=19.04` (pretends you are in Budapest) → **Kávé őrölt 250 g · 1890 Ft · Kisbolt Budapest · 1,6 km**.
 - [ ] Tap **Použiť moju polohu** on your phone and allow it → results show distances from where you are.
+- [ ] Results show a **black-and-white map** with a black dot per shop (beside the list on a computer, above it on a phone). Tapping a dot marks that shop's results.
+- [ ] Each result shows **Otvorené / Zatvorené** with the next opening or closing time.
+- [ ] Tap a shop name → **shop page**: address, opening hours for the week, "Navigovať" (opens Google Maps), map, searchable item list.
+- [ ] Tap an item → **item page**: price, stock, shop card, and **Dostupné aj v** (Zubná pasta → Kisbolt Budapest in Ft).
+- [ ] AI check: right-click a shop page → **View page source** → search `application/ld+json` → you see the shop's address and opening hours. On the Kávovar item page (stale) the same block has **no** `offers` (no price/availability).
 
 If the page says *"Databáza ešte nie je pripojená"*, the variables from B1 are missing or misspelled, or you did not redeploy.
 
@@ -154,7 +160,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001
 ```
 
 ---
@@ -184,8 +190,8 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 1. Foundation — Next.js 16, Supabase connection, SK/HU/EN, plain white layout | ✅ done |
 | 2. Database — tables, RLS, freshness, availability, `public_stock`, `search_stock`, test data, automatic checks | ✅ done |
 | 2b. Europe-wide — no home town, any currency and time zone, device / IP / no location | ✅ done |
-| 3. Public pages — map, shop pages, item pages, "open now", JSON-LD | next |
-| 4. Login, owner dashboard, admin | |
+| 3. Public pages — map, shop pages, item pages, "open now", JSON-LD | ✅ done |
+| 4. Login, owner dashboard, admin | next |
 | 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | |
 | 6. Stock pull Edge Function + AI field mapping | |
 | 7. Shop PC setup (rclone + cloudflared) | |

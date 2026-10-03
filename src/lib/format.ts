@@ -61,3 +61,13 @@ export function formatDistance(km: number, locale: Locale): string {
   if (km < 1) return `${Math.max(10, Math.round((km * 1000) / 10) * 10)} m`;
   return `${km.toLocaleString(locale, { maximumFractionDigits: 1 })} km`;
 }
+
+/** Google Maps directions to a point; opens the maps app on phones. */
+export function directionsUrl(lat: number, lng: number): string {
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+}
+
+/** "Hlavná 1, Košice" from the parts that exist. */
+export function addressLine(...parts: (string | null | undefined)[]): string {
+  return parts.filter((p) => p && p.trim()).join(", ");
+}
