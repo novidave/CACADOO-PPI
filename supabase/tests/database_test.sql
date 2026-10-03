@@ -88,6 +88,29 @@ begin
   select count(*) into n from public.search_stock('8714789012351', 999, 999, 10, false);
   assert n = 2, 'invalid coordinates should fall back to searching everywhere';
 
+  -- public_shops: active shops only, never private columns
+  assert (select count(*) from public.public_shops) = 4, 'public_shops should list the 4 active test shops';
+  assert not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'public_shops'
+      and column_name in ('ico', 'visibility_mode', 'low_stock_threshold', 'is_active', 'location')
+  ), 'public_shops exposes a private column';
+  assert (select freshness_state from public.public_shops where slug = 'zeleziarstvo-vychod') = 'stale';
+  assert (select round(lat::numeric, 3) from public.public_shops where slug = 'kisbolt-budapest') = 47.499;
+
+  -- shop_stock: paging, total count, accent-insensitive filter, hidden items excluded
+  select count(*) into n from public.shop_stock('potraviny-centrum');
+  assert n = 6, format('shop page should list 6 public items (1 hidden), got %s', n);
+  assert (select max(total_count) from public.shop_stock('potraviny-centrum', null, 2, 0)) = 6;
+  select count(*) into n from public.shop_stock('potraviny-centrum', null, 2, 4);
+  assert n = 2, 'third page of 2 should have 2 rows';
+  select count(*) into n from public.shop_stock('potraviny-centrum', 'cokolada');
+  assert n = 1, 'cokolada should find Čokoláda';
+  select count(*) into n from public.shop_stock('zeleziarstvo-vychod') where availability is not null;
+  assert n = 0, 'stale shop page must not show availability';
+  select count(*) into n from public.shop_stock('no-such-shop');
+  assert n = 0;
+
   -- radius: nothing 100+ km away from Bratislava
   select count(*) into n from public.search_stock(null, 48.1486, 17.1077, 10, false);
   assert n = 0, 'radius filter failed';
@@ -234,6 +257,8 @@ begin
     'inactive shop must disappear from public_stock';
   assert (select count(*) from public.shops where slug = 'zeleziarstvo-vychod') = 0,
     'inactive shop must be hidden from visitors';
+  assert (select count(*) from public.public_shops where slug = 'zeleziarstvo-vychod') = 0,
+    'inactive shop must disappear from public_shops';
 end;
 $$;
 reset role;

@@ -36,6 +36,32 @@
     "stale": "Stock information not currently available"
   },
   "shop": {
-    "open_now": "Open now"
+    "open_now": "Open now",
+    "closed": "Closed",
+    "closes_at": "Closes at {time}",
+    "opens_at": "Opens at {time}",
+    "opens_tomorrow": "Opens tomorrow at {time}",
+    "opens_day": "Opens {day} at {time}",
+    "hours": "Opening hours",
+    "directions": "Get directions",
+    "phone": "Phone",
+    "website": "Website",
+    "items": "Items in this shop",
+    "search_items": "Search this shop",
+    "no_items": "Nothing found.",
+    "stock": "Stock",
+    "page_of": "Page {page} of {pages}",
+    "prev": "Previous",
+    "next": "Next",
+    "map": "Map of shops",
+    "meta_description": "{name}, {city}: opening hours, contact and what is in stock right now."
+  },
+  "item": {
+    "brand": "Brand",
+    "ean": "EAN",
+    "shop": "Shop",
+    "also_at": "Also available at",
+    "none_elsewhere": "We did not find this product in other shops.",
+    "meta_description": "{name} – {shop}, {city}: price and stock availability."
   }
 }

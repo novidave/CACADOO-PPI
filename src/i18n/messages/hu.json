@@ -36,6 +36,32 @@
     "stale": "A készletinformáció jelenleg nem elérhető"
   },
   "shop": {
-    "open_now": "Nyitva"
+    "open_now": "Nyitva",
+    "closed": "Zárva",
+    "closes_at": "Zár {time}-kor",
+    "opens_at": "Nyit {time}-kor",
+    "opens_tomorrow": "Holnap nyit {time}-kor",
+    "opens_day": "Nyit: {day} {time}",
+    "hours": "Nyitvatartás",
+    "directions": "Útvonal",
+    "phone": "Telefon",
+    "website": "Weboldal",
+    "items": "Termékek az üzletben",
+    "search_items": "Keresés ebben az üzletben",
+    "no_items": "Nincs találat.",
+    "stock": "Készlet",
+    "page_of": "{page}. oldal / {pages}",
+    "prev": "Előző",
+    "next": "Következő",
+    "map": "Üzletek térképe",
+    "meta_description": "{name}, {city}: nyitvatartás, elérhetőség és aktuális készlet."
+  },
+  "item": {
+    "brand": "Márka",
+    "ean": "EAN",
+    "shop": "Üzlet",
+    "also_at": "Máshol is kapható",
+    "none_elsewhere": "Más üzletben nem találtuk ezt a terméket.",
+    "meta_description": "{name} – {shop}, {city}: ár és készletinformáció."
   }
 }

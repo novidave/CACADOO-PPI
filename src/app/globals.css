@@ -27,3 +27,27 @@ body {
   color: var(--foreground);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 }
+
+/* Map pins: black dot for shops, hollow ring for the visitor. No colour. */
+.ppi-pin {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--foreground);
+  border: 2px solid var(--background);
+  box-shadow: 0 0 0 1px var(--foreground);
+  cursor: pointer;
+}
+.ppi-pin-visitor {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--background);
+  border: 3px solid var(--foreground);
+}
+
+/* Result rows of the shop whose pin was tapped. */
+[data-highlight] {
+  box-shadow: inset 3px 0 0 var(--foreground);
+  padding-left: 0.75rem;
+}

@@ -36,7 +36,7 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
     <html lang={lang} className="h-full antialiased">
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <Header lang={lang} siteName={dict.site.name} />
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">{children}</main>
+        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
       </body>
     </html>
   );
