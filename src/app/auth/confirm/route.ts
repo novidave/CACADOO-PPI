@@ -1,5 +1,6 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
+import { isLocale, LOCALE_COOKIE } from "@/i18n/config";
 import { safeNextPath } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -8,7 +9,10 @@ const OTP_TYPES: EmailOtpType[] = ["email", "magiclink", "invite", "signup", "re
 /**
  * Where login and invite e-mails land.
  *  - ?token_hash=…&type=…  (recommended e-mail templates, see SETUP.md) — works on any device
- *  - ?code=…               (Supabase default templates) — works in the browser that asked for the link
+ *  - ?code=…               (Supabase default login template) — works in the browser that asked for the link
+ *  - #access_token=…        (Supabase default invite template) — only the browser can read the part
+ *    after "#", so we hand over to /[lang]/login/finish, which keeps it (browsers carry
+ *    the "#…" part across redirects)
  */
 export async function GET(request: NextRequest) {
   const url = request.nextUrl;
@@ -28,8 +32,13 @@ export async function GET(request: NextRequest) {
   } else if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) return fail("link");
-  } else {
+  } else if (url.searchParams.get("error")) {
     return fail("link");
+  } else {
+    const fromNext = next.split("/")[1];
+    const saved = request.cookies.get(LOCALE_COOKIE)?.value;
+    const lang = isLocale(fromNext) ? fromNext : isLocale(saved) ? saved : "en";
+    return NextResponse.redirect(new URL(`/${lang}/login/finish?next=${encodeURIComponent(next)}`, url.origin));
   }
 
   return NextResponse.redirect(new URL(next, url.origin));

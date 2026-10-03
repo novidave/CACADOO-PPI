@@ -74,7 +74,8 @@
     "error_link": "The link is invalid or has expired. Please request a new one.",
     "error_rate": "Too many attempts. Please try again in a few minutes.",
     "error_email": "Please enter a valid e-mail.",
-    "error_config": "Login is not set up yet."
+    "error_config": "Login is not set up yet.",
+    "finishing": "Logging you in…"
   },
   "account": {
     "for_shops": "For shops",

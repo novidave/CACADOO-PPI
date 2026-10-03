@@ -38,6 +38,7 @@ always an extra — every page must work and show its data without it.
 
 ## Auth
 
-E-mail magic links only (`shouldCreateUser: false`, no self-signup). `/auth/confirm` handles both `token_hash`
-(recommended e-mail templates, SETUP.md E2) and `code`. Every server action re-checks the session via
+E-mail magic links only (`shouldCreateUser: false`, no self-signup). `/auth/confirm` handles `token_hash`
+(custom templates, SETUP.md E3), `code` (default login template) and hands `#access_token` links (default
+invite template) to `/[lang]/login/finish`, which sets the session in the browser. Every server action re-checks the session via
 `@/lib/auth`; RLS is the real boundary. Anything needing the service role key goes in `supabase/functions/`.

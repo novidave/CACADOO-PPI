@@ -74,7 +74,8 @@
     "error_link": "Odkaz je neplatný alebo už vypršal. Pošlite si nový.",
     "error_rate": "Príliš veľa pokusov. Skúste to znova o pár minút.",
     "error_email": "Zadajte platný e-mail.",
-    "error_config": "Prihlásenie zatiaľ nie je nastavené."
+    "error_config": "Prihlásenie zatiaľ nie je nastavené.",
+    "finishing": "Prihlasujem…"
   },
   "account": {
     "for_shops": "Pre obchody",

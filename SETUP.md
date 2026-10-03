@@ -181,31 +181,58 @@ where user_id = (select id from auth.users where email = 'YOUR-EMAIL@example.com
 
 Expected: `UPDATE 1`. If it says `UPDATE 0`, the e-mail is spelled differently than in step 2.
 
-### E2. E-mail links (so login works on any phone or computer)
+### E2. E-mail server (SMTP) — needed before inviting real shop owners
 
-Supabase → **Authentication** → **Emails** (or **Email Templates**). Change two templates.
-In each, replace **only the link address** (the part inside `href="…"`), keep the rest.
+Supabase's built-in e-mail **only delivers to members of your Supabase team**, a few per hour, and does not let
+you edit the e-mail templates. Your own login works with it; shop owners need a real e-mail service.
+Example with **Brevo** (free: 300 e-mails/day, no own domain needed):
 
-| Template | New link address |
+1. Create a free account at brevo.com.
+2. Brevo → **Senders, Domains & Dedicated IPs** → **Senders** → **Add a sender**: your e-mail
+   (e.g. your Gmail) → confirm the code Brevo e-mails you.
+3. Brevo → **SMTP & API** → **SMTP** tab → **Generate a new SMTP key** → copy it (shown once).
+   On the same page note the **Login** (looks like `xxxxxx@smtp-brevo.com`).
+4. Supabase → **Authentication** → **Emails** → **SMTP Settings** → **Enable custom SMTP**:
+
+| Field | Value |
 |---|---|
-| **Magic Link** | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/dashboard` |
-| **Invite user** | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/dashboard` |
+| Sender email | the sender you confirmed in step 2 |
+| Sender name | `PPI` |
+| Host | `smtp-relay.brevo.com` |
+| Port | `587` |
+| Username | the Brevo SMTP **Login** from step 3 |
+| Password | the Brevo **SMTP key** from step 3 |
 
-So the Magic Link template body becomes, for example:
+5. **Save**. Keep the SMTP key only in Supabase and your password manager.
+
+E-mails from a Gmail address sent through Brevo may land in spam at first; once PPI has its own domain,
+add that domain in Brevo (Senders, Domains → Domains) and send from e.g. `info@yourdomain`.
+
+### E3. E-mail templates (optional, after E2)
+
+**Login and invitations already work with Supabase's default templates.** One limit: with the default
+login e-mail, the link must be opened in the **same browser** where the login was requested.
+To make login links work on any device, after E2 change two templates in
+Supabase → **Authentication** → **Emails** → **Templates**: delete the body and paste:
+
+**Magic Link** — body:
 
 ```html
-<h2>PPI login</h2>
-<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/dashboard">Log in to PPI</a></p>
+<h2>PPI</h2>
+<p>Prihlásenie do PPI / Bejelentkezés a PPI-be / Log in to PPI:</p>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/dashboard">Prihlásiť sa / Belépés / Log in</a></p>
+<p>Ak ste o prihlásenie nežiadali, tento e-mail ignorujte.</p>
+```
+
+**Invite user** — body:
+
+```html
+<h2>PPI</h2>
+<p>Boli ste pozvaný ako majiteľ obchodu v PPI. / Meghívást kapott üzlettulajdonosként a PPI-be. / You have been invited as a shop owner on PPI.</p>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/dashboard">Prijať pozvánku / Meghívás elfogadása / Accept invitation</a></p>
 ```
 
 Check **Authentication → URL Configuration → Site URL** is `https://cacadooppivercel.vercel.app` (A6).
-
-### E3. Sending e-mails to shop owners (SMTP)
-
-Supabase's built-in e-mail **only delivers to members of your Supabase team** and only a few per hour.
-That is enough to test login with your own address. Before inviting real shop owners, connect an e-mail service:
-Supabase → **Authentication** → **Emails** → **SMTP Settings** → enable custom SMTP and fill in the details
-from a provider such as Brevo, Resend, Mailjet or your hosting's mail server (all have free plans).
 
 ### E4. Deploy the "invite-owner" function (once)
 

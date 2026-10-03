@@ -74,7 +74,8 @@
     "error_link": "A link érvénytelen vagy lejárt. Kérjen újat.",
     "error_rate": "Túl sok próbálkozás. Próbálja újra néhány perc múlva.",
     "error_email": "Adjon meg érvényes e-mail-címet.",
-    "error_config": "A bejelentkezés még nincs beállítva."
+    "error_config": "A bejelentkezés még nincs beállítva.",
+    "finishing": "Bejelentkezés…"
   },
   "account": {
     "for_shops": "Üzleteknek",
