@@ -127,6 +127,18 @@ begin
   exception when insufficient_privilege then null;
   end;
 
+  -- dashboard / admin functions are not for visitors
+  begin
+    perform * from public.owner_items((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'anon ran owner_items';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.admin_shops();
+    raise exception 'anon ran admin_shops';
+  exception when insufficient_privilege then null;
+  end;
+
   -- freshness_state() function
   assert (select state from public.freshness_state(
     (select id from public.shops where slug = 'zeleziarstvo-vychod'))) = 'stale';
@@ -192,6 +204,39 @@ begin
   exception when insufficient_privilege then null;
   end;
 
+  -- dashboard item list: own shop incl. hidden items, never another shop's
+  select count(*) into n from public.owner_items((select id from public.shops where slug = 'potraviny-centrum'));
+  assert n = 7, format('owner should see all 7 own items incl. hidden, got %s', n);
+  assert (select availability from public.owner_items((select id from public.shops where slug = 'potraviny-centrum'), 'kava zrnkova')) = 'in_stock';
+  select count(*) into n from public.owner_items((select id from public.shops s where s.slug = 'drogeria-kostolne'));
+  assert n = 0, 'owner A listed shop B items';
+
+  -- visibility preview comes from availability_label()
+  assert (select string_agg(coalesce(label, '-'), ',') from public.availability_preview(3))
+         = 'in_stock_count,in_stock_count,out_of_stock,in_stock,low_stock,out_of_stock,available,available,not_available';
+
+  -- admin-only functions refuse owners
+  begin
+    perform * from public.admin_shops();
+    raise exception 'owner ran admin_shops';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_save_shop('{"slug":"x","name":"x"}');
+    raise exception 'owner ran admin_save_shop';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.admin_shop_owners((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'owner ran admin_shop_owners';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.user_id_by_email('owner-b@example.invalid');
+    raise exception 'owner looked up a user by e-mail';
+  exception when insufficient_privilege then null;
+  end;
+
   -- sync status: own yes, other shop no
   assert (select freshness_state from public.my_sync_status(
     (select id from public.shops where slug = 'potraviny-centrum'))) = 'current';
@@ -236,6 +281,35 @@ begin
   assert n = 1, 'admin should deactivate a shop';
   update public.sync_sources set mapping_status = 'confirmed';
   begin
+    update public.sync_sources set sample_rows = '[]';
+    raise exception 'admin wrote sample_rows';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- admin list, owners, create + edit a shop
+  assert (select count(*) from public.admin_shops()) = 4;
+  assert (select owner_count from public.admin_shops() where slug = 'potraviny-centrum') = 1;
+  assert (select email from public.admin_shop_owners((select id from public.shops where slug = 'potraviny-centrum')))
+         = 'owner-a@example.invalid';
+  declare v_id uuid;
+  begin
+    v_id := public.admin_save_shop(jsonb_build_object(
+      'slug', 'test-wien', 'name', 'Test Wien', 'city', 'Wien', 'country', 'at',
+      'timezone', 'Europe/Vienna', 'lat', '48.2082', 'lng', '16.3738', 'is_active', 'false',
+      'opening_hours', '{"mon":[["09:00","18:00"]]}'::jsonb));
+    assert (select country || ' ' || round(lat::numeric, 2) from public.admin_shops() where id = v_id) = 'AT 48.21';
+    assert exists (select 1 from public.sync_sources where shop_id = v_id), 'new shop needs a sync source row';
+    perform public.admin_save_shop(jsonb_build_object('id', v_id, 'slug', 'test-wien', 'name', 'Test Wien 2',
+      'timezone', 'Europe/Vienna', 'is_active', 'true'));
+    assert (select name || ' ' || is_active from public.shops where id = v_id) = 'Test Wien 2 true';
+    begin
+      perform public.admin_save_shop(jsonb_build_object('id', v_id, 'slug', 'test-wien', 'name', 'x', 'lat', '95', 'lng', '0'));
+      raise exception 'invalid coordinates accepted';
+    exception when invalid_parameter_value then null;
+    end;
+    delete from public.shops where id = v_id;
+  end;
+  begin
     update public.shops set timezone = 'Mars/Olympus' where slug = 'kisbolt-budapest';
     raise exception 'unknown time zone accepted';
   exception when invalid_parameter_value then null;
@@ -266,7 +340,10 @@ reset role;
 \echo '--- service role (stock pull) can write stock'
 set role service_role;
 update public.inventory set quantity = 0 where shop_item_id in (select id from public.shop_items where source_code = 'P001');
-update public.sync_sources set latest_file_time = now();
+update public.sync_sources set latest_file_time = now(), sample_rows = '[{"code":"P001"}]';
+do $$ begin
+  assert public.user_id_by_email('OWNER-B@example.invalid') = '00000000-0000-0000-0000-00000000000b';
+end $$;
 reset role;
 
 \echo 'ALL DATABASE CHECKS PASSED'

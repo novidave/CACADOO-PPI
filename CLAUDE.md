@@ -34,3 +34,10 @@ always an extra — every page must work and show its data without it.
 - `npm run dev` — local site on http://localhost:3000
 - `npm run lint` · `npm run typecheck` · `npm run build`
 - `npm run test:db` — applies all migrations + seed to a throwaway local Postgres/PostGIS and runs the RLS and stock-logic checks
+- `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
+
+## Auth
+
+E-mail magic links only (`shouldCreateUser: false`, no self-signup). `/auth/confirm` handles both `token_hash`
+(recommended e-mail templates, SETUP.md E2) and `code`. Every server action re-checks the session via
+`@/lib/auth`; RLS is the real boundary. Anything needing the service role key goes in `supabase/functions/`.

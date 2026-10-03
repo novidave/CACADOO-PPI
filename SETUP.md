@@ -33,6 +33,7 @@ For **each** file below:
 | 5 | `supabase/migrations/20261001000005_stock_logic.sql` | Freshness, availability labels, `public_stock` view, `search_stock` search |
 | 6 | `supabase/migrations/20261003000001_europe_wide.sql` | Europe-wide: shop country + time zone, search with or without a location |
 | 7 | `supabase/migrations/20261004000001_public_pages.sql` | Shop and item pages: `public_shops` view, `shop_stock` item list |
+| 8 | `supabase/migrations/20261005000001_dashboard_admin.sql` | Owner dashboard + admin: item list, admin functions, logo storage |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -160,19 +161,73 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001
 ```
 
 ---
 
-## Part D — later, before launch
+## Part E — Login, owner dashboard and admin (phase 4)
 
-**Make yourself admin** (after you first log in, from phase 4). SQL Editor:
+### E1. Your admin account (once)
+
+1. Supabase → **Authentication** → **Users** → **Add user** → **Create new user**.
+2. Enter **your e-mail**, any long password (you will never use it), tick **Auto Confirm User** → **Create user**.
+3. SQL Editor → run (with your e-mail):
 
 ```sql
 update public.profiles set is_admin = true
 where user_id = (select id from auth.users where email = 'YOUR-EMAIL@example.com');
 ```
+
+Expected: `UPDATE 1`. If it says `UPDATE 0`, the e-mail is spelled differently than in step 2.
+
+### E2. E-mail links (so login works on any phone or computer)
+
+Supabase → **Authentication** → **Emails** (or **Email Templates**). Change two templates.
+In each, replace **only the link address** (the part inside `href="…"`), keep the rest.
+
+| Template | New link address |
+|---|---|
+| **Magic Link** | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/dashboard` |
+| **Invite user** | `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/dashboard` |
+
+So the Magic Link template body becomes, for example:
+
+```html
+<h2>PPI login</h2>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/dashboard">Log in to PPI</a></p>
+```
+
+Check **Authentication → URL Configuration → Site URL** is `https://cacadooppivercel.vercel.app` (A6).
+
+### E3. Sending e-mails to shop owners (SMTP)
+
+Supabase's built-in e-mail **only delivers to members of your Supabase team** and only a few per hour.
+That is enough to test login with your own address. Before inviting real shop owners, connect an e-mail service:
+Supabase → **Authentication** → **Emails** → **SMTP Settings** → enable custom SMTP and fill in the details
+from a provider such as Brevo, Resend, Mailjet or your hosting's mail server (all have free plans).
+
+### E4. Deploy the "invite-owner" function (once)
+
+Inviting an owner needs Supabase's secret key, so it runs inside Supabase, not on the website.
+
+1. Supabase → **Edge Functions** → **Deploy a new function** → **Via Editor**.
+2. Function name: **`invite-owner`** (exactly).
+3. Delete the example code, paste the whole file `supabase/functions/invite-owner/index.ts` from GitHub.
+4. **Deploy function**. Nothing else to configure: Supabase gives the function its keys itself.
+
+### E5. Check
+
+- [ ] `/sk/login` → enter your e-mail → "…poslali sme naň prihlasovací odkaz" → open the e-mail → you land in **Správa** (admin).
+- [ ] **+ Nový obchod**: fill name, slug, city, country, time zone, click the map, add opening hours, tick **Aktívny** → **Uložiť** → the shop has a public page.
+- [ ] On that shop: **Majitelia** → invite an e-mail you can read → "Pozvánka odoslaná" → open the invite e-mail → you land in **Môj obchod** for that shop.
+- [ ] As the owner: hide an item → it disappears from the public shop page; switch "Čo uvidia zákazníci" → the preview and the public page change.
+- [ ] As the owner, open `/sk/admin` → you are sent back to **Môj obchod**.
+- [ ] **Odhlásiť sa** → `/sk/dashboard` asks you to log in again.
+
+---
+
+## Part D — later, before launch
 
 **Remove the test data:**
 
@@ -191,7 +246,7 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 2. Database — tables, RLS, freshness, availability, `public_stock`, `search_stock`, test data, automatic checks | ✅ done |
 | 2b. Europe-wide — no home town, any currency and time zone, device / IP / no location | ✅ done |
 | 3. Public pages — map, shop pages, item pages, "open now", JSON-LD | ✅ done |
-| 4. Login, owner dashboard, admin | next |
-| 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | |
+| 4. Login, owner dashboard, admin | ✅ done |
+| 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | next |
 | 6. Stock pull Edge Function + AI field mapping | |
 | 7. Shop PC setup (rclone + cloudflared) | |

@@ -9,9 +9,12 @@ import { supabaseEnv } from "./env";
  * Returns null when the Supabase environment variables are not set yet.
  */
 export async function createClient() {
+  // Read cookies first: this marks every page that uses Supabase as rendered
+  // per request, even when the settings are missing at build time. Private
+  // pages must never be pre-built (they would freeze as "redirect to login").
+  const cookieStore = await cookies();
   const env = supabaseEnv();
   if (!env) return null;
-  const cookieStore = await cookies();
 
   return createServerClient(env.url, env.key, {
     cookies: {

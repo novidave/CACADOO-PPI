@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Copied from node_modules by scripts/copy-maplibre-worker.mjs
     "public/maplibre/**",
+    // Deno code (Supabase Edge Functions), checked with `deno check`
+    "supabase/functions/**",
   ]),
 ]);
 
