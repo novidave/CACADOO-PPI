@@ -1,6 +1,6 @@
 # PPI
 
-Find which local shops in Michalovce have a product in stock right now, at what price, and how fresh that information is.
+Find which nearby shops have a product in stock right now, at what price, and how fresh that information is. Built for the whole European market: any town, currency, time zone and language.
 
 - **Setup (Supabase + Vercel, copy & paste):** [SETUP.md](SETUP.md)
 - **Product requirements:** [docs/PRD.md](docs/PRD.md)
@@ -17,7 +17,8 @@ src/app/[lang]/        pages, one copy per language: /sk /hu /en
 src/proxy.ts           sends / to the visitor's language and remembers it
 src/i18n/messages/     all texts in sk.json, hu.json, en.json
 src/lib/supabase/      Supabase clients (server, browser, session refresh)
-src/lib/format.ts      prices (12,90 € / €12.90) and Europe/Bratislava times
+src/lib/format.ts      prices in any currency (12,90 € / 1890 Ft / €12.90), times in the shop's time zone
+src/lib/location.ts    visitor location: device → approximate IP city → unknown (search all shops)
 supabase/migrations/   every database change, applied in file-name order
 supabase/seed.sql      test shops and items (not for production)
 supabase/tests/        database checks: npm run test:db

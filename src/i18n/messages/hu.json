@@ -1,8 +1,8 @@
 {
   "site": {
     "name": "PPI",
-    "tagline": "Mi van most raktáron a nagymihályi üzletekben",
-    "description": "Keressen terméket a nagymihályi helyi üzletekben: kinél van raktáron, mennyiért, és mennyire friss az információ."
+    "tagline": "Mi van most raktáron a közeli üzletekben",
+    "description": "Keressen terméket a közeli üzletekben: kinél van raktáron, mennyiért, és mennyire friss az információ."
   },
   "search": {
     "placeholder": "Termék, márka vagy EAN keresése",
@@ -12,8 +12,16 @@
     "empty": "A közelben most egyik üzletben sincs ilyen.",
     "widen": "Körzet bővítése {n} km-re",
     "results": "Találatok",
-    "distance": "{n} km",
-    "not_connected": "Az adatbázis még nincs csatlakoztatva. Állítsa be a Supabase környezeti változókat (lásd SETUP.md)."
+    "not_connected": "Az adatbázis még nincs csatlakoztatva. Állítsa be a Supabase környezeti változókat (lásd SETUP.md).",
+    "empty_everywhere": "Most egyik üzletben sincs ilyen.",
+    "near_device": "Keresés az Ön helyzete körül",
+    "near_approx": "Hozzávetőleges hely: {place}",
+    "near_approx_unknown": "Hozzávetőleges hely a kapcsolat alapján",
+    "everywhere": "Ismeretlen hely – keresés minden üzletben",
+    "use_location": "Saját helyzetem használata",
+    "use_precise": "Pontos helyzet használata",
+    "locating": "Helyzet meghatározása…",
+    "location_failed": "Nem sikerült meghatározni a helyzetet."
   },
   "stock": {
     "in_stock": "Raktáron",

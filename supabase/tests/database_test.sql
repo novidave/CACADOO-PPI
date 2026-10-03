@@ -68,6 +68,26 @@ begin
   assert (select bool_and(is_available) from (select * from public.search_stock('kava') limit 2) s),
     'available rows must come first';
 
+  -- no location given: search every shop in every country, no distance
+  select count(*) into n from public.search_stock('8714789012351');
+  assert n = 2, format('EAN without location should find SK + HU shop, got %s', n);
+  assert (select bool_and(distance_km is null) from public.search_stock('8714789012351')),
+    'distance must be NULL without a location';
+  assert (select count(distinct shop_country) from public.search_stock('8714789012351')) = 2;
+
+  -- with a location: radius applies, shop currency and time zone come along
+  select count(*) into n from public.search_stock('kave', 47.4979, 19.0402, 10, false);
+  assert n = 1, format('Budapest search should find Kávé, got %s', n);
+  assert (select currency || ' ' || shop_timezone || ' ' || shop_country
+          from public.search_stock('kave', 47.4979, 19.0402, 10, false)) = 'HUF Europe/Budapest HU';
+  assert (select distance_km from public.search_stock('kave', 47.4979, 19.0402, 10, false)) between 1 and 3;
+  select count(*) into n from public.search_stock('kave', 48.755, 21.918, 10, false);
+  assert n = 0, 'Budapest shop must not appear within 10 km of Michalovce';
+
+  -- nonsense coordinates are ignored (treated as no location)
+  select count(*) into n from public.search_stock('8714789012351', 999, 999, 10, false);
+  assert n = 2, 'invalid coordinates should fall back to searching everywhere';
+
   -- radius: nothing 100+ km away from Bratislava
   select count(*) into n from public.search_stock(null, 48.1486, 17.1077, 10, false);
   assert n = 0, 'radius filter failed';
@@ -192,6 +212,11 @@ begin
   get diagnostics n = row_count;
   assert n = 1, 'admin should deactivate a shop';
   update public.sync_sources set mapping_status = 'confirmed';
+  begin
+    update public.shops set timezone = 'Mars/Olympus' where slug = 'kisbolt-budapest';
+    raise exception 'unknown time zone accepted';
+  exception when invalid_parameter_value then null;
+  end;
   begin
     update public.sync_sources set latest_file_time = now();
     raise exception 'admin faked a file time';

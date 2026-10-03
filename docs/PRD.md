@@ -1,6 +1,6 @@
 # PPI — Product Requirements
 
-Version 1.0 · MVP web app for finding in-stock products in local shops in Michalovce.
+Version 1.1 · MVP web app for finding in-stock products in local shops, built for the whole European market (first pilot shops: Michalovce, Slovakia). Nothing in the product is tied to one town, country, currency or time zone.
 
 **How to use this:** save this document in the code repository as `docs/PRD.md` and give it to Claude Code together with the phase prompts in Build blueprint (Claude Code), one phase at a time. Check each phase before starting the next.
 
@@ -8,7 +8,7 @@ Version 1.0 · MVP web app for finding in-stock products in local shops in Micha
 
 PPI shows shoppers which local shops have a product in stock right now, how much it costs and how fresh that information is. Shop stock arrives automatically: the shop's own software exports a file to a preset folder, and a scheduled Supabase Edge Function, with AI-assisted field mapping, reads that file and writes the stock into Supabase. The web app only reads stock. It never writes inventory.
 
-**Goal of the MVP:** a shopper in Michalovce searches a product and finds a nearby shop that really has it, with no wasted trip. Every page and every answer must also be readable by AI assistants and search engines directly, without Google Merchant Center.
+**Goal of the MVP:** a shopper anywhere in Europe searches a product and finds a nearby shop that really has it, with no wasted trip. Every page and every answer must also be readable by AI assistants and search engines directly, without Google Merchant Center.
 
 ## 2. Users and roles
 
@@ -48,15 +48,16 @@ There is no self-signup for shops in the MVP. Admin creates the shop and sends a
 - All stock and sync data is written by the scheduled stock-pull Edge Function using the service role key. The frontend must never contain or use the service role key.
 - Put freshness and availability logic in the database (a view and SQL functions), not in React, so the website and any future integration show the same result.
 - Row Level Security on every table. Public pages must load their data on the server (Next.js server components), never in the browser, so the first HTML already contains names, prices and availability.
-- Default map center: Michalovce, latitude 48.755, longitude 21.918. Default search radius 10 km.
-- Times stored in UTC, shown in Europe/Bratislava.
-- Currency EUR. Prices shown as `12,90 €` in Slovak and Hungarian, `€12.90` in English.
+- No built-in home town. The search location is, in order: the visitor's device location ("Use my location"), else an approximate city from the hosting provider's IP lookup (Vercel geolocation headers; used per request, never stored), else unknown, in which case every shop is searched and no distances are shown. Default search radius 10 km.
+- Times stored in UTC. Every shop has an IANA time zone (`shops.timezone`, e.g. `Europe/Vienna`); opening hours and "last confirmed at" times use the shop's time zone.
+- Every price carries its own currency (EUR, HUF, CZK, PLN, CHF, …), written the visitor's way with local symbols: `12,90 €` (sk), `1890 Ft` (hu), `€12.90` (en).
+- Languages: SK, HU, EN to start; adding a language is one text file. Browsers asking for a language PPI does not have yet get English.
 
 ## 5. Data model
 
 | Table | Columns | Notes |
 | --- | --- | --- |
-| `shops` | `id` uuid, `slug` text unique, `name` text, `ico` text, `address` text, `city` text, `location` geography point, `phone` text, `website` text, `opening_hours` jsonb, `visibility_mode` text (`exact` \| `in_stock` \| `yes_no`), `low_stock_threshold` int default 3, `logo_url` text, `is_active` bool, `created_at` | Public read when `is_active` |
+| `shops` | `id` uuid, `slug` text unique, `name` text, `ico` text, `address` text, `city` text, `country` text (ISO code, e.g. `SK`), `timezone` text (IANA, default `UTC`), `location` geography point, `phone` text, `website` text, `opening_hours` jsonb, `visibility_mode` text (`exact` \| `in_stock` \| `yes_no`), `low_stock_threshold` int default 3, `logo_url` text, `is_active` bool, `created_at` | Public read when `is_active` |
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Links logins to shops |
 | `products` | `id`, `ean` text, `brand` text, `name` text, `category` text | One row per real product, matched by EAN |
 | `shop_items` | `id`, `shop_id`, `source_code` text, `product_id` nullable, `name` text, `ean` text, `is_public` bool default true, `updated_at` | Unique on (`shop_id`, `source_code`) |
@@ -98,7 +99,7 @@ Create a view `public_stock` that joins `shop_items` (only `is_public`), `invent
 
 ### Search
 
-Create an RPC `search_stock(q text, lat float, lng float, radius_km float, only_available bool)`:
+Create an RPC `search_stock(q text, lat float, lng float, radius_km float, only_available bool)` (`lat`/`lng` optional: without them every shop is searched and distance is empty):
 
 - Matches `q` against item name, brand and EAN, case- and accent-insensitive (use `unaccent`), so "kava" finds "káva"
 - Returns rows from `public_stock` within the radius, with distance in km
@@ -108,7 +109,7 @@ Create an RPC `search_stock(q text, lat float, lng float, radius_km float, only_
 
 ### Open now
 
-A shop is "Open now" if the current Europe/Bratislava time falls in today's ranges in `opening_hours`. Show "Opens at 08:00" or "Closes at 17:00" where helpful.
+A shop is "Open now" if the current time in the shop's own time zone falls in today's ranges in `opening_hours`. Show "Opens at 08:00" or "Closes at 17:00" where helpful.
 
 ## 7. Security (Row Level Security)
 
@@ -129,8 +130,8 @@ No client can insert or update `inventory` or `sync_sources`; only the service r
 ### 8.1 Home and search (`/`)
 
 - Search box at the top, map below, results list beside it on desktop or below it on mobile
-- "Use my location" button; falls back to Michalovce center if denied
-- Filters: radius (2, 5, 10, 25 km), "Only available now"
+- "Use my location" button; without it, an approximate city from the IP lookup is used, and if that is unknown every shop is searched (no distances)
+- Filters: radius (2, 5, 10, 25, 50 km, shown only when a location is known), "Only available now"
 - Each result: item name, shop name, distance, price, availability label, freshness text, "Open now" badge
 - Map pins per shop; tapping a pin highlights that shop's results
 - Empty state: "No shop nearby has this right now" plus a link to widen the radius
@@ -211,13 +212,13 @@ Any AI assistant or search engine must be able to read PPI's stock directly.
 
 - Tools: `search_stock(query, near, radius_km)`, `get_shop(slug)`, `get_item(id)`
 - Same data and rules as the API; results include source URLs
-- `near` accepts a town name or coordinates; default Michalovce
+- `near` accepts a town name or coordinates; without it, every shop is searched
 
 Acceptance:
 
 - [ ] `curl -A "GPTBot" https://<domain>/shops/<slug>` returns HTML containing item names and prices
 - [ ] A stale shop's page, API response and MCP result contain no availability
-- [ ] An AI assistant connected to `/mcp` answers "who has X in Michalovce?" with the right shop and update time
+- [ ] An AI assistant connected to `/mcp` answers "who has X in <town>?" with the right shop and update time
 
 ## 9. Design
 
