@@ -101,3 +101,18 @@ export function dayName(day: DayKey, locale: string): string {
   const date = new Date(Date.UTC(2024, 0, 1 + DAYS.indexOf(day), 12));
   return new Intl.DateTimeFormat(locale, { weekday: "long", timeZone: "UTC" }).format(date);
 }
+
+/** Clean opening hours from a form: only well-formed, non-overlapping-safe ranges per known day. */
+export function sanitizeHours(value: unknown): OpeningHours {
+  let raw: unknown = value;
+  if (typeof value === "string") {
+    try {
+      raw = JSON.parse(value);
+    } catch {
+      raw = {};
+    }
+  }
+  const out: OpeningHours = {};
+  for (const day of DAYS) out[day] = rangesFor(raw as OpeningHours, day).slice(0, 4);
+  return out;
+}

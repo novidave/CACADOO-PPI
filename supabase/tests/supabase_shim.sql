@@ -31,7 +31,12 @@ returns uuid
 language sql
 stable
 as $$
-  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+  -- Same as Supabase: the old per-claim setting (used by the SQL tests) or the
+  -- JSON claims PostgREST sets for each request.
+  select coalesce(
+    nullif(current_setting('request.jwt.claim.sub', true), ''),
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'
+  )::uuid
 $$;
 
 grant usage on schema public to anon, authenticated, service_role;

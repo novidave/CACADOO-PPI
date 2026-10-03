@@ -22,6 +22,9 @@ src/lib/location.ts    visitor location: device → approximate IP city → unkn
 supabase/migrations/   every database change, applied in file-name order
 supabase/seed.sql      test shops and items (not for production)
 supabase/tests/        database checks: npm run test:db
+supabase/functions/    Edge Functions (Deno), e.g. invite-owner: npm run check:functions
+src/app/[lang]/(account)/  owner dashboard and admin (login required)
+src/app/auth/          e-mail link landing (/auth/confirm) and sign-out
 ```
 
 ## Local development

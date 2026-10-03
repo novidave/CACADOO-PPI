@@ -71,3 +71,12 @@ export function directionsUrl(lat: number, lng: number): string {
 export function addressLine(...parts: (string | null | undefined)[]): string {
   return parts.filter((p) => p && p.trim()).join(", ");
 }
+
+/** "3. 10. 2026 14:05" in the visitor's language, in the given (shop's) time zone. */
+export function formatDateTime(value: string | Date, locale: Locale, timeZone?: string | null): string {
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: zone(timeZone),
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(typeof value === "string" ? new Date(value) : value);
+}

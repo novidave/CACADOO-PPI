@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test:db": "bash supabase/tests/run.sh"
+    "test:db": "bash supabase/tests/run.sh",
+    "check:functions": "deno check supabase/functions/*/index.ts || npx -y deno check supabase/functions/*/index.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
