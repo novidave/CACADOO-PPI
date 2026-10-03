@@ -7,6 +7,7 @@ import { formatDateTime, formatPrice } from "@/lib/format";
 import { DAYS, dayName, type DayKey, type OpeningHours } from "@/lib/hours";
 import { availabilityText, type AvailabilityKey, type FreshnessState } from "@/lib/stock";
 import { HoursEditor } from "@/components/HoursEditor";
+import { DbError } from "@/components/DbError";
 import { saveShopDetails, saveVisibility, setItemPublic, uploadLogo } from "./actions";
 
 const PAGE_SIZE = 50;
@@ -67,11 +68,13 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
 
   const q = (first(sp.q) ?? "").trim();
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  const [{ data: syncRows }, { data: previewRows }, { data: itemRows }] = await Promise.all([
+  const [{ data: syncRows, error: e1 }, { data: previewRows, error: e2 }, { data: itemRows, error: e3 }] = await Promise.all([
     supabase.rpc("my_sync_status", { p_shop_id: shop.id }),
     supabase.rpc("availability_preview", { p_threshold: shop.low_stock_threshold }),
     supabase.rpc("owner_items", { p_shop_id: shop.id, q: q || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE }),
   ]);
+  const dbError = e1 ?? e2 ?? e3;
+  if (dbError) return <DbError message={dbError.message} dict={dict} />;
   const sync = (syncRows ?? [])[0] as
     | { latest_file_time: string | null; last_error: string | null; freshness_state: FreshnessState }
     | undefined;

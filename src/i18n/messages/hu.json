@@ -92,7 +92,11 @@
     "none": "nincs",
     "state_current": "Friss",
     "state_recent": "Nemrégi",
-    "state_stale": "Elavult – a vásárlók nem látják a készletet"
+    "state_stale": "Elavult – a vásárlók nem látják a készletet",
+    "db_error": "Az adatbázis hibát adott: {message}",
+    "db_update_hint": "Ha a hiba szerint egy függvény nem létezik („does not exist” / „Could not find the function”), a legújabb adatbázis-frissítés még nem futott le a Supabase-ben. Futtassa az SQL Editorban, majd frissítse az oldalt.",
+    "page_error": "Az oldalt nem sikerült betölteni.",
+    "reload": "Újra"
   },
   "dashboard": {
     "no_shop": "Fiókjához még nincs üzlet rendelve. Keresse a PPI adminisztrátorát.",

@@ -5,6 +5,7 @@ import { getDictionary } from "@/i18n/dictionaries";
 import { needsAttention, type AdminShop } from "@/lib/admin";
 import { requireAdmin } from "@/lib/auth";
 import { freshnessText } from "@/lib/stock";
+import { DbError } from "@/components/DbError";
 
 export default async function AdminPage({ params }: PageProps<"/[lang]/admin">) {
   const { lang } = await params;
@@ -12,7 +13,7 @@ export default async function AdminPage({ params }: PageProps<"/[lang]/admin">) 
   const [dict, { supabase }] = await Promise.all([getDictionary(lang), requireAdmin(lang)]);
 
   const { data, error } = await supabase.rpc("admin_shops");
-  if (error) throw new Error(error.message);
+  if (error) return <DbError message={error.message} dict={dict} />;
   const shops = ((data ?? []) as AdminShop[])
     .map((shop) => ({ shop, attention: needsAttention(shop) }))
     // Shops that need attention first.

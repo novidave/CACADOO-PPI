@@ -92,7 +92,11 @@
     "none": "žiadna",
     "state_current": "Aktuálne",
     "state_recent": "Nedávne",
-    "state_stale": "Neaktuálne – zákazníci nevidia zásoby"
+    "state_stale": "Neaktuálne – zákazníci nevidia zásoby",
+    "db_error": "Databáza vrátila chybu: {message}",
+    "db_update_hint": "Ak chyba hovorí, že funkcia neexistuje („does not exist“ / „Could not find the function“), v Supabase ešte nebol spustený najnovší súbor s aktualizáciou databázy. Spustite ho v SQL Editore a stránku obnovte.",
+    "page_error": "Stránku sa nepodarilo načítať.",
+    "reload": "Skúsiť znova"
   },
   "dashboard": {
     "no_shop": "K vášmu účtu zatiaľ nie je priradený žiadny obchod. Ozvite sa správcovi PPI.",
