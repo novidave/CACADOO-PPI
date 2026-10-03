@@ -92,7 +92,11 @@
     "none": "none",
     "state_current": "Current",
     "state_recent": "Recent",
-    "state_stale": "Stale – shoppers see no stock"
+    "state_stale": "Stale – shoppers see no stock",
+    "db_error": "The database returned an error: {message}",
+    "db_update_hint": "If the error says a function does not exist (“does not exist” / “Could not find the function”), the latest database update has not been run in Supabase yet. Run it in the SQL Editor and reload this page.",
+    "page_error": "This page could not be loaded.",
+    "reload": "Try again"
   },
   "dashboard": {
     "no_shop": "No shop is linked to your account yet. Please contact the PPI admin.",

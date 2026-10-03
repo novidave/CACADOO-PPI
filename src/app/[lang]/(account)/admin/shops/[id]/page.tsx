@@ -8,6 +8,7 @@ import { formatDateTime } from "@/lib/format";
 import { DAYS, dayName, type DayKey } from "@/lib/hours";
 import { HoursEditor } from "@/components/HoursEditor";
 import { LocationPicker } from "@/components/LocationPicker";
+import { DbError } from "@/components/DbError";
 import { inviteOwner, removeOwner, saveShop, saveSyncSource } from "../../actions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -40,7 +41,7 @@ export default async function AdminShopPage({ params, searchParams }: PageProps<
       supabase.rpc("admin_shops").eq("id", id),
       supabase.rpc("admin_shop_owners", { p_shop_id: id }),
     ]);
-    if (error) throw new Error(error.message);
+    if (error) return <DbError message={error.message} dict={dict} />;
     shop = ((shops ?? []) as AdminShop[])[0] ?? null;
     if (!shop) notFound();
     owners = (ownerRows ?? []) as { user_id: string; email: string }[];
