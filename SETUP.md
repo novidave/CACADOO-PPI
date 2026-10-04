@@ -35,6 +35,7 @@ For **each** file below:
 | 7 | `supabase/migrations/20261004000001_public_pages.sql` | Shop and item pages: `public_shops` view, `shop_stock` item list |
 | 8 | `supabase/migrations/20261005000001_dashboard_admin.sql` | Owner dashboard + admin: item list, admin functions, logo storage |
 | 9 | `supabase/migrations/20261006000001_amenities.sql` | Shop facilities: customer toilet, douchette, card terminal |
+| 10 | `supabase/migrations/20261007000001_ai_access.sql` | AI access: API/MCP rate limit + usage log, town lookup |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -162,7 +163,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001
 ```
 
 ---
@@ -255,6 +256,30 @@ Inviting an owner needs Supabase's secret key, so it runs inside Supabase, not o
 
 ---
 
+## Part F — AI access (phase 5)
+
+Nothing to configure: no keys, no accounts. After the database update (file 10) and the merge, check:
+
+- [ ] `https://cacadooppivercel.vercel.app/robots.txt` — allows all crawlers incl. GPTBot, ClaudeBot, PerplexityBot; blocks dashboard/admin/login.
+- [ ] `https://cacadooppivercel.vercel.app/sitemap.xml` — every active shop and item (refreshed hourly).
+- [ ] `https://cacadooppivercel.vercel.app/llms.txt` — plain-text guide for AI, lists the shops.
+- [ ] `https://cacadooppivercel.vercel.app/api/v1/search?q=kava&near=Michalovce` — JSON results with price, availability, freshness and `source_url`.
+- [ ] `https://cacadooppivercel.vercel.app/api/openapi.json` — the API description.
+
+**Connect an AI assistant to PPI (MCP):**
+
+- **Claude** (claude.ai): **Settings → Connectors → Add custom connector** → name `PPI`, URL
+  `https://cacadooppivercel.vercel.app/mcp` → **Add**. In a new chat, ask:
+  *"Using PPI, who has coffee (káva) in Michalovce right now, and when was it last updated?"*
+- **ChatGPT**: in **Settings → Apps & Connectors** (developer mode may need to be switched on under
+  **Advanced**) → **Create** → MCP server URL `https://cacadooppivercel.vercel.app/mcp`, no authentication.
+- Other MCP tools (Cursor, VS Code, Claude Desktop…): add a remote / Streamable HTTP server with the same URL.
+
+The API and MCP server are read-only, need no login and allow 60 requests per minute per caller.
+Each request is logged in `api_usage` with only a daily-changing hash of the caller's IP (no IP address stored).
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -275,6 +300,6 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 2b. Europe-wide — no home town, any currency and time zone, device / IP / no location | ✅ done |
 | 3. Public pages — map, shop pages, item pages, "open now", JSON-LD | ✅ done |
 | 4. Login, owner dashboard, admin | ✅ done |
-| 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | next |
-| 6. Stock pull Edge Function + AI field mapping | |
+| 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | ✅ done |
+| 6. Stock pull Edge Function + AI field mapping | next |
 | 7. Shop PC setup (rclone + cloudflared) | |

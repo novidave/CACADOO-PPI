@@ -25,6 +25,9 @@ supabase/tests/        database checks: npm run test:db
 supabase/functions/    Edge Functions (Deno), e.g. invite-owner: npm run check:functions
 src/app/[lang]/(account)/  owner dashboard and admin (login required)
 src/app/auth/          e-mail link landing (/auth/confirm) and sign-out
+src/app/api/           public read API /api/v1/* and /api/openapi.json
+src/app/mcp/           MCP server for AI assistants (/mcp)
+src/app/robots.ts · sitemap.ts · llms.txt/   discovery files for crawlers and AI
 ```
 
 ## Local development

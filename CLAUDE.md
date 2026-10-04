@@ -36,6 +36,14 @@ always an extra — every page must work and show its data without it.
 - `npm run test:db` — applies all migrations + seed to a throwaway local Postgres/PostGIS and runs the RLS and stock-logic checks
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 
+## AI access
+
+`src/lib/publicApi.ts` is the single source for the public API (`/api/v1/*`, OpenAPI at `/api/openapi.json`)
+and the MCP server (`/mcp`, stateless Streamable HTTP, tools `search_stock`, `get_shop`, `get_item`):
+anon client without cookies (`@/lib/supabase/public`), every result carries `source_url`, the database
+decides availability/quantity. Every API/MCP request goes through `rateLimit` (`api_hit`: 60/min, daily-salted
+IP hash). `robots.ts`, `sitemap.ts` and `llms.txt` live at the app root.
+
 ## Auth
 
 E-mail magic links only (`shouldCreateUser: false`, no self-signup). `/auth/confirm` handles `token_hash`
