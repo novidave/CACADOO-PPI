@@ -343,7 +343,29 @@ To stop it later: `select cron.unschedule('ppi-stock-pull');`
 5. (Optional) the XML sample: `https://cacadooppivercel.vercel.app/samples/stock-sample.xml`.
 
 For a real shop, the file address is the shop's tunnel address and **Prístup k súboru** holds its Cloudflare
-service token and rclone login (phase 7 sets these up on the shop PC).
+service token and rclone login (Part H sets these up on the shop PC).
+
+---
+
+## Part H — Shop PC: the first real shop (phase 7)
+
+Full step-by-step guide: **`docs/SHOP_PC_SETUP.md`** (open it on GitHub). In short:
+
+1. **Cloudflare (C1–C3):** a domain on Cloudflare; per shop a tunnel `ppi-shop-name` whose public hostname
+   `shop-name.your-domain` points to `http://localhost:8081`; a service token `ppi-shop-name`; an Access
+   application for that hostname with a **Service Auth** policy for that token.
+2. **Shop PC (S1):** PowerShell **as administrator**, paste:
+
+   ```powershell
+   [Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm https://cacadooppivercel.vercel.app/shop-pc/install-ppi.ps1 -OutFile $env:TEMP\install-ppi.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\install-ppi.ps1 -Hostname shop-name.your-domain
+   ```
+
+   Paste the tunnel token when asked. Note the rclone username and password it shows at the end.
+3. **Shop software (S2):** export all items every 15–30 minutes to `C:\PPI\export\stock.xml` (or `.csv`/`.xlsx`).
+4. **PPI admin (S5):** file address `https://shop-name.your-domain/stock.xml`; **Prístup k súboru** = Client ID,
+   Client Secret, rclone user, rclone password; **Stiahnuť súbor teraz** → **Schváliť priradenie** → pull again.
+
+**Rehearse on your own Windows PC first** (guide part R, adds `-SampleFile`).
 
 ---
 
@@ -369,4 +391,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 4. Login, owner dashboard, admin | ✅ done |
 | 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | ✅ done |
 | 6. Stock pull Edge Function + AI field mapping | ✅ done |
-| 7. Shop PC setup (rclone + cloudflared) | next |
+| 7. Shop PC setup — installer (rclone + cloudflared + PPI agent), Cloudflare guide | ✅ built — rehearse, then the first shop (Part H) |

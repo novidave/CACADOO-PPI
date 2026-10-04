@@ -43,7 +43,9 @@ All four outputs read through the same SQL functions, so freshness and visibilit
 
 - **Shop's own stock software.** Set to export stock on a schedule (every 15–30 min in opening hours, plus a nightly full export). XML, CSV or Excel. Only public fields: item code, EAN, name, quantity, selling price. One file, overwritten each time, e.g. `stock.xml`.
 - **Preset folder** `C:\PPI\export`. Nothing else is stored there.
-- **rclone** (`rclone serve http`) serves that folder on `127.0.0.1:8081` with a username and password. It listens only on the PC itself and only serves files, so it cannot change anything. Started at Windows startup by Task Scheduler.
+- **PPI agent** (Task Scheduler task "PPI file server", SYSTEM, at startup) copies a finished export from `C:\PPI\export` to `C:\PPI\serve` (unchanged for 60 s and not open in the shop software), keeping its time, so a half-written file is never served.
+- **rclone** (`rclone serve http`, started and kept running by the agent) serves `C:\PPI\serve` on `127.0.0.1:8081` read-only with a username and password. It listens only on the PC itself and only serves files, so it cannot change anything. It answers `If-Modified-Since` with 304 and sends `Last-Modified`.
+- Installed by `public/shop-pc/install-ppi.ps1` (served at `/shop-pc/install-ppi.ps1`); steps in `docs/SHOP_PC_SETUP.md`.
 - **cloudflared** runs as a Windows service and opens an outbound connection to Cloudflare. The shop opens no router ports, and a changing or shared IP address doesn't matter.
 
 ### 2.2 Cloudflare

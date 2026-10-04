@@ -53,6 +53,12 @@ proposals (Claude `claude-opus-5-5` with structured outputs, else `guessMapping`
 `apply_stock_file()` writes a full file in one transaction (missing items → quantity 0). >5 % unreadable rows →
 keep old stock, propose a new mapping.
 
+## Shop PC
+
+`public/shop-pc/install-ppi.ps1` (plain ASCII, Windows PowerShell 5.1; guide `docs/SHOP_PC_SETUP.md`): `C:\PPI\export`
+→ agent publishes finished files to `C:\PPI\serve` → `rclone serve http` read-only on 127.0.0.1:8081 with basic auth
+→ cloudflared service → Cloudflare Access service token. Use well-known SIDs, never localized account names.
+
 ## Auth
 
 E-mail magic links only (`shouldCreateUser: false`, no self-signup). `/auth/confirm` handles `token_hash`
