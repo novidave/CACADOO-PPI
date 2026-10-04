@@ -9,7 +9,7 @@ import { DAYS, dayName, type DayKey } from "@/lib/hours";
 import { HoursEditor } from "@/components/HoursEditor";
 import { LocationPicker } from "@/components/LocationPicker";
 import { DbError } from "@/components/DbError";
-import { inviteOwner, removeOwner, saveShop, saveSyncSource } from "../../actions";
+import { inviteOwner, pullNow, removeOwner, saveShop, saveSyncCredentials, saveSyncSource } from "../../actions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
@@ -36,11 +36,15 @@ export default async function AdminShopPage({ params, searchParams }: PageProps<
 
   let shop: AdminShop | null = null;
   let owners: { user_id: string; email: string }[] = [];
+  type CredentialState = { cloudflare: boolean; basic_auth: boolean };
+  let credentials: CredentialState | null = null;
   if (!isNew) {
-    const [{ data: shops, error }, { data: ownerRows }] = await Promise.all([
+    const [{ data: shops, error }, { data: ownerRows }, { data: credentialState }] = await Promise.all([
       supabase.rpc("admin_shops").eq("id", id),
       supabase.rpc("admin_shop_owners", { p_shop_id: id }),
+      supabase.rpc("admin_sync_credentials_status", { p_shop_id: id }),
     ]);
+    credentials = (credentialState as CredentialState | null) ?? null;
     if (error) return <DbError message={error.message} dict={dict} />;
     shop = ((shops ?? []) as AdminShop[])[0] ?? null;
     if (!shop) notFound();
@@ -70,7 +74,7 @@ export default async function AdminShopPage({ params, searchParams }: PageProps<
             {dict.dashboard.view_public}
           </Link>
         )}
-        {ok && <p className="border border-foreground p-3 font-medium">{okText(dict, ok, email)}</p>}
+        {ok && <p className="border border-foreground p-3 font-medium">{okText(dict, ok, email, first(sp.pull))}</p>}
         {err && <p className="border border-line p-3">{errText(dict, err)}</p>}
       </header>
 
@@ -235,6 +239,42 @@ export default async function AdminShopPage({ params, searchParams }: PageProps<
               <dd>{shop.last_error || dict.account.none}</dd>
             </dl>
 
+            <form action={pullNow}>
+              {hidden}
+              <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium">
+                {dict.admin.pull_now}
+              </button>
+            </form>
+
+            <form action={saveSyncCredentials} className="flex flex-col gap-3 border border-line p-3">
+              {hidden}
+              <span className="text-sm font-medium">{dict.admin.credentials}</span>
+              <span className="text-sm text-muted">
+                {t(dict.admin.credentials_state, {
+                  cf: credentials?.cloudflare ? dict.account.yes : dict.account.no,
+                  basic: credentials?.basic_auth ? dict.account.yes : dict.account.no,
+                })}
+              </span>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={dict.admin.cf_client_id}>
+                  <input name="cf_client_id" autoComplete="off" spellCheck={false} className={inputClass} />
+                </Field>
+                <Field label={dict.admin.cf_client_secret}>
+                  <input name="cf_client_secret" type="password" autoComplete="new-password" className={inputClass} />
+                </Field>
+                <Field label={dict.admin.basic_user}>
+                  <input name="basic_user" autoComplete="off" spellCheck={false} className={inputClass} />
+                </Field>
+                <Field label={dict.admin.basic_password}>
+                  <input name="basic_password" type="password" autoComplete="new-password" className={inputClass} />
+                </Field>
+              </div>
+              <span className="text-xs text-muted">{dict.admin.credentials_hint}</span>
+              <button type="submit" className="self-start rounded border border-line px-4 py-2">
+                {dict.admin.save_credentials}
+              </button>
+            </form>
+
             <form action={saveSyncSource} className="flex flex-col gap-3">
               {hidden}
               <div className="flex flex-wrap gap-3">
@@ -328,14 +368,35 @@ function SampleRows({ rows, title }: { rows: Record<string, unknown>[]; title: s
   );
 }
 
-function okText(dict: Dictionary, ok: string, email: string): string {
+function okText(dict: Dictionary, ok: string, email: string, pull?: string): string {
+  if (ok === "pulled") return t(dict.admin.pull_result, { result: pullText(dict, pull) });
   if (ok === "invited") return t(dict.admin.invited, { email });
   if (ok === "linked") return t(dict.admin.linked, { email });
   return dict.account.saved;
 }
 
+/** The stock-pull function's answer for one shop, in plain words. */
+function pullText(dict: Dictionary, raw?: string): string {
+  let outcome: { status?: string; items?: number; zeroed?: number; skipped?: number; rows?: number; error?: string } = {};
+  try {
+    outcome = JSON.parse(raw ?? "{}");
+  } catch {
+    return raw ?? "";
+  }
+  const key = `pull_status_${outcome.status}` as keyof Dictionary["admin"];
+  const template = dict.admin[key] ?? outcome.status ?? "";
+  return t(template, {
+    items: outcome.items ?? 0,
+    zeroed: outcome.zeroed ?? 0,
+    skipped: outcome.skipped ?? 0,
+    rows: outcome.rows ?? 0,
+    error: outcome.error ?? "",
+  });
+}
+
 function errText(dict: Dictionary, err: string): string {
   if (err === "invite_fn_missing") return dict.admin.invite_fn_missing;
+  if (err === "pull_fn_missing") return dict.admin.pull_fn_missing;
   if (err === "mapping") return dict.admin.mapping_invalid;
   if (err === "slug") return `${dict.admin.slug}: ${dict.admin.slug_hint}`;
   if (err === "slug_taken") return dict.admin.slug_taken;

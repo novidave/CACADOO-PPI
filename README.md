@@ -22,7 +22,8 @@ src/lib/location.ts    visitor location: device → approximate IP city → unkn
 supabase/migrations/   every database change, applied in file-name order
 supabase/seed.sql      test shops and items (not for production)
 supabase/tests/        database checks: npm run test:db
-supabase/functions/    Edge Functions (Deno), e.g. invite-owner: npm run check:functions
+supabase/functions/    Edge Functions (Deno): invite-owner, stock-pull — npm run check:functions / test:functions
+public/samples/        sample stock files (CSV, XML) for testing the stock pull
 src/app/[lang]/(account)/  owner dashboard and admin (login required)
 src/app/auth/          e-mail link landing (/auth/confirm) and sign-out
 src/app/api/           public read API /api/v1/* and /api/openapi.json

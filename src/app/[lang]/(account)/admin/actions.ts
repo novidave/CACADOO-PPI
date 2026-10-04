@@ -100,7 +100,10 @@ export async function saveSyncSource(formData: FormData) {
   const format = text(formData, "file_format", 10);
   if (!["xml", "csv", "xlsx"].includes(format)) back({ err: "format" });
   const fileUrl = text(formData, "file_url", 500);
-  if (fileUrl && !/^https:\/\//i.test(fileUrl)) back({ err: "file_url must start with https://" });
+  // Shop tunnels are always https; plain http only for local testing.
+  if (fileUrl && !/^https:\/\//i.test(fileUrl) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(fileUrl)) {
+    back({ err: "file_url must start with https://" });
+  }
 
   const rawMapping = text(formData, "field_mapping", 5000);
   let mapping: Record<string, unknown> | null = null;
@@ -129,4 +132,32 @@ export async function saveSyncSource(formData: FormData) {
   }
   if (error) back({ err: error.message });
   back({ ok: approve ? "approved" : "saved" });
+}
+
+export async function saveSyncCredentials(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  if (!UUID.test(shopId)) back({ err: "shop" });
+  const { error } = await session.supabase.rpc("admin_set_sync_credentials", {
+    p_shop_id: shopId,
+    p_credentials: {
+      cf_client_id: text(formData, "cf_client_id", 200),
+      cf_client_secret: text(formData, "cf_client_secret", 500),
+      basic_user: text(formData, "basic_user", 200),
+      basic_password: String(formData.get("basic_password") ?? "").slice(0, 500),
+    },
+  });
+  back(error ? { err: error.message } : { ok: "saved" });
+}
+
+/** Runs the stock-pull Edge Function for this shop now (it checks again that the caller is the admin). */
+export async function pullNow(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  if (!UUID.test(shopId)) back({ err: "shop" });
+  const { data, error } = await session.supabase.functions.invoke("stock-pull", { body: { shop_id: shopId, force: true } });
+  if (error) {
+    const status = (error as { context?: { status?: number } }).context?.status;
+    back(status === 404 ? { err: "pull_fn_missing" } : { err: error.message });
+  }
+  const outcome = Object.values((data?.results ?? {}) as Record<string, unknown>)[0];
+  back({ ok: "pulled", pull: JSON.stringify(outcome ?? { status: "error", error: "This shop has no file address yet." }) });
 }

@@ -193,6 +193,23 @@
     "approve": "Approve mapping",
     "save_mapping": "Save edited mapping",
     "mapping_invalid": "The mapping must be a valid JSON object.",
-    "slug_taken": "Another shop already uses this page address (slug). Please choose another."
+    "slug_taken": "Another shop already uses this page address (slug). Please choose another.",
+    "credentials": "File access (stored encrypted, never shown again)",
+    "cf_client_id": "Cloudflare Access – Client ID",
+    "cf_client_secret": "Cloudflare Access – Client Secret",
+    "basic_user": "User (rclone)",
+    "basic_password": "Password (rclone)",
+    "credentials_state": "Set: Cloudflare {cf} · login {basic}",
+    "save_credentials": "Save access",
+    "credentials_hint": "An empty field clears that value; always fill in everything the tunnel needs.",
+    "pull_now": "Pull file now",
+    "pull_result": "Result: {result}",
+    "pull_fn_missing": "Pulling does not work yet: the “stock-pull” Edge Function is not deployed (see SETUP.md, part G).",
+    "pull_status_updated": "stock updated: {items} items, {zeroed} set to out of stock (missing from the file), {skipped} unreadable rows",
+    "pull_status_unchanged": "the file has not changed",
+    "pull_status_proposed": "{rows} rows read; a field mapping was proposed – check and approve it below",
+    "pull_status_waiting_for_approval": "{rows} rows read; the field mapping waits for your approval",
+    "pull_status_layout_changed": "the file layout changed; old stock kept, a new mapping waits for approval",
+    "pull_status_error": "error: {error}"
   }
 }

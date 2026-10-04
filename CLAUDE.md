@@ -35,6 +35,7 @@ always an extra — every page must work and show its data without it.
 - `npm run lint` · `npm run typecheck` · `npm run build`
 - `npm run test:db` — applies all migrations + seed to a throwaway local Postgres/PostGIS and runs the RLS and stock-logic checks
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
+- `npm run test:functions` — unit tests of the stock-pull file reading and mapping (Deno)
 
 ## AI access
 
@@ -43,6 +44,14 @@ and the MCP server (`/mcp`, stateless Streamable HTTP, tools `search_stock`, `ge
 anon client without cookies (`@/lib/supabase/public`), every result carries `source_url`, the database
 decides availability/quantity. Every API/MCP request goes through `rateLimit` (`api_hit`: 60/min, daily-salted
 IP hash). `robots.ts`, `sitemap.ts` and `llms.txt` live at the app root.
+
+## Stock pull
+
+`supabase/functions/stock-pull/index.ts` (single file, paste-deployable): cron (header `x-ppi-cron-secret`) or admin
+JWT; credentials from Vault via `sync_credentials()`; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping
+proposals (Claude `claude-opus-5-5` with structured outputs, else `guessMapping`) are never auto-approved;
+`apply_stock_file()` writes a full file in one transaction (missing items → quantity 0). >5 % unreadable rows →
+keep old stock, propose a new mapping.
 
 ## Auth
 
