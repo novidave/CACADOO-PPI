@@ -98,6 +98,10 @@ begin
   assert (select freshness_state from public.public_shops where slug = 'zeleziarstvo-vychod') = 'stale';
   assert (select round(lat::numeric, 3) from public.public_shops where slug = 'kisbolt-budapest') = 47.499;
 
+  -- amenities are public
+  assert (select has_toilet and has_douchette and has_card_terminal from public.public_shops where slug = 'potraviny-centrum');
+  assert (select not has_toilet and has_card_terminal from public.public_shops where slug = 'kisbolt-budapest');
+
   -- shop_stock: paging, total count, accent-insensitive filter, hidden items excluded
   select count(*) into n from public.shop_stock('potraviny-centrum');
   assert n = 6, format('shop page should list 6 public items (1 hidden), got %s', n);
@@ -204,6 +208,15 @@ begin
   exception when insufficient_privilege then null;
   end;
 
+  -- owners set their own amenities, never another shop's
+  update public.shops set has_toilet = false, has_card_terminal = true where slug = 'potraviny-centrum';
+  get diagnostics n = row_count;
+  assert n = 1, 'owner should set own amenities';
+  update public.shops set has_toilet = true where slug = 'drogeria-kostolne';
+  get diagnostics n = row_count;
+  assert n = 0, 'owner A changed shop B amenities';
+  update public.shops set has_toilet = true where slug = 'potraviny-centrum';
+
   -- dashboard item list: own shop incl. hidden items, never another shop's
   select count(*) into n from public.owner_items((select id from public.shops where slug = 'potraviny-centrum'));
   assert n = 7, format('owner should see all 7 own items incl. hidden, got %s', n);
@@ -302,6 +315,10 @@ begin
     perform public.admin_save_shop(jsonb_build_object('id', v_id, 'slug', 'test-wien', 'name', 'Test Wien 2',
       'timezone', 'Europe/Vienna', 'is_active', 'true'));
     assert (select name || ' ' || is_active from public.shops where id = v_id) = 'Test Wien 2 true';
+    perform public.admin_save_shop(jsonb_build_object('id', v_id, 'slug', 'test-wien', 'name', 'Test Wien 2',
+      'timezone', 'Europe/Vienna', 'is_active', 'true', 'has_toilet', 'true', 'has_card_terminal', 'true'));
+    assert (select has_toilet and not has_douchette and has_card_terminal from public.admin_shops() where id = v_id),
+      'admin_save_shop should save amenities';
     begin
       perform public.admin_save_shop(jsonb_build_object('id', v_id, 'slug', 'test-wien', 'name', 'x', 'lat', '95', 'lng', '0'));
       raise exception 'invalid coordinates accepted';

@@ -102,3 +102,13 @@ export async function setItemPublic(formData: FormData) {
   const page = String(formData.get("page") ?? "1");
   back(error ? { err: error.message } : !data?.length ? { err: "not allowed" } : { ok: "item", ...(q ? { q } : {}), page });
 }
+
+export async function saveAmenities(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const error = await updateShop(session.supabase, shopId, {
+    has_toilet: formData.get("has_toilet") === "on",
+    has_douchette: formData.get("has_douchette") === "on",
+    has_card_terminal: formData.get("has_card_terminal") === "on",
+  });
+  back(error ? { err: error } : { ok: "amenities" });
+}

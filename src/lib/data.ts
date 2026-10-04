@@ -22,6 +22,9 @@ export interface PublicShop {
   freshness_state: FreshnessState;
   freshness_age_minutes: number | null;
   latest_file_time: string | null;
+  has_toilet: boolean;
+  has_douchette: boolean;
+  has_card_terminal: boolean;
 }
 
 /** One row of public.shop_stock(). */
@@ -44,7 +47,7 @@ export interface ShopItemRow {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHOP_COLUMNS =
-  "id, slug, name, address, city, country, timezone, phone, website, logo_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time";
+  "id, slug, name, address, city, country, timezone, phone, website, logo_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal";
 
 async function client() {
   const supabase = await createClient();

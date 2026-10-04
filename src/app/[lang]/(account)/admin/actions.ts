@@ -52,6 +52,9 @@ export async function saveShop(formData: FormData) {
       visibility_mode: text(formData, "visibility_mode", 20),
       low_stock_threshold: text(formData, "low_stock_threshold", 3),
       is_active: formData.get("is_active") === "on",
+      has_toilet: formData.get("has_toilet") === "on",
+      has_douchette: formData.get("has_douchette") === "on",
+      has_card_terminal: formData.get("has_card_terminal") === "on",
     },
   });
   if (error) back({ err: error.message.includes("shops_slug_key") ? "slug_taken" : error.message });
