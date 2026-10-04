@@ -46,3 +46,23 @@ grant all on all tables in schema public to service_role;
 
 create schema if not exists extensions;
 grant usage on schema extensions to anon, authenticated, service_role;
+
+-- Minimal Supabase Vault stand-in (real Vault encrypts; this only mimics the API).
+create schema if not exists vault;
+create table if not exists vault.secrets (
+  id uuid primary key default gen_random_uuid(),
+  name text unique,
+  description text,
+  secret text
+);
+create or replace function vault.create_secret(new_secret text, new_name text default null, new_description text default '')
+returns uuid language sql as $$
+  insert into vault.secrets (name, description, secret) values (new_name, new_description, new_secret) returning id
+$$;
+create or replace function vault.update_secret(secret_id uuid, new_secret text default null, new_name text default null,
+  new_description text default null)
+returns void language sql as $$
+  update vault.secrets set secret = coalesce(new_secret, secret) where id = secret_id
+$$;
+create or replace view vault.decrypted_secrets as select id, name, description, secret as decrypted_secret from vault.secrets;
+revoke all on schema vault from anon, authenticated;

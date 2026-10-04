@@ -193,6 +193,23 @@
     "approve": "Schváliť priradenie",
     "save_mapping": "Uložiť upravené priradenie",
     "mapping_invalid": "Priradenie musí byť platný JSON objekt.",
-    "slug_taken": "Túto adresu stránky (slug) už má iný obchod. Zvoľte inú."
+    "slug_taken": "Túto adresu stránky (slug) už má iný obchod. Zvoľte inú.",
+    "credentials": "Prístup k súboru (uložené šifrovane, už sa nezobrazia)",
+    "cf_client_id": "Cloudflare Access – Client ID",
+    "cf_client_secret": "Cloudflare Access – Client Secret",
+    "basic_user": "Používateľ (rclone)",
+    "basic_password": "Heslo (rclone)",
+    "credentials_state": "Nastavené: Cloudflare {cf} · prihlásenie {basic}",
+    "save_credentials": "Uložiť prístup",
+    "credentials_hint": "Prázdne pole = nezmenené sa nezachová; vyplňte vždy všetky údaje, ktoré tunel potrebuje.",
+    "pull_now": "Stiahnuť súbor teraz",
+    "pull_result": "Výsledok: {result}",
+    "pull_fn_missing": "Sťahovanie ešte nefunguje: Edge Function „stock-pull“ nie je nasadená (pozri SETUP.md, časť G).",
+    "pull_status_updated": "zásoby aktualizované: {items} položiek, {zeroed} vypredaných (chýbali v súbore), {skipped} nečitateľných riadkov",
+    "pull_status_unchanged": "súbor sa od minula nezmenil",
+    "pull_status_proposed": "načítaných {rows} riadkov; priradenie polí navrhnuté – skontrolujte a schváľte ho nižšie",
+    "pull_status_waiting_for_approval": "načítaných {rows} riadkov; priradenie polí čaká na vaše schválenie",
+    "pull_status_layout_changed": "rozloženie súboru sa zmenilo; staré zásoby ponechané, nové priradenie čaká na schválenie",
+    "pull_status_error": "chyba: {error}"
   }
 }

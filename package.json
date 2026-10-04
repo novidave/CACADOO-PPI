@@ -11,7 +11,8 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test:db": "bash supabase/tests/run.sh",
-    "check:functions": "deno check supabase/functions/*/index.ts || npx -y deno check supabase/functions/*/index.ts"
+    "check:functions": "cd supabase/functions && (deno check --config deno.json */index.ts || npx -y deno check --config deno.json */index.ts)",
+    "test:functions": "cd supabase/functions && (PPI_STOCK_PULL_TEST=1 deno test --config deno.json --allow-env stock-pull/ || PPI_STOCK_PULL_TEST=1 npx -y deno test --config deno.json --allow-env stock-pull/)"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",

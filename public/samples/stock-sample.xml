@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sklad>
+  <polozka kod="X001"><nazov>Vŕtačka príklepová 750 W</nazov><ean>3165140012356</ean><mnozstvo>3</mnozstvo><cena>89,00</cena></polozka>
+  <polozka kod="X002"><nazov>Skrutky do dreva 4x40 200 ks</nazov><ean/><mnozstvo>50</mnozstvo><cena>5,90</cena></polozka>
+  <polozka kod="X003"><nazov>Kladivo 500 g</nazov><ean>6411500012357</ean><mnozstvo>0</mnozstvo><cena>19,90</cena></polozka>
+</sklad>

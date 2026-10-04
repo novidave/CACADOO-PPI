@@ -273,6 +273,23 @@ begin
   exception when insufficient_privilege then null;
   end;
 
+  -- stock-pull functions are not for owners
+  begin
+    perform public.apply_stock_file((select id from public.shops where slug = 'potraviny-centrum'), '[]', now());
+    raise exception 'owner applied a stock file';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.sync_credentials((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'owner read sync credentials';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_set_sync_credentials((select id from public.shops where slug = 'potraviny-centrum'), '{}');
+    raise exception 'owner set sync credentials';
+  exception when insufficient_privilege then null;
+  end;
+
   -- sync status: own yes, other shop no
   assert (select freshness_state from public.my_sync_status(
     (select id from public.shops where slug = 'potraviny-centrum'))) = 'current';
@@ -319,6 +336,21 @@ begin
   begin
     update public.sync_sources set sample_rows = '[]';
     raise exception 'admin wrote sample_rows';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- tunnel credentials: write-only for the admin
+  perform public.admin_set_sync_credentials((select id from public.shops where slug = 'potraviny-centrum'),
+    '{"cf_client_id":"id-1","cf_client_secret":"s3cret","basic_user":"ppi","basic_password":"pw"}');
+  assert (select public.admin_sync_credentials_status((select id from public.shops where slug = 'potraviny-centrum')))
+         = '{"cloudflare": true, "basic_auth": true}'::jsonb;
+  perform public.admin_set_sync_credentials((select id from public.shops where slug = 'potraviny-centrum'),
+    '{"cf_client_id":"id-2","cf_client_secret":"s3cret2"}');
+  assert (select public.admin_sync_credentials_status((select id from public.shops where slug = 'potraviny-centrum')))
+         = '{"cloudflare": true, "basic_auth": false}'::jsonb, 'update must replace the secret';
+  begin
+    perform public.sync_credentials((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'admin could read the secret values';
   exception when insufficient_privilege then null;
   end;
 
@@ -383,6 +415,35 @@ update public.inventory set quantity = 0 where shop_item_id in (select id from p
 update public.sync_sources set latest_file_time = now(), sample_rows = '[{"code":"P001"}]';
 do $$ begin
   assert public.user_id_by_email('OWNER-B@example.invalid') = '00000000-0000-0000-0000-00000000000b';
+end $$;
+
+-- stock pull: apply a full file for Potraviny Centrum
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_result jsonb;
+begin
+  assert public.sync_credentials(v_shop) ->> 'cf_client_id' = 'id-2', 'service role reads credentials';
+  v_result := public.apply_stock_file(v_shop, '[
+    {"source_code":"P001","name":"Káva zrnková 1 kg","ean":"8000070012345","brand":"Lavazza","quantity":7,"price":19.5},
+    {"source_code":"P100","name":"Kakao 100 g","ean":"5900000000001","quantity":"3","price":"2.2","currency":"eur"},
+    {"source_code":"P100","name":"duplicate code ignored","quantity":1,"price":1},
+    {"source_code":"","name":"no code, ignored","quantity":1,"price":1},
+    {"source_code":"P003","name":"Mlieko polotučné 1 l","quantity":40,"price":1.09}
+  ]', '2026-10-04 08:15:00+00', '[{"KOD":"P001"}]');
+  assert v_result = '{"items": 3, "zeroed": 4}'::jsonb, format('unexpected result %s', v_result);
+  assert (select quantity || '/' || price from public.inventory i join public.shop_items si on si.id = i.shop_item_id
+          where si.shop_id = v_shop and si.source_code = 'P001') = '7/19.5';
+  assert (select quantity || ' ' || currency from public.inventory i join public.shop_items si on si.id = i.shop_item_id
+          where si.shop_id = v_shop and si.source_code = 'P100') = '3 EUR', 'new item added';
+  assert (select quantity from public.inventory i join public.shop_items si on si.id = i.shop_item_id
+          where si.shop_id = v_shop and si.source_code = 'P002') = 0, 'item missing from file must be zeroed';
+  assert (select product_id is not null from public.shop_items where shop_id = v_shop and source_code = 'P100'),
+    'item linked to product by EAN';
+  assert (select latest_file_time = '2026-10-04 08:15:00+00' and last_error is null and sample_rows = '[{"KOD":"P001"}]'
+          from public.sync_sources where shop_id = v_shop);
+  -- hidden items stay hidden after a pull
+  assert (select not is_public from public.shop_items where shop_id = v_shop and source_code = 'P007');
 end $$;
 reset role;
 

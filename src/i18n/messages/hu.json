@@ -193,6 +193,23 @@
     "approve": "Hozzárendelés jóváhagyása",
     "save_mapping": "Módosított hozzárendelés mentése",
     "mapping_invalid": "A hozzárendelésnek érvényes JSON-objektumnak kell lennie.",
-    "slug_taken": "Ezt az oldalcímet (slug) már egy másik üzlet használja. Válasszon másikat."
+    "slug_taken": "Ezt az oldalcímet (slug) már egy másik üzlet használja. Válasszon másikat.",
+    "credentials": "Hozzáférés a fájlhoz (titkosítva tárolva, többé nem jelenik meg)",
+    "cf_client_id": "Cloudflare Access – Client ID",
+    "cf_client_secret": "Cloudflare Access – Client Secret",
+    "basic_user": "Felhasználó (rclone)",
+    "basic_password": "Jelszó (rclone)",
+    "credentials_state": "Beállítva: Cloudflare {cf} · bejelentkezés {basic}",
+    "save_credentials": "Hozzáférés mentése",
+    "credentials_hint": "Az üres mező törli az adott értéket; mindig adja meg az összes szükséges adatot.",
+    "pull_now": "Fájl letöltése most",
+    "pull_result": "Eredmény: {result}",
+    "pull_fn_missing": "A letöltés még nem működik: a „stock-pull” Edge Function nincs telepítve (lásd SETUP.md, G rész).",
+    "pull_status_updated": "készlet frissítve: {items} tétel, {zeroed} elfogyott (hiányzott a fájlból), {skipped} olvashatatlan sor",
+    "pull_status_unchanged": "a fájl nem változott",
+    "pull_status_proposed": "{rows} sor beolvasva; mezőhozzárendelés javasolva – ellenőrizze és hagyja jóvá lent",
+    "pull_status_waiting_for_approval": "{rows} sor beolvasva; a mezőhozzárendelés jóváhagyásra vár",
+    "pull_status_layout_changed": "a fájl szerkezete megváltozott; a régi készlet megmaradt, új hozzárendelés vár jóváhagyásra",
+    "pull_status_error": "hiba: {error}"
   }
 }

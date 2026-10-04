@@ -36,6 +36,7 @@ For **each** file below:
 | 8 | `supabase/migrations/20261005000001_dashboard_admin.sql` | Owner dashboard + admin: item list, admin functions, logo storage |
 | 9 | `supabase/migrations/20261006000001_amenities.sql` | Shop facilities: customer toilet, douchette, card terminal |
 | 10 | `supabase/migrations/20261007000001_ai_access.sql` | AI access: API/MCP rate limit + usage log, town lookup |
+| 11 | `supabase/migrations/20261008000001_stock_pull.sql` | Stock pull: apply a stock file, tunnel credentials in Vault, raw-file storage |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -163,7 +164,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001
 ```
 
 ---
@@ -280,6 +281,72 @@ Each request is logged in `api_usage` with only a daily-changing hash of the cal
 
 ---
 
+## Part G — Automatic stock pull (phase 6)
+
+The `stock-pull` function fetches each shop's stock file every 15 minutes, proposes a field mapping for a new
+file layout (you approve it once), and updates the stock. Steps, once:
+
+### G1. Database update
+
+Run file 11 (or the `PPI_update_7_stock_pull.sql` file) in the SQL Editor.
+
+### G2. Secrets for the function
+
+Supabase → **Edge Functions** → **Secrets** (or *Manage secrets*) → add:
+
+| Name | Value |
+|---|---|
+| `PPI_CRON_SECRET` | a long random text you make up (40+ letters and digits, e.g. from your password manager). Keep a copy for G4. |
+| `ANTHROPIC_API_KEY` | *optional* — an API key from console.anthropic.com. With it, Claude proposes the field mappings; without it, a simple rule-based guess is proposed. You approve either way. |
+
+### G3. Deploy the function
+
+1. Supabase → **Edge Functions** → **Deploy a new function** → **Via Editor** → name **`stock-pull`**.
+2. Paste the whole file `supabase/functions/stock-pull/index.ts` → **Deploy function**.
+3. Open the function → **Details** (or Settings) → switch **off** "Verify JWT" / "Enforce JWT verification" → **Save**.
+   (The function checks its callers itself: the schedule's secret or your admin login.)
+
+### G4. Run it every 15 minutes
+
+SQL Editor → paste, **replace the two values in CAPITALS**, Run:
+
+```sql
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+select vault.create_secret('https://YOUR-PROJECT-ID.supabase.co', 'ppi_project_url');
+select vault.create_secret('THE-SAME-TEXT-AS-PPI_CRON_SECRET', 'ppi_cron_secret');
+
+select cron.schedule('ppi-stock-pull', '*/15 * * * *', $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'ppi_project_url') || '/functions/v1/stock-pull',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-ppi-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'ppi_cron_secret')
+    ),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 120000
+  )
+$$);
+```
+
+To stop it later: `select cron.unschedule('ppi-stock-pull');`
+
+### G5. Test with the sample file (no shop PC needed)
+
+1. **Správa** → **+ Nový obchod** → e.g. name `Test import`, slug `test-import`, a city, the map, **Aktívny** → **Uložiť**.
+2. In **Zdroj zásob**: file address `https://cacadooppivercel.vercel.app/samples/stock-sample.csv`,
+   format CSV → **Uložiť upravené priradenie**.
+3. **Stiahnuť súbor teraz** → "…priradenie polí navrhnuté". Check the proposal against the sample rows →
+   **Schváliť priradenie**.
+4. **Stiahnuť súbor teraz** again → "zásoby aktualizované: 5 položiek…". Open the shop's public page: 5 items, fresh.
+5. (Optional) the XML sample: `https://cacadooppivercel.vercel.app/samples/stock-sample.xml`.
+
+For a real shop, the file address is the shop's tunnel address and **Prístup k súboru** holds its Cloudflare
+service token and rclone login (phase 7 sets these up on the shop PC).
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -301,5 +368,5 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 3. Public pages — map, shop pages, item pages, "open now", JSON-LD | ✅ done |
 | 4. Login, owner dashboard, admin | ✅ done |
 | 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | ✅ done |
-| 6. Stock pull Edge Function + AI field mapping | next |
-| 7. Shop PC setup (rclone + cloudflared) | |
+| 6. Stock pull Edge Function + AI field mapping | ✅ done |
+| 7. Shop PC setup (rclone + cloudflared) | next |
