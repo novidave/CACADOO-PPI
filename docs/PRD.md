@@ -167,6 +167,7 @@ Acceptance:
 - Shop details form: phone, website, opening hours editor (per day, multiple ranges, closed toggle), logo upload to Supabase Storage
 - Visibility mode selector with a live preview of how an item will look to shoppers
 - Low stock threshold (number, 1–50)
+- Facilities for customers (tick boxes): customer toilet, douchette (bidet shower), card terminal. Shown on the shop page (toilet and douchette under the stock line, card payment under the opening hours) and in its JSON-LD (`amenityFeature`, `paymentAccepted`). The admin can set them too.
 - Items table: name, code, price, stock label, public toggle; search and pagination
 
 Acceptance:

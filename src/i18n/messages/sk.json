@@ -54,7 +54,11 @@
     "prev": "Predchádzajúca",
     "next": "Ďalšia",
     "map": "Mapa obchodov",
-    "meta_description": "{name}, {city}: otváracie hodiny, kontakt a čo majú práve na sklade."
+    "meta_description": "{name}, {city}: otváracie hodiny, kontakt a čo majú práve na sklade.",
+    "facilities": "Vybavenie",
+    "toilet": "WC pre zákazníkov",
+    "douchette": "Bidetová sprška (douchette)",
+    "card_terminal": "Platba kartou (platobný terminál)"
   },
   "item": {
     "brand": "Značka",
@@ -136,7 +140,9 @@
     "hide": "Skryť",
     "show": "Zobraziť",
     "hidden": "skryté",
-    "no_items": "Zatiaľ žiadny tovar. Objaví sa po prvom súbore zo skladového programu."
+    "no_items": "Zatiaľ žiadny tovar. Objaví sa po prvom súbore zo skladového programu.",
+    "amenities_title": "Vybavenie pre zákazníkov",
+    "amenities_hint": "Zaškrtnuté položky sa zobrazia na stránke obchodu."
   },
   "admin": {
     "shops_title": "Obchody",

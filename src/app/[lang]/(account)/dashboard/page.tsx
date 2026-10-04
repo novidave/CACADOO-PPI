@@ -8,7 +8,7 @@ import { DAYS, dayName, type DayKey, type OpeningHours } from "@/lib/hours";
 import { availabilityText, type AvailabilityKey, type FreshnessState } from "@/lib/stock";
 import { HoursEditor } from "@/components/HoursEditor";
 import { DbError } from "@/components/DbError";
-import { saveShopDetails, saveVisibility, setItemPublic, uploadLogo } from "./actions";
+import { saveAmenities, saveShopDetails, saveVisibility, setItemPublic, uploadLogo } from "./actions";
 
 const PAGE_SIZE = 50;
 
@@ -24,6 +24,9 @@ interface OwnShop {
   logo_url: string | null;
   timezone: string;
   is_active: boolean;
+  has_toilet: boolean;
+  has_douchette: boolean;
+  has_card_terminal: boolean;
 }
 
 interface OwnerItem {
@@ -59,7 +62,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
 
   const { data: shopRows } = await supabase
     .from("shops")
-    .select("id, slug, name, phone, website, opening_hours, visibility_mode, low_stock_threshold, logo_url, timezone, is_active")
+    .select("id, slug, name, phone, website, opening_hours, visibility_mode, low_stock_threshold, logo_url, timezone, is_active, has_toilet, has_douchette, has_card_terminal")
     .in("id", shopIds)
     .order("name");
   const shops = (shopRows ?? []) as OwnShop[];
@@ -157,6 +160,26 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
               labels={{ closed: dict.dashboard.closed_day, add: dict.dashboard.add_range, remove: dict.dashboard.remove_range }}
             />
           </div>
+          <SubmitButton>{dict.account.save}</SubmitButton>
+        </form>
+      </Section>
+
+      <Section title={dict.dashboard.amenities_title}>
+        <form action={saveAmenities} className="flex flex-col gap-2">
+          {hidden()}
+          <p className="text-sm text-muted">{dict.dashboard.amenities_hint}</p>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" name="has_toilet" defaultChecked={shop.has_toilet} />
+            {dict.shop.toilet}
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" name="has_douchette" defaultChecked={shop.has_douchette} />
+            {dict.shop.douchette}
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" name="has_card_terminal" defaultChecked={shop.has_card_terminal} />
+            {dict.shop.card_terminal}
+          </label>
           <SubmitButton>{dict.account.save}</SubmitButton>
         </form>
       </Section>

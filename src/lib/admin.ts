@@ -35,6 +35,9 @@ export interface AdminShop {
   freshness_age_minutes: number | null;
   item_count: number;
   owner_count: number;
+  has_toilet: boolean;
+  has_douchette: boolean;
+  has_card_terminal: boolean;
 }
 
 /** PRD 8.6: an active shop with no new file for over 1 hour while it is open. */

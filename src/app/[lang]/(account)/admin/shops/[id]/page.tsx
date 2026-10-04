@@ -164,6 +164,21 @@ export default async function AdminShopPage({ params, searchParams }: PageProps<
               />
             </Field>
           </div>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-sm">{dict.dashboard.amenities_title}</legend>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="has_toilet" defaultChecked={shop?.has_toilet ?? false} />
+              {dict.shop.toilet}
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="has_douchette" defaultChecked={shop?.has_douchette ?? false} />
+              {dict.shop.douchette}
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="has_card_terminal" defaultChecked={shop?.has_card_terminal ?? false} />
+              {dict.shop.card_terminal}
+            </label>
+          </fieldset>
           <label className="flex items-center gap-2">
             <input type="checkbox" name="is_active" defaultChecked={shop?.is_active ?? false} />
             {dict.admin.active}

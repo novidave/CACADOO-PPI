@@ -54,7 +54,11 @@
     "prev": "Előző",
     "next": "Következő",
     "map": "Üzletek térképe",
-    "meta_description": "{name}, {city}: nyitvatartás, elérhetőség és aktuális készlet."
+    "meta_description": "{name}, {city}: nyitvatartás, elérhetőség és aktuális készlet.",
+    "facilities": "Szolgáltatások",
+    "toilet": "Mosdó a vásárlóknak",
+    "douchette": "Bidézuhany (douchette)",
+    "card_terminal": "Bankkártyás fizetés (terminál)"
   },
   "item": {
     "brand": "Márka",
@@ -136,7 +140,9 @@
     "hide": "Elrejtés",
     "show": "Megjelenítés",
     "hidden": "rejtett",
-    "no_items": "Még nincs termék. Az első készletfájl után jelenik meg."
+    "no_items": "Még nincs termék. Az első készletfájl után jelenik meg.",
+    "amenities_title": "Szolgáltatások a vásárlóknak",
+    "amenities_hint": "A bejelölt tételek megjelennek az üzlet oldalán."
   },
   "admin": {
     "shops_title": "Üzletek",

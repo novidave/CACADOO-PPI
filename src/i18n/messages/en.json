@@ -54,7 +54,11 @@
     "prev": "Previous",
     "next": "Next",
     "map": "Map of shops",
-    "meta_description": "{name}, {city}: opening hours, contact and what is in stock right now."
+    "meta_description": "{name}, {city}: opening hours, contact and what is in stock right now.",
+    "facilities": "Facilities",
+    "toilet": "Customer toilet",
+    "douchette": "Douchette (bidet shower)",
+    "card_terminal": "Card payment (card terminal)"
   },
   "item": {
     "brand": "Brand",
@@ -136,7 +140,9 @@
     "hide": "Hide",
     "show": "Show",
     "hidden": "hidden",
-    "no_items": "No items yet. They appear after the first stock file arrives."
+    "no_items": "No items yet. They appear after the first stock file arrives.",
+    "amenities_title": "Facilities for customers",
+    "amenities_hint": "Ticked items are shown on the shop page."
   },
   "admin": {
     "shops_title": "Shops",

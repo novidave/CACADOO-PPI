@@ -67,6 +67,14 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
           <span className="text-muted">{dict.shop.stock}: </span>
           {freshnessText(dict, shop.freshness_state, shop.freshness_age_minutes, shop.latest_file_time, shop.timezone)}
         </p>
+        {(shop.has_toilet || shop.has_douchette) && (
+          <p className="text-sm">
+            <span className="text-muted">{dict.shop.facilities}: </span>
+            <span className="font-semibold">
+              {[shop.has_toilet && dict.shop.toilet, shop.has_douchette && dict.shop.douchette].filter(Boolean).join(" · ")}
+            </span>
+          </p>
+        )}
         <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
           {hasLocation && (
             <a href={directionsUrl(shop.lat!, shop.lng!)} className="underline underline-offset-4" target="_blank" rel="noopener">
@@ -95,6 +103,7 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
       )}
 
       {hasHours(shop.opening_hours) && <HoursTable shop={shop} lang={lang} dict={dict} />}
+      {shop.has_card_terminal && <p className="-mt-3 text-sm font-semibold">{dict.shop.card_terminal}</p>}
 
       <section className="flex flex-col gap-3" aria-labelledby="items-heading">
         <h2 id="items-heading" className="text-lg font-semibold">
@@ -206,5 +215,14 @@ function localBusiness(shop: PublicShop, lang: Locale) {
       ? { geo: { "@type": "GeoCoordinates", latitude: shop.lat, longitude: shop.lng } }
       : {}),
     ...(hasHours(shop.opening_hours) ? { openingHoursSpecification: openingHoursSpecification(shop.opening_hours) } : {}),
+    ...(shop.has_card_terminal ? { paymentAccepted: "Cash, Credit Card, Debit Card" } : {}),
+    ...(shop.has_toilet || shop.has_douchette
+      ? {
+          amenityFeature: [
+            ...(shop.has_toilet ? [{ "@type": "LocationFeatureSpecification", name: "Customer toilet", value: true }] : []),
+            ...(shop.has_douchette ? [{ "@type": "LocationFeatureSpecification", name: "Douchette (bidet shower)", value: true }] : []),
+          ],
+        }
+      : {}),
   };
 }
