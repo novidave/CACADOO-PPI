@@ -131,6 +131,29 @@ begin
   exception when insufficient_privilege then null;
   end;
 
+  -- API rate limit: 60 calls per minute per caller, then refused; others unaffected
+  for i in 1..60 loop
+    assert public.api_hit('test-caller-hash-0001', '/api/v1/search'), format('call %s should be allowed', i);
+  end loop;
+  assert not public.api_hit('test-caller-hash-0001', '/api/v1/search'), '61st call in a minute must be refused';
+  assert public.api_hit('test-caller-hash-0002', '/mcp'), 'another caller must not be limited';
+  begin
+    perform public.api_hit('short', '/x');
+    raise exception 'too-short caller hash accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  -- visitors cannot read the usage log
+  begin
+    perform 1 from public.api_usage limit 1;
+    raise exception 'anon could read api_usage';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- town lookup for "near <town>" (accents and case ignored)
+  assert (select round(lat::numeric, 2) || ',' || round(lng::numeric, 2) from public.town_center('MICHALOVCE')) = '48.75,21.92';
+  assert (select town || ' ' || country from public.town_center('budapest')) = 'Budapest HU';
+  assert not exists (select 1 from public.town_center('Atlantis'));
+
   -- dashboard / admin functions are not for visitors
   begin
     perform * from public.owner_items((select id from public.shops where slug = 'potraviny-centrum'));

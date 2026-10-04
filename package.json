@@ -14,13 +14,15 @@
     "check:functions": "deno check supabase/functions/*/index.ts || npx -y deno check supabase/functions/*/index.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
     "maplibre-gl": "^6.11.2",
     "next": "16.3.8",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
