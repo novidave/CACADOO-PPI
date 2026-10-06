@@ -38,6 +38,7 @@ For **each** file below:
 | 10 | `supabase/migrations/20261007000001_ai_access.sql` | AI access: API/MCP rate limit + usage log, town lookup |
 | 11 | `supabase/migrations/20261008000001_stock_pull.sql` | Stock pull: apply a stock file, file-access credentials in Vault, raw-file storage |
 | 12 | `supabase/migrations/20261009000001_folder_upload.sql` | Folder upload: shop PC check-in, last uploaded file |
+| 13 | `supabase/migrations/20261010000001_self_service.sql` | Self-service: owners create shops and approve their file's columns |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -165,30 +166,30 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001
 ```
 
 ---
 
-## Part E — Login, owner dashboard and admin (phase 4)
+## Part E — Self-service sign-up and login (shop owners only)
 
-### E1. Your admin account (once)
+Shop owners sign up, create their shop and connect their stock **by themselves**. There is no admin area on the
+website; if you ever need to look at or fix something, use the Supabase dashboard (Table Editor / SQL Editor).
 
-1. Supabase → **Authentication** → **Users** → **Add user** → **Create new user**.
-2. Enter **your e-mail**, any long password (you will never use it), tick **Auto Confirm User** → **Create user**.
-3. SQL Editor → run (with your e-mail):
+### E1. Allow sign-ups with a password (once)
 
-```sql
-update public.profiles set is_admin = true
-where user_id = (select id from auth.users where email = 'YOUR-EMAIL@example.com');
-```
+Supabase → **Authentication** → **Sign In / Providers** → **Email**:
 
-Expected: `UPDATE 1`. If it says `UPDATE 0`, the e-mail is spelled differently than in step 2.
+- **Enable Email provider**: on
+- **Allow new users to sign up**: **on**
+- **Confirm email**: **on** (new owners must click the link in their e-mail)
+- **Minimum password length**: `8`
+- **Save**
 
-### E2. E-mail server (SMTP) — needed before inviting real shop owners
+### E2. E-mail server (SMTP) — required for sign-up and "forgot password"
 
-Supabase's built-in e-mail **only delivers to members of your Supabase team**, a few per hour, and does not let
-you edit the e-mail templates. Your own login works with it; shop owners need a real e-mail service.
+Supabase's built-in e-mail **only delivers to members of your Supabase team**, a few per hour. Shop owners would
+never get their confirmation or password-reset e-mail. Connect a real e-mail service.
 Example with **Brevo** (free: 300 e-mails/day, no own domain needed):
 
 1. Create a free account at brevo.com.
@@ -208,53 +209,46 @@ Example with **Brevo** (free: 300 e-mails/day, no own domain needed):
 | Password | the Brevo **SMTP key** from step 3 |
 
 5. **Save**. Keep the SMTP key only in Supabase and your password manager.
+6. Supabase → **Authentication** → **Rate Limits** → **Rate limit for sending emails**: raise it to e.g. `100` per hour.
 
 E-mails from a Gmail address sent through Brevo may land in spam at first; once PPI has its own domain,
 add that domain in Brevo (Senders, Domains → Domains) and send from e.g. `info@yourdomain`.
 
-### E3. E-mail templates (optional, after E2)
+### E3. E-mail templates (recommended, after E2)
 
-**Login and invitations already work with Supabase's default templates.** One limit: with the default
-login e-mail, the link must be opened in the **same browser** where the login was requested.
-To make login links work on any device, after E2 change two templates in
+With Supabase's default templates the links work only in the **same browser** where the owner signed up or asked
+for a new password. These two templates make them work on any device (e.g. opened on the phone).
 Supabase → **Authentication** → **Emails** → **Templates**: delete the body and paste:
 
-**Magic Link** — body:
+**Confirm signup** — body:
 
 ```html
 <h2>PPI</h2>
-<p>Prihlásenie do PPI / Bejelentkezés a PPI-be / Log in to PPI:</p>
-<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/dashboard">Prihlásiť sa / Belépés / Log in</a></p>
-<p>Ak ste o prihlásenie nežiadali, tento e-mail ignorujte.</p>
+<p>Potvrďte svoj e-mail / Erősítse meg e-mail-címét / Confirm your e-mail:</p>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/dashboard">Potvrdiť / Megerősítés / Confirm</a></p>
 ```
 
-**Invite user** — body:
+**Reset Password** — body:
 
 ```html
 <h2>PPI</h2>
-<p>Boli ste pozvaný ako majiteľ obchodu v PPI. / Meghívást kapott üzlettulajdonosként a PPI-be. / You have been invited as a shop owner on PPI.</p>
-<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/dashboard">Prijať pozvánku / Meghívás elfogadása / Accept invitation</a></p>
+<p>Nové heslo / Új jelszó / New password:</p>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/password">Nastaviť nové heslo / Új jelszó beállítása / Set a new password</a></p>
+<p>Ak ste o to nežiadali, tento e-mail ignorujte.</p>
 ```
 
 Check **Authentication → URL Configuration → Site URL** is `https://cacadooppivercel.vercel.app` (A6).
 
-### E4. Deploy the "invite-owner" function (once)
+### E4. Check
 
-Inviting an owner needs Supabase's secret key, so it runs inside Supabase, not on the website.
+- [ ] `/sk/signup` → e-mail you can read + password twice → "Takmer hotovo…" → open the e-mail → you land in **Môj obchod**.
+- [ ] "Pridajte svoj obchod": name, town, country, time zone, click the map → **Vytvoriť obchod** → "Obchod je vytvorený".
+- [ ] **Zobraziť stránku obchodu** shows the shop's public page.
+- [ ] **Odhlásiť sa** → `/sk/login` with the password → back in **Môj obchod**.
+- [ ] `/sk/forgot` → e-mail → open the link → **Zmena hesla** → new password → log in with it.
+- [ ] A second account cannot see or change the first account's shop.
 
-1. Supabase → **Edge Functions** → **Deploy a new function** → **Via Editor**.
-2. Function name: **`invite-owner`** (exactly).
-3. Delete the example code, paste the whole file `supabase/functions/invite-owner/index.ts` from GitHub.
-4. **Deploy function**. Nothing else to configure: Supabase gives the function its keys itself.
-
-### E5. Check
-
-- [ ] `/sk/login` → enter your e-mail → "…poslali sme naň prihlasovací odkaz" → open the e-mail → you land in **Správa** (admin).
-- [ ] **+ Nový obchod**: fill name, slug, city, country, time zone, click the map, add opening hours, tick **Aktívny** → **Uložiť** → the shop has a public page.
-- [ ] On that shop: **Majitelia** → invite an e-mail you can read → "Pozvánka odoslaná" → open the invite e-mail → you land in **Môj obchod** for that shop.
-- [ ] As the owner: hide an item → it disappears from the public shop page; switch "Čo uvidia zákazníci" → the preview and the public page change.
-- [ ] As the owner, open `/sk/admin` → you are sent back to **Môj obchod**.
-- [ ] **Odhlásiť sa** → `/sk/dashboard` asks you to log in again.
+Accounts created earlier (e.g. your own from the old magic-link login) have no password yet: use **Zabudli ste heslo?** once.
 
 ---
 
@@ -262,7 +256,7 @@ Inviting an owner needs Supabase's secret key, so it runs inside Supabase, not o
 
 Nothing to configure: no keys, no accounts. After the database update (file 10) and the merge, check:
 
-- [ ] `https://cacadooppivercel.vercel.app/robots.txt` — allows all crawlers incl. GPTBot, ClaudeBot, PerplexityBot; blocks dashboard/admin/login.
+- [ ] `https://cacadooppivercel.vercel.app/robots.txt` — allows all crawlers incl. GPTBot, ClaudeBot, PerplexityBot; blocks the login-only pages.
 - [ ] `https://cacadooppivercel.vercel.app/sitemap.xml` — every active shop and item (refreshed hourly).
 - [ ] `https://cacadooppivercel.vercel.app/llms.txt` — plain-text guide for AI, lists the shops.
 - [ ] `https://cacadooppivercel.vercel.app/api/v1/search?q=kava&near=Michalovce` — JSON results with price, availability, freshness and `source_url`.
@@ -305,7 +299,7 @@ Supabase → **Edge Functions** → **Secrets** (or *Manage secrets*) → add:
 1. Supabase → **Edge Functions** → **Deploy a new function** → **Via Editor** → name **`stock-pull`**.
 2. Paste the whole file `supabase/functions/stock-pull/index.ts` → **Deploy function**.
 3. Open the function → **Details** (or Settings) → switch **off** "Verify JWT" / "Enforce JWT verification" → **Save**.
-   (The function checks its callers itself: the schedule's secret or your admin login.)
+   (The function checks its callers itself: the schedule's secret, or the shop owner's login for uploads.)
 
 ### G4. Run it every 15 minutes
 
@@ -333,35 +327,25 @@ $$);
 
 To stop it later: `select cron.unschedule('ppi-stock-pull');`
 
-### G5. Test with the sample file (no shop PC needed)
+### G5. Test
 
-1. **Správa** → **+ Nový obchod** → e.g. name `Test import`, slug `test-import`, a city, the map, **Aktívny** → **Uložiť**.
-2. In **Zdroj zásob**: file address `https://cacadooppivercel.vercel.app/samples/stock-sample.csv`,
-   format CSV → **Uložiť upravené priradenie**.
-3. **Stiahnuť súbor teraz** → "…priradenie polí navrhnuté". Check the proposal against the sample rows →
-   **Schváliť priradenie**.
-4. **Stiahnuť súbor teraz** again → "zásoby aktualizované: 5 položiek…". Open the shop's public page: 5 items, fresh.
-5. (Optional) the XML sample: `https://cacadooppivercel.vercel.app/samples/stock-sample.xml`.
-
-A real shop does not need a file address: its PPI window uploads the file (Part H).
+Test it as a shop owner: Part H, step 5.
 
 ---
 
-## Part H — Shop PC: the first real shop (phase 7)
+## Part H — Self-service and the shop PC (phase 7)
 
-Full step-by-step guide: **`docs/SHOP_PC_SETUP.md`** (open it on GitHub). Nothing to install except the PPI app
-from Edge or Chrome; no Cloudflare, no domain.
+1. **Database:** SQL Editor → run file 12 (`supabase/migrations/20261009000001_folder_upload.sql`) if not done yet,
+   then file 13 (`supabase/migrations/20261010000001_self_service.sql`).
+2. **Function:** Supabase → **Edge Functions** → `stock-pull` → **Code** → replace everything with the new
+   `supabase/functions/stock-pull/index.ts` (GitHub → the file → **Copy raw file**) → **Deploy**. Keep **Verify JWT** off.
+3. **Old function:** Edge Functions → `invite-owner` → delete it (owners sign up themselves now).
+4. **Sign-up and e-mail:** Part E (E1–E3).
+5. **Try it as a shop owner** (on your own Windows PC, in Edge or Chrome): sign up → create a test shop →
+   in **Priečinok s exportom** connect a folder with the sample file `/samples/stock-sample.csv` saved as `stock.csv` →
+   after a minute "Súbor prijatý" → **Môj obchod → Stĺpce súboru so zásobami** → **Schváliť stĺpce** → "Zásoby odoslané".
 
-1. **Database update:** run file 12 (`supabase/migrations/20261009000001_folder_upload.sql`) in the SQL Editor.
-2. **Function update:** Supabase → **Edge Functions** → `stock-pull` → **Code** → replace everything with the new
-   `supabase/functions/stock-pull/index.ts` (GitHub → the file → **Copy raw file**) → **Deploy**. Keep
-   **Verify JWT** off.
-3. **Shop software (S2):** export all items every 15–30 minutes into a folder used only for this, e.g. `C:\Export\stock.xml`.
-4. **Shop PC (S3–S4):** sign in as the owner in Edge or Chrome → **Priečinok s exportom** → **Prepojiť priečinok** →
-   install as an app → put it in the Windows startup folder.
-5. **PPI admin (S5):** the shop → **Schváliť priradenie** → on the shop PC **Skontrolovať teraz**.
-
-**Rehearse on your own Windows PC first** (guide part R).
+What a shop owner does is written for them on the dashboard; the longer guide is `docs/SHOP_PC_SETUP.md`.
 
 ---
 
@@ -384,7 +368,7 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 2. Database — tables, RLS, freshness, availability, `public_stock`, `search_stock`, test data, automatic checks | ✅ done |
 | 2b. Europe-wide — no home town, any currency and time zone, device / IP / no location | ✅ done |
 | 3. Public pages — map, shop pages, item pages, "open now", JSON-LD | ✅ done |
-| 4. Login, owner dashboard, admin | ✅ done |
+| 4. Login and owner dashboard | ✅ done |
 | 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | ✅ done |
 | 6. Stock pull Edge Function + AI field mapping | ✅ done |
-| 7. Shop PC — PPI app window in Edge/Chrome uploads the export folder every 15 min | ✅ built — rehearse, then the first shop (Part H) |
+| 7. Self-service: sign-up with password, password reset, owners create shops, export folder on the dashboard, column approval; no admin area | ✅ built — set up Part E and H |

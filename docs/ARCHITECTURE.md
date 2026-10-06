@@ -7,7 +7,7 @@ How PPI works from the shop's shelf to an AI assistant's answer, which software 
 1. A sale at the shop's till lowers the stock in the shop's own software, as it does today.
 2. Every 15–30 minutes that software exports a stock file into a folder on the shop PC.
 3. The PPI window on that PC (the PPI website installed as an app in Edge or Chrome, started with Windows) reads only that folder and every 15 minutes uploads the newest finished file to a Supabase Edge Function.
-4. The function reads the file. On a shop's first file, or when the layout changes, an AI model proposes which field is code, name, EAN, quantity and price; you approve it once.
+4. The function reads the file. On a shop's first file, or when the layout changes, an AI model proposes which field is code, name, EAN, quantity and price; the shop owner approves it once in their dashboard.
 5. The function saves the mapped stock to Supabase and records when the file was made. That time is the freshness.
 6. The Next.js web app on Vercel shows the stock as server-rendered pages, a public API and an MCP server, so shoppers, AI crawlers and AI assistants all read the same data.
 
@@ -22,7 +22,7 @@ STOCK PULL (Supabase Edge Function) v
                                    |
 DATABASE (Supabase)                v
   Postgres/PostGIS --> SQL functions (freshness, search)
-  Auth (owners, admin) | Storage (logos, raw files) | Vault (secrets)
+  Auth (shop owners) | Storage (logos, raw files) | Vault (secrets)
                                    |
 WEB APP (Next.js on Vercel)        v
   Server pages (HTML + JSON-LD) | Discovery files (robots, sitemap, llms.txt)
@@ -32,7 +32,7 @@ WHO READS IT                       v
   Shoppers | AI crawlers | AI assistants | Apps and tools
 ```
 
-All four outputs read through the same SQL functions, so freshness and visibility rules are applied once, in the database. Shop owners and you log in through Supabase Auth to the dashboard and admin pages.
+All four outputs read through the same SQL functions, so freshness and visibility rules are applied once, in the database. Shop owners sign up themselves (e-mail + password, Supabase Auth) and run their shop from the dashboard; there is no admin area on the website.
 
 ## 2. Components in detail
 
@@ -40,17 +40,17 @@ All four outputs read through the same SQL functions, so freshness and visibilit
 
 - **Shop's own stock software.** Set to export stock on a schedule (every 15–30 min in opening hours, plus a nightly full export). XML, CSV or Excel. Only public fields: item code, EAN, name, quantity, selling price. One file, overwritten each time, e.g. `stock.xml`, in a folder used only for this.
 - **PPI window**: the `/sync` page, installed as an app (web app manifest) in **Edge or Chrome** and started with Windows from the startup folder. The owner picks the export folder once (File System Access API, read-only); the browser keeps the folder handle in IndexedDB and, with "Allow on every visit", the permission too.
-- While open, it checks the folder every 15 minutes: the newest XML/CSV/TXT/XLSX file is sent when it is newer than the last applied file, untouched for 60 s and unchanged while being read (a half-written export is never sent). The same file is not sent again unless the mapping status changed (e.g. the admin approved it). Files are gzip-compressed.
+- While open, it checks the folder every 15 minutes: the newest XML/CSV/TXT/XLSX file is sent when it is newer than the last applied file, untouched for 60 s and unchanged while being read (a half-written export is never sent). The same file is not sent again unless the mapping status changed (e.g. the owner approved the columns). Files are gzip-compressed.
 - One window per shop (Web Locks); a second window waits and takes over when the first closes.
-- Each check calls `upload_check_in()`, which records `sync_sources.folder_seen_at` ("PPI window last active" in admin).
+- Each check calls `upload_check_in()`, which records `sync_sources.folder_seen_at` ("PPI window last active" on the dashboard).
 - Firefox and Safari have no folder access; the page says so. Steps for people: `docs/SHOP_PC_SETUP.md`.
 - Nothing listens on the network at the shop and no router change is needed.
 
 ### 2.2 Upload and stock pull: Supabase Edge Function `stock-pull`
 
-**Upload** (`POST /functions/v1/stock-pull?shop_id=…&file_time=…&file_name=…`, body = the file, `gzip=1` when compressed), called by the PPI window with the owner's own login: `upload_check_in()` checks that the caller is the shop's owner or the admin. `file_time` (the file's own time, never later than now) becomes the freshness.
+**Upload** (`POST /functions/v1/stock-pull?shop_id=…&file_time=…&file_name=…`, body = the file, `gzip=1` when compressed), called by the PPI window with the owner's own login: `upload_check_in()` checks that the caller is the shop's owner. `file_time` (the file's own time, never later than now) becomes the freshness.
 
-**Pull** (optional, for a file published on the internet): every 15 minutes (scheduled inside Supabase) or "Pull now" in admin, for each shop with a `file_url`, with optional access headers from Supabase Vault; skipped if `Last-Modified` is not newer than `latest_file_time`.
+**Pull** (optional, for a file published on the internet): every 15 minutes (scheduled inside Supabase) for each shop with a `file_url`, with optional access headers from Supabase Vault; skipped if `Last-Modified` is not newer than `latest_file_time`.
 
 Then, for both:
 
@@ -60,7 +60,7 @@ Then, for both:
 4. Check rows (price is a number, quantity present). If more than 5% fail, ask the AI for a new proposal, keep the old stock.
 5. Upsert into `shop_items` and `inventory` in one transaction (items missing from the file → 0); set `latest_file_time`; clear `last_error`; keep the raw file in Storage for 7 days.
 
-**Every hour:** a freshness watch emails the shop and you when no new file arrived for over 1 hour during opening hours (not built yet; admin shows the red row).
+**Every hour:** a freshness watch emails the shop and you when no new file arrived for over 1 hour during opening hours (not built yet).
 
 **On errors:** the function writes `last_error` for that shop.
 
@@ -70,8 +70,8 @@ The AI model (called from the function) only proposes mappings, so it runs once 
 
 - **Postgres with PostGIS**: tables `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `api_usage`, `profiles` (fields in docs/PRD.md, section 5).
 - **SQL functions**: `freshness_state(shop_id)`, view `public_stock`, RPC `search_stock(...)`. They decide availability labels, hide exact quantities when the shop chose so, and hide all availability for stale shops.
-- **Row Level Security** on every table: visitors read only public data, owners only their own shop, admin everything.
-- **Auth**: email magic-link login for shop owners and admin.
+- **Row Level Security** on every table: visitors read only public data, owners only their own shops.
+- **Auth**: e-mail + password with self-service sign-up, confirmation and password-reset e-mails (custom SMTP).
 - **Storage**: shop logos; the last raw export file per shop, kept 7 days for troubleshooting.
 - **Vault**: optional access headers for shops pulled from a file address, readable only by the stock-pull function.
 - **Scheduled jobs**: the 15-minute stock pull and the hourly freshness watch.
@@ -84,8 +84,7 @@ The AI model (called from the function) only proposes mappings, so it runs once 
 - **Public pages**: search with map, shop pages, item pages, each with JSON-LD (`LocalBusiness`, `Product` + `Offer`).
 - **Discovery files**: `robots.txt` allowing AI bots, `sitemap.xml` with each shop's latest file time as `lastmod`, `llms.txt`.
 - **Public read API** `/api/v1/...` with an OpenAPI file, and an **MCP server** at `/mcp` with tools `search_stock`, `get_shop`, `get_item`. Both read-only, rate-limited, logged to `api_usage`.
-- **Owner dashboard**: shop details, opening hours, visibility mode, items, sync status.
-- **Admin**: shops, sync sources, and the AI mapping approval screen (proposed mapping next to 10 sample rows, Approve or Edit).
+- **Owner dashboard** (self-service): create shops, details, opening hours, export folder (rules + connection), column approval (proposed mapping next to sample rows), visibility mode, items, delete shop. No admin area.
 - Served on your own domain through Vercel.
 
 ## 3. One stock change, end to end
@@ -106,9 +105,9 @@ Worst-case delay from sale to PPI: export interval + 15 minutes, so about 30–4
 | --- | --- | --- |
 | Shop PC off or offline, or the PPI window closed | Stock stays up with "last confirmed at"; hidden after 24 h | Red row after 1 h in opening hours; "PPI window last active" stops moving |
 | Export stopped in the shop's software | Same as above | Same, and file time stops moving |
-| File layout changed | Last good stock stays | Email with a new AI proposal to approve |
+| File layout changed | Last good stock stays | The owner sees a new proposal to approve in the dashboard |
 | AI unsure about a field | Nothing changes until you decide | Field marked null in the proposal |
-| Stock-pull function failing | Stock ages normally, then hides after 24 h | Error email; red rows in admin |
+| Stock-pull function failing | Stock ages normally, then hides after 24 h | `last_error` on the owner's dashboard |
 | Vercel down | Site, API and MCP unavailable; stock data is safe | Uptime monitor alert |
 | Supabase down | Site and API unavailable | Uptime monitor alert |
 
@@ -117,7 +116,7 @@ The rule everywhere: when PPI isn't sure, it says less, never more. Stale stock 
 ## 5. Security
 
 - Shop PC: nothing listens on the network; the browser reads one folder, read-only, and uploads only to PPI over HTTPS.
-- Uploads: only with the login of the shop's owner (or the admin), checked by `upload_check_in()`; removing the owner from the shop cuts access instantly.
+- Uploads: only with the login of the shop's owner, checked by `upload_check_in()`.
 - Supabase: Row Level Security on all tables; service key only in Supabase function secrets; exact quantities never leave the database for shops that hide them.
 - Public API and MCP: read-only, rate-limited, no personal data.
 - Credentials (API keys, secrets) kept in Supabase Vault and function secrets, Vercel environment variables and a password manager, never in documents, chat or the repository.

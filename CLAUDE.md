@@ -63,7 +63,9 @@ newest finished file (untouched 60 s) to `stock-pull?shop_id=…` with the owner
 
 ## Auth
 
-E-mail magic links only (`shouldCreateUser: false`, no self-signup). `/auth/confirm` handles `token_hash`
-(custom templates, SETUP.md E3), `code` (default login template) and hands `#access_token` links (default
-invite template) to `/[lang]/login/finish`, which sets the session in the browser. Every server action re-checks the session via
-`@/lib/auth`; RLS is the real boundary. Anything needing the service role key goes in `supabase/functions/`.
+Self-service, shop owners only — **no admin area on the website**. E-mail + password: `/signup` (anyone; Supabase
+sends a confirmation e-mail), `/login`, `/forgot` (reset e-mail → `/auth/confirm` → `/[lang]/password`). `/auth/confirm`
+handles `token_hash` (templates in SETUP.md E3), `code` (default templates) and `#access_token` (→ `/[lang]/login/finish`).
+Owners create/edit shops via `owner_save_shop()`, read them via `my_shops()`, approve columns via `owner_set_mapping()`,
+delete via `owner_delete_shop()`. Every server action re-checks the session via `@/lib/auth`; RLS and those functions
+are the real boundary. Anything needing the service role key goes in `supabase/functions/`.

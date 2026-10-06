@@ -15,10 +15,9 @@ PPI shows shoppers which local shops have a product in stock right now, how much
 | Role | Who | Can do |
 | --- | --- | --- |
 | Visitor | Any shopper, no login | Search, browse shops and products, see map, switch language |
-| Shop owner | A shop's staff, logs in | Edit own shop details, choose stock visibility, hide items, see sync status |
-| Admin | David only | Create shops, invite owners, manage sync sources, see all errors |
+| Shop owner | Signs up by themselves (e-mail + password) | Create and edit own shops (up to 5), connect the export folder, approve the stock-file columns, choose stock visibility, hide items, delete own shop |
 
-There is no self-signup for shops in the MVP. Admin creates the shop and sends an invite link to the owner's email.
+Self-service: owners sign up, create their shop and connect their stock without any help. There is no admin area on the website; the operator uses the Supabase dashboard if ever needed.
 
 ## 3. Scope
 
@@ -27,8 +26,7 @@ There is no self-signup for shops in the MVP. Admin creates the shop and sends a
 - Product search with distance sorting and a map
 - Shop pages and product pages
 - Freshness labels on all stock
-- Shop owner dashboard
-- Admin area
+- Self-service sign-up and shop owner dashboard (no admin area on the website)
 - Slovak (default), Hungarian and English
 - Mobile-first design
 
@@ -158,8 +156,8 @@ Acceptance:
 
 ### 8.4 Login (`/login`)
 
-- Email magic link via Supabase Auth
-- After login: owners go to `/dashboard`, admin to `/admin`
+- E-mail + password via Supabase Auth: `/signup` (confirmation e-mail), `/login`, `/forgot` (reset link by e-mail) and `/password` (change password, also the landing page of the reset link)
+- After login: `/dashboard`
 
 ### 8.5 Shop owner dashboard (`/dashboard`)
 
@@ -167,7 +165,7 @@ Acceptance:
 - Shop details form: phone, website, opening hours editor (per day, multiple ranges, closed toggle), logo upload to Supabase Storage
 - Visibility mode selector with a live preview of how an item will look to shoppers
 - Low stock threshold (number, 1–50)
-- Facilities for customers (tick boxes): customer toilet, douchette (bidet shower), card terminal. Shown on the shop page (toilet and douchette under the stock line, card payment under the opening hours) and in its JSON-LD (`amenityFeature`, `paymentAccepted`). The admin can set them too.
+- Facilities for customers (tick boxes): customer toilet, douchette (bidet shower), card terminal. Shown on the shop page (toilet and douchette under the stock line, card payment under the opening hours) and in its JSON-LD (`amenityFeature`, `paymentAccepted`). Set by the owner.
 - Items table: name, code, price, stock label, public toggle; search and pagination
 
 Acceptance:
@@ -175,13 +173,12 @@ Acceptance:
 - [ ] Owner of shop A cannot see or change anything of shop B
 - [ ] Switching to `yes_no` immediately hides exact numbers on public pages
 
-### 8.6 Admin (`/admin`)
+### 8.6 Self-service (no admin area)
 
-- Shops list: name, city, active, freshness state, last error; rows with no file for over 1 hour during opening hours are marked with a bold "No file for over 1 h" label and sorted to the top
-- Create or edit shop: all fields, location picked on a map
-- Invite owner by email (sends Supabase invite, creates `shop_members` row)
-- Sync source per shop: file format, file URL, latest file time, last error. The AI-proposed field mapping is shown next to 10 sample rows, with Approve and Edit buttons; approving sets `mapping_status` to `confirmed`
-- Toggle shop active
+- A logged-in user without a shop sees the "Add your shop" form: name, address, town, country, time zone, location on a map, phone, website, opening hours, facilities, "Visible to shoppers". The page address (slug) is made from name and town.
+- Export folder section on the dashboard: rules for the stock software's export and the folder connection itself (same as `/sync`).
+- Stock file columns: after the first file, the AI-proposed mapping is shown as one drop-down per field next to the file's first rows; the owner approves it (`mapping_status` = `confirmed`).
+- Delete shop (with a confirmation tick).
 
 ### 8.7 AI and machine access
 
@@ -195,7 +192,7 @@ Any AI assistant or search engine must be able to read PPI's stock directly.
 
 **Discovery files**
 
-- `/robots.txt`: allow all crawlers, including GPTBot, ClaudeBot and PerplexityBot; disallow `/dashboard` and `/admin`.
+- `/robots.txt`: allow all crawlers, including GPTBot, ClaudeBot and PerplexityBot; disallow the login-only pages.
 - `/sitemap.xml`: every active shop and public item page, `lastmod` set to the shop's latest file time.
 - `/llms.txt`: plain text on what PPI is, what data it holds, how fresh it is, and links to the API docs and MCP server.
 
@@ -248,7 +245,7 @@ Have a native speaker check the Hungarian and Slovak texts before launch.
 
 ## 11. Build order
 
-Build in the phases of Build blueprint (Claude Code): foundation, database, public pages, login and admin, AI access, stock pull, then the shop PC setup. Each phase ends with its own checks; do not start the next until they pass.
+Build in the phases of Build blueprint (Claude Code): foundation, database, public pages, login and dashboard, AI access, stock pull, then the shop PC setup. Each phase ends with its own checks; do not start the next until they pass.
 
 ## 12. Launch checklist
 

@@ -32,8 +32,8 @@ Supabase "stock-pull" function ──▶ same checks and AI field mapping as bef
 
 ### S1. Before you go
 
-- The shop exists in PPI and the owner is invited (Správa → shop → **Majitelia**). The owner has clicked the login
-  link once. The admin account also works for a rehearsal.
+- The owner has an account (**Pre obchody → Vytvoriť bezplatný účet obchodu**, then the confirmation e-mail) and has
+  created the shop under **Môj obchod**. Everything below is also explained on that page.
 - The shop PC runs **Windows 10 or 11** with **Microsoft Edge** (already on every Windows PC) or **Google Chrome**.
 
 ### S2. The shop's stock software: scheduled export
@@ -56,13 +56,12 @@ PPI sends the **newest** XML / CSV / TXT / XLSX file in that folder, so keep oth
 
 On the shop PC, in **Edge** or **Chrome**:
 
-1. Open the PPI website → **Pre obchody** → enter the owner's e-mail → open the login link from that e-mail **on
-   this PC**.
-2. Open **Priečinok s exportom** in the menu (or `https://<your PPI address>/sk/sync`).
+1. Open the PPI website → **Pre obchody** → log in with the owner's e-mail and password.
+2. **Môj obchod** → section **Priečinok s exportom** (or **Priečinok s exportom** in the menu).
 3. Click **Prepojiť priečinok**, choose the export folder from S2 → **Vybrať priečinok** (Select folder) → when
    the browser asks, **Zobraziť súbory** / **View files** (read access).
 4. The page shows the folder, the newest file and the result:
-   - "Súbor prijatý … Správca PPI raz skontroluje jeho stĺpce" — the first file arrived. Continue with S5.
+   - "Súbor prijatý … skontrolujte jeho stĺpce" — the first file arrived. Continue with S5.
    - "Najnovší súbor bol zapísaný pred menej ako minútou" — the export is still being written; it is sent
      within a minute or two.
 
@@ -87,28 +86,27 @@ On the same page, under **Spúšťanie so systémom Windows**:
 
 Leave the PPI window open; minimising it is fine. Closing it stops the uploads until it is opened again.
 
-### S5. Approve the columns (PPI admin, once per shop)
+### S5. Approve the columns (the owner, once per shop)
 
-**Správa** → the shop → **Zdroj zásob**:
+**Môj obchod** → **Stĺpce súboru so zásobami**:
 
-1. "PPI window on the shop PC last active" shows a recent time and the file name.
-2. Compare the proposed field mapping with the sample rows → **Schváliť priradenie**.
-3. On the shop PC, click **Skontrolovať teraz** (or wait up to 15 minutes) → "Zásoby odoslané. Aktualizované
-   položky: …".
-4. The shop's public page shows the items with fresh stock. From now on every new export arrives by itself.
+1. Each field (item code, name, quantity, price, …) shows the column PPI suggests, next to the file's first rows.
+   Correct a drop-down if needed → **Schváliť stĺpce**.
+2. The PPI window sends the file again at its next check (or click **Skontrolovať teraz**) → "Zásoby odoslané.
+   Aktualizované položky: …".
+3. **Zobraziť stránku obchodu** shows the items with fresh stock. From now on every new export arrives by itself.
 
-If the export layout changes later, PPI keeps the previous stock and proposes a new mapping; approve it the same way.
+If the export layout changes later, PPI keeps the previous stock and suggests new columns; approve them the same way.
 
 ---
 
 ## Part R — Rehearsal on your own Windows PC
 
-1. Sign in on your PC as admin, open **Priečinok s exportom** (`/sk/sync`) and choose a test shop
-   (e.g. create `test-import` in Správa first).
+1. On your PC, sign up as a shop owner (`/sk/signup`) and create a test shop under **Môj obchod**.
 2. Make a folder, e.g. `C:\PPI-test`, and save the sample file there:
    `https://<your PPI address>/samples/stock-sample.csv` (right-click → Save as… → `stock.csv`).
 3. **Prepojiť priečinok** → `C:\PPI-test` → wait a minute → "Súbor prijatý".
-4. Správa → the test shop → **Schváliť priradenie** → back on `/sync` → **Skontrolovať teraz** → "Zásoby odoslané".
+4. **Môj obchod → Stĺpce súboru so zásobami → Schváliť stĺpce** → "Zásoby odoslané" shortly after.
 5. Open `stock.csv` in Notepad, change a quantity, save, wait 2 minutes, **Skontrolovať teraz** → the public page
    shows the new quantity.
 6. Delete one line, save, wait 2 minutes, **Skontrolovať teraz** → that item shows as sold out.
@@ -126,6 +124,6 @@ If the export layout changes later, PPI keeps the previous stock and proposes a 
 | "V priečinku zatiaľ nie je súbor so zásobami" | Check the export folder and file type in the stock software (S2). |
 | "Odoslanie zlyhalo: …" | Internet down, or PPI being updated. It tries again at the next check. |
 | "PPI už sleduje tento priečinok v inom okne" | PPI is open twice. Close the extra window or tab. |
-| Admin: "PPI window … last active" is old | The PC is off or asleep, or the PPI window was closed. |
+| Dashboard: "Okno PPI … naposledy aktívne" is old | The PC is off or asleep, or the PPI window was closed. |
 
 **Moving to another PC:** do S3 and S4 on the new PC, then close PPI on the old one.

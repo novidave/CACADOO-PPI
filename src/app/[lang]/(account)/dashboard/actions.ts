@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { sanitizeHours } from "@/lib/hours";
+import { MAPPING_FIELDS } from "@/lib/myShops";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOGO_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -37,26 +38,6 @@ async function updateShop(
   if (error) return error.message;
   if (!data?.length) return "not allowed";
   return null;
-}
-
-export async function saveShopDetails(formData: FormData) {
-  const { session, shopId, back } = await start(formData);
-  const phone = String(formData.get("phone") ?? "").trim().slice(0, 40);
-  let website = String(formData.get("website") ?? "").trim();
-  if (website && !/^https?:\/\//i.test(website)) website = `https://${website}`;
-  if (website) {
-    try {
-      website = new URL(website).toString();
-    } catch {
-      back({ err: "website" });
-    }
-  }
-  const error = await updateShop(session.supabase, shopId, {
-    phone: phone || null,
-    website: website || null,
-    opening_hours: sanitizeHours(formData.get("opening_hours")),
-  });
-  back(error ? { err: error } : { ok: "details" });
 }
 
 export async function saveVisibility(formData: FormData) {
@@ -103,12 +84,84 @@ export async function setItemPublic(formData: FormData) {
   back(error ? { err: error.message } : !data?.length ? { err: "not allowed" } : { ok: "item", ...(q ? { q } : {}), page });
 }
 
-export async function saveAmenities(formData: FormData) {
-  const { session, shopId, back } = await start(formData);
-  const error = await updateShop(session.supabase, shopId, {
-    has_toilet: formData.get("has_toilet") === "on",
-    has_douchette: formData.get("has_douchette") === "on",
-    has_card_terminal: formData.get("has_card_terminal") === "on",
+const text = (formData: FormData, key: string, max = 200) => String(formData.get(key) ?? "").trim().slice(0, max);
+
+/** "Potraviny Čierna" + "Košice" → "potraviny-cierna-kosice" (the database makes it unique). */
+function slugBase(...parts: string[]): string {
+  return parts
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+/** Create a new shop (no shop_id) or save the details of one of your shops. */
+export async function saveShop(formData: FormData) {
+  const langValue = String(formData.get("lang") ?? "");
+  const lang: Locale = isLocale(langValue) ? langValue : "en";
+  const session = await getSession();
+  if (!session) redirect(`/${lang}/login`);
+  const shopId = String(formData.get("shop_id") ?? "");
+  const isNew = !UUID.test(shopId);
+  const fail = (err: string) =>
+    redirect(isNew ? `/${lang}/dashboard?new=1&err=${encodeURIComponent(err)}` : `/${lang}/dashboard?${new URLSearchParams({ shop: text(formData, "shop_slug", 80), err })}`);
+
+  const name = text(formData, "name");
+  const city = text(formData, "city", 100);
+  if (!name) fail("name");
+  let website = text(formData, "website", 300);
+  if (website && !/^https?:\/\//i.test(website)) website = `https://${website}`;
+  if (website) {
+    try {
+      website = new URL(website).toString();
+    } catch {
+      fail("website");
+    }
+  }
+
+  const { data, error } = await session.supabase.rpc("owner_save_shop", {
+    p: {
+      id: isNew ? null : shopId,
+      slug_base: slugBase(name, city),
+      name,
+      ico: text(formData, "ico", 40),
+      address: text(formData, "address"),
+      city,
+      country: text(formData, "country", 2).toUpperCase(),
+      timezone: text(formData, "timezone", 64),
+      lat: text(formData, "lat", 20),
+      lng: text(formData, "lng", 20),
+      phone: text(formData, "phone", 40),
+      website,
+      opening_hours: sanitizeHours(formData.get("opening_hours")),
+      is_active: formData.get("is_active") === "on",
+      has_toilet: formData.get("has_toilet") === "on",
+      has_douchette: formData.get("has_douchette") === "on",
+      has_card_terminal: formData.get("has_card_terminal") === "on",
+    },
   });
-  back(error ? { err: error } : { ok: "amenities" });
+  if (error) fail(error.code === "54000" ? "limit" : error.message);
+  const { data: saved } = await session.supabase.from("shops").select("slug").eq("id", String(data)).maybeSingle();
+  redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: saved?.slug ?? "", ok: isNew ? "created" : "details" })}`);
+}
+
+/** The owner approves which column of the stock file is which. */
+export async function approveColumns(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const mapping = Object.fromEntries(MAPPING_FIELDS.map((f) => [f, text(formData, `col_${f}`) || null]));
+  const { error } = await session.supabase.rpc("owner_set_mapping", { p_shop_id: shopId, p_mapping: mapping });
+  back(error ? { err: error.code === "22023" ? "columns" : error.message } : { ok: "columns" });
+}
+
+/** Deletes one of your shops, after the confirmation box is ticked. */
+export async function deleteShop(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  if (formData.get("confirm") !== "on") back({ err: "confirm" });
+  const { error } = await session.supabase.rpc("owner_delete_shop", { p_shop_id: shopId });
+  if (error) back({ err: error.message });
+  const langValue = String(formData.get("lang") ?? "");
+  redirect(`/${isLocale(langValue) ? langValue : "en"}/dashboard?ok=deleted`);
 }
