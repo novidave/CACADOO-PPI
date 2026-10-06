@@ -26,7 +26,8 @@ Setup steps for humans are in `SETUP.md`.
 ## Design
 
 Plain white background, black text, thin light-grey lines (`border-line`, `text-muted`).
-**No colours** (only exception: the blue "Select picture" link for the logo, at the owner's request), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
+**No colours** (only exceptions, at the owner's request: the Cacadoo PPI logo in the header, `public/brand/cacadoo-ppi.png`,
+and the blue "Select picture" link for shop logos), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), black dot pins;
 always an extra — every page must work and show its data without it.
 
