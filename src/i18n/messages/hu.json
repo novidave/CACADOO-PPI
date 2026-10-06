@@ -260,6 +260,8 @@
     "rule_all": "Minden termék egy fájlban, mindig ugyanazzal a fájlnévvel, minden alkalommal felülírva. A fájlból hiányzó termék elfogyottnak számít.",
     "rule_schedule": "Nyitvatartási időben 15–30 percenként, valamint éjjel egyszer.",
     "rule_public": "Csak nyilvános adatok: beszerzési ár, szállító és vásárlói adat nélkül.",
-    "rule_pc": "A gép nyitvatartási időben bekapcsolva marad, és nyitva van rajta ez az oldal vagy a PPI alkalmazás (lehet kis méretre állítva)."
+    "rule_pc": "A gép nyitvatartási időben bekapcsolva marad, és nyitva van rajta ez az oldal vagy a PPI alkalmazás (lehet kis méretre állítva).",
+    "saving": "Mentés…",
+    "uploading": "Feltöltés…"
   }
 }

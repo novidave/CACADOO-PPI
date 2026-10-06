@@ -5,6 +5,7 @@ import type { MyShop } from "@/lib/myShops";
 import { europeanTimeZones } from "@/lib/timezones";
 import { HoursEditor } from "./HoursEditor";
 import { LocationPicker } from "./LocationPicker";
+import { PendingButton } from "./PendingButton";
 
 const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
 
@@ -110,9 +111,7 @@ export function ShopForm({
         <input type="checkbox" name="is_active" defaultChecked={shop?.is_active ?? true} />
         {o.active}
       </label>
-      <button type="submit" className="self-start rounded border border-foreground px-4 py-2 font-medium">
-        {submitLabel}
-      </button>
+      <PendingButton pending={o.saving}>{submitLabel}</PendingButton>
     </form>
   );
 }
