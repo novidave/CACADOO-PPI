@@ -39,6 +39,7 @@ For **each** file below:
 | 11 | `supabase/migrations/20261008000001_stock_pull.sql` | Stock pull: apply a stock file, file-access credentials in Vault, raw-file storage |
 | 12 | `supabase/migrations/20261009000001_folder_upload.sql` | Folder upload: shop PC check-in, last uploaded file |
 | 13 | `supabase/migrations/20261010000001_self_service.sql` | Self-service: owners create shops and approve their file's columns |
+| 14 | `supabase/migrations/20261011000001_search_shop_name.sql` | Search also by shop name, street and town |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -166,7 +167,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001
 ```
 
 ---
@@ -336,7 +337,8 @@ Test it as a shop owner: Part H, step 5.
 ## Part H — Self-service and the shop PC (phase 7)
 
 1. **Database:** SQL Editor → run file 12 (`supabase/migrations/20261009000001_folder_upload.sql`) if not done yet,
-   then file 13 (`supabase/migrations/20261010000001_self_service.sql`).
+   then file 13 (`supabase/migrations/20261010000001_self_service.sql`) and file 14
+   (`supabase/migrations/20261011000001_search_shop_name.sql`).
 2. **Function:** Supabase → **Edge Functions** → `stock-pull` → **Code** → replace everything with the new
    `supabase/functions/stock-pull/index.ts` (GitHub → the file → **Copy raw file**) → **Deploy**. Keep **Verify JWT** off.
 3. **Old function:** Edge Functions → `invite-owner` → delete it (owners sign up themselves now).

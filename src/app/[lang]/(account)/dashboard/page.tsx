@@ -1,16 +1,15 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { formatDateTime, formatPrice } from "@/lib/format";
-import { guessShopRegion } from "@/lib/location";
 import { MAPPING_FIELDS, REQUIRED_FIELDS, type MyShop } from "@/lib/myShops";
 import { availabilityText, type AvailabilityKey } from "@/lib/stock";
 import { folderSyncLabels } from "@/lib/syncLabels";
 import { DbError } from "@/components/DbError";
 import { FolderSync } from "@/components/FolderSync";
+import { LogoInput } from "@/components/LogoInput";
 import { ShopForm } from "@/components/ShopForm";
 import { approveColumns, deleteShop, saveShop, saveVisibility, setItemPublic, uploadLogo } from "./actions";
 
@@ -79,7 +78,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           dict={dict}
           lang={lang}
           shop={null}
-          defaults={guessShopRegion(await headers())}
+          defaults={{ country: "", timezone: "" }}
           action={saveShop}
           submitLabel={o.create_button}
         />
@@ -252,7 +251,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
             // eslint-disable-next-line @next/next/no-img-element -- logo from Supabase Storage
             <img src={shop.logo_url} alt="" width={64} height={64} className="h-16 w-16 border border-line object-contain" />
           )}
-          <input name="logo" type="file" accept="image/png,image/jpeg,image/webp" required className="text-sm" />
+          <LogoInput />
           <p className="text-sm text-muted">{dict.dashboard.logo_hint}</p>
           <SubmitButton>{dict.dashboard.upload}</SubmitButton>
         </form>

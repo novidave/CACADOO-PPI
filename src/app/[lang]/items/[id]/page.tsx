@@ -1,22 +1,16 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isLocale, locales, type Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { getItem, getOtherOffers, getShop, getShopsByIds } from "@/lib/data";
 import { addressLine, directionsUrl, formatDistance, formatPrice } from "@/lib/format";
-import { resolveLocation } from "@/lib/location";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import type { StockRow } from "@/lib/stock";
 import { JsonLd } from "@/components/JsonLd";
 import { OpenStatus } from "@/components/OpenStatus";
 import { ShopMap } from "@/components/ShopMap";
 import { StockLine } from "@/components/StockLine";
-
-function first(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/items/[id]">): Promise<Metadata> {
   const { lang, id } = await params;
@@ -34,17 +28,14 @@ export async function generateMetadata({ params }: PageProps<"/[lang]/items/[id]
   };
 }
 
-export default async function ItemPage({ params, searchParams }: PageProps<"/[lang]/items/[id]">) {
+export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]">) {
   const { lang, id } = await params;
   if (!isLocale(lang)) notFound();
   const [dict, item] = await Promise.all([getDictionary(lang), getItem(id)]);
   if (!item) notFound();
 
-  const sp = await searchParams;
-  const visitor = resolveLocation({ lat: first(sp.lat), lng: first(sp.lng) }, await headers());
-  // Nearest to the visitor; if unknown, nearest to this shop.
-  const near =
-    visitor ?? (item.shop_lat !== null && item.shop_lng !== null ? { lat: item.shop_lat, lng: item.shop_lng } : null);
+  // Other shops with the same EAN, nearest to this shop first (no visitor location is used).
+  const near = item.shop_lat !== null && item.shop_lng !== null ? { lat: item.shop_lat, lng: item.shop_lng } : null;
 
   const [shop, others] = await Promise.all([getShop(item.shop_slug), getOtherOffers(item, near)]);
   const otherShops = await getShopsByIds([...new Set(others.map((o) => o.shop_id))]);
@@ -112,7 +103,6 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/[la
               .filter((o) => o.shop_lat !== null && o.shop_lng !== null)
               .map((o) => ({ slug: o.shop_slug, name: o.shop_name, lat: o.shop_lat!, lng: o.shop_lng!, href: `/${lang}/items/${o.item_id}` })),
           ]}
-          visitor={visitor?.source === "device" ? visitor : null}
           label={dict.shop.map}
           className="h-56 md:h-72"
         />

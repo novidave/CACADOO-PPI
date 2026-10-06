@@ -566,4 +566,15 @@ exception when insufficient_privilege then null;
 end $$;
 reset role;
 
+\echo '--- search finds a shop by its name, street or town'
+set role anon;
+do $$
+begin
+  assert (select count(*) from public.search_stock('drogeria kostolne')) > 0, 'shop name finds its items';
+  assert (select bool_and(shop_slug = 'drogeria-kostolne') from public.search_stock('Drogéria Kostolné')), 'only that shop';
+  assert (select count(*) from public.search_stock('Kostolne namestie')) > 0, 'street finds the shop''s items';
+  assert (select count(*) from public.search_stock('budapest')) > 0, 'town finds its shops'' items';
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -23,7 +23,7 @@ Self-service: owners sign up, create their shop and connect their stock without 
 
 **In the MVP**
 
-- Product search with distance sorting and a map
+- Product search by text (item, brand, EAN, shop name, street, town) across all shops, with a map of the results
 - Shop pages and product pages
 - Freshness labels on all stock
 - Self-service sign-up and shop owner dashboard (no admin area on the website)
@@ -46,7 +46,7 @@ Self-service: owners sign up, create their shop and connect their stock without 
 - All stock and sync data is written by the stock-pull Edge Function using the service role key (the shop PC only uploads the file to it; `upload_check_in()` records when the PPI window was last active). The frontend must never contain or use the service role key.
 - Put freshness and availability logic in the database (a view and SQL functions), not in React, so the website and any future integration show the same result.
 - Row Level Security on every table. Public pages must load their data on the server (Next.js server components), never in the browser, so the first HTML already contains names, prices and availability.
-- No built-in home town. The search location is, in order: the visitor's device location ("Use my location"), else an approximate city from the hosting provider's IP lookup (Vercel geolocation headers; used per request, never stored), else unknown, in which case every shop is searched and no distances are shown. Default search radius 10 km.
+- No built-in home town and no location services: the website never uses the visitor's device location or an IP lookup. Search is by text across every shop.
 - Times stored in UTC. Every shop has an IANA time zone (`shops.timezone`, e.g. `Europe/Vienna`); opening hours and "last confirmed at" times use the shop's time zone.
 - Every price carries its own currency (EUR, HUF, CZK, PLN, CHF, …), written the visitor's way with local symbols: `12,90 €` (sk), `1890 Ft` (hu), `€12.90` (en).
 - Languages: SK, HU, EN to start; adding a language is one text file. Browsers asking for a language PPI does not have yet get English.
@@ -128,11 +128,11 @@ No client can insert or update `inventory` or `sync_sources`; only the service r
 ### 8.1 Home and search (`/`)
 
 - Search box at the top, map below, results list beside it on desktop or below it on mobile
-- "Use my location" button; without it, an approximate city from the IP lookup is used, and if that is unknown every shop is searched (no distances)
-- Filters: radius (2, 5, 10, 25, 50 km, shown only when a location is known), "Only available now"
-- Each result: item name, shop name, distance, price, availability label, freshness text, "Open now" badge
+- No location: every shop is searched; the text matches item name, brand, EAN, shop name, street or town
+- Filter: "Only available now"
+- Each result: item name, shop name, street and town, price, availability label, freshness text, "Open now" badge
 - Map pins per shop; tapping a pin highlights that shop's results
-- Empty state: "No shop nearby has this right now" plus a link to widen the radius
+- Empty state: "No shop has this right now"
 
 Acceptance:
 
