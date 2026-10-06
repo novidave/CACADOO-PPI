@@ -260,6 +260,8 @@
     "rule_all": "Všetok tovar v jednom súbore, vždy s rovnakým názvom, zakaždým prepísaný. Tovar, ktorý v súbore chýba, sa počíta ako vypredaný.",
     "rule_schedule": "Každých 15–30 minút počas otváracích hodín a raz v noci.",
     "rule_public": "Len verejné údaje: žiadne nákupné ceny, dodávatelia ani údaje o zákazníkoch.",
-    "rule_pc": "Počítač je počas otváracích hodín zapnutý a je na ňom otvorená táto stránka alebo aplikácia PPI (môže byť minimalizovaná)."
+    "rule_pc": "Počítač je počas otváracích hodín zapnutý a je na ňom otvorená táto stránka alebo aplikácia PPI (môže byť minimalizovaná).",
+    "saving": "Ukladám…",
+    "uploading": "Nahrávam…"
   }
 }

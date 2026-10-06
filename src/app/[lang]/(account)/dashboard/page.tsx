@@ -10,6 +10,7 @@ import { folderSyncLabels } from "@/lib/syncLabels";
 import { DbError } from "@/components/DbError";
 import { FolderSync } from "@/components/FolderSync";
 import { LogoInput } from "@/components/LogoInput";
+import { PendingButton } from "@/components/PendingButton";
 import { ShopForm } from "@/components/ShopForm";
 import { approveColumns, deleteShop, saveShop, saveVisibility, setItemPublic, uploadLogo } from "./actions";
 
@@ -114,6 +115,14 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     `/${lang}/dashboard?${new URLSearchParams({ shop: shop.slug, ...(q ? { q } : {}), page: String(n) })}#items`;
   const when = (iso: string | null) => (iso ? formatDateTime(iso, lang, shop.timezone) : dict.account.never);
   const okText = ok === "columns" ? o.columns_saved : dict.account.saved;
+  // The message of a form is shown inside that form's section (the page jumps there).
+  const at = first(sp.at);
+  const notice = (section: string) =>
+    at === section && (ok || err) ? (
+      <p role="status" className={ok ? "border border-foreground p-3 font-medium" : "border border-line p-3"}>
+        {ok ? okText : errorText(dict, err!)}
+      </p>
+    ) : null;
 
   // Columns of the stock file, from the sample rows of the last file received.
   const columns = [...new Set((shop.sample_rows ?? []).flatMap((row) => Object.keys(row)))];
@@ -152,9 +161,9 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
             </ol>
           </div>
         ) : (
-          ok && <p className="border border-foreground p-3 font-medium">{okText}</p>
+          ok && !at && <p className="border border-foreground p-3 font-medium">{okText}</p>
         )}
-        {err && <p className="border border-line p-3">{errorText(dict, err)}</p>}
+        {err && !at && <p className="border border-line p-3">{errorText(dict, err)}</p>}
       </header>
 
       <Section title={o.export_title} id="export">
@@ -202,7 +211,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           <p className="text-muted">{o.columns_waiting}</p>
         ) : (
           <form action={approveColumns} className="flex flex-col gap-3">
-            {hidden()}
+            {hidden({ at: "columns" })}
+            {notice("columns")}
             <p className="font-semibold">{shop.mapping_status === "confirmed" ? o.state_confirmed : o.state_proposed}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               {MAPPING_FIELDS.map((field) => (
@@ -228,12 +238,13 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
               ))}
             </div>
             <SampleRows rows={(shop.sample_rows ?? []).slice(0, 5)} columns={columns} title={o.sample_rows} />
-            <SubmitButton>{o.approve}</SubmitButton>
+            <SubmitButton pending={o.saving}>{o.approve}</SubmitButton>
           </form>
         )}
       </Section>
 
       <Section title={dict.dashboard.details_title} id="details">
+        {notice("details")}
         <ShopForm
           dict={dict}
           lang={lang}
@@ -244,22 +255,24 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
         />
       </Section>
 
-      <Section title={dict.dashboard.logo_title}>
+      <Section title={dict.dashboard.logo_title} id="logo">
         <form action={uploadLogo} className="flex flex-col gap-3">
-          {hidden()}
+          {hidden({ at: "logo" })}
+          {notice("logo")}
           {shop.logo_url && (
             // eslint-disable-next-line @next/next/no-img-element -- logo from Supabase Storage
             <img src={shop.logo_url} alt="" width={64} height={64} className="h-16 w-16 border border-line object-contain" />
           )}
           <LogoInput />
           <p className="text-sm text-muted">{dict.dashboard.logo_hint}</p>
-          <SubmitButton>{dict.dashboard.upload}</SubmitButton>
+          <SubmitButton pending={o.uploading}>{dict.dashboard.upload}</SubmitButton>
         </form>
       </Section>
 
-      <Section title={dict.dashboard.visibility_title}>
+      <Section title={dict.dashboard.visibility_title} id="visibility">
         <form action={saveVisibility} className="flex flex-col gap-3">
-          {hidden()}
+          {hidden({ at: "visibility" })}
+          {notice("visibility")}
           {(["exact", "in_stock", "yes_no"] as const).map((mode) => (
             <label key={mode} className="flex items-center gap-2">
               <input type="radio" name="visibility_mode" value={mode} defaultChecked={shop.visibility_mode === mode} />
@@ -277,7 +290,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
               className={`${inputClass} w-24`}
             />
           </Field>
-          <SubmitButton>{dict.account.save}</SubmitButton>
+          <SubmitButton pending={o.saving}>{dict.account.save}</SubmitButton>
         </form>
         <div className="flex flex-col gap-1 pt-2">
           <span className="text-sm text-muted">{dict.dashboard.preview}</span>
@@ -372,13 +385,14 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
 
       <Section title={o.delete_title} id="delete">
         <form action={deleteShop} className="flex flex-col gap-3">
-          {hidden()}
+          {hidden({ at: "delete" })}
+          {notice("delete")}
           <p className="text-sm">{o.delete_intro}</p>
           <label className="flex items-center gap-2">
             <input type="checkbox" name="confirm" required />
             {o.delete_confirm}
           </label>
-          <SubmitButton>{o.delete_button}</SubmitButton>
+          <SubmitButton pending={o.saving}>{o.delete_button}</SubmitButton>
         </form>
       </Section>
     </div>
@@ -405,7 +419,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function SubmitButton({ children }: { children: React.ReactNode }) {
+function SubmitButton({ children, pending }: { children: React.ReactNode; pending?: string }) {
+  if (pending) return <PendingButton pending={pending}>{children}</PendingButton>;
   return (
     <button type="submit" className="self-start rounded border border-foreground px-4 py-2 font-medium">
       {children}

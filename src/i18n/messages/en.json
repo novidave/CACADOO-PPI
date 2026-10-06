@@ -260,6 +260,8 @@
     "rule_all": "All items in one file, always the same file name, overwritten each time. An item missing from the file counts as sold out.",
     "rule_schedule": "Every 15–30 minutes during opening hours, plus once at night.",
     "rule_public": "Only public information: no purchase prices, suppliers or customer data.",
-    "rule_pc": "The PC stays on during opening hours with this page or the PPI app open (minimised is fine)."
+    "rule_pc": "The PC stays on during opening hours with this page or the PPI app open (minimised is fine).",
+    "saving": "Saving…",
+    "uploading": "Uploading…"
   }
 }

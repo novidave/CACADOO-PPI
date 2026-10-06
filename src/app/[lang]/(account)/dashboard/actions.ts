@@ -22,8 +22,10 @@ async function start(formData: FormData) {
   if (!session) redirect(`/${lang}/login`);
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
+  // Back to the section the form was in, with the message shown there.
+  const at = String(formData.get("at") ?? "").replace(/[^a-z]/g, "");
   const back = (query: Record<string, string>) =>
-    redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: slug, ...query })}`);
+    redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: slug, ...query, ...(at ? { at } : {}) })}${at ? `#${at}` : ""}`);
   if (!UUID.test(shopId)) back({ err: "invalid shop" });
   return { session, shopId, back };
 }
@@ -107,7 +109,11 @@ export async function saveShop(formData: FormData) {
   const shopId = String(formData.get("shop_id") ?? "");
   const isNew = !UUID.test(shopId);
   const fail = (err: string) =>
-    redirect(isNew ? `/${lang}/dashboard?new=1&err=${encodeURIComponent(err)}` : `/${lang}/dashboard?${new URLSearchParams({ shop: text(formData, "shop_slug", 80), err })}`);
+    redirect(
+      isNew
+        ? `/${lang}/dashboard?new=1&err=${encodeURIComponent(err)}`
+        : `/${lang}/dashboard?${new URLSearchParams({ shop: text(formData, "shop_slug", 80), err, at: "details" })}#details`,
+    );
 
   const name = text(formData, "name");
   const city = text(formData, "city", 100);
@@ -145,7 +151,9 @@ export async function saveShop(formData: FormData) {
   });
   if (error) fail(error.code === "54000" ? "limit" : error.message);
   const { data: saved } = await session.supabase.from("shops").select("slug").eq("id", String(data)).maybeSingle();
-  redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: saved?.slug ?? "", ok: isNew ? "created" : "details" })}`);
+  redirect(
+    `/${lang}/dashboard?${new URLSearchParams({ shop: saved?.slug ?? "", ok: isNew ? "created" : "details", ...(isNew ? {} : { at: "details" }) })}${isNew ? "" : "#details"}`,
+  );
 }
 
 /** The owner approves which column of the stock file is which. */
