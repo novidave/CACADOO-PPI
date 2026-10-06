@@ -131,7 +131,7 @@
     "remove_range": "Remove",
     "logo_title": "Logo",
     "logo_hint": "PNG, JPG or WebP. Large pictures are made smaller automatically.",
-    "upload": "Upload logo",
+    "upload": "Choose and upload logo",
     "logo_bad": "The logo must be PNG, JPG or WebP and at most 1 MB.",
     "visibility_title": "What shoppers see",
     "mode_exact": "Exact quantity",

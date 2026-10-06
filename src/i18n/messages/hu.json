@@ -131,7 +131,7 @@
     "remove_range": "Törlés",
     "logo_title": "Logó",
     "logo_hint": "PNG, JPG vagy WebP. A nagy képeket automatikusan kicsinyítjük.",
-    "upload": "Logó feltöltése",
+    "upload": "Logó kiválasztása és feltöltése",
     "logo_bad": "A logó PNG, JPG vagy WebP lehet, legfeljebb 1 MB.",
     "visibility_title": "Mit látnak a vásárlók",
     "mode_exact": "Pontos darabszám",
