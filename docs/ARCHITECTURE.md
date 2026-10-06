@@ -5,23 +5,20 @@ How PPI works from the shop's shelf to an AI assistant's answer, which software 
 ## 1. How it works in one minute
 
 1. A sale at the shop's till lowers the stock in the shop's own software, as it does today.
-2. Every 15–30 minutes that software exports a stock file into a preset folder on the shop PC.
-3. A small read-only file server on the PC serves only that folder, through an outbound Cloudflare tunnel.
-4. Every 15 minutes a scheduled Supabase Edge Function fetches the file if it changed. On a shop's first file, or when the layout changes, an AI model proposes which field is code, name, EAN, quantity and price; you approve it once.
+2. Every 15–30 minutes that software exports a stock file into a folder on the shop PC.
+3. The PPI window on that PC (the PPI website installed as an app in Edge or Chrome, started with Windows) reads only that folder and every 15 minutes uploads the newest finished file to a Supabase Edge Function.
+4. The function reads the file. On a shop's first file, or when the layout changes, an AI model proposes which field is code, name, EAN, quantity and price; you approve it once.
 5. The function saves the mapped stock to Supabase and records when the file was made. That time is the freshness.
 6. The Next.js web app on Vercel shows the stock as server-rendered pages, a public API and an MCP server, so shoppers, AI crawlers and AI assistants all read the same data.
 
 ```text
 SHOP PC (Windows)
-  Shop software --scheduled export--> C:\PPI\export\stock.xml
-  rclone (read-only, 127.0.0.1:8081) --> cloudflared (outbound tunnel)
-                                   |
-CLOUDFLARE (free)                  v
-  shop-name.ppi.sk  -->  Cloudflare Access (service token check)
-                                   |
-STOCK PULL (Supabase Edge Function, every 15 min)
-  fetch file if newer --> AI field mapping (first file + layout changes)
-                      --> validate + save (upsert, freshness)
+  Shop software --scheduled export--> export folder, e.g. C:\Export\stock.xml
+  PPI app window (Edge/Chrome, /sync) reads the folder every 15 min
+                                   |  HTTPS upload, owner's login
+STOCK PULL (Supabase Edge Function) v
+  newer file --> AI field mapping (first file + layout changes)
+             --> validate + save (upsert, freshness)
                                    |
 DATABASE (Supabase)                v
   Postgres/PostGIS --> SQL functions (freshness, search)
@@ -41,36 +38,33 @@ All four outputs read through the same SQL functions, so freshness and visibilit
 
 ### 2.1 Shop PC
 
-- **Shop's own stock software.** Set to export stock on a schedule (every 15–30 min in opening hours, plus a nightly full export). XML, CSV or Excel. Only public fields: item code, EAN, name, quantity, selling price. One file, overwritten each time, e.g. `stock.xml`.
-- **Preset folder** `C:\PPI\export`. Nothing else is stored there.
-- **PPI agent** (Task Scheduler task "PPI file server", SYSTEM, at startup) copies a finished export from `C:\PPI\export` to `C:\PPI\serve` (unchanged for 60 s and not open in the shop software), keeping its time, so a half-written file is never served.
-- **rclone** (`rclone serve http`, started and kept running by the agent) serves `C:\PPI\serve` on `127.0.0.1:8081` read-only with a username and password. It listens only on the PC itself and only serves files, so it cannot change anything. It answers `If-Modified-Since` with 304 and sends `Last-Modified`.
-- Installed by `public/shop-pc/install-ppi.ps1` (served at `/shop-pc/install-ppi.ps1`); steps in `docs/SHOP_PC_SETUP.md`.
-- **cloudflared** runs as a Windows service and opens an outbound connection to Cloudflare. The shop opens no router ports, and a changing or shared IP address doesn't matter.
+- **Shop's own stock software.** Set to export stock on a schedule (every 15–30 min in opening hours, plus a nightly full export). XML, CSV or Excel. Only public fields: item code, EAN, name, quantity, selling price. One file, overwritten each time, e.g. `stock.xml`, in a folder used only for this.
+- **PPI window**: the `/sync` page, installed as an app (web app manifest) in **Edge or Chrome** and started with Windows from the startup folder. The owner picks the export folder once (File System Access API, read-only); the browser keeps the folder handle in IndexedDB and, with "Allow on every visit", the permission too.
+- While open, it checks the folder every 15 minutes: the newest XML/CSV/TXT/XLSX file is sent when it is newer than the last applied file, untouched for 60 s and unchanged while being read (a half-written export is never sent). The same file is not sent again unless the mapping status changed (e.g. the admin approved it). Files are gzip-compressed.
+- One window per shop (Web Locks); a second window waits and takes over when the first closes.
+- Each check calls `upload_check_in()`, which records `sync_sources.folder_seen_at` ("PPI window last active" in admin).
+- Firefox and Safari have no folder access; the page says so. Steps for people: `docs/SHOP_PC_SETUP.md`.
+- Nothing listens on the network at the shop and no router change is needed.
 
-### 2.2 Cloudflare
+### 2.2 Upload and stock pull: Supabase Edge Function `stock-pull`
 
-- **One tunnel per shop** with its own hostname, e.g. `shop-name.ppi.sk`, pointing to `http://localhost:8081` on that PC.
-- **Cloudflare Access** in front of each hostname accepts only requests carrying that shop's service token (Client ID and Secret headers). Anyone else is refused before the request reaches the PC ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)).
+**Upload** (`POST /functions/v1/stock-pull?shop_id=…&file_time=…&file_name=…`, body = the file, `gzip=1` when compressed), called by the PPI window with the owner's own login: `upload_check_in()` checks that the caller is the shop's owner or the admin. `file_time` (the file's own time, never later than now) becomes the freshness.
 
-### 2.3 Stock pull: Supabase Edge Function
+**Pull** (optional, for a file published on the internet): every 15 minutes (scheduled inside Supabase) or "Pull now" in admin, for each shop with a `file_url`, with optional access headers from Supabase Vault; skipped if `Last-Modified` is not newer than `latest_file_time`.
 
-**Every 15 minutes** (scheduled inside Supabase)
+Then, for both:
 
-1. Read all shops from `sync_sources`.
-2. For each shop, request the file with its service token and rclone login, both read from Supabase Vault.
-3. Skip if the file's Last-Modified time is not newer than `latest_file_time`.
-4. Read XML, CSV or Excel into rows.
-5. No confirmed mapping yet: send 20 sample rows to the AI model, save the proposal as `proposed`, email you, stop.
-6. Confirmed mapping: apply it to every row.
-7. Check rows (price is a number, quantity present). If more than 5% fail, ask the AI for a new proposal, email you, keep the old stock.
-8. Upsert into `shop_items` and `inventory`; set `latest_file_time`; clear `last_error`; keep the raw file in Storage for 7 days.
+1. Read XML, CSV or Excel into rows.
+2. No confirmed mapping yet: send 20 sample rows to the AI model, save the proposal as `proposed`, stop.
+3. Confirmed mapping: apply it to every row.
+4. Check rows (price is a number, quantity present). If more than 5% fail, ask the AI for a new proposal, keep the old stock.
+5. Upsert into `shop_items` and `inventory` in one transaction (items missing from the file → 0); set `latest_file_time`; clear `last_error`; keep the raw file in Storage for 7 days.
 
-**Every hour:** a freshness watch emails the shop and you when no new file arrived for over 1 hour during opening hours.
+**Every hour:** a freshness watch emails the shop and you when no new file arrived for over 1 hour during opening hours (not built yet; admin shows the red row).
 
-**On errors:** the function writes `last_error` for that shop and emails you once, not every 15 minutes.
+**On errors:** the function writes `last_error` for that shop.
 
-The AI model (Anthropic or OpenAI API, called from the function) only proposes mappings, so it runs once per shop plus whenever a file layout changes. Claude Code writes this function and its tests in build phase 6.
+The AI model (called from the function) only proposes mappings, so it runs once per shop plus whenever a file layout changes.
 
 ### 2.4 Database: Supabase
 
@@ -79,7 +73,7 @@ The AI model (Anthropic or OpenAI API, called from the function) only proposes m
 - **Row Level Security** on every table: visitors read only public data, owners only their own shop, admin everything.
 - **Auth**: email magic-link login for shop owners and admin.
 - **Storage**: shop logos; the last raw export file per shop, kept 7 days for troubleshooting.
-- **Vault**: each shop's Cloudflare service token and rclone login, readable only by the stock-pull function.
+- **Vault**: optional access headers for shops pulled from a file address, readable only by the stock-pull function.
 - **Scheduled jobs**: the 15-minute stock pull and the hourly freshness watch.
 - The **service role key** exists only in Supabase function secrets, never in the web app or the repository.
 
@@ -100,7 +94,7 @@ The AI model (Anthropic or OpenAI API, called from the function) only proposes m
 | --- | --- |
 | 10:02 | A customer buys the last drill; the till lowers stock to 0 in the shop's software |
 | 10:15 | The scheduled export overwrites `stock.xml` in the preset folder |
-| 10:15–10:30 | The next stock-pull run sees a newer file, maps it with the saved mapping and saves it; freshness = 10:15 |
+| 10:16–10:31 | The PPI window's next check sees the finished newer file and uploads it; the function maps it with the saved mapping and saves it; freshness = 10:15 |
 | Right after | Item page, API and MCP all show "Out of stock · updated 10:15" |
 | Later | AI crawlers pick up the new page on their next visit; assistants using MCP get it immediately |
 
@@ -110,7 +104,7 @@ Worst-case delay from sale to PPI: export interval + 15 minutes, so about 30–4
 
 | Failure | What shoppers and AI see | What you see |
 | --- | --- | --- |
-| Shop PC off or offline | Stock stays up with "last confirmed at"; hidden after 24 h | Red row after 1 h in opening hours, email |
+| Shop PC off or offline, or the PPI window closed | Stock stays up with "last confirmed at"; hidden after 24 h | Red row after 1 h in opening hours; "PPI window last active" stops moving |
 | Export stopped in the shop's software | Same as above | Same, and file time stops moving |
 | File layout changed | Last good stock stays | Email with a new AI proposal to approve |
 | AI unsure about a field | Nothing changes until you decide | Field marked null in the proposal |
@@ -122,20 +116,18 @@ The rule everywhere: when PPI isn't sure, it says less, never more. Stale stock 
 
 ## 5. Security
 
-- Shop PC: nothing listens on the network; one folder, read-only; a dedicated export user in the shop's software.
-- Cloudflare: one service token per shop; revoke it to cut access instantly.
+- Shop PC: nothing listens on the network; the browser reads one folder, read-only, and uploads only to PPI over HTTPS.
+- Uploads: only with the login of the shop's owner (or the admin), checked by `upload_check_in()`; removing the owner from the shop cuts access instantly.
 - Supabase: Row Level Security on all tables; service key only in Supabase function secrets; exact quantities never leave the database for shops that hide them.
 - Public API and MCP: read-only, rate-limited, no personal data.
-- Credentials (tokens, rclone passwords, API keys) kept in Supabase Vault and function secrets, Vercel environment variables and a password manager, never in documents, chat or the repository.
+- Credentials (API keys, secrets) kept in Supabase Vault and function secrets, Vercel environment variables and a password manager, never in documents, chat or the repository.
 
 ## 6. Software you need
 
 | Software | What it does in PPI | Runs where | Cost (pilot) | Set up by |
 | --- | --- | --- | --- | --- |
 | Shop's stock software | Exports stock on a schedule | Shop PC | Shop already pays | Shop or its software reseller |
-| rclone | Serves the export folder, read-only | Shop PC | Free | You, on site |
-| cloudflared | Outbound tunnel to Cloudflare | Shop PC | Free | You, on site |
-| Cloudflare + domain | Tunnels, Access, DNS for your domain | Cloud | Tunnel and Access free; domain \~€10–15/year | You |
+| Microsoft Edge or Google Chrome | Runs the PPI app window that uploads the export | Shop PC | Free (Edge comes with Windows) | You, on site |
 | Claude Code | Writes, tests and fixes all the code | Cloud or your computer | Included in a Claude plan with Claude Code | You |
 | GitHub | Private repository with every version of the code | Cloud | Free | You |
 | Next.js | Framework for pages, API and MCP server | Inside the app | Free (open source) | Claude Code |

@@ -19,6 +19,7 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
     .eq("user_id", session.user.id);
   const links = [
     ...(count ? [{ href: `/${lang}/dashboard`, label: dict.account.dashboard }] : []),
+    ...(count || session.isAdmin ? [{ href: `/${lang}/sync`, label: dict.account.sync }] : []),
     ...(session.isAdmin ? [{ href: `/${lang}/admin`, label: dict.account.admin }] : []),
   ];
 

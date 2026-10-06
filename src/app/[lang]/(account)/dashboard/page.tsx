@@ -140,6 +140,9 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           <dt className="text-muted">{dict.dashboard.last_error}</dt>
           <dd>{sync?.last_error || dict.account.none}</dd>
         </dl>
+        <Link href={`/${lang}/sync`} className="self-start font-medium underline underline-offset-4">
+          {dict.dashboard.sync_link}
+        </Link>
       </Section>
 
       <Section title={dict.dashboard.details_title}>

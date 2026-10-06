@@ -6,7 +6,7 @@ Version 1.1 · MVP web app for finding in-stock products in local shops, built f
 
 ## 1. Product summary
 
-PPI shows shoppers which local shops have a product in stock right now, how much it costs and how fresh that information is. Shop stock arrives automatically: the shop's own software exports a file to a preset folder, and a scheduled Supabase Edge Function, with AI-assisted field mapping, reads that file and writes the stock into Supabase. The web app only reads stock. It never writes inventory.
+PPI shows shoppers which local shops have a product in stock right now, how much it costs and how fresh that information is. Shop stock arrives automatically: the shop's own software exports a file to a folder, the PPI app window on the shop PC (Edge or Chrome) uploads the newest file every 15 minutes, and a Supabase Edge Function, with AI-assisted field mapping, reads that file and writes the stock into Supabase. The web app only reads stock. It never writes inventory.
 
 **Goal of the MVP:** a shopper anywhere in Europe searches a product and finds a nearby shop that really has it, with no wasted trip. Every page and every answer must also be readable by AI assistants and search engines directly, without Google Merchant Center.
 
@@ -45,7 +45,7 @@ There is no self-signup for shops in the MVP. Admin creates the shop and sends a
 
 - Stack: Next.js (App Router, TypeScript) hosted on Vercel, with the Supabase project as the backend. Built with Claude Code; every database change is a migration in the repository.
 - Enable the PostGIS extension. Store shop locations as `geography(Point, 4326)`.
-- All stock and sync data is written by the scheduled stock-pull Edge Function using the service role key. The frontend must never contain or use the service role key.
+- All stock and sync data is written by the stock-pull Edge Function using the service role key (the shop PC only uploads the file to it; `upload_check_in()` records when the PPI window was last active). The frontend must never contain or use the service role key.
 - Put freshness and availability logic in the database (a view and SQL functions), not in React, so the website and any future integration show the same result.
 - Row Level Security on every table. Public pages must load their data on the server (Next.js server components), never in the browser, so the first HTML already contains names, prices and availability.
 - No built-in home town. The search location is, in order: the visitor's device location ("Use my location"), else an approximate city from the hosting provider's IP lookup (Vercel geolocation headers; used per request, never stored), else unknown, in which case every shop is searched and no distances are shown. Default search radius 10 km.
