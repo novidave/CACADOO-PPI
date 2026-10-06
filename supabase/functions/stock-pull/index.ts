@@ -5,12 +5,12 @@
 //   * upload — the PPI window on the shop PC (/sync page in Edge or Chrome) watches the
 //     folder the stock software exports to and POSTs the newest file here, with the
 //     owner's own login (?shop_id=…&file_time=…&file_name=…, body = the file)
-//   * pull — every 15 minutes (pg_cron, SETUP.md part G) or on "Pull now" in Admin,
-//     for each shop with a file address: download it, only if it changed
+//   * pull — every 15 minutes (pg_cron, SETUP.md part G) for shops with a file address
+//     (or a manual call): download the file, only if it changed
 // Then, for both:
 //   1. read XML, CSV or Excel into rows
 //   2. no approved field mapping yet → propose one (Claude, or a rule-based guess),
-//      save it as "proposed" with 10 sample rows and stop: the admin approves it
+//      save it as "proposed" with 10 sample rows and stop: the shop owner approves it
 //   3. approved mapping → check the rows; if more than 5 % cannot be read, keep the
 //      old stock and propose a new mapping; otherwise apply the whole file in one
 //      transaction (apply_stock_file). The file's time becomes the freshness.
@@ -304,7 +304,7 @@ export function isValidMapping(mapping: Mapping, columns: string[]): boolean {
  * Asks Claude which column is which. Structured outputs pin the answer to a JSON
  * object whose values can only be real column names (or null), so it is always
  * usable. Returns null when no API key is set or the call fails — the caller then
- * falls back to guessMapping(). Never auto-approved: the admin confirms it.
+ * falls back to guessMapping(). Never auto-approved: the shop owner confirms it.
  */
 export async function proposeWithClaude(columns: string[], sample: Row[]): Promise<Mapping | null> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -457,14 +457,14 @@ async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, f
 
   if (!isApproved(src)) {
     if (src.field_mapping && isValidMapping(src.field_mapping, columns)) {
-      await update({ sample_rows: sample, last_error: "Waiting for the admin to approve the field mapping." });
+      await update({ sample_rows: sample, last_error: "Waiting for you to approve the file's columns in My shop." });
       return { status: "waiting_for_approval", rows: rows.length };
     }
     await update({
       field_mapping: await propose(),
       mapping_status: "proposed",
       sample_rows: sample,
-      last_error: "New file layout: a field mapping was proposed and waits for approval in Admin.",
+      last_error: "New file layout: check and approve the file's columns in My shop.",
     });
     return { status: "proposed", rows: rows.length };
   }
@@ -477,7 +477,7 @@ async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, f
       sample_rows: sample,
       last_error:
         `${bad} of ${rows.length} rows could not be read — the file layout may have changed. ` +
-        "The previous stock is kept; a new field mapping waits for approval in Admin.",
+        "The previous stock is kept until you approve the new columns in My shop.",
     });
     return { status: "layout_changed", rows: rows.length };
   }

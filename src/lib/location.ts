@@ -43,3 +43,16 @@ export function resolveLocation(
 
   return null;
 }
+
+/**
+ * Country and time zone suggested for a new shop, from Vercel's IP lookup of the
+ * owner's own connection (nothing hard-coded; empty when unknown).
+ */
+export function guessShopRegion(headers: Headers): { country: string; timezone: string } {
+  const country = (headers.get("x-vercel-ip-country") ?? "").toUpperCase();
+  const timezone = headers.get("x-vercel-ip-timezone") ?? "";
+  return {
+    country: /^[A-Z]{2}$/.test(country) ? country : "",
+    timezone: /^[A-Za-z_]+\/[A-Za-z_/-]+$/.test(timezone) ? timezone : "",
+  };
+}

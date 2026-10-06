@@ -12,15 +12,11 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
   const { lang } = await params;
   if (!isLocale(lang)) notFound();
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
-  // "My shop" only for people linked to a shop; the admin may have none.
-  const { count } = await session.supabase
-    .from("shop_members")
-    .select("shop_id", { count: "exact", head: true })
-    .eq("user_id", session.user.id);
+  // Shop owners only: no admin area on the website.
   const links = [
-    ...(count ? [{ href: `/${lang}/dashboard`, label: dict.account.dashboard }] : []),
-    ...(count || session.isAdmin ? [{ href: `/${lang}/sync`, label: dict.account.sync }] : []),
-    ...(session.isAdmin ? [{ href: `/${lang}/admin`, label: dict.account.admin }] : []),
+    { href: `/${lang}/dashboard`, label: dict.account.dashboard },
+    { href: `/${lang}/sync`, label: dict.account.sync },
+    { href: `/${lang}/password`, label: dict.account.password },
   ];
 
   return (

@@ -491,4 +491,79 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 
+\echo '--- self-service: a new owner creates and runs a shop'
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000c', 'owner-c@example.invalid');
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000c';
+do $$
+declare
+  v_shop uuid;
+  v_other uuid;
+  n int;
+begin
+  assert (select count(*) from public.my_shops()) = 0, 'a new account has no shops';
+  v_shop := public.owner_save_shop('{"name":"Corner Shop","slug_base":"Potraviny Centrum","city":"Graz","country":"at",
+    "timezone":"Europe/Vienna","lat":"47.07","lng":"15.44","opening_hours":{"mon":[["08:00","18:00"]]}}');
+  assert (select slug from public.shops where id = v_shop) = 'potraviny-centrum-2', 'slug made unique';
+  assert (select country || ' ' || timezone || ' ' || is_active from public.shops where id = v_shop) = 'AT Europe/Vienna true';
+  assert (select round(lat::numeric, 2) || ',' || round(lng::numeric, 2) from public.my_shops() where id = v_shop) = '47.07,15.44';
+  assert (select mapping_status = 'proposed' from public.my_shops() where id = v_shop), 'new shop has a stock source';
+
+  -- the owner edits it, but cannot touch another owner's shop
+  perform public.owner_save_shop(jsonb_build_object('id', v_shop, 'name', 'Corner Shop Graz', 'is_active', false,
+    'timezone', 'Europe/Vienna'));
+  assert (select name || ' ' || is_active from public.shops where id = v_shop) = 'Corner Shop Graz false';
+  v_other := (select id from public.shops where slug = 'drogeria-kostolne');
+  begin
+    perform public.owner_save_shop(jsonb_build_object('id', v_other, 'name', 'taken over'));
+    raise exception 'owner C changed shop B';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_mapping(v_other, '{"source_code":"a","name":"b","quantity":"c","price":"d"}');
+    raise exception 'owner C approved shop B columns';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_delete_shop(v_other);
+    raise exception 'owner C deleted shop B';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- column approval: required fields, then confirmed
+  begin
+    perform public.owner_set_mapping(v_shop, '{"source_code":"KOD","name":"NAZOV"}');
+    raise exception 'mapping without quantity/price accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  perform public.owner_set_mapping(v_shop, '{"source_code":"KOD","name":"NAZOV","quantity":"MN","price":"CENA","extra":"x"}');
+  assert (select mapping_status = 'confirmed' and field_mapping ->> 'price' = 'CENA' and not field_mapping ? 'extra'
+          and field_mapping ? 'ean' from public.my_shops() where id = v_shop), 'mapping saved and approved';
+
+  -- at most 5 shops per account
+  for n in 2..5 loop
+    perform public.owner_save_shop(jsonb_build_object('name', 'Shop ' || n, 'slug_base', 'shop'));
+  end loop;
+  begin
+    perform public.owner_save_shop('{"name":"Shop 6","slug_base":"shop"}');
+    raise exception 'sixth shop allowed';
+  exception when program_limit_exceeded then null;
+  end;
+
+  -- delete own shop
+  perform public.owner_delete_shop(v_shop);
+  assert not exists (select 1 from public.shops where id = v_shop), 'own shop deleted';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$
+begin
+  perform public.owner_save_shop('{"name":"anon shop"}');
+  raise exception 'visitor created a shop';
+exception when insufficient_privilege then null;
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'

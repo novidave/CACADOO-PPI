@@ -31,11 +31,6 @@ export async function requireUser(lang: Locale) {
   return session;
 }
 
-export async function requireAdmin(lang: Locale) {
-  const session = await requireUser(lang);
-  if (!session.isAdmin) redirect(`/${lang}/dashboard`);
-  return session;
-}
 
 /** This deployment's own address (preview links included), for e-mail links. */
 export async function requestOrigin(): Promise<string> {
