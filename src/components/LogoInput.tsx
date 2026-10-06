@@ -46,11 +46,12 @@ export function LogoInput({ label, busy }: { label: string; busy: string }) {
   return (
     <>
       <input ref={input} name="logo" type="file" accept="image/*" onChange={chosen} className="sr-only" tabIndex={-1} />
+      {/* Blue and underlined like a link, as the owner asked: the one coloured text on the site. */}
       <button
         type="button"
         disabled={pending}
         onClick={() => input.current?.click()}
-        className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:text-muted"
+        className="self-start text-blue-700 underline underline-offset-4 hover:text-blue-900 disabled:text-muted disabled:no-underline"
       >
         {pending ? busy : label}
       </button>
