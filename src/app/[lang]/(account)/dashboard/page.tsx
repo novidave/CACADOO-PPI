@@ -263,9 +263,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
             // eslint-disable-next-line @next/next/no-img-element -- logo from Supabase Storage
             <img src={shop.logo_url} alt="" width={64} height={64} className="h-16 w-16 border border-line object-contain" />
           )}
-          <LogoInput />
+          <LogoInput label={dict.dashboard.upload} busy={o.uploading} />
           <p className="text-sm text-muted">{dict.dashboard.logo_hint}</p>
-          <SubmitButton pending={o.uploading}>{dict.dashboard.upload}</SubmitButton>
         </form>
       </Section>
 
