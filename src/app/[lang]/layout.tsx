@@ -24,6 +24,12 @@ export async function generateMetadata({ params }: LayoutProps<"/[lang]">): Prom
       canonical: `/${lang}`,
       languages: Object.fromEntries(locales.map((l) => [l, `/${l}`])),
     },
+    // Ownership proof for Google Search Console and Bing Webmaster Tools (SETUP.md part I),
+    // so the sitemap can be submitted and search engines / AI assistants find the shops sooner.
+    verification: {
+      google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
+      other: process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : undefined,
+    },
   };
 }
 

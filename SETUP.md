@@ -351,6 +351,26 @@ What a shop owner does is written for them on the dashboard; the longer guide is
 
 ---
 
+## Part I — Get found by search engines and AI assistants (Grok, ChatGPT, Perplexity…)
+
+AI assistants answer from web search. A new site on `*.vercel.app` is not in their search index yet, so they
+cannot find a new shop by name until it is indexed. Tell the search engines about PPI once:
+
+1. **Bing** (used by ChatGPT, Copilot and others): bing.com/webmasters → sign in → **Add site**
+   `https://cacadooppivercel.vercel.app` → method **HTML Meta Tag** → copy only the `content="…"` value.
+   Vercel → Project → **Settings → Environment Variables** → add `BING_SITE_VERIFICATION` = that value
+   (Production) → **Redeploy** → back in Bing → **Verify** → **Sitemaps** → submit
+   `https://cacadooppivercel.vercel.app/sitemap.xml`.
+2. **Google**: search.google.com/search-console → **Add property** → **URL prefix**
+   `https://cacadooppivercel.vercel.app` → **HTML tag** → copy the `content="…"` value → Vercel variable
+   `GOOGLE_SITE_VERIFICATION` → **Redeploy** → **Verify** → **Sitemaps** → submit `sitemap.xml`.
+
+Indexing takes days to a few weeks. Until then an assistant finds a shop when you give it the page address
+(e.g. `https://cacadooppivercel.vercel.app/sk/shops/<shop>`), and Claude finds everything at once through the
+MCP connector (Part F). A short own domain (e.g. ppi.sk) instead of `*.vercel.app` helps too.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
