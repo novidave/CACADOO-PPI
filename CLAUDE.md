@@ -17,7 +17,8 @@ Setup steps for humans are in `SETUP.md`.
 - Every database change is a new file in `supabase/migrations/` (never edit an applied one).
   Add a check to `supabase/tests/database_test.sql` for every rule you add.
 - **Europe-wide, no home town.** Never hard-code a city, country, currency or time zone.
-  Location comes from `@/lib/location` (device → IP city → unknown = search all shops).
+  **No location services**: the website never asks for or guesses the visitor's location (no device location,
+  no IP lookup). Search is text only — item name, brand, EAN, shop name, street or town — across all shops.
 - Times stored in UTC, shown in the **shop's** time zone (`shops.timezone`) via `@/lib/format`.
   Prices via `formatPrice(value, locale, currency)` with the item's own currency.
 - All visible text comes from `src/i18n/messages/{sk,hu,en}.json`; add every new key to all three.

@@ -5,23 +5,12 @@
     "description": "Keressen terméket a közeli üzletekben: kinél van raktáron, mennyiért, és mennyire friss az információ."
   },
   "search": {
-    "placeholder": "Termék, márka vagy EAN keresése",
+    "placeholder": "Termék, márka, EAN, üzlet, utca vagy település keresése",
     "button": "Keresés",
-    "radius": "Körzet",
     "only_available": "Csak a most elérhetők",
-    "empty": "A közelben most egyik üzletben sincs ilyen.",
-    "widen": "Körzet bővítése {n} km-re",
     "results": "Találatok",
     "not_connected": "Az adatbázis még nincs csatlakoztatva. Állítsa be a Supabase környezeti változókat (lásd SETUP.md).",
-    "empty_everywhere": "Most egyik üzletben sincs ilyen.",
-    "near_device": "Keresés az Ön helyzete körül",
-    "near_approx": "Hozzávetőleges hely: {place}",
-    "near_approx_unknown": "Hozzávetőleges hely a kapcsolat alapján",
-    "everywhere": "Ismeretlen hely – keresés minden üzletben",
-    "use_location": "Saját helyzetem használata",
-    "use_precise": "Pontos helyzet használata",
-    "locating": "Helyzet meghatározása…",
-    "location_failed": "Nem sikerült meghatározni a helyzetet."
+    "empty_everywhere": "Most egyik üzletben sincs ilyen."
   },
   "stock": {
     "in_stock": "Raktáron",
@@ -141,7 +130,7 @@
     "add_range": "+ idősáv",
     "remove_range": "Törlés",
     "logo_title": "Logó",
-    "logo_hint": "PNG, JPG vagy WebP, legfeljebb 1 MB.",
+    "logo_hint": "PNG, JPG vagy WebP. A nagy képeket automatikusan kicsinyítjük.",
     "upload": "Logó feltöltése",
     "logo_bad": "A logó PNG, JPG vagy WebP lehet, legfeljebb 1 MB.",
     "visibility_title": "Mit látnak a vásárlók",

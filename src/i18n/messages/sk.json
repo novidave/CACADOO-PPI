@@ -5,23 +5,12 @@
     "description": "Nájdite výrobok v obchodoch vo vašom okolí: kto ho má na sklade, za koľko a aká čerstvá je informácia."
   },
   "search": {
-    "placeholder": "Hľadať výrobok, značku alebo EAN",
+    "placeholder": "Hľadať výrobok, značku, EAN, obchod, ulicu alebo obec",
     "button": "Hľadať",
-    "radius": "Okruh",
     "only_available": "Len dostupné teraz",
-    "empty": "Žiadny obchod v okolí to teraz nemá.",
-    "widen": "Rozšíriť okruh na {n} km",
     "results": "Výsledky",
     "not_connected": "Databáza ešte nie je pripojená. Nastavte premenné prostredia Supabase (pozri SETUP.md).",
-    "empty_everywhere": "Žiadny obchod to teraz nemá.",
-    "near_device": "Hľadá sa okolo vašej polohy",
-    "near_approx": "Približná poloha: {place}",
-    "near_approx_unknown": "Približná poloha podľa pripojenia",
-    "everywhere": "Poloha neznáma – hľadá sa vo všetkých obchodoch",
-    "use_location": "Použiť moju polohu",
-    "use_precise": "Použiť presnú polohu",
-    "locating": "Zisťujem polohu…",
-    "location_failed": "Polohu sa nepodarilo zistiť."
+    "empty_everywhere": "Žiadny obchod to teraz nemá."
   },
   "stock": {
     "in_stock": "Na sklade",
@@ -141,7 +130,7 @@
     "add_range": "+ čas",
     "remove_range": "Odstrániť",
     "logo_title": "Logo",
-    "logo_hint": "PNG, JPG alebo WebP, najviac 1 MB.",
+    "logo_hint": "PNG, JPG alebo WebP. Veľké obrázky sa automaticky zmenšia.",
     "upload": "Nahrať logo",
     "logo_bad": "Logo musí byť PNG, JPG alebo WebP a najviac 1 MB.",
     "visibility_title": "Čo uvidia zákazníci",
