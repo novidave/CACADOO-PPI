@@ -36,7 +36,8 @@ For **each** file below:
 | 8 | `supabase/migrations/20261005000001_dashboard_admin.sql` | Owner dashboard + admin: item list, admin functions, logo storage |
 | 9 | `supabase/migrations/20261006000001_amenities.sql` | Shop facilities: customer toilet, douchette, card terminal |
 | 10 | `supabase/migrations/20261007000001_ai_access.sql` | AI access: API/MCP rate limit + usage log, town lookup |
-| 11 | `supabase/migrations/20261008000001_stock_pull.sql` | Stock pull: apply a stock file, tunnel credentials in Vault, raw-file storage |
+| 11 | `supabase/migrations/20261008000001_stock_pull.sql` | Stock pull: apply a stock file, file-access credentials in Vault, raw-file storage |
+| 12 | `supabase/migrations/20261009000001_folder_upload.sql` | Folder upload: shop PC check-in, last uploaded file |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -164,7 +165,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001
 ```
 
 ---
@@ -342,8 +343,25 @@ To stop it later: `select cron.unschedule('ppi-stock-pull');`
 4. **Stiahnuť súbor teraz** again → "zásoby aktualizované: 5 položiek…". Open the shop's public page: 5 items, fresh.
 5. (Optional) the XML sample: `https://cacadooppivercel.vercel.app/samples/stock-sample.xml`.
 
-For a real shop, the file address is the shop's tunnel address and **Prístup k súboru** holds its Cloudflare
-service token and rclone login (phase 7 sets these up on the shop PC).
+A real shop does not need a file address: its PPI window uploads the file (Part H).
+
+---
+
+## Part H — Shop PC: the first real shop (phase 7)
+
+Full step-by-step guide: **`docs/SHOP_PC_SETUP.md`** (open it on GitHub). Nothing to install except the PPI app
+from Edge or Chrome; no Cloudflare, no domain.
+
+1. **Database update:** run file 12 (`supabase/migrations/20261009000001_folder_upload.sql`) in the SQL Editor.
+2. **Function update:** Supabase → **Edge Functions** → `stock-pull` → **Code** → replace everything with the new
+   `supabase/functions/stock-pull/index.ts` (GitHub → the file → **Copy raw file**) → **Deploy**. Keep
+   **Verify JWT** off.
+3. **Shop software (S2):** export all items every 15–30 minutes into a folder used only for this, e.g. `C:\Export\stock.xml`.
+4. **Shop PC (S3–S4):** sign in as the owner in Edge or Chrome → **Priečinok s exportom** → **Prepojiť priečinok** →
+   install as an app → put it in the Windows startup folder.
+5. **PPI admin (S5):** the shop → **Schváliť priradenie** → on the shop PC **Skontrolovať teraz**.
+
+**Rehearse on your own Windows PC first** (guide part R).
 
 ---
 
@@ -369,4 +387,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 4. Login, owner dashboard, admin | ✅ done |
 | 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | ✅ done |
 | 6. Stock pull Edge Function + AI field mapping | ✅ done |
-| 7. Shop PC setup (rclone + cloudflared) | next |
+| 7. Shop PC — PPI app window in Edge/Chrome uploads the export folder every 15 min | ✅ built — rehearse, then the first shop (Part H) |

@@ -1,17 +1,20 @@
 /// <reference lib="deno.ns" />
 // PPI · stock-pull Edge Function
 //
-// Every 15 minutes (pg_cron, SETUP.md part G) — or on "Pull now" in Admin — for
-// each shop with a file address:
-//   1. download the shop's stock file through its tunnel (credentials from Vault),
-//      only if it changed
-//   2. read XML, CSV or Excel into rows
-//   3. no approved field mapping yet → propose one (Claude, or a rule-based guess),
+// Two ways a shop's stock file arrives:
+//   * upload — the PPI window on the shop PC (/sync page in Edge or Chrome) watches the
+//     folder the stock software exports to and POSTs the newest file here, with the
+//     owner's own login (?shop_id=…&file_time=…&file_name=…, body = the file)
+//   * pull — every 15 minutes (pg_cron, SETUP.md part G) or on "Pull now" in Admin,
+//     for each shop with a file address: download it, only if it changed
+// Then, for both:
+//   1. read XML, CSV or Excel into rows
+//   2. no approved field mapping yet → propose one (Claude, or a rule-based guess),
 //      save it as "proposed" with 10 sample rows and stop: the admin approves it
-//   4. approved mapping → check the rows; if more than 5 % cannot be read, keep the
+//   3. approved mapping → check the rows; if more than 5 % cannot be read, keep the
 //      old stock and propose a new mapping; otherwise apply the whole file in one
 //      transaction (apply_stock_file). The file's time becomes the freshness.
-//   5. keep the raw file 7 days in the private "raw-files" bucket
+//   4. keep the raw file 7 days in the private "raw-files" bucket
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor →
 // name "stock-pull" → paste this file → Deploy, then switch OFF "Verify JWT"
@@ -346,7 +349,7 @@ export async function proposeWithClaude(columns: string[], sample: Row[]): Promi
 interface Source {
   shop_id: string;
   file_format: string | null;
-  file_url: string;
+  file_url: string | null;
   field_mapping: Mapping | null;
   mapping_status: "proposed" | "confirmed";
   latest_file_time: string | null;
@@ -379,10 +382,28 @@ async function keepRawFile(db: SupabaseClient, shopId: string, bytes: Uint8Array
   if (old.length) await bucket.remove(old);
 }
 
-async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promise<Outcome> {
-  const update = (values: Record<string, unknown>) =>
-    db.from("sync_sources").update({ last_checked_at: new Date().toISOString(), ...values }).eq("shop_id", src.shop_id);
+type Update = (values: Record<string, unknown>) => PromiseLike<unknown>;
 
+function sourceUpdater(db: SupabaseClient, shopId: string): Update {
+  return (values) =>
+    db.from("sync_sources").update({ last_checked_at: new Date().toISOString(), ...values }).eq("shop_id", shopId);
+}
+
+async function failed(update: Update, e: unknown): Promise<Outcome> {
+  const message = e instanceof Error ? (e.name === "TimeoutError" ? "The shop's computer did not answer within 30 seconds." : e.message) : String(e);
+  await update({ last_error: message.slice(0, 500) });
+  return { status: "error", error: message };
+}
+
+const isApproved = (src: Source) => src.mapping_status === "confirmed" && Boolean(src.field_mapping);
+
+/** A file already applied (or older) is skipped, unless the admin forces a pull. */
+const alreadyApplied = (src: Source, fileTime: Date, force: boolean) =>
+  isApproved(src) && Boolean(src.latest_file_time) && !force && fileTime <= new Date(src.latest_file_time as string);
+
+/** Pull mode: download the file from the shop's file address. */
+async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promise<Outcome> {
+  const update = sourceUpdater(db, src.shop_id);
   try {
     const { data: creds } = await db.rpc("sync_credentials", { p_shop_id: src.shop_id });
     const headers: Record<string, string> = { "User-Agent": "PPI stock-pull" };
@@ -391,10 +412,9 @@ async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promis
       headers["CF-Access-Client-Secret"] = creds.cf_client_secret;
     }
     if (creds?.basic_user && creds?.basic_password) headers.Authorization = basicAuth(creds.basic_user, creds.basic_password);
-    const approved = src.mapping_status === "confirmed" && src.field_mapping;
-    if (approved && src.latest_file_time && !force) headers["If-Modified-Since"] = new Date(src.latest_file_time).toUTCString();
+    if (isApproved(src) && src.latest_file_time && !force) headers["If-Modified-Since"] = new Date(src.latest_file_time).toUTCString();
 
-    const response = await fetch(src.file_url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const response = await fetch(src.file_url as string, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (response.status === 304) {
       await update({});
       return { status: "unchanged" };
@@ -402,7 +422,7 @@ async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promis
     if (!response.ok) {
       const hint =
         response.status === 401 || response.status === 403
-          ? " Check the shop's tunnel credentials (service token / login)."
+          ? " Check the shop's file access credentials."
           : response.status === 404
             ? " Check the file address and that the export file exists."
             : "";
@@ -411,64 +431,137 @@ async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promis
 
     const lastModified = Date.parse(response.headers.get("last-modified") ?? "");
     const fileTime = new Date(Number.isFinite(lastModified) ? Math.min(lastModified, Date.now()) : Date.now());
-    if (approved && src.latest_file_time && !force && fileTime <= new Date(src.latest_file_time)) {
+    if (alreadyApplied(src, fileTime, force)) {
       await response.body?.cancel();
       await update({});
       return { status: "unchanged" };
     }
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.length === 0) throw new Error("The stock file is empty.");
-    if (bytes.length > MAX_FILE_BYTES) throw new Error("The stock file is larger than 50 MB.");
-    const format = detectFormat(bytes, src.file_format);
-    const rows = parseFile(bytes, format);
-    if (rows.length === 0) throw new Error(`No items could be read from the file (read as ${format.toUpperCase()}).`);
-    await keepRawFile(db, src.shop_id, bytes, format);
-
-    const columns = Object.keys(rows[0]);
-    const sample = rows.slice(0, 10);
-    const propose = async () => (await proposeWithClaude(columns, rows.slice(0, 20))) ?? guessMapping(columns);
-
-    if (!approved) {
-      if (src.field_mapping && isValidMapping(src.field_mapping, columns)) {
-        await update({ sample_rows: sample, last_error: "Waiting for the admin to approve the field mapping." });
-        return { status: "waiting_for_approval", rows: rows.length };
-      }
-      await update({
-        field_mapping: await propose(),
-        mapping_status: "proposed",
-        sample_rows: sample,
-        last_error: "New file layout: a field mapping was proposed and waits for approval in Admin.",
-      });
-      return { status: "proposed", rows: rows.length };
-    }
-
-    const { good, bad } = applyMapping(rows, src.field_mapping as Mapping, currencyForCountry(src.shops?.country));
-    if (good.length === 0 || bad / rows.length > MAX_BAD_SHARE) {
-      await update({
-        field_mapping: await propose(),
-        mapping_status: "proposed",
-        sample_rows: sample,
-        last_error:
-          `${bad} of ${rows.length} rows could not be read — the file layout may have changed. ` +
-          "The previous stock is kept; a new field mapping waits for approval in Admin.",
-      });
-      return { status: "layout_changed", rows: rows.length };
-    }
-
-    const { data, error } = await db.rpc("apply_stock_file", {
-      p_shop_id: src.shop_id,
-      p_rows: good,
-      p_file_time: fileTime.toISOString(),
-      p_sample: sample,
-    });
-    if (error) throw new Error(`Saving the stock failed: ${error.message}`);
-    return { status: "updated", items: data.items, zeroed: data.zeroed, skipped: bad };
+    return await processFile(db, src, new Uint8Array(await response.arrayBuffer()), fileTime, update);
   } catch (e) {
-    const message = e instanceof Error ? (e.name === "TimeoutError" ? "The shop's computer did not answer within 30 seconds." : e.message) : String(e);
-    await update({ last_error: message.slice(0, 500) });
-    return { status: "error", error: message };
+    return await failed(update, e);
   }
+}
+
+/** Both modes: read the file, propose or apply the field mapping, save the stock. */
+async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, fileTime: Date, update: Update): Promise<Outcome> {
+  if (bytes.length === 0) throw new Error("The stock file is empty.");
+  if (bytes.length > MAX_FILE_BYTES) throw new Error("The stock file is larger than 50 MB.");
+  const format = detectFormat(bytes, src.file_format);
+  const rows = parseFile(bytes, format);
+  if (rows.length === 0) throw new Error(`No items could be read from the file (read as ${format.toUpperCase()}).`);
+  await keepRawFile(db, src.shop_id, bytes, format);
+
+  const columns = Object.keys(rows[0]);
+  const sample = rows.slice(0, 10);
+  const propose = async () => (await proposeWithClaude(columns, rows.slice(0, 20))) ?? guessMapping(columns);
+
+  if (!isApproved(src)) {
+    if (src.field_mapping && isValidMapping(src.field_mapping, columns)) {
+      await update({ sample_rows: sample, last_error: "Waiting for the admin to approve the field mapping." });
+      return { status: "waiting_for_approval", rows: rows.length };
+    }
+    await update({
+      field_mapping: await propose(),
+      mapping_status: "proposed",
+      sample_rows: sample,
+      last_error: "New file layout: a field mapping was proposed and waits for approval in Admin.",
+    });
+    return { status: "proposed", rows: rows.length };
+  }
+
+  const { good, bad } = applyMapping(rows, src.field_mapping as Mapping, currencyForCountry(src.shops?.country));
+  if (good.length === 0 || bad / rows.length > MAX_BAD_SHARE) {
+    await update({
+      field_mapping: await propose(),
+      mapping_status: "proposed",
+      sample_rows: sample,
+      last_error:
+        `${bad} of ${rows.length} rows could not be read — the file layout may have changed. ` +
+        "The previous stock is kept; a new field mapping waits for approval in Admin.",
+    });
+    return { status: "layout_changed", rows: rows.length };
+  }
+
+  const { data, error } = await db.rpc("apply_stock_file", {
+    p_shop_id: src.shop_id,
+    p_rows: good,
+    p_file_time: fileTime.toISOString(),
+    p_sample: sample,
+  });
+  if (error) throw new Error(`Saving the stock failed: ${error.message}`);
+  return { status: "updated", items: data.items, zeroed: data.zeroed, skipped: bad };
+}
+
+/** Reads a (possibly gzip-compressed) request body, refusing anything over 50 MB. */
+async function readBody(req: Request, gzip: boolean): Promise<Uint8Array> {
+  if (!req.body) return new Uint8Array();
+  const stream = gzip ? req.body.pipeThrough(new DecompressionStream("gzip")) : req.body;
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_FILE_BYTES) {
+      await reader.cancel();
+      throw new Error("The stock file is larger than 50 MB.");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Upload mode: the PPI window on the shop PC (/sync page) sends the newest file from
+ * the shop's export folder. POST body = the file (gzip=1: gzip-compressed),
+ * query shop_id, file_time (the file's own time, ISO), file_name.
+ * Only the shop's owners and the admin, with their own login.
+ */
+async function receiveUpload(req: Request, params: URLSearchParams, asCaller: SupabaseClient, db: SupabaseClient) {
+  const shopId = params.get("shop_id") ?? "";
+  if (!UUID.test(shopId)) return reply(400, { error: "shop_id is missing" });
+
+  // Checks membership with the uploader's own login and records "PPI window seen".
+  const { error: denied } = await asCaller.rpc("upload_check_in", { p_shop_id: shopId });
+  if (denied) return reply(403, { error: "Only this shop's owners or the admin may upload its stock" });
+
+  const { data: src, error } = await db
+    .from("sync_sources")
+    .select("shop_id, file_format, file_url, field_mapping, mapping_status, latest_file_time, shops(slug, name, country)")
+    .eq("shop_id", shopId)
+    .single();
+  if (error || !src) return reply(500, { error: error?.message ?? "Stock source missing" });
+  const source = src as unknown as Source;
+
+  const update = sourceUpdater(db, shopId);
+  const fileName = (params.get("file_name") ?? "").replace(/[\u0000-\u001f]/g, "").slice(0, 200) || null;
+  const declaredTime = Date.parse(params.get("file_time") ?? "");
+  const fileTime = new Date(Number.isFinite(declaredTime) ? Math.min(declaredTime, Date.now()) : Date.now());
+
+  let result: Outcome;
+  try {
+    if (Number(req.headers.get("content-length") ?? 0) > MAX_FILE_BYTES) throw new Error("The stock file is larger than 50 MB.");
+    await db.from("sync_sources").update({ last_file_name: fileName }).eq("shop_id", shopId);
+    if (alreadyApplied(source, fileTime, false)) {
+      await req.body?.cancel();
+      await update({});
+      result = { status: "unchanged" };
+    } else {
+      result = await processFile(db, source, await readBody(req, params.get("gzip") === "1"), fileTime, update);
+    }
+  } catch (e) {
+    result = await failed(update, e);
+  }
+  return reply(200, { result });
 }
 
 // ---------------------------------------------------------------- HTTP entry
@@ -479,7 +572,9 @@ function reply(status: number, body: unknown) {
     headers: {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+      "Access-Control-Max-Age": "86400",
     },
   });
 }
@@ -494,13 +589,19 @@ export async function handler(req: Request): Promise<Response> {
   const cronSecret = Deno.env.get("PPI_CRON_SECRET");
   if (!url || !serviceKey || !anonKey) return reply(500, { error: "Function is missing Supabase settings" });
 
-  // Callers: the 15-minute schedule (shared secret) or the admin ("Pull now").
+  const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const asCaller = createClient(url, anonKey, {
+    global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  // Upload from the PPI window on the shop PC.
+  const params = new URL(req.url).searchParams;
+  if (params.has("shop_id")) return await receiveUpload(req, params, asCaller, db);
+
+  // Pull: the 15-minute schedule (shared secret) or the admin ("Pull now").
   const fromCron = Boolean(cronSecret) && req.headers.get("x-ppi-cron-secret") === cronSecret;
   if (!fromCron) {
-    const asCaller = createClient(url, anonKey, {
-      global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
     const { data: isAdmin } = await asCaller.rpc("is_admin");
     if (isAdmin !== true) return reply(403, { error: "Only the schedule or the admin may run the stock pull" });
   }
@@ -512,7 +613,6 @@ export async function handler(req: Request): Promise<Response> {
     body = {};
   }
 
-  const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   let query = db
     .from("sync_sources")
     .select("shop_id, file_format, file_url, field_mapping, mapping_status, latest_file_time, shops(slug, name, country)")

@@ -38,13 +38,16 @@ export default async function AdminShopPage({ params, searchParams }: PageProps<
   let owners: { user_id: string; email: string }[] = [];
   type CredentialState = { cloudflare: boolean; basic_auth: boolean };
   let credentials: CredentialState | null = null;
+  let folder: { folder_seen_at: string | null; last_file_name: string | null } | null = null;
   if (!isNew) {
-    const [{ data: shops, error }, { data: ownerRows }, { data: credentialState }] = await Promise.all([
+    const [{ data: shops, error }, { data: ownerRows }, { data: credentialState }, { data: folderRow }] = await Promise.all([
       supabase.rpc("admin_shops").eq("id", id),
       supabase.rpc("admin_shop_owners", { p_shop_id: id }),
       supabase.rpc("admin_sync_credentials_status", { p_shop_id: id }),
+      supabase.from("sync_sources").select("folder_seen_at, last_file_name").eq("shop_id", id).maybeSingle(),
     ]);
     credentials = (credentialState as CredentialState | null) ?? null;
+    folder = folderRow;
     if (error) return <DbError message={error.message} dict={dict} />;
     shop = ((shops ?? []) as AdminShop[])[0] ?? null;
     if (!shop) notFound();
@@ -237,43 +240,49 @@ export default async function AdminShopPage({ params, searchParams }: PageProps<
               <dd className="font-semibold">{dict.account[`state_${shop.freshness_state}`]}</dd>
               <dt className="text-muted">{dict.dashboard.last_error}</dt>
               <dd>{shop.last_error || dict.account.none}</dd>
+              <dt className="text-muted">{dict.admin.folder_seen}</dt>
+              <dd>{folder?.folder_seen_at ? formatDateTime(folder.folder_seen_at, lang, shop.timezone) : dict.account.never}</dd>
+              <dt className="text-muted">{dict.admin.last_file_name}</dt>
+              <dd>{folder?.last_file_name || "–"}</dd>
             </dl>
 
-            <form action={pullNow}>
-              {hidden}
-              <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium">
-                {dict.admin.pull_now}
-              </button>
-            </form>
-
-            <form action={saveSyncCredentials} className="flex flex-col gap-3 border border-line p-3">
-              {hidden}
-              <span className="text-sm font-medium">{dict.admin.credentials}</span>
-              <span className="text-sm text-muted">
-                {t(dict.admin.credentials_state, {
-                  cf: credentials?.cloudflare ? dict.account.yes : dict.account.no,
-                  basic: credentials?.basic_auth ? dict.account.yes : dict.account.no,
-                })}
-              </span>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label={dict.admin.cf_client_id}>
-                  <input name="cf_client_id" autoComplete="off" spellCheck={false} className={inputClass} />
-                </Field>
-                <Field label={dict.admin.cf_client_secret}>
-                  <input name="cf_client_secret" type="password" autoComplete="new-password" className={inputClass} />
-                </Field>
-                <Field label={dict.admin.basic_user}>
-                  <input name="basic_user" autoComplete="off" spellCheck={false} className={inputClass} />
-                </Field>
-                <Field label={dict.admin.basic_password}>
-                  <input name="basic_password" type="password" autoComplete="new-password" className={inputClass} />
-                </Field>
-              </div>
-              <span className="text-xs text-muted">{dict.admin.credentials_hint}</span>
-              <button type="submit" className="self-start rounded border border-line px-4 py-2">
-                {dict.admin.save_credentials}
-              </button>
-            </form>
+            <details className="border border-line p-3">
+              <summary className="cursor-pointer text-sm">{dict.admin.pull_advanced}</summary>
+              <form action={pullNow} className="mt-3">
+                {hidden}
+                <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium">
+                  {dict.admin.pull_now}
+                </button>
+              </form>
+              <form action={saveSyncCredentials} className="mt-3 flex flex-col gap-3">
+                {hidden}
+                <span className="text-sm font-medium">{dict.admin.credentials}</span>
+                <span className="text-sm text-muted">
+                  {t(dict.admin.credentials_state, {
+                    cf: credentials?.cloudflare ? dict.account.yes : dict.account.no,
+                    basic: credentials?.basic_auth ? dict.account.yes : dict.account.no,
+                  })}
+                </span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label={dict.admin.cf_client_id}>
+                    <input name="cf_client_id" autoComplete="off" spellCheck={false} className={inputClass} />
+                  </Field>
+                  <Field label={dict.admin.cf_client_secret}>
+                    <input name="cf_client_secret" type="password" autoComplete="new-password" className={inputClass} />
+                  </Field>
+                  <Field label={dict.admin.basic_user}>
+                    <input name="basic_user" autoComplete="off" spellCheck={false} className={inputClass} />
+                  </Field>
+                  <Field label={dict.admin.basic_password}>
+                    <input name="basic_password" type="password" autoComplete="new-password" className={inputClass} />
+                  </Field>
+                </div>
+                <span className="text-xs text-muted">{dict.admin.credentials_hint}</span>
+                <button type="submit" className="self-start rounded border border-line px-4 py-2">
+                  {dict.admin.save_credentials}
+                </button>
+              </form>
+            </details>
 
             <form action={saveSyncSource} className="flex flex-col gap-3">
               {hidden}
@@ -285,7 +294,7 @@ export default async function AdminShopPage({ params, searchParams }: PageProps<
                     <option value="xlsx">Excel (xlsx)</option>
                   </select>
                 </Field>
-                <Field label={dict.admin.file_url}>
+                <Field label={dict.admin.file_url_optional}>
                   <input
                     name="file_url"
                     type="url"

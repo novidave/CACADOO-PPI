@@ -447,4 +447,48 @@ begin
 end $$;
 reset role;
 
+\echo '--- folder upload check-in'
+set role anon;
+do $$
+begin
+  perform public.upload_check_in((select id from public.public_shops where slug = 'potraviny-centrum'));
+  raise exception 'visitor checked in as a shop PC';
+exception when insufficient_privilege then null;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_status jsonb;
+begin
+  v_status := public.upload_check_in((select id from public.shops where slug = 'potraviny-centrum'));
+  assert v_status ->> 'latest_file_time' is not null and v_status ->> 'mapping_status' in ('proposed', 'confirmed')
+         and (v_status ->> 'folder_seen_at')::timestamptz > now() - interval '1 minute',
+    format('owner check-in returns the status and records the PPI window: %s', v_status);
+  begin
+    perform public.upload_check_in((select id from public.shops s where s.slug = 'drogeria-kostolne'));
+    raise exception 'owner A checked in for shop B';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the admin can check in for any shop; a shop without a stock source gets one
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'kisbolt-budapest');
+begin
+  delete from public.sync_sources where shop_id = v_shop;
+  assert public.upload_check_in(v_shop) ->> 'freshness_state' = 'stale', 'new source starts stale';
+  assert (select folder_seen_at is not null and file_url is null from public.sync_sources where shop_id = v_shop),
+    'check-in creates the stock source';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
 \echo 'ALL DATABASE CHECKS PASSED'
