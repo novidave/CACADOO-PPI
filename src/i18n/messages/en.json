@@ -278,6 +278,7 @@
     "cloud_share_hint": "The file is not shared publicly. In the cloud, set sharing to “Anyone with the link can view” and try again.",
     "error_cloud_folder": "This is a link to a folder. Open the stock file inside it and copy the link to that file.",
     "error_cloud_url": "The link must be a full address starting with https://",
-    "error_cloud_fn": "Downloading does not work yet: the “stock-pull” function is not deployed."
+    "error_cloud_fn": "Downloading does not work yet: the “stock-pull” function is not deployed.",
+    "cloud_webpage_hint": "The link opens a web page, not the file itself. In the cloud, open the stock file, share it with “Anyone with the link” and paste the link to that file (not a folder)."
   }
 }

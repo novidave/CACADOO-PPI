@@ -430,6 +430,39 @@ export function isAllowedFileUrl(value: string, allowLocalHttp = false): boolean
   );
 }
 
+/**
+ * Addresses to try for one file link, best first. A OneDrive personal share link opens a
+ * web page, so the file itself is asked for through OneDrive's share API (works for links
+ * shared with "anyone with the link"), then with download=1, then as given.
+ */
+export function downloadCandidates(fileUrl: string): string[] {
+  let url: URL;
+  try {
+    url = new URL(fileUrl);
+  } catch {
+    return [fileUrl];
+  }
+  const host = url.hostname.toLowerCase();
+  if (host === "1drv.ms" || host === "onedrive.live.com") {
+    url.searchParams.delete("download");
+    const share = url.toString();
+    const encoded = btoa(share).replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
+    const withDownload = new URL(share);
+    withDownload.searchParams.set("download", "1");
+    const candidates = [`https://api.onedrive.com/v1.0/shares/u!${encoded}/root/content`, withDownload.toString()];
+    if (url.pathname.includes("/redir")) candidates.push(share.replace("/redir", "/download"));
+    return [...candidates, share];
+  }
+  return [fileUrl];
+}
+
+/** A web page (e.g. a cloud viewer or login page) rather than a stock file. */
+export function looksLikeWebPage(contentType: string | null, bytes: Uint8Array): boolean {
+  if ((contentType ?? "").toLowerCase().includes("text/html")) return true;
+  const head = new TextDecoder().decode(bytes.slice(0, 200)).trimStart().toLowerCase();
+  return head.startsWith("<!doctype html") || head.startsWith("<html");
+}
+
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -451,7 +484,36 @@ async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promis
     if (creds?.basic_user && creds?.basic_password) headers.Authorization = basicAuth(creds.basic_user, creds.basic_password);
     if (isApproved(src) && src.latest_file_time && !force) headers["If-Modified-Since"] = new Date(src.latest_file_time).toUTCString();
 
-    const response = await fetch(src.file_url as string, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    // Try each address for this link until one gives a file (not a web page).
+    let response: Response | null = null;
+    let firstBytes: Uint8Array | null = null;
+    let sawWebPage = false;
+    for (const candidate of downloadCandidates(src.file_url as string)) {
+      const attempt = await fetch(candidate, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (attempt.status === 304) {
+        response = attempt;
+        break;
+      }
+      if (!attempt.ok) {
+        response ??= attempt;
+        await attempt.body?.cancel();
+        continue;
+      }
+      const bytes = new Uint8Array(await attempt.arrayBuffer());
+      if (looksLikeWebPage(attempt.headers.get("content-type"), bytes)) {
+        sawWebPage = true;
+        continue;
+      }
+      response = attempt;
+      firstBytes = bytes;
+      break;
+    }
+    if (!firstBytes && sawWebPage && response?.status !== 304) {
+      throw new Error(
+        "The link opens a web page, not the file. Share the file itself with \"Anyone with the link\" and paste that link (not a folder).",
+      );
+    }
+    if (!response) throw new Error("Could not download the stock file.");
     if (response.status === 304) {
       await update({});
       return { status: "unchanged" };
@@ -469,11 +531,11 @@ async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promis
     const lastModified = Date.parse(response.headers.get("last-modified") ?? "");
     const fileTime = new Date(Number.isFinite(lastModified) ? Math.min(lastModified, Date.now()) : Date.now());
     if (alreadyApplied(src, fileTime, force)) {
-      await response.body?.cancel();
+      if (!firstBytes) await response.body?.cancel();
       await update({});
       return { status: "unchanged" };
     }
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = firstBytes ?? new Uint8Array(await response.arrayBuffer());
     // Cloud links often send no file date: then only changed content counts as a new
     // file, so an export that stopped does not look fresh.
     const hash = await sha256(bytes);

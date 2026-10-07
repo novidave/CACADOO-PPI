@@ -42,6 +42,13 @@ function errorText(dict: Dictionary, err: string): string {
   return t(dict.account.error, { message: err });
 }
 
+/** The stock file's last error; the common download problems in the owner's language. */
+function lastErrorText(dict: Dictionary, error: string): string {
+  if (/opens a web page/.test(error)) return dict.owner.cloud_webpage_hint;
+  if (/HTTP (401|403)/.test(error)) return dict.owner.cloud_share_hint;
+  return error;
+}
+
 /** The result of a cloud download (?pull=…), in the owner's words. */
 function pullResultText(dict: Dictionary, raw: string | undefined): string | null {
   if (!raw) return null;
@@ -58,6 +65,7 @@ function pullResultText(dict: Dictionary, raw: string | undefined): string | nul
   else if (r.status === "proposed" || r.status === "waiting_for_approval" || r.status === "layout_changed")
     text = t(s[`result_${r.status}`], { rows: r.rows ?? 0 });
   else if (/HTTP (401|403)/.test(r.error ?? "")) text = dict.owner.cloud_share_hint;
+  else if (/opens a web page/.test(r.error ?? "")) text = dict.owner.cloud_webpage_hint;
   else text = t(s.result_error, { error: r.error ?? "?" });
   return t(dict.owner.cloud_result, { result: text });
 }
@@ -211,7 +219,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           <dt className="text-muted">{o.last_file_name}</dt>
           <dd>{shop.last_file_name || "–"}</dd>
           <dt className="text-muted">{dict.dashboard.last_error}</dt>
-          <dd>{shop.last_error || dict.account.none}</dd>
+          <dd>{shop.last_error ? lastErrorText(dict, shop.last_error) : dict.account.none}</dd>
         </dl>
         <FolderSync
           shopId={shop.id}
