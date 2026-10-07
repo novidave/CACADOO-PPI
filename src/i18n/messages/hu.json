@@ -278,6 +278,7 @@
     "cloud_share_hint": "A fájl nincs nyilvánosan megosztva. Állítsa be a felhőben: „Bárki, aki rendelkezik a linkkel, megtekintheti”, majd próbálja újra.",
     "error_cloud_folder": "Ez egy mappa hivatkozása. Nyissa meg benne a készletfájlt, és annak a hivatkozását másolja ki.",
     "error_cloud_url": "A hivatkozásnak teljes, https:// kezdetű címnek kell lennie.",
-    "error_cloud_fn": "A letöltés még nem működik: a „stock-pull” funkció nincs telepítve."
+    "error_cloud_fn": "A letöltés még nem működik: a „stock-pull” funkció nincs telepítve.",
+    "cloud_webpage_hint": "A hivatkozás egy weboldalt nyit meg, nem magát a fájlt. A felhőben nyissa meg a készletfájlt, állítsa be a „Bárki, aki rendelkezik a linkkel” megosztást, és annak a fájlnak a hivatkozását illessze be (ne mappáét)."
   }
 }

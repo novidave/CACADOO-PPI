@@ -1,7 +1,7 @@
 // Run: npm run test:functions   (sets PPI_STOCK_PULL_TEST so the server does not start)
 import * as XLSX from "npm:@e965/xlsx@0.20.3";
 import {
-  applyMapping, currencyForCountry, decodeText, detectFormat, guessMapping, isAllowedFileUrl, parseFile, parseNumber, type Mapping,
+  applyMapping, currencyForCountry, decodeText, detectFormat, downloadCandidates, guessMapping, isAllowedFileUrl, looksLikeWebPage, parseFile, parseNumber, type Mapping,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -90,4 +90,16 @@ Deno.test("only public https file addresses are downloaded", () => {
     "https://intranet/a.csv", "https://db.internal/a.csv", "https://user:pw@example.com/a.csv", "file:///etc/passwd", "nonsense"];
   eq(ok.map((u) => isAllowedFileUrl(u)), [true, true], "allowed");
   eq(bad.map((u) => isAllowedFileUrl(u)), bad.map(() => false), "refused");
+});
+
+Deno.test("OneDrive share links: the file through the share API first", () => {
+  const c = downloadCandidates("https://1drv.ms/x/c/abc123/EQxyz?e=AbC&download=1");
+  const share = "https://1drv.ms/x/c/abc123/EQxyz?e=AbC";
+  const encoded = btoa(share).replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
+  eq(c[0], `https://api.onedrive.com/v1.0/shares/u!${encoded}/root/content`, "share API");
+  eq(c.slice(1), [share + "&download=1", share], "fallbacks");
+  eq(downloadCandidates("https://drive.google.com/uc?export=download&id=1"), ["https://drive.google.com/uc?export=download&id=1"], "others as given");
+  eq(looksLikeWebPage("text/html; charset=utf-8", new Uint8Array()), true, "html by type");
+  eq(looksLikeWebPage(null, new TextEncoder().encode("  <!DOCTYPE html><html>")), true, "html by content");
+  eq(looksLikeWebPage("application/octet-stream", new TextEncoder().encode("<?xml version=\"1.0\"?><sklad/>")), false, "xml file");
 });
