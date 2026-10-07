@@ -353,6 +353,7 @@ interface Source {
   field_mapping: Mapping | null;
   mapping_status: "proposed" | "confirmed";
   latest_file_time: string | null;
+  last_file_hash: string | null;
   shops: { slug: string; name: string; country: string | null } | null;
 }
 
@@ -401,10 +402,46 @@ const isApproved = (src: Source) => src.mapping_status === "confirmed" && Boolea
 const alreadyApplied = (src: Source, fileTime: Date, force: boolean) =>
   isApproved(src) && Boolean(src.latest_file_time) && !force && fileTime <= new Date(src.latest_file_time as string);
 
-/** Pull mode: download the file from the shop's file address. */
+/**
+ * Only public internet addresses: https with a host name, never localhost, an IP
+ * address or an internal name (owners type these links themselves).
+ */
+export function isAllowedFileUrl(value: string, allowLocalHttp = false): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  if (allowLocalHttp && url.protocol === "http:" && (host === "localhost" || host === "127.0.0.1")) return true;
+  return (
+    url.protocol === "https:" &&
+    !url.username &&
+    !url.password &&
+    host.includes(".") &&
+    /[a-z]/.test(host) &&
+    !/^[0-9.]+$/.test(host) &&
+    !host.startsWith("[") &&
+    host !== "localhost" &&
+    !host.endsWith(".localhost") &&
+    !host.endsWith(".internal") &&
+    !host.endsWith(".local")
+  );
+}
+
+async function sha256(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Pull mode: download the file from the shop's file address (e.g. a cloud share link). */
 async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promise<Outcome> {
   const update = sourceUpdater(db, src.shop_id);
   try {
+    if (!isAllowedFileUrl(src.file_url ?? "", Deno.env.get("PPI_ALLOW_LOCAL_HTTP") === "1")) {
+      throw new Error("The file address must be a public https:// link.");
+    }
     const { data: creds } = await db.rpc("sync_credentials", { p_shop_id: src.shop_id });
     const headers: Record<string, string> = { "User-Agent": "PPI stock-pull" };
     if (creds?.cf_client_id && creds?.cf_client_secret) {
@@ -436,7 +473,17 @@ async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promis
       await update({});
       return { status: "unchanged" };
     }
-    return await processFile(db, src, new Uint8Array(await response.arrayBuffer()), fileTime, update);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // Cloud links often send no file date: then only changed content counts as a new
+    // file, so an export that stopped does not look fresh.
+    const hash = await sha256(bytes);
+    if (!Number.isFinite(lastModified) && isApproved(src) && !force && hash === src.last_file_hash) {
+      await update({});
+      return { status: "unchanged" };
+    }
+    const outcome = await processFile(db, src, bytes, fileTime, update);
+    if (outcome.status === "updated") await update({ last_file_hash: hash });
+    return outcome;
   } catch (e) {
     return await failed(update, e);
   }
@@ -536,7 +583,7 @@ async function receiveUpload(req: Request, params: URLSearchParams, asCaller: Su
 
   const { data: src, error } = await db
     .from("sync_sources")
-    .select("shop_id, file_format, file_url, field_mapping, mapping_status, latest_file_time, shops(slug, name, country)")
+    .select("shop_id, file_format, file_url, field_mapping, mapping_status, latest_file_time, last_file_hash, shops(slug, name, country)")
     .eq("shop_id", shopId)
     .single();
   if (error || !src) return reply(500, { error: error?.message ?? "Stock source missing" });
@@ -599,13 +646,6 @@ export async function handler(req: Request): Promise<Response> {
   const params = new URL(req.url).searchParams;
   if (params.has("shop_id")) return await receiveUpload(req, params, asCaller, db);
 
-  // Pull: the 15-minute schedule (shared secret) or the admin ("Pull now").
-  const fromCron = Boolean(cronSecret) && req.headers.get("x-ppi-cron-secret") === cronSecret;
-  if (!fromCron) {
-    const { data: isAdmin } = await asCaller.rpc("is_admin");
-    if (isAdmin !== true) return reply(403, { error: "Only the schedule or the admin may run the stock pull" });
-  }
-
   let body: { shop_id?: string; force?: boolean } = {};
   try {
     body = await req.json();
@@ -613,9 +653,24 @@ export async function handler(req: Request): Promise<Response> {
     body = {};
   }
 
+  // Pull: the 15-minute schedule (shared secret), the admin, or an owner for their own
+  // shop ("Download now" on the dashboard, never forced).
+  const fromCron = Boolean(cronSecret) && req.headers.get("x-ppi-cron-secret") === cronSecret;
+  if (!fromCron) {
+    const { data: isAdmin } = await asCaller.rpc("is_admin");
+    if (isAdmin !== true) {
+      const shopId = String(body.shop_id ?? "");
+      const { data: isOwner } = UUID.test(shopId)
+        ? await asCaller.rpc("is_shop_member", { p_shop_id: shopId })
+        : { data: false };
+      if (isOwner !== true) return reply(403, { error: "Only the schedule, the admin or the shop's owner may run the stock pull" });
+      body = { shop_id: shopId, force: false };
+    }
+  }
+
   let query = db
     .from("sync_sources")
-    .select("shop_id, file_format, file_url, field_mapping, mapping_status, latest_file_time, shops(slug, name, country)")
+    .select("shop_id, file_format, file_url, field_mapping, mapping_status, latest_file_time, last_file_hash, shops(slug, name, country)")
     .not("file_url", "is", null);
   if (body.shop_id) query = query.eq("shop_id", body.shop_id);
   const { data: sources, error } = await query;

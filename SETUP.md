@@ -40,6 +40,7 @@ For **each** file below:
 | 12 | `supabase/migrations/20261009000001_folder_upload.sql` | Folder upload: shop PC check-in, last uploaded file |
 | 13 | `supabase/migrations/20261010000001_self_service.sql` | Self-service: owners create shops and approve their file's columns |
 | 14 | `supabase/migrations/20261011000001_search_shop_name.sql` | Search also by shop name, street and town |
+| 15 | `supabase/migrations/20261012000001_cloud_link.sql` | Owners' cloud file link (Google Drive, Dropbox, OneDrive) |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -167,7 +168,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001 20261012000001
 ```
 
 ---

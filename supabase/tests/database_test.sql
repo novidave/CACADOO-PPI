@@ -577,4 +577,33 @@ begin
 end $$;
 reset role;
 
+\echo '--- cloud link: owners set their own'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_bad text;
+begin
+  perform public.owner_set_file_url(v_shop, ' https://drive.google.com/uc?export=download&id=abc ');
+  assert (select file_url from public.my_shops() where id = v_shop) = 'https://drive.google.com/uc?export=download&id=abc';
+  foreach v_bad in array array['http://example.com/a.csv', 'https://localhost/a.csv', 'https://127.0.0.1/a.csv',
+                                'https://10.0.0.1/x', 'ftp://example.com/a.csv', 'https://intranet/a.csv'] loop
+    begin
+      perform public.owner_set_file_url(v_shop, v_bad);
+      raise exception 'accepted %', v_bad;
+    exception when invalid_parameter_value then null;
+    end;
+  end loop;
+  begin
+    perform public.owner_set_file_url((select id from public.shops where slug = 'drogeria-kostolne'), 'https://example.com/a.csv');
+    raise exception 'owner A set shop B link';
+  exception when insufficient_privilege then null;
+  end;
+  perform public.owner_set_file_url(v_shop, '');
+  assert (select file_url is null from public.my_shops() where id = v_shop), 'empty text clears the link';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
 \echo 'ALL DATABASE CHECKS PASSED'

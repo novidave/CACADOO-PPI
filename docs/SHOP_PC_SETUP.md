@@ -24,6 +24,13 @@ Supabase "stock-pull" function ──▶ same checks and AI field mapping as bef
 - Works in **Microsoft Edge** and **Google Chrome** on a computer. Firefox and Safari cannot read a folder, so the
   page shows a message instead.
 
+Two other ways, both on **Môj obchod → Priečinok s exportom**:
+
+- **Nahrať súbor** (Upload file): send one stock file by hand, in any browser.
+- **Odkaz na súbor v cloude** (Cloud file link): if the stock software saves the file to Google Drive, Dropbox or
+  OneDrive, paste a share link to the file itself ("anyone with the link can view"). PPI downloads it every
+  15 minutes; the shop PC does not need to be on. Google Sheets links are downloaded as CSV.
+
 **Rehearse on your own Windows PC first (part R)**, then do the first real shop.
 
 ---
