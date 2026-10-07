@@ -33,7 +33,7 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-const ERRORS = ["name", "limit", "columns", "website", "logo", "cloud_folder", "cloud_url", "cloud_fn"] as const;
+const ERRORS = ["name", "limit", "columns", "website", "logo", "cloud_url", "cloud_fn"] as const;
 
 function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
@@ -45,6 +45,8 @@ function errorText(dict: Dictionary, err: string): string {
 /** The stock file's last error; the common download problems in the owner's language. */
 function lastErrorText(dict: Dictionary, error: string): string {
   if (/opens a web page/.test(error)) return dict.owner.cloud_webpage_hint;
+  if (/cloud folder has no stock file/.test(error)) return dict.owner.cloud_no_stock_file;
+  if (/Google Drive folders cannot be read/.test(error)) return dict.owner.cloud_google_key;
   if (/HTTP (401|403)/.test(error)) return dict.owner.cloud_share_hint;
   return error;
 }
@@ -65,7 +67,7 @@ function pullResultText(dict: Dictionary, raw: string | undefined): string | nul
   else if (r.status === "proposed" || r.status === "waiting_for_approval" || r.status === "layout_changed")
     text = t(s[`result_${r.status}`], { rows: r.rows ?? 0 });
   else if (/HTTP (401|403)/.test(r.error ?? "")) text = dict.owner.cloud_share_hint;
-  else if (/opens a web page/.test(r.error ?? "")) text = dict.owner.cloud_webpage_hint;
+  else if (r.error) text = lastErrorText(dict, r.error) === r.error ? t(s.result_error, { error: r.error }) : lastErrorText(dict, r.error);
   else text = t(s.result_error, { error: r.error ?? "?" });
   return t(dict.owner.cloud_result, { result: text });
 }

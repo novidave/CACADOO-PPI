@@ -5,9 +5,10 @@
  *  - Dropbox             ?dl=0                 → ?dl=1
  *  - OneDrive (personal)                       → kept; stock-pull uses OneDrive's share API
  *  - SharePoint / OneDrive for work            → adds download=1
- * Any other https link is used as it is. Folder links cannot be downloaded.
+ * Shared FOLDER links (OneDrive, Dropbox, Google Drive) are kept: stock-pull takes the
+ * newest stock file in the folder. Any other https link is used as it is.
  */
-export type CloudLink = { url: string } | { error: "folder" | "invalid" };
+export type CloudLink = { url: string } | { error: "invalid" };
 
 export function toDownloadLink(input: string): CloudLink {
   let url: URL;
@@ -20,7 +21,8 @@ export function toDownloadLink(input: string): CloudLink {
   const host = url.hostname.toLowerCase();
 
   if (host === "drive.google.com") {
-    if (url.pathname.includes("/folders/")) return { error: "folder" };
+    // A shared folder: stock-pull takes its newest stock file.
+    if (url.pathname.includes("/folders/")) return { url: url.toString() };
     const id = url.pathname.match(/\/file\/d\/([^/]+)/)?.[1] ?? url.searchParams.get("id");
     if (id) return { url: `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}` };
   }
@@ -34,19 +36,22 @@ export function toDownloadLink(input: string): CloudLink {
     }
   }
   if (host === "dropbox.com" || host.endsWith(".dropbox.com")) {
-    if (url.pathname.startsWith("/home") || /\/(scl\/fo|sh)\//.test(url.pathname)) return { error: "folder" };
+    if (url.pathname.startsWith("/home")) return { error: "invalid" }; // own Dropbox page, not a share link
+    if (/\/(scl\/fo|sh)\//.test(url.pathname)) {
+      url.searchParams.delete("dl"); // a shared folder: stock-pull downloads it as ZIP
+      return { url: url.toString() };
+    }
     url.searchParams.delete("dl");
     url.searchParams.set("dl", "1");
     return { url: url.toString() };
   }
   if (host === "1drv.ms" || host === "onedrive.live.com") {
-    // Kept as shared: the stock-pull function asks OneDrive's share API for the file itself.
-    if (/\/f\/|\/:f:\//.test(url.pathname)) return { error: "folder" };
+    // Kept as shared (file or folder): stock-pull asks OneDrive's share API for the file
+    // itself, or for the newest stock file of a folder.
     url.searchParams.delete("download");
     return { url: url.toString() };
   }
   if (host.endsWith(".sharepoint.com")) {
-    if (/\/:f:\//.test(url.pathname)) return { error: "folder" };
     url.searchParams.set("download", "1");
     return { url: url.toString() };
   }

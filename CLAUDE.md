@@ -53,7 +53,8 @@ IP hash). `robots.ts`, `sitemap.ts` and `llms.txt` live at the app root.
 admin JWT checked by `upload_check_in()`), or pull by cron (header `x-ppi-cron-secret`) / admin JWT with credentials
 from Vault via `sync_credentials()`. Owners may pull their own shop and set a cloud share link (`owner_set_file_url()`,
 converted to a direct download by `@/lib/cloudLink`; only public https hosts, `isAllowedFileUrl`); without a
-Last-Modified header, unchanged content (`last_file_hash`) is not counted as a new file; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping
+Last-Modified header, unchanged content (`last_file_hash`) is not counted as a new file. A shared cloud FOLDER link
+(OneDrive share API, Dropbox ZIP, Google Drive with the optional `GOOGLE_API_KEY` secret) → the newest stock file in it; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping
 proposals (Claude `claude-opus-5-5` with structured outputs, else `guessMapping`) are never auto-approved;
 `apply_stock_file()` writes a full file in one transaction (missing items → quantity 0). >5 % unreadable rows →
 keep old stock, propose a new mapping.

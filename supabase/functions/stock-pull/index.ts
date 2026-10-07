@@ -26,6 +26,7 @@ import { XMLParser } from "npm:fast-xml-parser@5.11.2";
 // SheetJS 0.20.3 (official release, republished on npm by e965).
 import * as XLSX from "npm:@e965/xlsx@0.20.3";
 import Anthropic from "npm:@anthropic-ai/sdk@0.131.0";
+import JSZip from "npm:jszip@3.10.1";
 
 // ---------------------------------------------------------------- types
 
@@ -446,7 +447,7 @@ export function downloadCandidates(fileUrl: string): string[] {
   if (host === "1drv.ms" || host === "onedrive.live.com") {
     url.searchParams.delete("download");
     const share = url.toString();
-    const encoded = btoa(share).replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
+    const encoded = encodeShare(share).slice(2);
     const withDownload = new URL(share);
     withDownload.searchParams.set("download", "1");
     const candidates = [`https://api.onedrive.com/v1.0/shares/u!${encoded}/root/content`, withDownload.toString()];
@@ -454,6 +455,155 @@ export function downloadCandidates(fileUrl: string): string[] {
     return [...candidates, share];
   }
   return [fileUrl];
+}
+
+/** OneDrive's id for a share link: "u!" + base64url of the link. */
+export function encodeShare(share: string): string {
+  const bytes = new TextEncoder().encode(share);
+  return "u!" + btoa(String.fromCharCode(...bytes)).replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
+}
+
+// ---------------------------------------------------------------- cloud folders
+
+/** Stock files PPI reads (the old binary .xls is not one of them). */
+const STOCK_FILE = /\.(xml|csv|txt|xlsx)$/i;
+
+interface FolderEntry {
+  name: string;
+  modified: number;
+}
+
+/** The most recently changed stock file of a folder listing (temporary "~$" files skipped). */
+export function newestStockEntry<T extends FolderEntry>(entries: T[]): T | null {
+  return entries
+    .filter((e) => STOCK_FILE.test(e.name) && !e.name.startsWith("~$") && !e.name.startsWith(".") && Number.isFinite(e.modified))
+    .reduce<T | null>((best, e) => (!best || e.modified > best.modified ? e : best), null);
+}
+
+/** OneDrive folder listing (shares API, children) → the newest stock file and how to download it. */
+export function oneDriveNewest(listing: unknown, base: string): (FolderEntry & { url: string }) | null {
+  const children = ((listing as { children?: unknown[] })?.children ?? []) as {
+    id: string;
+    name: string;
+    file?: unknown;
+    lastModifiedDateTime?: string;
+    "@content.downloadUrl"?: string;
+  }[];
+  return newestStockEntry(
+    children
+      .filter((c) => c.file)
+      .map((c) => ({
+        name: c.name,
+        modified: Date.parse(c.lastModifiedDateTime ?? ""),
+        url: c["@content.downloadUrl"] ?? `${base}/items/${encodeURIComponent(c.id)}/content`,
+      })),
+  );
+}
+
+/** Google Drive files.list → the newest stock file or Google Sheet. */
+export function driveNewest(listing: unknown): (FolderEntry & { id: string; sheet: boolean }) | null {
+  const files = ((listing as { files?: unknown[] })?.files ?? []) as { id: string; name: string; mimeType: string; modifiedTime: string }[];
+  return newestStockEntry(
+    files.map((f) => {
+      const sheet = f.mimeType === "application/vnd.google-apps.spreadsheet";
+      return { id: f.id, sheet, name: sheet ? `${f.name}.csv` : f.name, modified: Date.parse(f.modifiedTime) };
+    }),
+  );
+}
+
+/** A Dropbox folder downloads as a ZIP: the newest stock file inside it. */
+export async function newestFromZip(zipBytes: Uint8Array): Promise<{ name: string; modified: number; bytes: Uint8Array } | null> {
+  const zip = await JSZip.loadAsync(zipBytes);
+  const entries = Object.values(zip.files)
+    .filter((f) => !f.dir)
+    .map((f) => ({ file: f, name: f.name.split("/").pop() ?? f.name, modified: f.date.getTime() }));
+  const newest = newestStockEntry(entries);
+  if (!newest) return null;
+  return { name: newest.name, modified: newest.modified, bytes: await newest.file.async("uint8array") };
+}
+
+type FolderPick = { name: string; time: Date; bytes: Uint8Array };
+
+async function download(url: string): Promise<Uint8Array> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`Could not download the stock file from the cloud folder (HTTP ${response.status}).`);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length > MAX_FILE_BYTES) throw new Error("The stock file is larger than 50 MB.");
+  return bytes;
+}
+
+const NO_STOCK_FILE = "The cloud folder has no stock file (XML, CSV, TXT or XLSX).";
+
+/**
+ * A shared cloud FOLDER link: picks the newest stock file in it. Returns null when the
+ * link is not a folder (then it is downloaded as a file). OneDrive and Dropbox need
+ * nothing else; Google Drive folders need the GOOGLE_API_KEY secret.
+ */
+async function pickFromCloudFolder(link: string): Promise<FolderPick | null> {
+  let url: URL;
+  try {
+    url = new URL(link);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  const pick = (name: string, modified: number, bytes: Uint8Array): FolderPick => ({
+    name,
+    time: new Date(Math.min(Number.isFinite(modified) ? modified : Date.now(), Date.now())),
+    bytes,
+  });
+
+  if (host === "1drv.ms" || host === "onedrive.live.com") {
+    url.searchParams.delete("download");
+    const base = `https://api.onedrive.com/v1.0/shares/${encodeShare(url.toString())}`;
+    const response = await fetch(`${base}/root?$expand=children`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null; // not reachable this way: try it as a file link
+    }
+    const listing = await response.json();
+    if (!listing?.folder) return null; // a file, not a folder
+    const newest = oneDriveNewest(listing, base);
+    if (!newest) throw new Error(NO_STOCK_FILE);
+    return pick(newest.name, newest.modified, await download(newest.url));
+  }
+
+  if ((host === "dropbox.com" || host.endsWith(".dropbox.com")) && /\/(scl\/fo|sh)\//.test(url.pathname)) {
+    url.searchParams.set("dl", "1");
+    const newest = await newestFromZip(await download(url.toString()));
+    if (!newest) throw new Error(NO_STOCK_FILE);
+    return pick(newest.name, newest.modified, newest.bytes);
+  }
+
+  const driveFolder = host === "drive.google.com" ? url.pathname.match(/\/folders\/([^/?#]+)/)?.[1] : undefined;
+  if (driveFolder) {
+    const key = Deno.env.get("GOOGLE_API_KEY");
+    if (!key) {
+      throw new Error("Google Drive folders cannot be read yet (no Google API key). Share the stock file itself instead.");
+    }
+    const api = "https://www.googleapis.com/drive/v3/files";
+    const query = new URLSearchParams({
+      q: `'${driveFolder.replace(/'/g, "")}' in parents and trashed = false`,
+      fields: "files(id,name,mimeType,modifiedTime)",
+      pageSize: "200",
+      key,
+    });
+    const response = await fetch(`${api}?${query}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Could not read the Google Drive folder (HTTP ${response.status}). Share it with "Anyone with the link".`);
+    }
+    const newest = driveNewest(await response.json());
+    if (!newest) throw new Error(NO_STOCK_FILE);
+    const fileUrl = newest.sheet
+      ? `${api}/${encodeURIComponent(newest.id)}/export?mimeType=text/csv&key=${encodeURIComponent(key)}`
+      : `${api}/${encodeURIComponent(newest.id)}?alt=media&key=${encodeURIComponent(key)}`;
+    return pick(newest.name, newest.modified, await download(fileUrl));
+  }
+  return null;
 }
 
 /** A web page (e.g. a cloud viewer or login page) rather than a stock file. */
@@ -483,6 +633,19 @@ async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promis
     }
     if (creds?.basic_user && creds?.basic_password) headers.Authorization = basicAuth(creds.basic_user, creds.basic_password);
     if (isApproved(src) && src.latest_file_time && !force) headers["If-Modified-Since"] = new Date(src.latest_file_time).toUTCString();
+
+    // A shared cloud folder: take its newest stock file (with that file's own time).
+    const folder = await pickFromCloudFolder(src.file_url as string);
+    if (folder) {
+      await update({ last_file_name: folder.name.slice(0, 200) });
+      if (alreadyApplied(src, folder.time, force)) {
+        await update({});
+        return { status: "unchanged" };
+      }
+      const outcome = await processFile(db, src, folder.bytes, folder.time, update);
+      if (outcome.status === "updated") await update({ last_file_hash: await sha256(folder.bytes) });
+      return outcome;
+    }
 
     // Try each address for this link until one gives a file (not a web page).
     let response: Response | null = null;

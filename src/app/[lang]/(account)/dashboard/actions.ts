@@ -190,7 +190,7 @@ export async function saveCloudLink(formData: FormData) {
   }
   if (intent === "save") {
     const link = toDownloadLink(text(formData, "cloud_url", 1000));
-    if ("error" in link) back({ err: `cloud_${link.error === "folder" ? "folder" : "url"}` });
+    if ("error" in link) back({ err: "cloud_url" });
     else {
       const { error } = await session.supabase.rpc("owner_set_file_url", { p_shop_id: shopId, p_url: link.url });
       if (error) back({ err: error.code === "22023" ? "cloud_url" : error.message });
