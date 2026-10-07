@@ -294,6 +294,7 @@ Supabase → **Edge Functions** → **Secrets** (or *Manage secrets*) → add:
 | Name | Value |
 |---|---|
 | `PPI_CRON_SECRET` | a long random text you make up (40+ letters and digits, e.g. from your password manager). Keep a copy for G4. |
+| `GOOGLE_API_KEY` | *optional* — only if shops paste **Google Drive folder** links. console.cloud.google.com → new project → **APIs & Services → Library → Google Drive API → Enable** → **Credentials → Create credentials → API key** → restrict it to the Google Drive API. (OneDrive and Dropbox folders need nothing.) |
 | `ANTHROPIC_API_KEY` | *optional* — an API key from console.anthropic.com. With it, Claude proposes the field mappings; without it, a simple rule-based guess is proposed. You approve either way. |
 
 ### G3. Deploy the function

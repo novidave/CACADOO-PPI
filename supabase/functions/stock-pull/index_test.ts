@@ -1,7 +1,8 @@
 // Run: npm run test:functions   (sets PPI_STOCK_PULL_TEST so the server does not start)
 import * as XLSX from "npm:@e965/xlsx@0.20.3";
+import JSZip from "npm:jszip@3.10.1";
 import {
-  applyMapping, currencyForCountry, decodeText, detectFormat, downloadCandidates, guessMapping, isAllowedFileUrl, looksLikeWebPage, parseFile, parseNumber, type Mapping,
+  applyMapping, currencyForCountry, decodeText, detectFormat, downloadCandidates, driveNewest, encodeShare, guessMapping, isAllowedFileUrl, looksLikeWebPage, newestFromZip, oneDriveNewest, parseFile, parseNumber, type Mapping,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -102,4 +103,30 @@ Deno.test("OneDrive share links: the file through the share API first", () => {
   eq(looksLikeWebPage("text/html; charset=utf-8", new Uint8Array()), true, "html by type");
   eq(looksLikeWebPage(null, new TextEncoder().encode("  <!DOCTYPE html><html>")), true, "html by content");
   eq(looksLikeWebPage("application/octet-stream", new TextEncoder().encode("<?xml version=\"1.0\"?><sklad/>")), false, "xml file");
+});
+
+Deno.test("cloud folders: the newest stock file is taken", async () => {
+  const base = "https://api.onedrive.com/v1.0/shares/u!x";
+  const onedrive = oneDriveNewest({ folder: {}, children: [
+    { id: "1", name: "stock.csv", file: {}, lastModifiedDateTime: "2026-10-07T08:00:00Z", "@content.downloadUrl": "https://dl/1" },
+    { id: "2", name: "stock-new.csv", file: {}, lastModifiedDateTime: "2026-10-07T09:00:00Z" },
+    { id: "3", name: "notes.docx", file: {}, lastModifiedDateTime: "2026-10-07T10:00:00Z" },
+    { id: "4", name: "archive", folder: {}, lastModifiedDateTime: "2026-10-07T11:00:00Z" },
+    { id: "5", name: "~$stock.xlsx", file: {}, lastModifiedDateTime: "2026-10-07T12:00:00Z" },
+  ] }, base);
+  eq([onedrive?.name, onedrive?.url], ["stock-new.csv", `${base}/items/2/content`], "OneDrive newest");
+  const drive = driveNewest({ files: [
+    { id: "a", name: "old.csv", mimeType: "text/csv", modifiedTime: "2026-10-01T00:00:00Z" },
+    { id: "b", name: "Sklad", mimeType: "application/vnd.google-apps.spreadsheet", modifiedTime: "2026-10-05T00:00:00Z" },
+    { id: "c", name: "photo.jpg", mimeType: "image/jpeg", modifiedTime: "2026-10-06T00:00:00Z" },
+  ] });
+  eq([drive?.id, drive?.sheet, drive?.name], ["b", true, "Sklad.csv"], "Google Sheet counts as CSV");
+  eq(encodeShare("https://1drv.ms/f/s!Ab+c/d?e=1").startsWith("u!"), true, "share id");
+
+  const zip = new JSZip();
+  zip.file("export/stock-old.csv", "Kod;Nazov\nA;old", { date: new Date("2026-10-01T00:00:00Z") });
+  zip.file("export/stock.csv", "Kod;Nazov\nB;new", { date: new Date("2026-10-07T00:00:00Z") });
+  zip.file("export/readme.pdf", "x", { date: new Date("2026-10-08T00:00:00Z") });
+  const picked = await newestFromZip(await zip.generateAsync({ type: "uint8array" }));
+  eq([picked?.name, new TextDecoder().decode(picked?.bytes)], ["stock.csv", "Kod;Nazov\nB;new"], "Dropbox ZIP newest");
 });

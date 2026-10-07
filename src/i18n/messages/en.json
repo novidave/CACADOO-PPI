@@ -266,8 +266,8 @@
     "saving": "Saving…",
     "uploading": "Uploading…",
     "cloud_title": "Cloud file link",
-    "cloud_intro": "Does your stock software save the stock to Google Drive, Dropbox or OneDrive? Paste a link to the file itself (shared with “anyone with the link”). PPI downloads it every 15 minutes – the shop PC does not need to be on.",
-    "cloud_url": "Link to the file",
+    "cloud_intro": "Does your stock software save the stock to OneDrive, Dropbox or Google Drive? Paste a link to the file or to the whole folder (shared with “anyone with the link”) – from a folder PPI always takes the newest stock file. PPI downloads it every 15 minutes; the shop PC does not need to be on.",
+    "cloud_url": "Link to the file or folder",
     "cloud_save": "Save and download now",
     "cloud_pull": "Download now",
     "cloud_remove": "Remove link",
@@ -276,9 +276,10 @@
     "cloud_removed": "The link was removed.",
     "cloud_result": "Download: {result}",
     "cloud_share_hint": "The file is not shared publicly. In the cloud, set sharing to “Anyone with the link can view” and try again.",
-    "error_cloud_folder": "This is a link to a folder. Open the stock file inside it and copy the link to that file.",
     "error_cloud_url": "The link must be a full address starting with https://",
     "error_cloud_fn": "Downloading does not work yet: the “stock-pull” function is not deployed.",
-    "cloud_webpage_hint": "The link opens a web page, not the file itself. In the cloud, open the stock file, share it with “Anyone with the link” and paste the link to that file (not a folder)."
+    "cloud_webpage_hint": "The link opens a web page, not the file itself. In the cloud, open the stock file, share it with “Anyone with the link” and paste the link to that file (not a folder).",
+    "cloud_no_stock_file": "The cloud folder has no stock file (XML, CSV, TXT or XLSX).",
+    "cloud_google_key": "Google Drive folders cannot be read yet. Paste a link to the stock file itself."
   }
 }

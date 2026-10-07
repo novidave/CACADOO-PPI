@@ -28,8 +28,9 @@ Two other ways, both on **Môj obchod → Priečinok s exportom**:
 
 - **Nahrať súbor** (Upload file): send one stock file by hand, in any browser.
 - **Odkaz na súbor v cloude** (Cloud file link): if the stock software saves the file to Google Drive, Dropbox or
-  OneDrive, paste a share link to the file itself ("anyone with the link can view"). PPI downloads it every
-  15 minutes; the shop PC does not need to be on. Google Sheets links are downloaded as CSV.
+  OneDrive, paste a share link to the file or to the whole folder ("anyone with the link can view"). From a
+  folder PPI always takes the newest stock file. PPI downloads it every 15 minutes; the shop PC does not need
+  to be on. Google Sheets links are downloaded as CSV; Google Drive folders need the optional `GOOGLE_API_KEY`.
 
 **Rehearse on your own Windows PC first (part R)**, then do the first real shop.
 
