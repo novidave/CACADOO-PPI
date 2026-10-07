@@ -200,7 +200,9 @@
     "autostart_2": "Jelölje ki a „PPI” parancsikont, és másolja (Ctrl+C).",
     "autostart_3": "Nyomja meg a Windows+R billentyűt, írja be: shell:startup, majd Enter.",
     "autostart_4": "Illessze be a parancsikont a megnyíló mappába (Ctrl+V).",
-    "keep_awake": "A gép nyitvatartási időben nem mehet alvó állapotba: Gépház → Rendszer → Főkapcsoló → Alvás: Soha."
+    "keep_awake": "A gép nyitvatartási időben nem mehet alvó állapotba: Gépház → Rendszer → Főkapcsoló → Alvás: Soha.",
+    "upload_file": "Fájl feltöltése",
+    "uploading_file": "Fájl feltöltése…"
   },
   "owner": {
     "shop_name": "Üzlet neve",
@@ -262,6 +264,20 @@
     "rule_public": "Csak nyilvános adatok: beszerzési ár, szállító és vásárlói adat nélkül.",
     "rule_pc": "A gép nyitvatartási időben bekapcsolva marad, és nyitva van rajta ez az oldal vagy a PPI alkalmazás (lehet kis méretre állítva).",
     "saving": "Mentés…",
-    "uploading": "Feltöltés…"
+    "uploading": "Feltöltés…",
+    "cloud_title": "Felhőben lévő fájl hivatkozása",
+    "cloud_intro": "A készletkezelő program a Google Drive-ra, Dropboxba vagy OneDrive-ra menti a készletet? Illessze be magának a fájlnak a hivatkozását („bárki, aki rendelkezik a linkkel” megosztással). A PPI 15 percenként letölti – a bolti gépnek nem kell bekapcsolva lennie.",
+    "cloud_url": "A fájl hivatkozása",
+    "cloud_save": "Mentés és letöltés most",
+    "cloud_pull": "Letöltés most",
+    "cloud_remove": "Hivatkozás törlése",
+    "cloud_current": "Mentett hivatkozás",
+    "cloud_saved": "A hivatkozás mentve.",
+    "cloud_removed": "A hivatkozás törölve.",
+    "cloud_result": "Letöltés: {result}",
+    "cloud_share_hint": "A fájl nincs nyilvánosan megosztva. Állítsa be a felhőben: „Bárki, aki rendelkezik a linkkel, megtekintheti”, majd próbálja újra.",
+    "error_cloud_folder": "Ez egy mappa hivatkozása. Nyissa meg benne a készletfájlt, és annak a hivatkozását másolja ki.",
+    "error_cloud_url": "A hivatkozásnak teljes, https:// kezdetű címnek kell lennie.",
+    "error_cloud_fn": "A letöltés még nem működik: a „stock-pull” funkció nincs telepítve."
   }
 }

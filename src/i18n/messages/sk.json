@@ -200,7 +200,9 @@
     "autostart_2": "Označte odkaz „PPI“ a skopírujte ho (Ctrl+C).",
     "autostart_3": "Stlačte Windows+R, napíšte shell:startup a stlačte Enter.",
     "autostart_4": "Do otvoreného priečinka odkaz vložte (Ctrl+V).",
-    "keep_awake": "Počítač nesmie počas otváracích hodín prejsť do režimu spánku: Nastavenia → Systém → Napájanie → Režim spánku: Nikdy."
+    "keep_awake": "Počítač nesmie počas otváracích hodín prejsť do režimu spánku: Nastavenia → Systém → Napájanie → Režim spánku: Nikdy.",
+    "upload_file": "Nahrať súbor",
+    "uploading_file": "Nahrávam súbor…"
   },
   "owner": {
     "shop_name": "Názov obchodu",
@@ -262,6 +264,20 @@
     "rule_public": "Len verejné údaje: žiadne nákupné ceny, dodávatelia ani údaje o zákazníkoch.",
     "rule_pc": "Počítač je počas otváracích hodín zapnutý a je na ňom otvorená táto stránka alebo aplikácia PPI (môže byť minimalizovaná).",
     "saving": "Ukladám…",
-    "uploading": "Nahrávam…"
+    "uploading": "Nahrávam…",
+    "cloud_title": "Odkaz na súbor v cloude",
+    "cloud_intro": "Ukladá váš skladový program zásoby do Google Drive, Dropboxu alebo OneDrive? Vložte odkaz na samotný súbor (zdieľaný pre „kohokoľvek s odkazom“). PPI si ho stiahne každých 15 minút – počítač v obchode nemusí byť zapnutý.",
+    "cloud_url": "Odkaz na súbor",
+    "cloud_save": "Uložiť a stiahnuť teraz",
+    "cloud_pull": "Stiahnuť teraz",
+    "cloud_remove": "Odstrániť odkaz",
+    "cloud_current": "Uložený odkaz",
+    "cloud_saved": "Odkaz je uložený.",
+    "cloud_removed": "Odkaz bol odstránený.",
+    "cloud_result": "Stiahnutie: {result}",
+    "cloud_share_hint": "Súbor nie je zdieľaný verejne. V cloude nastavte zdieľanie „Ktokoľvek s odkazom môže zobraziť“ a skúste to znova.",
+    "error_cloud_folder": "Toto je odkaz na priečinok. Otvorte v ňom súbor so zásobami a skopírujte odkaz na ten súbor.",
+    "error_cloud_url": "Odkaz musí byť úplná adresa začínajúca https://",
+    "error_cloud_fn": "Sťahovanie zatiaľ nefunguje: funkcia „stock-pull“ nie je nasadená."
   }
 }

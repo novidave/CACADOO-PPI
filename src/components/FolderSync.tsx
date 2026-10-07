@@ -98,6 +98,8 @@ export function FolderSync({
   const [lastCheck, setLastCheck] = useState<number | null>(null);
   const [nextCheck, setNextCheck] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const running = useRef(false);
   const active = useRef(false); // true while this window holds the lock for this shop
@@ -323,6 +325,39 @@ export function FolderSync({
     }
   }
 
+  /** "Upload file": send one stock file by hand (any browser, no folder needed). */
+  async function uploadChosenFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const field = event.currentTarget;
+    const file = field.files?.[0];
+    field.value = "";
+    if (!file || running.current) return;
+    running.current = true;
+    setBusy(true);
+    setUploadingFile(true);
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        setPhase("signed_out");
+        return;
+      }
+      const result = await upload(session.access_token, file, await file.arrayBuffer());
+      const { data: after } = await supabase.rpc("upload_check_in", { p_shop_id: shopId });
+      if (after) setServer(after as ServerStatus);
+      setNewest({ name: file.name, time: file.lastModified });
+      setMessage(resultText(result));
+    } catch (e) {
+      setMessage(fill(labels.send_failed, { error: errorText(e) }));
+    } finally {
+      running.current = false;
+      setBusy(false);
+      setUploadingFile(false);
+      setLastCheck(Date.now());
+    }
+  }
+
   async function allow() {
     const folder = await storeGet<FolderHandle>(folderKey);
     if (folder && (await folder.requestPermission({ mode: "read" })) === "granted") await check();
@@ -340,12 +375,33 @@ export function FolderSync({
   const when = (ms: number) => formatDateTime(new Date(ms), lang, timeZone);
   const stateLabel = server ? labels[`state_${server.freshness_state}`] : null;
   const button = "self-start rounded border px-4 py-2";
+  const uploadButton = (
+    <>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".csv,.txt,.xml,.xlsx,text/csv,application/xml,text/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        onChange={uploadChosenFile}
+        className="sr-only"
+        tabIndex={-1}
+      />
+      <button type="button" onClick={() => fileInput.current?.click()} disabled={busy} className={`${button} border-foreground font-medium`}>
+        {uploadingFile ? labels.uploading_file : labels.upload_file}
+      </button>
+    </>
+  );
 
   if (!supported) {
     return (
       <section className="flex flex-col gap-2 border border-foreground p-4">
         {showName && <h2 className="text-lg font-semibold">{shopName}</h2>}
         <p className="font-semibold">{labels.unsupported}</p>
+        {uploadButton}
+        {message && (
+          <p className="font-semibold" role="status">
+            {message}
+          </p>
+        )}
       </section>
     );
   }
@@ -402,9 +458,12 @@ export function FolderSync({
       {phase !== "other_window" && phase !== "signed_out" && phase !== "starting" && (
         <div className="flex flex-wrap gap-2">
           {phase === "no_folder" ? (
-            <button type="button" onClick={connect} className={`${button} border-foreground font-medium`}>
-              {labels.connect}
-            </button>
+            <>
+              <button type="button" onClick={connect} className={`${button} border-foreground font-medium`}>
+                {labels.connect}
+              </button>
+              {uploadButton}
+            </>
           ) : (
             <>
               {phase === "watching" && (
@@ -412,6 +471,7 @@ export function FolderSync({
                   {labels.check_now}
                 </button>
               )}
+              {uploadButton}
               <button type="button" onClick={connect} className={`${button} border-line`}>
                 {labels.change}
               </button>

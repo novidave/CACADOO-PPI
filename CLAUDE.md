@@ -51,7 +51,9 @@ IP hash). `robots.ts`, `sitemap.ts` and `llms.txt` live at the app root.
 
 `supabase/functions/stock-pull/index.ts` (single file, paste-deployable): upload from the shop PC (`?shop_id=`, owner or
 admin JWT checked by `upload_check_in()`), or pull by cron (header `x-ppi-cron-secret`) / admin JWT with credentials
-from Vault via `sync_credentials()`; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping
+from Vault via `sync_credentials()`. Owners may pull their own shop and set a cloud share link (`owner_set_file_url()`,
+converted to a direct download by `@/lib/cloudLink`; only public https hosts, `isAllowedFileUrl`); without a
+Last-Modified header, unchanged content (`last_file_hash`) is not counted as a new file; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping
 proposals (Claude `claude-opus-5-5` with structured outputs, else `guessMapping`) are never auto-approved;
 `apply_stock_file()` writes a full file in one transaction (missing items → quantity 0). >5 % unreadable rows →
 keep old stock, propose a new mapping.
@@ -61,7 +63,8 @@ keep old stock, propose a new mapping.
 No software on the shop PC except the PPI web app (`app/manifest.ts`, installable, starts at `/sync`). `/[lang]/sync`
 → `@/components/FolderSync` (File System Access API, Edge/Chrome only; Firefox/Safari get a message): folder handle in
 IndexedDB (`@/lib/folderStore`), check every 15 min, one window per shop (Web Locks), `upload_check_in()` then POST the
-newest finished file (untouched 60 s) to `stock-pull?shop_id=…` with the owner's JWT. Guide: `docs/SHOP_PC_SETUP.md`.
+newest finished file (untouched 60 s) to `stock-pull?shop_id=…` with the owner's JWT. Also "Upload file" (one file by
+hand, any browser) and the cloud link form on the dashboard. Guide: `docs/SHOP_PC_SETUP.md`.
 
 ## Auth
 

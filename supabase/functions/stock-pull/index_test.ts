@@ -1,7 +1,7 @@
 // Run: npm run test:functions   (sets PPI_STOCK_PULL_TEST so the server does not start)
 import * as XLSX from "npm:@e965/xlsx@0.20.3";
 import {
-  applyMapping, currencyForCountry, decodeText, detectFormat, guessMapping, parseFile, parseNumber, type Mapping,
+  applyMapping, currencyForCountry, decodeText, detectFormat, guessMapping, isAllowedFileUrl, parseFile, parseNumber, type Mapping,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -82,4 +82,12 @@ Deno.test("rows that cannot be read are counted, not guessed", () => {
     "EUR",
   );
   eq([good.length, bad], [1, 4], "1 good, 4 bad");
+});
+
+Deno.test("only public https file addresses are downloaded", () => {
+  const ok = ["https://drive.google.com/uc?export=download&id=abc", "https://www.dropbox.com/s/x/stock.csv?dl=1"];
+  const bad = ["http://example.com/a.csv", "https://localhost/a.csv", "https://127.0.0.1/a.csv", "https://[::1]/a.csv",
+    "https://intranet/a.csv", "https://db.internal/a.csv", "https://user:pw@example.com/a.csv", "file:///etc/passwd", "nonsense"];
+  eq(ok.map((u) => isAllowedFileUrl(u)), [true, true], "allowed");
+  eq(bad.map((u) => isAllowedFileUrl(u)), bad.map(() => false), "refused");
 });
