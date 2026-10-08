@@ -16,10 +16,11 @@ export async function GET() {
 
 > PPI shows which local shops have a product in stock right now, at what price, and how fresh that information is. Shops across Europe; pages in Slovak, Hungarian and English.
 
-PPI reads stock directly from each shop's own stock software (an export every 15–30 minutes). It does not sell anything and has no checkout.
+PPI reads stock from each shop's own stock software: the shop's export file arrives every 15–30 minutes (from the shop PC or a cloud link). It does not sell anything and has no checkout.
 
 ## Data and freshness rules
 
+- Search matches the item name, brand, EAN barcode, the shop's name, street or town (accents and case ignored).
 - Every item has a price, its currency and an availability label (in stock / low stock / out of stock, or available / not available, or an exact quantity when the shop publishes it).
 - Freshness comes from the time of the shop's latest stock file: "current" (under 30 minutes), "recent" (under 24 hours), "stale" (older or none).
 - For stale shops PPI shows NO availability. Never present a stale shop's item as available.
