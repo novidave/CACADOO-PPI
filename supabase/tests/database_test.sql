@@ -589,4 +589,166 @@ begin
   assert exists (select 1 from cron.job where jobname = 'some-other-job'), 'other scheduled jobs are left alone';
 end $$;
 
+\echo '--- item names in three languages: search across languages'
+set role service_role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_item uuid;
+begin
+  -- a paint written with a shop abbreviation, as the shop's software exports it
+  insert into public.shop_items (shop_id, source_code, name, brand)
+  values (v_shop, 'D900', 'Farba fas. biela 5L', 'Primalex') returning id into v_item;
+  insert into public.inventory (shop_item_id, quantity, price, currency, source_updated_at)
+  values (v_item, 4, 24.90, 'EUR', now());
+  assert exists (select 1 from public.items_to_translate(v_shop) where item_id = v_item), 'a new name waits for translation';
+  assert public.apply_item_translations(v_shop, jsonb_build_array(jsonb_build_object(
+    'item_id', v_item, 'source', 'Farba fas. biela 5L', 'lang', 'sk',
+    'sk', 'Fasádna farba biela 5 l', 'hu', 'Homlokzatfesték fehér 5 l', 'en', 'White facade paint 5 l'))) = 1;
+  assert not exists (select 1 from public.items_to_translate(v_shop) where item_id = v_item), 'translated names are not asked again';
+  -- a translation made from an older name is not saved
+  assert public.apply_item_translations(v_shop, jsonb_build_array(jsonb_build_object(
+    'item_id', v_item, 'source', 'Farba biela', 'lang', 'sk', 'sk', 'x', 'hu', 'x', 'en', 'x'))) = 0, 'outdated translation skipped';
+  -- the trigram index covers the original name and all three translations
+  perform set_config('enable_seqscan', 'off', true);
+  declare
+    v_plan text := '';
+    v_line record;
+  begin
+    for v_line in execute 'explain select id from public.shop_items where public.item_names_text(name, name_i18n) like ''%white%''' loop
+      v_plan := v_plan || v_line."QUERY PLAN" || ' ';
+    end loop;
+    assert v_plan like '%shop_items_names_search_idx%', 'name search uses the index: ' || v_plan;
+  end;
+end $$;
+reset role;
+
+set role anon;
+do $$
+declare
+  v_q text;
+begin
+  -- Slovak, Hungarian and English words, any order, accents and case ignored
+  foreach v_q in array array['white paint', 'fehér festék', 'biela farba', 'FESTEK', 'paint white 5 l', 'farba fas'] loop
+    assert exists (select 1 from public.search_stock(v_q) where item_name = 'Farba fas. biela 5L'),
+      format('search_stock(%L) should find the paint', v_q);
+    assert exists (select 1 from public.shop_stock('drogeria-kostolne', v_q) where item_name = 'Farba fas. biela 5L'),
+      format('shop_stock(%L) should find the paint', v_q);
+  end loop;
+  -- words of the item and of the shop together; every word must match
+  assert exists (select 1 from public.search_stock('white paint kostolne') where item_name = 'Farba fas. biela 5L');
+  assert not exists (select 1 from public.search_stock('white chocolate') where item_name = 'Farba fas. biela 5L');
+  -- a word together with an EAN
+  assert exists (select 1 from public.search_stock('kava 8000070012345') where ean = '8000070012345'), 'word + EAN';
+  -- results carry the translations and the language of the original name
+  assert (select item_name_i18n ->> 'en' || ' / ' || item_name_lang from public.search_stock('fehér festék')
+          where item_name = 'Farba fas. biela 5L') = 'White facade paint 5 l / sk';
+  assert (select item_name_i18n ->> 'hu' from public.public_stock where item_name = 'Farba fas. biela 5L') = 'Homlokzatfesték fehér 5 l';
+  -- visitors cannot write translations
+  begin
+    perform public.apply_item_translations((select id from public.public_shops where slug = 'drogeria-kostolne'), '[]');
+    raise exception 'visitor saved translations';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+\echo '--- the owner corrects a translation; a new stock file keeps it'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_item uuid := (select id from public.shop_items where source_code = 'D900');
+begin
+  perform public.owner_set_item_translation(v_item,
+    '{"sk":"Fasádna farba biela 5 l","hu":"Fehér homlokzatfesték 5 l","en":"White exterior wall paint 5 l"}');
+  assert (select name_i18n ->> 'en' || ' ' || name_i18n_by_owner from public.owner_items(v_shop, 'exterior wall')
+          where item_id = v_item) = 'White exterior wall paint 5 l true', 'the owner sees and finds the correction';
+  begin
+    perform public.owner_set_item_translation((select id from public.shop_items where source_code = 'P001'), '{"en":"x"}');
+    raise exception 'owner B corrected an item of shop A';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_item_translation(v_item, '{"sk":" "}');
+    raise exception 'an empty correction was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    update public.shop_items set name_i18n = '{"en":"x"}' where id = v_item;
+    raise exception 'owner wrote name_i18n directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.items_to_translate(v_shop);
+    raise exception 'owner read the translation queue';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_item uuid := (select id from public.shop_items where source_code = 'D900');
+begin
+  -- the shop's next stock file, with the name now written differently
+  perform public.apply_stock_file(v_shop,
+    '[{"source_code":"D900","name":"Farba fasadna biela 5L","brand":"Primalex","quantity":3,"price":24.9}]', now());
+  assert (select quantity from public.inventory where shop_item_id = v_item) = 3, 'the new file was applied';
+  assert (select name_i18n ->> 'en' || ' ' || name_i18n_by_owner from public.shop_items where id = v_item)
+         = 'White exterior wall paint 5 l true', 'the correction survives a new file';
+  assert not exists (select 1 from public.items_to_translate(v_shop) where item_id = v_item), 'a corrected item is never sent to translation';
+  assert public.apply_item_translations(v_shop, jsonb_build_array(jsonb_build_object(
+    'item_id', v_item, 'source', 'Farba fasadna biela 5L', 'lang', 'sk', 'sk', 'a', 'hu', 'b', 'en', 'c'))) = 0,
+    'a machine translation never overwrites the owner';
+  assert (select name_i18n ->> 'en' from public.shop_items where id = v_item) = 'White exterior wall paint 5 l';
+end $$;
+reset role;
+
+-- the owner hands the item back to the automatic translation
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  perform public.owner_set_item_translation((select id from public.shop_items where source_code = 'D900'), null);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role service_role;
+do $$
+declare
+  v_item uuid := (select id from public.shop_items where source_code = 'D900');
+begin
+  assert exists (select 1 from public.items_to_translate((select id from public.shops where slug = 'drogeria-kostolne'))
+                 where item_id = v_item), 'back to automatic: translated again with the next file';
+  assert exists (select 1 from public.search_stock('exterior wall paint') where item_id = v_item),
+    'the last translation stays searchable until then';
+end $$;
+reset role;
+
+\echo '--- AI search limits'
+set role anon;
+do $$
+declare
+  i int;
+begin
+  for i in 1..10 loop
+    assert public.ai_search_hit(repeat('a', 64), 1000), format('AI search %s allowed', i);
+  end loop;
+  assert not public.ai_search_hit(repeat('a', 64), 1000), 'the 11th AI search in a minute is refused';
+  assert public.ai_search_hit(repeat('b', 64), 1000), 'another caller is still allowed';
+  -- the daily total for the whole site (11 so far today)
+  assert not public.ai_search_hit(repeat('c', 64), 11), 'daily limit reached';
+  assert public.ai_search_hit(repeat('c', 64), 12), 'below the daily limit';
+  begin
+    perform public.ai_search_hit('short', 100);
+    raise exception 'invalid caller hash accepted';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'

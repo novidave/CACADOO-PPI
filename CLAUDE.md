@@ -18,7 +18,9 @@ Setup steps for humans are in `SETUP.md`.
   Add a check to `supabase/tests/database_test.sql` for every rule you add.
 - **Europe-wide, no home town.** Never hard-code a city, country, currency or time zone.
   **No location services**: the website never asks for or guesses the visitor's location (no device location,
-  no IP lookup). Search is text only — item name, brand, EAN, shop name, street or town — across all shops.
+  no IP lookup). Search is text only — item name (original or its sk/hu/en translation), brand, EAN, shop name, street
+  or town — across all shops; every word must match (`matches_all_words`, `item_names_text` + trigram index).
+- Show the item name as the shop wrote it, plus `translatedName()` (`@/lib/names`) in the page language under it.
 - Times stored in UTC, shown in the **shop's** time zone (`shops.timezone`) via `@/lib/format`.
   Prices via `formatPrice(value, locale, currency)` with the item's own currency.
 - All visible text comes from `src/i18n/messages/{sk,hu,en}.json`; add every new key to all three.
@@ -45,7 +47,16 @@ always an extra — every page must work and show its data without it.
 and the MCP server (`/mcp`, stateless Streamable HTTP, tools `search_stock`, `get_shop`, `get_item`):
 anon client without cookies (`@/lib/supabase/public`), every result carries `source_url`, the database
 decides availability/quantity. Every API/MCP request goes through `rateLimit` (`api_hit`: 60/min, daily-salted
-IP hash). `robots.ts`, `sitemap.ts` and `llms.txt` live at the app root.
+IP hash). Items carry `name`, `name_translated` (in `lang`) and `name_lang`. `robots.ts`, `sitemap.ts` and
+`llms.txt` live at the app root.
+
+## AI search
+
+Main page only, on request ("Search with AI" → `?ai=1`), as an extra layer above the server-rendered plain results:
+`@/components/AiSearch` → `POST /api/ai-search` → `@/lib/aiSearch` (Claude Haiku, one strict tool `search_stock` from
+`publicApi.ts`, no location, structured final answer; cards only from the tool results). `ai_search_hit()`: 10 per
+minute per caller, `AI_DAILY_LIMIT` per day. `ANTHROPIC_API_KEY` is a server env variable (never `NEXT_PUBLIC`); without
+it, over a limit or on any error the layer disappears silently.
 
 ## Stock upload
 
@@ -55,6 +66,9 @@ It downloads nothing and runs on no schedule (cloud links and the cron pull were
 A file not newer than `latest_file_time` is skipped; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping proposals
 (Claude with structured outputs, else `guessMapping`) are never auto-approved; `apply_stock_file()` writes a full file
 in one transaction (missing items → quantity 0). >5 % unreadable rows → keep old stock, propose a new mapping.
+After an `updated` file, in the background (`EdgeRuntime.waitUntil`): `items_to_translate()` → Claude Haiku in batches
+of 200 (structured output: lang, sk, hu, en) → `apply_item_translations()`; never touches stock, never overwrites the
+owner's correction (`owner_set_item_translation()`, `name_i18n_by_owner`); failures are retried with the next file.
 
 ## Shop PC
 

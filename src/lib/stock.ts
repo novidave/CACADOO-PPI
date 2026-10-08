@@ -1,6 +1,7 @@
 import type { Dictionary } from "@/i18n/dictionaries";
 import { t } from "@/i18n/dictionaries";
 import { formatTime, localDay } from "./format";
+import type { NameI18n } from "./names";
 
 /** Label keys computed by the database (public.availability_label). */
 export type AvailabilityKey =
@@ -39,6 +40,9 @@ export interface StockRow {
   updated_at: string | null;
   /** NULL when the visitor's location is unknown. */
   distance_km: number | null;
+  /** Language of the name as the shop wrote it, and the name in sk/hu/en (null until translated). */
+  item_name_lang: string | null;
+  item_name_i18n: NameI18n | null;
 }
 
 /** Availability text. Null when stale: the page shows the stale text instead. */

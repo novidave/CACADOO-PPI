@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.1 · status 8 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 2.2 · status 8 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -17,6 +17,8 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Stock from the shop PC: PPI app window watching the export folder | Built and tested |
 | Stock by hand: "Upload file" | Live, tested by the owner |
 | AI field mapping (Claude) with owner approval | Live (rule-based guess when no Anthropic key is set) |
+| Item names in Slovak, Hungarian and English; search across the three languages | Built and tested; live after migration 17, the new stock function and the Anthropic key in Supabase |
+| AI search on the main page (Claude Haiku) | Built and tested; switched on by the Anthropic key in Vercel |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -58,6 +60,9 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 - Self-service accounts and the owner dashboard
 - Two ways for stock to arrive, both uploads: the PPI app window (folder, every 15 minutes) and "Upload file"
 - AI-proposed column mapping, always approved by the owner
+- Item names in three languages: every name is also kept in plain Slovak, Hungarian and English (made by AI in the
+  background, correctable by the owner), so a search in any of the three languages finds it
+- AI search on the main page: an extra layer above the plain results, on request
 - AI and machine access: JSON-LD, robots.txt, sitemap, llms.txt, public REST API with OpenAPI, MCP server
 - Slovak, Hungarian and English; mobile-first; installable PPI app for the shop PC
 
@@ -96,28 +101,41 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 
 ### 5.1 Home and search (`/[lang]`)
 
-- One search box. The text is matched, ignoring accents and case ("kava" finds "Káva"), against the item name, brand,
-  EAN barcode, the shop's name, street and town. Searching "Budince" lists the items of shops in Budince.
+- One search box. Every word of the text must appear (any order, also inside longer words), ignoring accents and case
+  ("kava" finds "Káva"), in the item's name as the shop wrote it or its Slovak, Hungarian or English name, the brand,
+  the EAN barcode, or the shop's name, street and town. "white paint", "fehér festék" and "biela farba" all find
+  "Farba fas. biela 5L"; searching "Budince" lists the items of shops in Budince.
 - Every active shop is searched; there is no radius and no distance.
 - Filter: "Only available now".
-- Up to 50 results: available first, then fresher, then by name. Each result shows item name, price, shop name, street
-  and town, the availability text with its freshness ("In stock · updated 8 min ago") and "Open now"/"Closed".
+- Up to 50 results: available first, then fresher, then by name. Each result shows the item name as the shop wrote it
+  and, under it, its name in the page language when that reads differently ("Farba fas. biela 5L" / "White facade
+  paint 5 l"), price, shop name, street and town, the availability text with its freshness ("In stock · updated 8 min
+  ago") and "Open now"/"Closed".
 - A map shows the shops of the results (black dots); it is an extra: the page works without it.
 - No results: "No shop has this right now".
+- **Search with AI** (button next to the filter; only when the Anthropic key is set): the shopper's question, in any
+  language, goes to Claude Haiku, which works out what is needed and searches several times (names and synonyms in
+  Slovak, Hungarian and English, short forms used in shop systems, related products: "leaking pipe" → sealing tape,
+  silicone, pipe clamp). Above the plain results it shows "AI is searching all shops…", then a short answer in the
+  shopper's language, result cards (name + translation, brand, price, shop, availability + freshness, link to the item
+  page) and the terms it searched for. The plain server-rendered results stay underneath and are what crawlers see.
 
 ### 5.2 Shop page (`/[lang]/shops/{slug}`)
 
 - Name, logo, address, phone, website, "Get directions" (Google Maps with the shop's coordinates), map pin.
 - Opening hours for the week in the shop's time zone, "Open now / Closes at / Opens at".
 - Facilities: customer toilet, douchette (bidet shower), card payment.
-- Stock freshness line, then the shop's public items: searchable, 50 per page, price and availability.
+- Stock freshness line, then the shop's public items: searchable in all three languages, 50 per page, name +
+  translation, price and availability.
 - JSON-LD `Store` (address, geo, opening hours, phone, logo, `paymentAccepted`, `amenityFeature`).
 
 ### 5.3 Item page (`/[lang]/items/{id}`)
 
-- Item name, brand, EAN, price, availability with freshness, shop card with directions and "open now".
+- Item name as the shop wrote it, its name in the page language under it, brand, EAN, price, availability with
+  freshness, shop card with directions and "open now". The page title carries both names.
 - "Also available at": the same product (EAN) in other shops, nearest to this shop first.
-- JSON-LD `Product` with an `Offer` (price, currency, availability) only when the shop is not stale.
+- JSON-LD `Product` (translation as `alternateName`) with an `Offer` (price, currency, availability) only when the
+  shop is not stale.
 
 ### 5.4 Languages
 
@@ -151,7 +169,9 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 - **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once.
 - **What shoppers see:** exact number / In stock–Low stock–Out of stock / Available–Not available, the "low stock"
   threshold (1–50) and a live preview table.
-- **Items:** name, code, price, quantity, what shoppers see; search, 50 per page; Hide/Show per item.
+- **Items:** name (and its translation), code, price, quantity, what shoppers see; search, 50 per page; Hide/Show per
+  item. **Correct the translation** per item (Slovak, Hungarian, English): a corrected item is never translated by
+  machine again ("Translate automatically" hands it back); a note appears when the shop renames a corrected item.
 - **Delete shop** (with a confirmation tick).
 - Every form returns to its own section and shows its result there; buttons show "Saving…/Uploading…" while working.
 
@@ -188,8 +208,10 @@ sold out); every 15–30 minutes during opening hours plus once at night; only p
   only_available, lang)`, `get_shop(slug)`, `get_item(id)`. Anyone can add it to Claude as a custom connector.
 - The API and MCP accept an optional `near` (a town where PPI has shops, or "lat,lng") typed by the caller; the
   website itself never uses a location.
-- Every result carries `source_url` (the PPI page to cite), price, currency, availability text, freshness and the
-  shop's address and coordinates. Exact quantities only for shops that publish them; no availability for stale shops.
+- Every result carries `source_url` (the PPI page to cite), `name` (as the shop wrote it), `name_translated` (in the
+  requested `lang`), `name_lang`, price, currency, availability text, freshness and the shop's address, coordinates and
+  time zone. Exact quantities only for shops that publish them; no availability for stale shops. Search works across
+  Slovak, Hungarian and English as on the website.
 - Search-engine ownership tags (`GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`) can be set in Vercel so the
   sitemap can be submitted (SETUP.md part I).
 
@@ -233,23 +255,44 @@ Hidden items (owner's choice) and inactive shops are never shown.
   CH → CHF, …), otherwise EUR.
 - Items are linked across shops by EAN ("also available at").
 
-### 6.4 Open now
+### 6.4 Item names in three languages
+
+- After a stock file has been applied, the stock function translates, in the background, every item of that shop whose
+  name has no translation yet or has changed: Claude Haiku, about 200 names per request, giving the language of the
+  original and the name in plain Slovak, Hungarian and English. Shop abbreviations are written out ("Farba fas. biela
+  5L" → "Fasádna farba biela 5 l" / "Homlokzatfesték fehér 5 l" / "White facade paint 5 l"); brand, sizes, model and
+  part numbers stay as they are.
+- It never delays or blocks the stock: the stock is saved first. If the translation fails, the names stay untranslated
+  and the next file tries again. Up to 1,200 names per file; the rest follow with the next files.
+- An owner's correction is never overwritten, not even when the shop renames the item.
+- Without the Anthropic key in Supabase, nothing is translated and the search works on the original names.
+
+### 6.5 AI search
+
+- Claude Haiku may only use one tool: the same `search_stock` as the API and MCP (no location). It states only what
+  the searches returned; the cards are built from the search results alone, so invented items, prices or shops
+  cannot appear, and stale shops show no availability. Nothing found: it says so and the searched terms are shown.
+- At most 10 AI searches per minute per caller (hashed IP, as for the API) and `AI_DAILY_LIMIT` per day for the whole
+  site (default 500). Over a limit, or on any error, the AI layer silently disappears and the plain results remain.
+- Crawlers are kept away from it (robots.txt); the Anthropic key is only on the server.
+
+### 6.6 Open now
 
 Open if the current time in the shop's own time zone falls inside today's ranges; otherwise "Opens at …"
 (today, tomorrow or the next opening day).
 
-## 7. Data model (after migration 16)
+## 7. Data model (after migration 17)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
 | `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `visibility_mode`, `low_stock_threshold` (1–50, default 3), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops |
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
 | `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |
-| `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `is_public`, `updated_at` | Unique per shop + code |
+| `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `is_public`, `updated_at`, `name_lang`, `name_i18n` (`{"sk","hu","en"}`), `translated_name_source`, `name_i18n_by_owner` | Unique per shop + code; names searchable through one trigram index over the original and the three translations |
 | `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at` | Written only by the stock-pull function |
 | `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows`, `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name` | One per shop: how its stock file is read and the latest upload. A leftover `file_url` column is unused (only the legacy `admin_shops()` reads it) |
 | `profiles` | `user_id`, `display_name`, `language`, `is_admin` | One per account, created automatically |
-| `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP rate limit log; no IP addresses; older than 30 days removed |
+| `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP and AI search (`ai-search`) rate limit log; no IP addresses; older than 30 days removed |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
 Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-files` (private, last raw files kept
@@ -260,14 +303,16 @@ Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-
 | Data | Visitor | Shop owner | Stock-pull function |
 | --- | --- | --- | --- |
 | Shops | active shops (public fields) | own shops: details through `owner_save_shop()`, visibility and logo directly (never the page address); delete through `owner_delete_shop()` | read |
-| Items (names, codes, EAN) | public items of active shops | own items: read, hide/show only | write |
+| Items (names, codes, EAN, translations) | public items of active shops | own items: read, hide/show, correct the translation (`owner_set_item_translation()`) | write (stock and machine translations) |
 | Stock (quantity, price) | only through `public_stock` / `search_stock` / `shop_stock`: labels, never hidden items, raw quantity only for `exact` shops | own stock (`owner_items()`) | write |
 | Stock source (`sync_sources`) | none | own shop through `my_shops()`, `owner_set_mapping()`, `upload_check_in()` | read and write |
 | Accounts (`profiles`) | none | own profile | — |
 
 - Owners never write stock themselves; the function does, after checking the uploader is that shop's owner.
 - The function downloads nothing: it only receives files uploaded with the shop owner's login.
-- The API stores no IP addresses: only a hash with a salt that changes daily.
+- The API and the AI search store no IP addresses: only a hash with a salt that changes daily.
+- The Anthropic key is a server setting (Supabase function secret, Vercel variable), never in the browser; the AI
+  search endpoint answers only the PPI website (no CORS).
 - Legacy: the `is_admin` flag and the `admin_*` database functions from the old admin area still exist in the database
   but nothing on the website uses them.
 
@@ -276,6 +321,7 @@ Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-
 - Plain white background, black text, thin light-grey lines; mobile-first. No colours, no dark mode, no cart icons.
   Exceptions at the owner's request: the Cacadoo PPI logo in the header and the blue "Select picture" link for logos.
 - Availability always written out as text, in bold, always next to its freshness.
+- Translated names in grey under the shop's own name; the AI answer in a plain bordered box above the results.
 - Map: OpenFreeMap "positron" (free, no key), black dot pins; never required for the page to work.
 - Language switch SK · HU · EN in the header; "For shops" link to the login.
 - App icon: black "PPI" letters on white.
@@ -300,7 +346,10 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - **Anyone can sign up and add shops** (5 per account); there is no review. Watch for fake shops.
 - **Not yet found by web search** until the site is registered with Bing and Google (SETUP.md part I); Claude finds
   shops at once through the MCP connector.
-- **The four sample shops** from the build are still live.
+- **Translations and AI answers are machine-made.** The cards come from the database, but the AI's short answer and
+  the translations can be wrong; owners can correct translations. The first translation of each shop's names happens
+  with its next new stock file.
+- **The four sample shops** from the build are still live (their names have no translations).
 - The site runs on `cacadooppivercel.vercel.app`; an own domain is still to come.
 
 ## 12. Launch checklist
@@ -311,6 +360,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] Site registered with Bing Webmaster Tools and Google Search Console, sitemap submitted
 - [ ] Row Level Security reviewed by a developer, not only by the AI that wrote it
 - [ ] Texts checked by native speakers (SK, HU)
+- [ ] `AI_DAILY_LIMIT` chosen in Vercel (default 500 AI searches a day)
 - [ ] Privacy page and terms (shop data, cookies, e-mail)
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
@@ -327,3 +377,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-07 | "Upload file" button |
 | 2026-10-08 | This as-built PRD and architecture document |
 | 2026-10-08 | Cloud links (built 2026-10-07) removed: stock arrives only by upload — the PPI app window and "Upload file" |
+| 2026-10-08 | Item names in Slovak, Hungarian and English with search across languages; AI search on the main page |

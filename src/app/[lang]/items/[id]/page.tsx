@@ -5,6 +5,7 @@ import { isLocale, locales, type Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { getItem, getOtherOffers, getShop, getShopsByIds } from "@/lib/data";
 import { addressLine, directionsUrl, formatDistance, formatPrice } from "@/lib/format";
+import { translatedName } from "@/lib/names";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import type { StockRow } from "@/lib/stock";
 import { JsonLd } from "@/components/JsonLd";
@@ -17,10 +18,12 @@ export async function generateMetadata({ params }: PageProps<"/[lang]/items/[id]
   if (!isLocale(lang)) return {};
   const [dict, item] = await Promise.all([getDictionary(lang), getItem(id).catch(() => null)]);
   if (!item) return {};
+  const translated = translatedName(item.item_name, item.item_name_i18n, lang);
+  const name = translated ? `${item.item_name} (${translated})` : item.item_name;
   return {
-    title: `${item.item_name} · ${item.shop_name}`,
+    title: `${name} · ${item.shop_name}`,
     description: t(dict.item.meta_description, {
-      name: item.item_name,
+      name,
       shop: item.shop_name,
       city: item.shop_city ?? "",
     }),
@@ -40,6 +43,7 @@ export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]
   const [shop, others] = await Promise.all([getShop(item.shop_slug), getOtherOffers(item, near)]);
   const otherShops = await getShopsByIds([...new Set(others.map((o) => o.shop_id))]);
   const hasLocation = item.shop_lat !== null && item.shop_lng !== null;
+  const translated = translatedName(item.item_name, item.item_name_i18n, lang);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -47,6 +51,7 @@ export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]
 
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">{item.item_name}</h1>
+        {translated && <p className="text-lg text-muted">{translated}</p>}
         <p className="text-2xl font-semibold">{formatPrice(item.price, lang, item.currency)}</p>
         <p>
           <StockLine row={item} timeZone={item.shop_timezone} dict={dict} />
@@ -161,6 +166,7 @@ const SCHEMA_AVAILABILITY: Record<string, string> = {
 /** schema.org Product + Offer. The offer is left out entirely when the shop's stock data is stale. */
 function product(item: StockRow, lang: Locale) {
   const url = `${siteUrl()}/${lang}/items/${item.item_id}`;
+  const alternateName = translatedName(item.item_name, item.item_name_i18n, lang);
   const offer =
     item.freshness_state !== "stale" && item.price !== null && item.availability
       ? {
@@ -189,6 +195,7 @@ function product(item: StockRow, lang: Locale) {
     "@type": "Product",
     "@id": url,
     name: item.item_name,
+    ...(alternateName ? { alternateName } : {}),
     url,
     ...(item.brand ? { brand: { "@type": "Brand", name: item.brand } } : {}),
     ...(item.ean ? { gtin: item.ean } : {}),

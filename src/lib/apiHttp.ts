@@ -31,19 +31,24 @@ function clientIp(request: Request): string {
 }
 
 /**
- * Logs the call to api_usage and enforces 60 calls per minute per caller.
- * Only a hash of the IP is stored; the salt changes every day, so a caller
- * cannot be followed from one day to the next. If the database cannot be
- * reached the call is allowed (it is read-only anyway).
+ * Who is calling, without storing an IP address: a hash of the IP with a salt that
+ * changes every day, so a caller cannot be followed from one day to the next.
  */
-export async function rateLimit(request: Request, endpoint: string): Promise<Response | null> {
+export function callerHash(request: Request): string {
   const day = new Date().toISOString().slice(0, 10);
   const salt = process.env.API_HASH_SALT ?? "ppi";
-  const ipHash = createHash("sha256").update(`${day}:${salt}:${clientIp(request)}`).digest("hex");
+  return createHash("sha256").update(`${day}:${salt}:${clientIp(request)}`).digest("hex");
+}
+
+/**
+ * Logs the call to api_usage and enforces 60 calls per minute per caller (callerHash).
+ * If the database cannot be reached the call is allowed (it is read-only anyway).
+ */
+export async function rateLimit(request: Request, endpoint: string): Promise<Response | null> {
   const supabase = createPublicClient();
   if (!supabase) return null;
   const { data, error } = await supabase.rpc("api_hit", {
-    p_ip_hash: ipHash,
+    p_ip_hash: callerHash(request),
     p_endpoint: endpoint,
     p_limit: LIMIT_PER_MINUTE,
   });

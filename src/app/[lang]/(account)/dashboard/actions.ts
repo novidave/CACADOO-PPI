@@ -88,6 +88,27 @@ export async function setItemPublic(formData: FormData) {
 
 const text = (formData: FormData, key: string, max = 200) => String(formData.get(key) ?? "").trim().slice(0, max);
 
+/**
+ * The owner's own Slovak, Hungarian and English names for an item (never overwritten by
+ * the automatic translation), or back to the automatic translation.
+ */
+export async function saveTranslation(formData: FormData) {
+  const { session, back } = await start(formData);
+  const itemId = String(formData.get("item_id") ?? "");
+  const q = String(formData.get("q") ?? "");
+  const page = String(formData.get("page") ?? "1");
+  const keep = { ...(q ? { q } : {}), page };
+  if (!UUID.test(itemId)) back({ err: "invalid item", ...keep });
+  const automatic = formData.get("intent") === "auto";
+  const names = automatic
+    ? null
+    : { sk: text(formData, "name_sk", 300), hu: text(formData, "name_hu", 300), en: text(formData, "name_en", 300) };
+  // The database checks that the item belongs to one of this owner's shops.
+  const { error } = await session.supabase.rpc("owner_set_item_translation", { p_item_id: itemId, p_names: names });
+  if (error) back({ err: error.code === "22023" ? "translation" : error.message, ...keep });
+  back({ ok: automatic ? "translation_auto" : "translation", ...keep });
+}
+
 /** "Potraviny Čierna" + "Košice" → "potraviny-cierna-kosice" (the database makes it unique). */
 function slugBase(...parts: string[]): string {
   return parts
