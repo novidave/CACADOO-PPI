@@ -209,7 +209,7 @@ export function FolderSync({
         schedule(CHECK_EVERY_MS);
         return;
       }
-      // Already sent and nothing changed on PPI's side (e.g. still waiting for the admin).
+      // Already sent and nothing changed on PPI's side (e.g. still waiting for the owner to approve the columns).
       const previous = await storeGet<Attempt>(attemptKey);
       if (
         previous &&

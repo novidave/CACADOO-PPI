@@ -30,8 +30,8 @@ values
    '{"mon":[["07:00","20:00"]],"tue":[["07:00","20:00"]],"wed":[["07:00","20:00"]],"thu":[["07:00","20:00"]],"fri":[["07:00","20:00"]],"sat":[["08:00","14:00"]],"sun":[]}',
    'in_stock', 3, true);
 
-insert into public.sync_sources (shop_id, file_format, mapping_status, file_url, latest_file_time, last_checked_at)
-select id, 'xml', 'confirmed', 'https://' || slug || '.example.invalid/stock.xml',
+insert into public.sync_sources (shop_id, file_format, mapping_status, latest_file_time, last_checked_at)
+select id, 'xml', 'confirmed',
        case slug
          when 'potraviny-centrum'   then now() - interval '10 minutes'
          when 'drogeria-kostolne'   then now() - interval '3 hours'

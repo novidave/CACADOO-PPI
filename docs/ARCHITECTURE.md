@@ -1,155 +1,314 @@
-# Architecture and software
+# Architecture (as built)
 
-How PPI works from the shop's shelf to an AI assistant's answer, which software each part uses, and what happens when something breaks.
+Status 8 October 2026. How PPI works from the shop's stock file to a shopper's screen and an AI assistant's answer:
+the parts, how data flows between them, where every rule lives, how it is configured and tested, and what happens when
+something breaks. What PPI does for its users is in `docs/PRD.md`.
 
 ## 1. How it works in one minute
 
-1. A sale at the shop's till lowers the stock in the shop's own software, as it does today.
-2. Every 15–30 minutes that software exports a stock file into a folder on the shop PC.
-3. The PPI window on that PC (the PPI website installed as an app in Edge or Chrome, started with Windows) reads only that folder and every 15 minutes uploads the newest finished file to a Supabase Edge Function.
-4. The function reads the file. On a shop's first file, or when the layout changes, an AI model proposes which field is code, name, EAN, quantity and price; the shop owner approves it once in their dashboard.
-5. The function saves the mapped stock to Supabase and records when the file was made. That time is the freshness.
-6. The Next.js web app on Vercel shows the stock as server-rendered pages, a public API and an MCP server, so shoppers, AI crawlers and AI assistants all read the same data.
+1. A sale lowers the stock in the shop's own stock software, as it does today.
+2. Every 15–30 minutes that software exports the whole stock to one file (XML, CSV or Excel).
+3. The file is uploaded to PPI in one of two ways (PPI downloads nothing itself):
+   - **Folder:** the PPI app window on the shop PC (Edge or Chrome) checks the export folder every 15 minutes and
+     sends the newest finished file;
+   - **By hand:** the owner clicks "Upload file" and picks it.
+4. The Supabase Edge Function **`stock-pull`** reads the file. For a new file layout it proposes which column is which
+   (Claude, or a rule-based guess); the owner approves it once on the dashboard.
+5. The function writes the whole stock in one transaction and records the file's time. That time is the freshness.
+6. The Next.js website on Vercel shows the stock on server-rendered pages, and the same data goes out through a public
+   API and an MCP server. Freshness and availability rules are applied once, in the database, for all of them.
 
 ```text
-SHOP PC (Windows)
-  Shop software --scheduled export--> export folder, e.g. C:\Export\stock.xml
-  PPI app window (Edge/Chrome, /sync) reads the folder every 15 min
-                                   |  HTTPS upload, owner's login
-STOCK PULL (Supabase Edge Function) v
-  newer file --> AI field mapping (first file + layout changes)
-             --> validate + save (upsert, freshness)
+SHOP
+  stock software --export--> folder
+       |
+       | PPI app window (/sync), every 15 min, or
+       | "Upload file" in the browser
+       v  HTTPS POST + owner's login
+SUPABASE ---------------------------------------------------------------------------
+  Edge Function stock-pull: read file -> column mapping (proposal / approved) -> check
+                            -> apply_stock_file() in one transaction -> freshness
+  Postgres + PostGIS: tables, RLS, SQL rules (freshness, availability, search)
+  Auth (e-mail + password, SMTP via Brevo) | Storage (logos, raw files)
                                    |
-DATABASE (Supabase)                v
-  Postgres/PostGIS --> SQL functions (freshness, search)
-  Auth (shop owners) | Storage (logos, raw files) | Vault (secrets)
+WEBSITE (Next.js 16 on Vercel)     v
+  server-rendered pages + JSON-LD | owner dashboard | /sync app | robots, sitemap, llms.txt
+  public API /api/v1 + OpenAPI    | MCP server /mcp
                                    |
-WEB APP (Next.js on Vercel)        v
-  Server pages (HTML + JSON-LD) | Discovery files (robots, sitemap, llms.txt)
-  MCP server (/mcp, read-only)  | Public API (/api/v1, OpenAPI)
-                                   |
-WHO READS IT                       v
-  Shoppers | AI crawlers | AI assistants | Apps and tools
+READERS                            v
+  shoppers | shop owners | search engines and AI crawlers | AI assistants (MCP) | tools (API)
 ```
 
-All four outputs read through the same SQL functions, so freshness and visibility rules are applied once, in the database. Shop owners sign up themselves (e-mail + password, Supabase Auth) and run their shop from the dashboard; there is no admin area on the website.
+## 2. Components
 
-## 2. Components in detail
+### 2.1 Getting the stock file to PPI
 
-### 2.1 Shop PC
+| Way | Who starts it | How | File time used as freshness |
+| --- | --- | --- | --- |
+| Folder (PPI app window) | the open window, every 15 min | browser reads the folder (File System Access API), uploads the newest finished file | the file's "last modified" time on the PC |
+| Upload file | the owner, by hand | file picker, same upload | the file's "last modified" time |
 
-- **Shop's own stock software.** Set to export stock on a schedule (every 15–30 min in opening hours, plus a nightly full export). XML, CSV or Excel. Only public fields: item code, EAN, name, quantity, selling price. One file, overwritten each time, e.g. `stock.xml`, in a folder used only for this.
-- **PPI window**: the `/sync` page, installed as an app (web app manifest) in **Edge or Chrome** and started with Windows from the startup folder. The owner picks the export folder once (File System Access API, read-only); the browser keeps the folder handle in IndexedDB and, with "Allow on every visit", the permission too.
-- While open, it checks the folder every 15 minutes: the newest XML/CSV/TXT/XLSX file is sent when it is newer than the last applied file, untouched for 60 s and unchanged while being read (a half-written export is never sent). The same file is not sent again unless the mapping status changed (e.g. the owner approved the columns). Files are gzip-compressed.
-- One window per shop (Web Locks); a second window waits and takes over when the first closes.
-- Each check calls `upload_check_in()`, which records `sync_sources.folder_seen_at` ("PPI window last active" on the dashboard).
-- Firefox and Safari have no folder access; the page says so. Steps for people: `docs/SHOP_PC_SETUP.md`.
-- Nothing listens on the network at the shop and no router change is needed.
+**PPI app window** (`src/components/FolderSync.tsx`, on `/[lang]/sync` and inside the dashboard):
 
-### 2.2 Upload and stock pull: Supabase Edge Function `stock-pull`
+- Edge/Chrome only (`showDirectoryPicker`); Firefox/Safari get a message and the "Upload file" button.
+- The folder handle is stored in the browser's IndexedDB (`src/lib/folderStore.ts`), so the folder is remembered.
+  After a restart the browser may need one click ("Allow access"); "Allow on every visit" makes it permanent.
+- Every 15 minutes (a 20-second timer catches up after sleep or a throttled background tab):
+  1. `upload_check_in(shop)` with the owner's login → records "PPI window last active", returns the shop's stock status;
+  2. newest `.xml/.csv/.txt/.xlsx` in the folder (temporary `~$` files ignored);
+  3. skip if written less than 60 s ago (export still running) → retry in 1 minute;
+  4. skip if not newer than the last applied file, or if it is the same file already sent and the mapping status has
+     not changed since (e.g. still waiting for approval) — this record is kept in IndexedDB;
+  5. read it, check it did not change while reading, gzip it, POST it to `stock-pull`.
+- Web Locks: one window per shop works; a second window waits and takes over when the first closes.
+- Installable as an app: `src/app/manifest.ts` (start page `/sync`, standalone, `focus-existing`); icons in
+  `public/icons/`. Starting with Windows is done with the Windows startup folder (steps on the page).
 
-**Upload** (`POST /functions/v1/stock-pull?shop_id=…&file_time=…&file_name=…`, body = the file, `gzip=1` when compressed), called by the PPI window with the owner's own login: `upload_check_in()` checks that the caller is the shop's owner. `file_time` (the file's own time, never later than now) becomes the freshness.
+### 2.2 Edge Function `stock-pull` (`supabase/functions/stock-pull/index.ts`)
 
-**Pull** (optional, for a file published on the internet): every 15 minutes (scheduled inside Supabase) for each shop with a `file_url`, with optional access headers from Supabase Vault; skipped if `Last-Modified` is not newer than `latest_file_time`.
+One file, Deno, deployed by pasting it into the Supabase editor with **Verify JWT off** (it checks callers itself).
+Uses the service role key, which Supabase gives the function automatically.
 
-Then, for both:
+**Who may call it:** only an upload — `POST ?shop_id=…&file_time=…&file_name=…[&gzip=1]` with the file as the body
+and the caller's login, which must pass `upload_check_in(shop)`: owner of that shop (or the legacy admin flag). It
+records "PPI window last active". A file not newer than the shop's latest applied file is answered `unchanged`. The
+function never downloads anything and runs on no schedule.
 
-1. Read XML, CSV or Excel into rows.
-2. No confirmed mapping yet: send 20 sample rows to the AI model, save the proposal as `proposed`, stop.
-3. Confirmed mapping: apply it to every row.
-4. Check rows (price is a number, quantity present). If more than 5% fail, ask the AI for a new proposal, keep the old stock.
-5. Upsert into `shop_items` and `inventory` in one transaction (items missing from the file → 0); set `latest_file_time`; clear `last_error`; keep the raw file in Storage for 7 days.
+**What it does with a file** (`processFile`)
 
-**Every hour:** a freshness watch emails the shop and you when no new file arrived for over 1 hour during opening hours (not built yet).
+1. Size check (empty, over 50 MB) and format by content (ZIP → xlsx, `<` → XML, else CSV).
+2. Read rows: XML = the largest list of repeated elements (attributes and nested values flattened); CSV = separator
+   guessed from the header (`;` `,` tab `|`), quotes, UTF-8 or Windows-1250; XLSX = first sheet (SheetJS).
+3. Keep the raw file in the private `raw-files` bucket (files older than 7 days deleted).
+4. **No approved mapping:** if a proposal already fits the columns → "waiting for approval"; otherwise propose one:
+   Claude (structured output whose allowed values are the file's real column names, low effort, with server-side
+   fallback) when `ANTHROPIC_API_KEY` is set, else `guessMapping()` (column-name hints in SK, CZ, HU, EN, DE). Save it
+   as `proposed` with 10 sample rows and stop. **Never auto-approved.**
+5. **Approved mapping:** map every row (numbers in any European format; currency from the file, else from the shop's
+   country, else EUR). More than 5 % unreadable rows → keep the old stock, propose a new mapping
+   (`layout_changed`).
+6. `apply_stock_file(shop, rows, file_time, sample)` in one transaction: upsert products by EAN, `shop_items`,
+   `inventory`; items of the shop missing from the file → quantity 0; set `latest_file_time`, clear `last_error`.
 
-**On errors:** the function writes `last_error` for that shop.
+Results: `updated`, `unchanged`, `proposed`, `waiting_for_approval`, `layout_changed`, `error` (also written to
+`sync_sources.last_error`).
 
-The AI model (called from the function) only proposes mappings, so it runs once per shop plus whenever a file layout changes.
+### 2.3 Database (Supabase Postgres + PostGIS)
 
-### 2.4 Database: Supabase
+**Tables:** `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `profiles`, `api_usage`
+(columns in PRD section 7).
 
-- **Postgres with PostGIS**: tables `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `api_usage`, `profiles` (fields in docs/PRD.md, section 5).
-- **SQL functions**: `freshness_state(shop_id)`, view `public_stock`, RPC `search_stock(...)`. They decide availability labels, hide exact quantities when the shop chose so, and hide all availability for stale shops.
-- **Row Level Security** on every table: visitors read only public data, owners only their own shops.
-- **Auth**: e-mail + password with self-service sign-up, confirmation and password-reset e-mails (custom SMTP).
-- **Storage**: shop logos; the last raw export file per shop, kept 7 days for troubleshooting.
-- **Vault**: optional access headers for shops pulled from a file address, readable only by the stock-pull function.
-- **Scheduled jobs**: the 15-minute stock pull and the hourly freshness watch.
-- The **service role key** exists only in Supabase function secrets, never in the web app or the repository.
+**Rules in SQL (one place for website, API and MCP):**
 
-### 2.5 Web app: Next.js on Vercel
+| Object | Purpose |
+| --- | --- |
+| `freshness_label(time)`, `freshness_age_minutes(time)`, `freshness_state(shop)` | current < 30 min, recent < 24 h, stale otherwise |
+| `availability_label(mode, quantity, threshold, freshness)` | label key per visibility mode; NULL when stale |
+| view `public_stock` | the only public read path for stock: public items of active shops, labels, raw quantity only for `exact` shops that are not stale |
+| `search_stock(q, lat, lng, radius_km, only_available)` | text search (accents/case ignored via `search_text()` = `unaccent` + lower, trigram indexes) on item name, brand, EAN, shop name, street, town; optional radius for API/MCP callers; available first, fresher, nearer, name; 50 rows |
+| view `public_shops`, `shop_stock(slug, q, limit, offset)` | shop pages and their item lists |
+| `town_center(town)` | "near Budince" for API/MCP: middle of the active shops in that town (no outside geocoding) |
+| `api_hit(ip_hash, endpoint, limit)` | rate limit (60/min) and usage log |
+| `apply_stock_file(...)` | stock writing — service role only |
+| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `availability_preview(threshold)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop |
 
-- Built with **Claude Code** as a Next.js app (App Router, TypeScript). The code lives in a private GitHub repository; Vercel publishes every change, with a preview link first.
-- **Server-rendered**: all public data is loaded on the server, because AI crawlers read only raw HTML and don't run JavaScript ([Vercel](https://vercel.com/blog/the-rise-of-the-ai-crawler)).
-- **Public pages**: search with map, shop pages, item pages, each with JSON-LD (`LocalBusiness`, `Product` + `Offer`).
-- **Discovery files**: `robots.txt` allowing AI bots, `sitemap.xml` with each shop's latest file time as `lastmod`, `llms.txt`.
-- **Public read API** `/api/v1/...` with an OpenAPI file, and an **MCP server** at `/mcp` with tools `search_stock`, `get_shop`, `get_item`. Both read-only, rate-limited, logged to `api_usage`.
-- **Owner dashboard** (self-service): create shops, details, opening hours, export folder (rules + connection), column approval (proposed mapping next to sample rows), visibility mode, items, delete shop. No admin area.
-- Served on your own domain through Vercel.
+**Guards:** triggers stop clients from changing a shop's page address, company ID or visibility flag directly
+(`guard_shop_update`; the owner functions run as the database owner and may), from writing stock results into
+`sync_sources` (`guard_sync_source_write`), from setting `is_admin` (`guard_profile_update`), and from saving an unknown
+time zone (`guard_shop_timezone`). A profile row is created for every new account (`handle_new_user`).
 
-## 3. One stock change, end to end
+**Row Level Security** is on for every table; visitors use only the public views/functions; owners reach only shops
+where they are in `shop_members`; `inventory` and stock results are written only by the service role.
+
+**Storage:** `logos` (public read; members may write into their shop's folder; 1 MB; PNG/JPEG/WebP) and `raw-files`
+(private, service role only).
+
+**Vault:** not used any more; the old tunnel design kept per-shop download credentials there (`ppi_shop_<id>`).
+
+**Legacy, kept but unused by the website and the function:** `profiles.is_admin`, the `admin_*` functions,
+`user_id_by_email`, `admin_set_sync_credentials`, `sync_credentials`, and the column `sync_sources.file_url` (only the
+legacy `admin_shops()` reads it). Removing them needs a new migration.
+
+### 2.4 Accounts and e-mail (Supabase Auth)
+
+- E-mail + password. Sign-ups allowed, e-mail confirmation on, minimum 8 characters (Supabase settings, SETUP.md E1).
+- E-mails go through **Brevo SMTP** (SETUP.md E2). Brevo's "authorised IPs" blocking must be off, or Supabase gets
+  `525 Unauthorized IP address`.
+- Links land on `/auth/confirm`, which accepts `token_hash` (templates in SETUP.md E3, any device), `code` (default
+  templates, same browser) and hands `#access_token` links to `/[lang]/login/finish`.
+- Every server action re-checks the session (`src/lib/auth.ts`); the database functions and RLS are the real boundary.
+
+### 2.5 Website (Next.js 16 on Vercel)
+
+| Route | What |
+| --- | --- |
+| `/[lang]` | search (server-rendered), results, map |
+| `/[lang]/shops/[slug]`, `/[lang]/items/[id]` | public pages + JSON-LD |
+| `/[lang]/signup`, `/login`, `/forgot`, `/login/finish` | accounts |
+| `/[lang]/dashboard`, `/sync`, `/password` | owner area (login required, not indexed) |
+| `/auth/confirm`, `/auth/signout` | e-mail link landing, sign out |
+| `/api/v1/*`, `/api/openapi.json`, `/mcp` | public API, OpenAPI, MCP server |
+| `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/manifest.webmanifest` | discovery files, app manifest |
+
+- **Languages:** `src/proxy.ts` sends addresses without a language to `/sk`, `/hu` or `/en` (saved choice → browser
+  language → English), remembers the choice in a cookie and refreshes the Supabase session cookie. Texts in
+  `src/i18n/messages/{sk,hu,en}.json`.
+- **Supabase clients:** `lib/supabase/server.ts` (pages and actions, with the visitor's cookies),
+  `lib/supabase/client.ts` (browser: login finish, PPI app window), `lib/supabase/public.ts` (API, MCP, sitemap,
+  llms.txt: anon, no cookies). Only the public URL and the anon/publishable key are in the website.
+- **Public pages** load data in server components (`lib/data.ts`) so crawlers see everything without JavaScript.
+- **Formatting** (`lib/format.ts`): prices with the item's own currency in the visitor's language; times in the shop's
+  time zone. Opening hours and "open now" in `lib/hours.ts`.
+- **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
+  `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
+- **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop, approve columns,
+  visibility, logo, item visibility, delete); each form returns to its own section with its message.
+
+### 2.6 AI and machine access
+
+- `src/lib/publicApi.ts` is the single source for the REST API and the MCP server: anon client, the database decides
+  availability and quantities, every result has `source_url`.
+- Every API/MCP request passes `rateLimit` (`lib/apiHttp.ts`): SHA-256 of IP + daily date + `API_HASH_SALT`,
+  `api_hit()` allows 60 per minute; open CORS.
+- MCP: `@modelcontextprotocol/sdk`, stateless Streamable HTTP with JSON responses, read-only tool annotations.
+- Discovery: `robots.ts` (AI crawlers named), `sitemap.ts` (hourly), `llms.txt/route.ts`; optional search-engine
+  verification tags from `GOOGLE_SITE_VERIFICATION` / `BING_SITE_VERIFICATION`.
+
+## 3. Main flows step by step
+
+**A shopper searches "farba":** browser → Vercel → `/[lang]?q=farba` server component → `search_stock('farba')` with
+the anon key → rows from `public_stock` (labels decided in SQL) → `public_shops` for opening hours → complete HTML
+with the results; the map loads afterwards in the browser.
+
+**A new owner starts:** `/signup` → Supabase sends a confirmation e-mail (Brevo) → link → `/auth/confirm` → session →
+`/dashboard` shows "Add your shop" → `owner_save_shop()` creates the shop, membership and stock source → owner connects
+the folder or uploads a file → first file → "proposed" → owner approves columns (`owner_set_mapping()`) → the next
+upload applies the stock → shop shows "Current".
+
+**The 15-minute rhythm:** the PPI window on the shop PC checks in (`upload_check_in`) and sends the newest finished
+file if it is new. Supabase itself runs no schedule.
+
+**An AI assistant asks "who has paint in Budince?":** MCP `search_stock(query="paint", near="Budince")` →
+`town_center` → `search_stock` with a radius → items with price, availability, freshness and `source_url`. (A search
+for the town name alone also works: `query="Budince"`.)
+
+## 4. One stock change, end to end
 
 | Time | What happens |
 | --- | --- |
-| 10:02 | A customer buys the last drill; the till lowers stock to 0 in the shop's software |
-| 10:15 | The scheduled export overwrites `stock.xml` in the preset folder |
-| 10:16–10:31 | The PPI window's next check sees the finished newer file and uploads it; the function maps it with the saved mapping and saves it; freshness = 10:15 |
-| Right after | Item page, API and MCP all show "Out of stock · updated 10:15" |
-| Later | AI crawlers pick up the new page on their next visit; assistants using MCP get it immediately |
+| 10:02 | a sale sets stock to 0 in the shop software |
+| 10:15 | the export overwrites the file in the export folder |
+| 10:16–10:31 | the PPI window's next check (≥ 60 s after writing) sends it; freshness = 10:15 |
+| right after | site, API and MCP show "Out of stock · updated 10:15" |
 
-Worst-case delay from sale to PPI: export interval + 15 minutes, so about 30–45 minutes with a 15–30 minute export.
+Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes with a 15–30 minute export).
 
-## 4. When something breaks
+## 5. When something breaks
 
-| Failure | What shoppers and AI see | What you see |
+| Failure | Shoppers and AI see | The owner sees |
 | --- | --- | --- |
-| Shop PC off or offline, or the PPI window closed | Stock stays up with "last confirmed at"; hidden after 24 h | Red row after 1 h in opening hours; "PPI window last active" stops moving |
-| Export stopped in the shop's software | Same as above | Same, and file time stops moving |
-| File layout changed | Last good stock stays | The owner sees a new proposal to approve in the dashboard |
-| AI unsure about a field | Nothing changes until you decide | Field marked null in the proposal |
-| Stock-pull function failing | Stock ages normally, then hides after 24 h | `last_error` on the owner's dashboard |
-| Vercel down | Site, API and MCP unavailable; stock data is safe | Uptime monitor alert |
-| Supabase down | Site and API unavailable | Uptime monitor alert |
+| Shop PC off / asleep, PPI window closed | last stock with "last confirmed at"; after 24 h no availability | "PPI window last active" stops moving |
+| Export stopped | same | latest file time stops moving |
+| File layout changed (> 5 % rows unreadable) | last good stock stays | new column proposal to approve; message |
+| `stock-pull` failing | stock ages, then hidden after 24 h | `last_error` on the dashboard |
+| E-mail sending fails (SMTP) | — | no confirmation / reset e-mails (check Brevo and Supabase Auth logs) |
+| Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
 
-The rule everywhere: when PPI isn't sure, it says less, never more. Stale stock is never shown as available.
+Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown as available.
 
-## 5. Security
+## 6. Security
 
-- Shop PC: nothing listens on the network; the browser reads one folder, read-only, and uploads only to PPI over HTTPS.
-- Uploads: only with the login of the shop's owner, checked by `upload_check_in()`.
-- Supabase: Row Level Security on all tables; service key only in Supabase function secrets; exact quantities never leave the database for shops that hide them.
-- Public API and MCP: read-only, rate-limited, no personal data.
-- Credentials (API keys, secrets) kept in Supabase Vault and function secrets, Vercel environment variables and a password manager, never in documents, chat or the repository.
+- Service role key only inside Supabase (function secrets); the website has only the public URL and anon key.
+- RLS on every table, owner checks inside every owner function, guard triggers on sensitive columns.
+- Uploads accepted only with the shop owner's login; the function fetches nothing from other addresses (its only
+  outside call is the optional Claude API).
+- The shop PC runs no server and opens no ports; the browser reads one folder, read-only.
+- Public API/MCP: read-only, 60 requests/minute, no personal data, no IP addresses stored.
+- Secrets (SMTP key, API keys) live in Supabase secrets, Vercel variables and a password manager —
+  never in the repository or chat.
 
-## 6. Software you need
+## 7. Configuration (names only, never values)
 
-| Software | What it does in PPI | Runs where | Cost (pilot) | Set up by |
-| --- | --- | --- | --- | --- |
-| Shop's stock software | Exports stock on a schedule | Shop PC | Shop already pays | Shop or its software reseller |
-| Microsoft Edge or Google Chrome | Runs the PPI app window that uploads the export | Shop PC | Free (Edge comes with Windows) | You, on site |
-| Claude Code | Writes, tests and fixes all the code | Cloud or your computer | Included in a Claude plan with Claude Code | You |
-| GitHub | Private repository with every version of the code | Cloud | Free | You |
-| Next.js | Framework for pages, API and MCP server | Inside the app | Free (open source) | Claude Code |
-| Vercel | Hosts the web app, preview links, your domain | Cloud | Free to start; paid plan if needed for commercial use | You |
-| Supabase | Database, PostGIS, Auth, Storage, Vault, Edge Functions, schedules | Cloud | Free to start; Pro $25/month once live | You, with Claude Code |
-| AI model API (Anthropic or OpenAI) | Proposes field mappings | Cloud | Pay per use; small | You |
-| Email sending (SMTP) | Login links and alerts | Cloud | Free tiers exist; check limits | You |
-| Uptime monitor | Pings site and API, alerts when down | Cloud | Free tiers exist | You |
-| Password manager | Stores all tokens and passwords | Your devices | Free or low cost | You |
-| Windows test PC | Rehearse the shop setup before visiting shops | Your desk | You likely have one | You |
+| Where | Name | Purpose |
+| --- | --- | --- |
+| Vercel env | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `…PUBLISHABLE_KEY`) | Supabase project for the website |
+| Vercel env (optional) | `NEXT_PUBLIC_SITE_URL` | own domain for links, sitemap, JSON-LD (else the Vercel production address) |
+| Vercel env (optional) | `API_HASH_SALT` | salt for hashing API callers' IPs |
+| Vercel env (optional) | `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | search-engine ownership tags |
+| Supabase function secret (optional) | `ANTHROPIC_API_KEY` | Claude column proposals (else rule-based guess) |
+| Supabase Auth | sign-ups on, confirm e-mail on, min. password 8, custom SMTP (Brevo), Site URL + redirect URLs, e-mail templates | accounts and e-mails |
+| Supabase (automatic) | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | given to the function by Supabase |
 
-Pilot running cost: your Claude plan plus roughly €30–60 a month once live (Supabase Pro, a Vercel paid plan if your use needs it, domain) and small AI usage. No Lovable or n8n subscriptions. Check current prices before committing.
+## 8. Repository layout
 
-## 7. Environments, backups and monitoring
+```text
+src/app/[lang]/            public pages, accounts, (account)/dashboard|sync|password
+src/app/api, mcp, auth     REST API + OpenAPI, MCP server, e-mail link landing / sign out
+src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
+src/components/            ShopMap, FolderSync, ShopForm, LogoInput, InstallApp, StockLine, OpenStatus, …
+src/lib/                   data, publicApi, apiHttp, auth, format, hours, folderStore, supabase/*
+src/i18n/                  languages and texts (sk, hu, en)
+src/proxy.ts               language redirect + session refresh
+supabase/migrations/       16 numbered SQL files (section 9)
+supabase/functions/        stock-pull (index.ts + tests), deno.json
+supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
+supabase/seed.sql          the 4 sample shops
+public/                    logo, app icons, sample stock files, MapLibre worker
+docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAUDE.md at the root
+```
 
-- **Test first**: run the whole chain against your own Windows PC with a sample file before any shop.
-- **Supabase**: one project for live, a second free project for testing; migrations in GitHub keep both identical.
-- **Vercel**: every change gets a preview link; publish to live only when a phase passes its checks.
-- **Backups**: GitHub keeps every version of the code; check the backup schedule of your Supabase plan.
-- **Monitoring**: admin page red rows, function error emails, an uptime monitor on the home page and `/api/v1/search`.
+## 9. Migrations (all applied by copy-paste in the Supabase SQL Editor)
 
-## 8. Growing from 5 to 50 shops
+| # | File | Adds |
+| --- | --- | --- |
+| 1 | `20261001000001_extensions.sql` | PostGIS, unaccent, pg_trgm, `search_text()` |
+| 2 | `20261001000002_tables.sql` | the tables |
+| 3 | `20261001000003_auth_helpers.sql` | profiles on sign-up, `is_admin`, `is_shop_member`, guard triggers |
+| 4 | `20261001000004_rls.sql` | Row Level Security |
+| 5 | `20261001000005_stock_logic.sql` | freshness, availability, `public_stock`, `search_stock`, `my_sync_status` |
+| 6 | `20261003000001_europe_wide.sql` | country, time zone, search with or without a location |
+| 7 | `20261004000001_public_pages.sql` | `public_shops`, `shop_stock` |
+| 8 | `20261005000001_dashboard_admin.sql` | `owner_items`, `availability_preview`, logos bucket, (legacy) admin functions |
+| 9 | `20261006000001_amenities.sql` | toilet, douchette, card terminal |
+| 10 | `20261007000001_ai_access.sql` | `api_hit`, `town_center` |
+| 11 | `20261008000001_stock_pull.sql` | `apply_stock_file`, Vault credentials, raw-files bucket |
+| 12 | `20261009000001_folder_upload.sql` | `upload_check_in`, `folder_seen_at`, `last_file_name` |
+| 13 | `20261010000001_self_service.sql` | `my_shops`, `owner_save_shop`, `owner_set_mapping`, `owner_delete_shop` |
+| 14 | `20261011000001_search_shop_name.sql` | search also by shop name, street, town |
+| 15 | `20261012000001_cloud_link.sql` | cloud links: `owner_set_file_url`, `last_file_hash`, `my_shops` with `file_url` (undone by 16) |
+| 16 | `20261013000001_remove_cloud_link.sql` | upload only: stops the `ppi-stock-pull` schedule, drops `owner_set_file_url` and `last_file_hash`, `my_shops` without `file_url` |
 
-- 5 shops: everything fits on free or entry tiers.
-- 50 shops: 50 small downloads every 15 minutes is light work; the function processes shops in small batches; move to Supabase Pro.
-- Beyond that: the stock pull can move to a dedicated worker service, without changing shops' setup or the web app.
+## 10. Testing and releasing
+
+- `npm run test:db`: applies all migrations and the sample data to a throwaway local Postgres/PostGIS and checks the
+  rules as visitor, two owners, a new self-service owner and the service role (RLS, freshness, labels, quantity hiding,
+  search incl. shop name/street/town, check-in, owner functions, 5-shop limit, and that migration 16 removed the cloud
+  links and the schedule).
+- `npm run test:functions`: 5 Deno tests of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row
+  counting).
+- `npm run lint`, `npm run typecheck`, `npm run build` before every push.
+- During development every feature was also run end to end in a real Chromium browser (Playwright) against a local
+  stand-in for Supabase (PostgREST + the function in Deno); those scripts are not part of the repository.
+- Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
+  changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
+  Verify JWT off).
+
+## 11. Software and running costs
+
+| Software | Role | Cost (pilot) |
+| --- | --- | --- |
+| Shop's stock software | exports the stock file | the shop already has it |
+| Edge or Chrome | PPI app window on the shop PC | free |
+| GitHub | code and history | free |
+| Vercel | website, API, MCP, previews | free to start; paid plan for commercial use |
+| Supabase | database, Auth, Storage, Edge Function | free to start; Pro about $25/month when live |
+| Brevo | SMTP for account e-mails | free (300 e-mails/day) |
+| Anthropic API | column proposals (optional) | pay per use, small (once per shop and layout change) |
+| OpenFreeMap | map tiles | free, no key |
+| Claude Code | writes, tests and fixes the code | Claude plan |
+
+## 12. Growing and next steps
+
+- 5–50 shops fit the free/entry tiers; uploads scale with Supabase (one function call per new file).
+- Next useful steps: e-mail alert when a shop's stock stops arriving; own domain; registration with Bing/Google; a
+  developer's review of RLS; removing the legacy admin functions together with the unused `file_url` column.

@@ -264,22 +264,6 @@
     "rule_public": "Len verejné údaje: žiadne nákupné ceny, dodávatelia ani údaje o zákazníkoch.",
     "rule_pc": "Počítač je počas otváracích hodín zapnutý a je na ňom otvorená táto stránka alebo aplikácia PPI (môže byť minimalizovaná).",
     "saving": "Ukladám…",
-    "uploading": "Nahrávam…",
-    "cloud_title": "Odkaz na súbor v cloude",
-    "cloud_intro": "Ukladá váš skladový program zásoby do OneDrive, Dropboxu alebo Google Drive? Vložte odkaz na súbor alebo na celý priečinok (zdieľaný pre „kohokoľvek s odkazom“) – z priečinka PPI vždy vezme najnovší súbor so zásobami. PPI ho stiahne každých 15 minút; počítač v obchode nemusí byť zapnutý.",
-    "cloud_url": "Odkaz na súbor alebo priečinok",
-    "cloud_save": "Uložiť a stiahnuť teraz",
-    "cloud_pull": "Stiahnuť teraz",
-    "cloud_remove": "Odstrániť odkaz",
-    "cloud_current": "Uložený odkaz",
-    "cloud_saved": "Odkaz je uložený.",
-    "cloud_removed": "Odkaz bol odstránený.",
-    "cloud_result": "Stiahnutie: {result}",
-    "cloud_share_hint": "Súbor nie je zdieľaný verejne. V cloude nastavte zdieľanie „Ktokoľvek s odkazom môže zobraziť“ a skúste to znova.",
-    "error_cloud_url": "Odkaz musí byť úplná adresa začínajúca https://",
-    "error_cloud_fn": "Sťahovanie zatiaľ nefunguje: funkcia „stock-pull“ nie je nasadená.",
-    "cloud_webpage_hint": "Odkaz otvára webovú stránku, nie samotný súbor. V cloude otvorte súbor so zásobami, nastavte zdieľanie „Ktokoľvek s odkazom“ a vložte odkaz na ten súbor (nie na priečinok).",
-    "cloud_no_stock_file": "V priečinku v cloude nie je súbor so zásobami (XML, CSV, TXT alebo XLSX).",
-    "cloud_google_key": "Priečinky v Google Drive zatiaľ nie je možné čítať. Vložte odkaz priamo na súbor so zásobami."
+    "uploading": "Nahrávam…"
   }
 }

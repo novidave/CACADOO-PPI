@@ -1,234 +1,286 @@
-# PPI — Product Requirements
+# PPI — Product Requirements (as built)
 
-Version 1.1 · MVP web app for finding in-stock products in local shops, built for the whole European market (first pilot shops: Michalovce, Slovakia). Nothing in the product is tied to one town, country, currency or time zone.
+Version 2.1 · status 8 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
-**How to use this:** save this document in the code repository as `docs/PRD.md` and give it to Claude Code together with the phase prompts in Build blueprint (Claude Code), one phase at a time. Check each phase before starting the next.
+This document describes **what PPI is and what it does today**. How the parts work together is in
+`docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
+Claude Code reads this file first, so keep it true: when a feature changes, change this file in the same commit.
+
+## 0. Status at a glance
+
+| Area | Status |
+| --- | --- |
+| Public search, shop pages, item pages, map | Live |
+| Slovak, Hungarian, English | Live |
+| Sign-up, log-in, forgotten password, change password (e-mail + password) | Live (e-mail through Brevo SMTP) |
+| Owner dashboard: create shop, details, logo, opening hours, facilities, visibility, items | Live |
+| Stock from the shop PC: PPI app window watching the export folder | Built and tested |
+| Stock by hand: "Upload file" | Live, tested by the owner |
+| AI field mapping (Claude) with owner approval | Live (rule-based guess when no Anthropic key is set) |
+| AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
+| Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
+| E-mail alerts when a shop's stock stops arriving | Not built |
+| Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
 
-PPI shows shoppers which local shops have a product in stock right now, how much it costs and how fresh that information is. Shop stock arrives automatically: the shop's own software exports a file to a folder, the PPI app window on the shop PC (Edge or Chrome) uploads the newest file every 15 minutes, and a Supabase Edge Function, with AI-assisted field mapping, reads that file and writes the stock into Supabase. The web app only reads stock. It never writes inventory.
+PPI shows shoppers which local shops have a product in stock **right now**, at what price, and how fresh that
+information is. It works anywhere in Europe: any town, country, currency and time zone; nothing is tied to one place.
 
-**Goal of the MVP:** a shopper anywhere in Europe searches a product and finds a nearby shop that really has it, with no wasted trip. Every page and every answer must also be readable by AI assistants and search engines directly, without Google Merchant Center.
+Shops keep using their own stock software. That software exports a stock file (XML, CSV or Excel) every 15–30
+minutes, and the file is uploaded to PPI in one of two ways: the PPI app window on the shop PC sends it every 15
+minutes, or the owner uploads it by hand ("Upload file"). PPI downloads nothing itself. It reads the file, matches
+its columns (proposed by AI, approved once by the owner) and publishes the stock. The time of the file is the
+freshness that shoppers see.
+
+**Goal:** a shopper searches a product, a shop name or a street and finds a shop that really has it, without a wasted
+trip. Every page and answer is also readable by AI assistants and search engines directly, without Google Merchant
+Center.
 
 ## 2. Users and roles
 
 | Role | Who | Can do |
 | --- | --- | --- |
-| Visitor | Any shopper, no login | Search, browse shops and products, see map, switch language |
-| Shop owner | Signs up by themselves (e-mail + password) | Create and edit own shops (up to 5), connect the export folder, approve the stock-file columns, choose stock visibility, hide items, delete own shop |
+| Visitor | Any shopper, no login | Search, browse shops and items, see the map, switch language |
+| Shop owner | Anyone who signs up (e-mail + password) | Create up to 5 shops; edit details, logo, opening hours, facilities; send stock (folder or "Upload file"); approve the stock file's columns; choose what shoppers see; hide items; delete own shops |
+| AI assistant / tool | Any program | Read the same public data through the API, the MCP server and the pages |
 
-Self-service: owners sign up, create their shop and connect their stock without any help. There is no admin area on the website; the operator uses the Supabase dashboard if ever needed.
+**Self-service:** there is no admin area on the website and no approval step by the operator. The operator
+uses the Supabase dashboard if something ever needs fixing by hand.
 
 ## 3. Scope
 
-**In the MVP**
+**Built**
 
-- Product search by text (item, brand, EAN, shop name, street, town) across all shops, with a map of the results
-- Shop pages and product pages
-- Freshness labels on all stock
-- Self-service sign-up and shop owner dashboard (no admin area on the website)
-- Slovak (default), Hungarian and English
-- Mobile-first design
+- Text search across all shops: item name, brand, EAN, shop name, street or town
+- Shop pages and item pages with map, opening hours, "open now", facilities and freshness
+- Freshness and availability rules applied in the database for every output
+- Self-service accounts and the owner dashboard
+- Two ways for stock to arrive, both uploads: the PPI app window (folder, every 15 minutes) and "Upload file"
+- AI-proposed column mapping, always approved by the owner
+- AI and machine access: JSON-LD, robots.txt, sitemap, llms.txt, public REST API with OpenAPI, MCP server
+- Slovak, Hungarian and English; mobile-first; installable PPI app for the shop PC
 
-**Not in the MVP**
+**Decided against (on purpose)**
 
-- Online ordering, payments, reservations or pickup
-- Reviews or ratings
-- Shop self-signup
+- Location services: the website never asks for the visitor's location and never guesses it from the IP address
+  (decided 2026-10-06). Search is by text.
+- Colours: plain black and white design; only exceptions are the Cacadoo PPI logo and the blue "Select picture" link
+- An admin area on the website (removed 2026-10-06)
+- Software or tunnels on the shop PC (a Cloudflare tunnel + rclone design was built on 2026-10-04 and replaced by the
+  browser app on 2026-10-06)
+- Google Merchant Center (AI readability replaces it)
+
+**Not built (possible later)**
+
+- E-mail alerts when a shop's stock stops arriving during opening hours
+- Online ordering, payments, reservations, reviews, native mobile apps
 - Writing anything back to the shop's software
-- Google Merchant Center (deliberately not used; AI readability replaces it)
-- Native mobile apps
 
-## 4. Technical constraints
+## 4. Principles and constraints
 
-- Stack: Next.js (App Router, TypeScript) hosted on Vercel, with the Supabase project as the backend. Built with Claude Code; every database change is a migration in the repository.
-- Enable the PostGIS extension. Store shop locations as `geography(Point, 4326)`.
-- All stock and sync data is written by the stock-pull Edge Function using the service role key (the shop PC only uploads the file to it; `upload_check_in()` records when the PPI window was last active). The frontend must never contain or use the service role key.
-- Put freshness and availability logic in the database (a view and SQL functions), not in React, so the website and any future integration show the same result.
-- Row Level Security on every table. Public pages must load their data on the server (Next.js server components), never in the browser, so the first HTML already contains names, prices and availability.
-- No built-in home town and no location services: the website never uses the visitor's device location or an IP lookup. Search is by text across every shop.
-- Times stored in UTC. Every shop has an IANA time zone (`shops.timezone`, e.g. `Europe/Vienna`); opening hours and "last confirmed at" times use the shop's time zone.
-- Every price carries its own currency (EUR, HUF, CZK, PLN, CHF, …), written the visitor's way with local symbols: `12,90 €` (sk), `1890 Ft` (hu), `€12.90` (en).
-- Languages: SK, HU, EN to start; adding a language is one text file. Browsers asking for a language PPI does not have yet get English.
+- **Stack:** Next.js 16 (App Router, TypeScript) on Vercel; Supabase (Postgres + PostGIS, Auth, Storage, Vault, Edge
+  Functions, pg_cron). Code in GitHub; every database change is a numbered migration in `supabase/migrations/`.
+- **Rules live in the database.** Freshness, availability labels and hiding exact quantities are SQL functions and
+  views, so the website, the API and the MCP server always say the same thing.
+- **Only the stock-pull function writes stock**, with the service role key. That key never appears in the web app,
+  Vercel or the repository.
+- **Row Level Security** on every table. Owners can only reach their own shops.
+- **Public pages are rendered on the server**, so the first HTML already contains names, prices and availability
+  (AI crawlers do not run JavaScript).
+- **Europe-wide:** no home town, no default country, currency or time zone in the code. Times are stored in UTC and
+  shown in the shop's own time zone; every price carries its own currency.
+- **When PPI is not sure, it says less, never more:** stale stock is never shown as available.
 
-## 5. Data model
+## 5. Features
 
-| Table | Columns | Notes |
-| --- | --- | --- |
-| `shops` | `id` uuid, `slug` text unique, `name` text, `ico` text, `address` text, `city` text, `country` text (ISO code, e.g. `SK`), `timezone` text (IANA, default `UTC`), `location` geography point, `phone` text, `website` text, `opening_hours` jsonb, `visibility_mode` text (`exact` \| `in_stock` \| `yes_no`), `low_stock_threshold` int default 3, `logo_url` text, `is_active` bool, `created_at` | Public read when `is_active` |
-| `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Links logins to shops |
-| `products` | `id`, `ean` text, `brand` text, `name` text, `category` text | One row per real product, matched by EAN |
-| `shop_items` | `id`, `shop_id`, `source_code` text, `product_id` nullable, `name` text, `ean` text, `is_public` bool default true, `updated_at` | Unique on (`shop_id`, `source_code`) |
-| `inventory` | `shop_item_id` primary key, `quantity` numeric, `price` numeric, `currency` text default 'EUR', `source_updated_at` timestamptz, `received_at` timestamptz | One current row per item; written only by the stock-pull function |
-| `sync_sources` | `id`, `shop_id`, `file_format` text, `field_mapping` jsonb, `mapping_status` (`proposed` \| `confirmed`), `file_url` text, `latest_file_time` timestamptz, `last_checked_at` timestamptz, `last_error` text | Admin only |
-| `profiles` | `user_id`, `display_name`, `language` (`sk` \| `hu` \| `en`), `is_admin` bool | `is_admin` only settable by admin |
+### 5.1 Home and search (`/[lang]`)
 
-`opening_hours` format: `{"mon":[["08:00","17:00"]],"tue":[...],...,"sun":[]}`. Multiple ranges per day allowed for lunch breaks.
+- One search box. The text is matched, ignoring accents and case ("kava" finds "Káva"), against the item name, brand,
+  EAN barcode, the shop's name, street and town. Searching "Budince" lists the items of shops in Budince.
+- Every active shop is searched; there is no radius and no distance.
+- Filter: "Only available now".
+- Up to 50 results: available first, then fresher, then by name. Each result shows item name, price, shop name, street
+  and town, the availability text with its freshness ("In stock · updated 8 min ago") and "Open now"/"Closed".
+- A map shows the shops of the results (black dots); it is an extra: the page works without it.
+- No results: "No shop has this right now".
+
+### 5.2 Shop page (`/[lang]/shops/{slug}`)
+
+- Name, logo, address, phone, website, "Get directions" (Google Maps with the shop's coordinates), map pin.
+- Opening hours for the week in the shop's time zone, "Open now / Closes at / Opens at".
+- Facilities: customer toilet, douchette (bidet shower), card payment.
+- Stock freshness line, then the shop's public items: searchable, 50 per page, price and availability.
+- JSON-LD `Store` (address, geo, opening hours, phone, logo, `paymentAccepted`, `amenityFeature`).
+
+### 5.3 Item page (`/[lang]/items/{id}`)
+
+- Item name, brand, EAN, price, availability with freshness, shop card with directions and "open now".
+- "Also available at": the same product (EAN) in other shops, nearest to this shop first.
+- JSON-LD `Product` with an `Offer` (price, currency, availability) only when the shop is not stale.
+
+### 5.4 Languages
+
+- Every page exists in Slovak (`/sk`), Hungarian (`/hu`) and English (`/en`), with a SK · HU · EN switch in the header.
+- Without a language in the address, PPI uses the remembered choice, then the browser's language, then English.
+
+### 5.5 Accounts
+
+- **Sign up** (`/signup`): e-mail, password (at least 8 characters), password again. Supabase sends a confirmation
+  e-mail; the link logs the owner in and opens "My shop".
+- **Log in** (`/login`) with e-mail and password. Clear messages for a wrong password or an unconfirmed e-mail.
+- **Forgot password** (`/forgot`): a reset link by e-mail (same answer whether the address exists or not); the link opens
+  **Change password** (`/password`), which is also in the account menu.
+- The account menu: My shop · Export folder · Password · Sign out.
+
+### 5.6 Owner dashboard — "My shop" (`/[lang]/dashboard`)
+
+- **Add your shop** (shown when the account has none, or via "+ Add another shop"): name, street, town, country (two
+  letters), time zone, phone, company ID, website, location on the map, opening hours (several ranges per day),
+  facilities, "Visible to shoppers" (ticked by default). The page address is made from name and town and made unique.
+  At most 5 shops per account. After creating: three next steps are shown.
+- **Export folder** section:
+  - status: latest file time, Current/Recent/Stale, "PPI window on the shop PC last active", last file received, last
+    error;
+  - **Connect folder** (Edge/Chrome) and **Upload file** (any browser), with the result of each send;
+  - the rules for the stock software's export (below) and a link to the full-screen `/sync` page.
+- **Stock file columns:** after the first file, one drop-down per field (item code, name, EAN, brand, quantity, price,
+  currency) pre-filled with the proposal, next to the file's first rows. Code, name, quantity and price are required.
+  **Approve columns** → from then on every new file is applied automatically.
+- **Shop details:** everything from "Add your shop", editable.
+- **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once.
+- **What shoppers see:** exact number / In stock–Low stock–Out of stock / Available–Not available, the "low stock"
+  threshold (1–50) and a live preview table.
+- **Items:** name, code, price, quantity, what shoppers see; search, 50 per page; Hide/Show per item.
+- **Delete shop** (with a confirmation tick).
+- Every form returns to its own section and shows its result there; buttons show "Saving…/Uploading…" while working.
+
+**Rules for the export (shown to owners):** a folder only for this; XML, CSV (UTF-8 or Windows-1250, `;` or `,`) or
+Excel `.xlsx` (not the old `.xls`); columns item code, name, quantity, selling price incl. VAT, EAN and brand if
+available; all items in one file, always the same name, overwritten each time (an item missing from the file counts as
+sold out); every 15–30 minutes during opening hours plus once at night; only public data.
+
+### 5.7 PPI app on the shop PC (`/[lang]/sync`)
+
+- The same website, installable as an app from Edge or Chrome ("Install PPI as an app"); it opens on this page. Steps
+  to start it with Windows are shown on the page (startup folder) and in `docs/SHOP_PC_SETUP.md`.
+- **Connect folder:** the owner picks the export folder once; the browser remembers it. While the page is open
+  (minimised is fine) it checks the folder every 15 minutes and sends the newest stock file when it is new, finished
+  (untouched for 60 seconds) and unchanged while being read.
+- After a restart the browser may ask once more for permission ("Allow on every visit" stops that).
+- Firefox and Safari cannot read a folder: they get a message, and the "Upload file" button still works.
+- One window per shop does the work; a second window waits and takes over when the first closes.
+
+### 5.8 AI and machine access
+
+- **Pages:** server-rendered; with JavaScript off every page still shows names, prices, availability and update time.
+  Canonical URL, title and description per language; JSON-LD as above.
+- **`/robots.txt`:** all crawlers allowed, AI crawlers named explicitly (GPTBot, ClaudeBot, PerplexityBot, …); the
+  login-only pages are disallowed.
+- **`/sitemap.xml`:** home, every active shop and public item (with the other languages), `lastmod` = the shop's latest
+  file time; rebuilt at most hourly.
+- **`/llms.txt`:** what PPI is, the data rules, how to use the API and MCP server, and the list of shops.
+- **Public REST API** (no login, JSON, open CORS, 60 requests per minute per caller):
+  `GET /api/v1/search?q=&near=&lat=&lng=&radius_km=&only_available=&lang=`, `GET /api/v1/shops`,
+  `GET /api/v1/shops/{slug}`, `GET /api/v1/shops/{slug}/items?page=&q=`, `GET /api/v1/items/{id}`,
+  OpenAPI at `GET /api/openapi.json`.
+- **MCP server** at `/mcp` (Streamable HTTP, read-only, no login) with tools `search_stock(query, near, radius_km,
+  only_available, lang)`, `get_shop(slug)`, `get_item(id)`. Anyone can add it to Claude as a custom connector.
+- The API and MCP accept an optional `near` (a town where PPI has shops, or "lat,lng") typed by the caller; the
+  website itself never uses a location.
+- Every result carries `source_url` (the PPI page to cite), price, currency, availability text, freshness and the
+  shop's address and coordinates. Exact quantities only for shops that publish them; no availability for stale shops.
+- Search-engine ownership tags (`GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`) can be set in Vercel so the
+  sitemap can be submitted (SETUP.md part I).
 
 ## 6. Business rules
 
-### Freshness
+### 6.1 Freshness
 
-Freshness comes from the shop's `sync_sources.latest_file_time`, not from individual rows.
+Freshness comes from the time of the shop's latest applied stock file (`sync_sources.latest_file_time`).
 
-| Age of latest file | State | Shown to visitors |
+| Age of the latest file | State | Shown |
 | --- | --- | --- |
-| under 30 min | `current` | Stock as below, plus "Updated X min ago" |
-| 30 min – 24 h | `recent` | Stock as below, plus "Last confirmed today at 14:05" (or "yesterday at") |
-| over 24 h, or no file ever | `stale` | No stock status. Text: "Stock information not currently available" |
+| under 30 minutes | `current` | availability + "Updated X min ago" |
+| 30 minutes – 24 hours | `recent` | availability + "Last confirmed today/yesterday at 14:05" |
+| over 24 hours, or never | `stale` | **no availability**, only "Stock information not currently available" |
 
-Create a SQL function `freshness_state(shop_id)` returning `current`, `recent` or `stale`, and the age in minutes.
+The file time is the file's own "last modified" time on the shop PC (with "Upload file": that of the picked file),
+never later than "now". Sending the same file again, or an older one, does not make the stock fresher.
 
-### Availability shown per shop's visibility mode
+### 6.2 Availability (per shop's choice)
 
-| `visibility_mode` | quantity > threshold | 0 < quantity ≤ threshold | quantity ≤ 0 |
+| What shoppers see (`visibility_mode`) | quantity > threshold | 0 < quantity ≤ threshold | quantity ≤ 0 |
 | --- | --- | --- | --- |
-| `exact` | "12 in stock" | "2 in stock" | "Out of stock" |
-| `in_stock` | "In stock" | "Low stock" | "Out of stock" |
-| `yes_no` | "Available" | "Available" | "Not available" |
+| Exact number (`exact`) | "12 in stock" | "2 in stock" | "Out of stock" |
+| In stock / Low stock (`in_stock`, default) | "In stock" | "Low stock" | "Out of stock" |
+| Available / Not available (`yes_no`) | "Available" | "Available" | "Not available" |
 
-If freshness is `stale`, availability is never shown, whatever the quantity.
+The label is computed in the database. Raw quantities leave the database only for `exact` shops that are not stale.
+Hidden items (owner's choice) and inactive shops are never shown.
 
-Exact quantities must never reach the browser for shops not in `exact` mode. Compute the label in the database.
+### 6.3 Stock files
 
-### Public view
+- One file is the **whole** stock: every item in it is updated; items of the shop missing from it are set to 0.
+- The file is applied in one transaction: shoppers see either the old or the new stock, never half.
+- A file's layout is matched by a column mapping. The first file, or a file whose layout changed, gets a proposal
+  (Claude, or a rule-based guess) that waits for the owner's approval; nothing is applied until it is approved.
+- If more than 5 % of a file's rows cannot be read with the approved mapping, the previous stock is kept and a new
+  proposal waits for approval.
+- Accepted: XML (the largest repeated element is the item list), CSV/TXT (`;` `,` tab or `|`, quoted fields, UTF-8 or
+  Windows-1250), Excel `.xlsx` (first sheet). Numbers in any European or English format ("1 234,50 €", "1,234.50").
+  Up to 50 MB. When the file has no currency column, the shop's country decides (HU → HUF, CZ → CZK, PL → PLN,
+  CH → CHF, …), otherwise EUR.
+- Items are linked across shops by EAN ("also available at").
 
-Create a view `public_stock` that joins `shop_items` (only `is_public`), `inventory`, `shops` (only `is_active`) and the freshness state, and returns: item id, item name, EAN, brand, shop id, shop slug, shop name, shop location, price, availability label key, freshness state, freshness age, `latest_file_time`. It never returns raw quantity unless the shop uses `exact` mode.
+### 6.4 Open now
 
-### Search
+Open if the current time in the shop's own time zone falls inside today's ranges; otherwise "Opens at …"
+(today, tomorrow or the next opening day).
 
-Create an RPC `search_stock(q text, lat float, lng float, radius_km float, only_available bool)` (`lat`/`lng` optional: without them every shop is searched and distance is empty):
+## 7. Data model (after migration 16)
 
-- Matches `q` against item name, brand and EAN, case- and accent-insensitive (use `unaccent`), so "kava" finds "káva"
-- Returns rows from `public_stock` within the radius, with distance in km
-- Sort: available first, then fresher, then nearer
-- `only_available` true hides out-of-stock and stale rows
-- Limit 50
+| Table | Main columns | Notes |
+| --- | --- | --- |
+| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `visibility_mode`, `low_stock_threshold` (1–50, default 3), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops |
+| `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
+| `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |
+| `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `is_public`, `updated_at` | Unique per shop + code |
+| `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at` | Written only by the stock-pull function |
+| `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows`, `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name` | One per shop: how its stock file is read and the latest upload. A leftover `file_url` column is unused (only the legacy `admin_shops()` reads it) |
+| `profiles` | `user_id`, `display_name`, `language`, `is_admin` | One per account, created automatically |
+| `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP rate limit log; no IP addresses; older than 30 days removed |
 
-### Open now
+`opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
+Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-files` (private, last raw files kept
+7 days for troubleshooting).
 
-A shop is "Open now" if the current time in the shop's own time zone falls in today's ranges in `opening_hours`. Show "Opens at 08:00" or "Closes at 17:00" where helpful.
+## 8. Security and privacy
 
-## 7. Security (Row Level Security)
-
-| Table | Visitor | Shop owner | Admin |
+| Data | Visitor | Shop owner | Stock-pull function |
 | --- | --- | --- | --- |
-| `shops` | read active | read and update own (not `slug`, `ico`, `is_active`) | all |
-| `shop_members` | none | read own | all |
-| `products` | read | read | all |
-| `shop_items` | read public items of active shops | read own; update only `is_public` | all |
-| `inventory` | none directly (use `public_stock`) | read own | read |
-| `sync_sources` | none | read own `latest_file_time` and `last_error` only (via a function) | all |
-| `profiles` | none | read and update own, except `is_admin` | all |
+| Shops | active shops (public fields) | own shops: details through `owner_save_shop()`, visibility and logo directly (never the page address); delete through `owner_delete_shop()` | read |
+| Items (names, codes, EAN) | public items of active shops | own items: read, hide/show only | write |
+| Stock (quantity, price) | only through `public_stock` / `search_stock` / `shop_stock`: labels, never hidden items, raw quantity only for `exact` shops | own stock (`owner_items()`) | write |
+| Stock source (`sync_sources`) | none | own shop through `my_shops()`, `owner_set_mapping()`, `upload_check_in()` | read and write |
+| Accounts (`profiles`) | none | own profile | — |
 
-No client can insert or update `inventory` or `sync_sources`; only the service role (the stock-pull function) can.
-
-## 8. Pages and requirements
-
-### 8.1 Home and search (`/`)
-
-- Search box at the top, map below, results list beside it on desktop or below it on mobile
-- No location: every shop is searched; the text matches item name, brand, EAN, shop name, street or town
-- Filter: "Only available now"
-- Each result: item name, shop name, street and town, price, availability label, freshness text, "Open now" badge
-- Map pins per shop; tapping a pin highlights that shop's results
-- Empty state: "No shop has this right now"
-
-Acceptance:
-
-- [ ] Searching "kava" returns items named "Káva"
-- [ ] A shop with a 25-hour-old file shows no availability, only the unavailable text
-- [ ] Results load in under 2 seconds on mobile with 5,000 items
-
-### 8.2 Shop page (`/shops/:slug`)
-
-- Name, logo, address, phone, website, map pin, opening hours for the week, "Open now"
-- Freshness banner: "Stock updated 8 min ago" or the unavailable text
-- Searchable, paginated list of the shop's public items with price and availability
-- "Get directions" link opening Google Maps with the shop's coordinates
-- Page title and meta description in the current language; JSON-LD for `LocalBusiness`
-
-### 8.3 Item page (`/items/:id`)
-
-- Item name, brand, EAN, price, availability, freshness, shop card with directions
-- "Also available at": other shops with the same EAN, nearest first
-- JSON-LD `Product` with `Offer` (price, currency, availability), only when freshness is not `stale`
-
-### 8.4 Login (`/login`)
-
-- E-mail + password via Supabase Auth: `/signup` (confirmation e-mail), `/login`, `/forgot` (reset link by e-mail) and `/password` (change password, also the landing page of the reset link)
-- After login: `/dashboard`
-
-### 8.5 Shop owner dashboard (`/dashboard`)
-
-- Sync status card: latest file time, freshness state as text (Current / Recent / Stale), last error in plain words
-- Shop details form: phone, website, opening hours editor (per day, multiple ranges, closed toggle), logo upload to Supabase Storage
-- Visibility mode selector with a live preview of how an item will look to shoppers
-- Low stock threshold (number, 1–50)
-- Facilities for customers (tick boxes): customer toilet, douchette (bidet shower), card terminal. Shown on the shop page (toilet and douchette under the stock line, card payment under the opening hours) and in its JSON-LD (`amenityFeature`, `paymentAccepted`). Set by the owner.
-- Items table: name, code, price, stock label, public toggle; search and pagination
-
-Acceptance:
-
-- [ ] Owner of shop A cannot see or change anything of shop B
-- [ ] Switching to `yes_no` immediately hides exact numbers on public pages
-
-### 8.6 Self-service (no admin area)
-
-- A logged-in user without a shop sees the "Add your shop" form: name, address, town, country, time zone, location on a map, phone, website, opening hours, facilities, "Visible to shoppers". The page address (slug) is made from name and town.
-- Export folder section on the dashboard: rules for the stock software's export and the folder connection itself (same as `/sync`).
-- Stock file columns: after the first file, the AI-proposed mapping is shown as one drop-down per field next to the file's first rows; the owner approves it (`mapping_status` = `confirmed`).
-- Delete shop (with a confirmation tick).
-
-### 8.7 AI and machine access
-
-Any AI assistant or search engine must be able to read PPI's stock directly.
-
-**Server-rendered pages**
-
-- Home, shop and item pages load their data on the server (Next.js server components). With JavaScript turned off, each page still shows item names, prices, availability and "updated at".
-- Every shop page has JSON-LD `LocalBusiness` (address, geo, opening hours); every item page has `Product` with `Offer` (price, currency, availability). Leave availability out when the shop is stale.
-- Canonical URL, title and description in the page's language.
-
-**Discovery files**
-
-- `/robots.txt`: allow all crawlers, including GPTBot, ClaudeBot and PerplexityBot; disallow the login-only pages.
-- `/sitemap.xml`: every active shop and public item page, `lastmod` set to the shop's latest file time.
-- `/llms.txt`: plain text on what PPI is, what data it holds, how fresh it is, and links to the API docs and MCP server.
-
-**Public read API** (server routes or Supabase Edge Functions; no login)
-
-- `GET /api/v1/search?q=&lat=&lng=&radius_km=&only_available=`: same results as `search_stock`
-- `GET /api/v1/shops` and `GET /api/v1/shops/{slug}`: shop details and freshness
-- `GET /api/v1/shops/{slug}/items?page=`: public items
-- `GET /api/openapi.json`: OpenAPI description of the above
-- JSON only, open CORS, 60 requests per minute per IP, each request logged to `api_usage` (hashed IP, endpoint, time)
-- Every item returned includes price, currency, availability, freshness state, `updated_at`, shop name, address and coordinates, and `source_url` (the PPI page) so assistants can cite it
-- Never return exact quantity for shops not in `exact` mode; never return availability for stale shops
-
-**MCP server** at `/mcp` (Streamable HTTP, read-only, no login)
-
-- Tools: `search_stock(query, near, radius_km)`, `get_shop(slug)`, `get_item(id)`
-- Same data and rules as the API; results include source URLs
-- `near` accepts a town name or coordinates; without it, every shop is searched
-
-Acceptance:
-
-- [ ] `curl -A "GPTBot" https://<domain>/shops/<slug>` returns HTML containing item names and prices
-- [ ] A stale shop's page, API response and MCP result contain no availability
-- [ ] An AI assistant connected to `/mcp` answers "who has X in <town>?" with the right shop and update time
+- Owners never write stock themselves; the function does, after checking the uploader is that shop's owner.
+- The function downloads nothing: it only receives files uploaded with the shop owner's login.
+- The API stores no IP addresses: only a hash with a salt that changes daily.
+- Legacy: the `is_admin` flag and the `admin_*` database functions from the old admin area still exist in the database
+  but nothing on the website uses them.
 
 ## 9. Design
 
-- Mobile-first; most visitors are on phones
-- Map: light-grey street map (OpenFreeMap "positron" tiles: free, no API key, commercial use allowed) with black dot pins; the visitor's position is a hollow ring
-- Clean, local and trustworthy; avoid e-commerce look (no cart icons)
-- Plain white background with black text and thin light-grey lines. No brand colours, no coloured status badges, no dark mode (decided 2026-10-01; replaces the earlier blue/green/amber palette)
-- Availability always written out as text (e.g. "Low stock"), emphasised with bold weight, never with colour
-- Freshness text always next to any availability label
-- Language switch in the header: SK · HU · EN; remember the choice
+- Plain white background, black text, thin light-grey lines; mobile-first. No colours, no dark mode, no cart icons.
+  Exceptions at the owner's request: the Cacadoo PPI logo in the header and the blue "Select picture" link for logos.
+- Availability always written out as text, in bold, always next to its freshness.
+- Map: OpenFreeMap "positron" (free, no key), black dot pins; never required for the page to work.
+- Language switch SK · HU · EN in the header; "For shops" link to the login.
+- App icon: black "PPI" letters on white.
 
-## 10. Texts (Slovak default)
+## 10. Key texts
 
 | Key | SK | HU | EN |
 | --- | --- | --- | --- |
@@ -237,22 +289,41 @@ Acceptance:
 | out\_of\_stock | Vypredané | Elfogyott | Out of stock |
 | available | Dostupné | Elérhető | Available |
 | not\_available | Nedostupné | Nem elérhető | Not available |
-| updated\_ago | Aktualizované pred {n} min | {n} perce frissítve | Updated {n} min ago |
 | stale | Informácia o zásobe momentálne nie je dostupná | A készletinformáció jelenleg nem elérhető | Stock information not currently available |
-| open\_now | Otvorené | Nyitva | Open now |
 
-Have a native speaker check the Hungarian and Slovak texts before launch.
+All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should check Slovak and Hungarian before launch.
 
-## 11. Build order
+## 11. Known limits and open points
 
-Build in the phases of Build blueprint (Claude Code): foundation, database, public pages, login and dashboard, AI access, stock pull, then the shop PC setup. Each phase ends with its own checks; do not start the next until they pass.
+- **Freshness needs the shop PC.** The stock software must keep exporting and the PPI window must stay open (or the
+  owner uploads by hand); otherwise the shop goes `recent` and after 24 hours `stale`. No alert e-mail is sent yet.
+- **Anyone can sign up and add shops** (5 per account); there is no review. Watch for fake shops.
+- **Not yet found by web search** until the site is registered with Bing and Google (SETUP.md part I); Claude finds
+  shops at once through the MCP connector.
+- **The four sample shops** from the build are still live.
+- The site runs on `cacadooppivercel.vercel.app`; an own domain is still to come.
 
 ## 12. Launch checklist
 
+- [ ] Remove the sample shops (SETUP.md part D)
+- [ ] "Reset password" e-mail template pasted (SETUP.md E3) — confirmation template done
+- [ ] Own domain connected; Supabase Site URL and redirect URLs updated to it
+- [ ] Site registered with Bing Webmaster Tools and Google Search Console, sitemap submitted
 - [ ] Row Level Security reviewed by a developer, not only by the AI that wrote it
-- [ ] Service role key only in Supabase function secrets, never in the web app or the repository
-- [ ] Test data removed; every public page checked with JavaScript turned off
-- [ ] Stale shops show no stock on every page
-- [ ] Texts checked by native speakers
-- [ ] Custom domain connected
-- [ ] Privacy page and terms page (shop data use, cookies)
+- [ ] Texts checked by native speakers (SK, HU)
+- [ ] Privacy page and terms (shop data, cookies, e-mail)
+- [ ] Every public page checked with JavaScript turned off
+- [x] Service role key only in Supabase function secrets
+- [x] Stale shops show no stock on every page, in the API and in MCP
+
+## 13. History
+
+| Date | Milestone |
+| --- | --- |
+| 2026-10-01 | Phase 1–2: Next.js foundation, Supabase database, rules in SQL, automatic checks |
+| 2026-10-03 | Europe-wide (no home town, any currency/time zone); phase 3 public pages + map + JSON-LD; phase 4 login, owner dashboard, admin area |
+| 2026-10-04 | Shop facilities; phase 5 AI access (robots, sitemap, llms.txt, API, MCP); phase 6 automatic stock pull with AI mapping; shop PC tunnel installer (later replaced) |
+| 2026-10-06 | Shop PC as a browser app instead of a tunnel; self-service sign-up with passwords; admin area removed; no location services, text search incl. shop name/street/town; logo upload fixes; Cacadoo PPI logo; search-engine verification tags |
+| 2026-10-07 | "Upload file" button |
+| 2026-10-08 | This as-built PRD and architecture document |
+| 2026-10-08 | Cloud links (built 2026-10-07) removed: stock arrives only by upload — the PPI app window and "Upload file" |

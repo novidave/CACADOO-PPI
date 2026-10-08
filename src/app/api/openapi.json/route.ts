@@ -66,7 +66,7 @@ export function GET() {
         get: {
           summary: "Search items in stock near a place",
           parameters: [
-            { name: "q", in: "query", schema: { type: "string" }, description: "Product name, brand or EAN; accents and case ignored." },
+            { name: "q", in: "query", schema: { type: "string" }, description: "Product name, brand, EAN, shop name, street or town; accents and case ignored." },
             { name: "lat", in: "query", schema: { type: "number" } },
             { name: "lng", in: "query", schema: { type: "number" } },
             { name: "near", in: "query", schema: { type: "string" }, description: "Town name where PPI has shops (e.g. Michalovce) or 'lat,lng'. Used when lat/lng are not given." },

@@ -12,7 +12,7 @@ import { FolderSync } from "@/components/FolderSync";
 import { LogoInput } from "@/components/LogoInput";
 import { PendingButton } from "@/components/PendingButton";
 import { ShopForm } from "@/components/ShopForm";
-import { approveColumns, deleteShop, saveCloudLink, saveShop, saveVisibility, setItemPublic, uploadLogo } from "./actions";
+import { approveColumns, deleteShop, saveShop, saveVisibility, setItemPublic, uploadLogo } from "./actions";
 
 const PAGE_SIZE = 50;
 
@@ -33,43 +33,13 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-const ERRORS = ["name", "limit", "columns", "website", "logo", "cloud_url", "cloud_fn"] as const;
+const ERRORS = ["name", "limit", "columns", "website", "logo"] as const;
 
 function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
   const key = ERRORS.find((e) => e === err);
   if (key && key !== "logo") return key === "website" ? t(dict.account.error, { message: err }) : dict.owner[`error_${key}`];
   return t(dict.account.error, { message: err });
-}
-
-/** The stock file's last error; the common download problems in the owner's language. */
-function lastErrorText(dict: Dictionary, error: string): string {
-  if (/opens a web page/.test(error)) return dict.owner.cloud_webpage_hint;
-  if (/cloud folder has no stock file/.test(error)) return dict.owner.cloud_no_stock_file;
-  if (/Google Drive folders cannot be read/.test(error)) return dict.owner.cloud_google_key;
-  if (/HTTP (401|403)/.test(error)) return dict.owner.cloud_share_hint;
-  return error;
-}
-
-/** The result of a cloud download (?pull=…), in the owner's words. */
-function pullResultText(dict: Dictionary, raw: string | undefined): string | null {
-  if (!raw) return null;
-  let r: { status?: string; items?: number; zeroed?: number; rows?: number; error?: string };
-  try {
-    r = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const s = dict.sync;
-  let text: string;
-  if (r.status === "updated") text = t(s.result_updated, { items: r.items ?? 0, zeroed: r.zeroed ?? 0 });
-  else if (r.status === "unchanged") text = s.up_to_date;
-  else if (r.status === "proposed" || r.status === "waiting_for_approval" || r.status === "layout_changed")
-    text = t(s[`result_${r.status}`], { rows: r.rows ?? 0 });
-  else if (/HTTP (401|403)/.test(r.error ?? "")) text = dict.owner.cloud_share_hint;
-  else if (r.error) text = lastErrorText(dict, r.error) === r.error ? t(s.result_error, { error: r.error }) : lastErrorText(dict, r.error);
-  else text = t(s.result_error, { error: r.error ?? "?" });
-  return t(dict.owner.cloud_result, { result: text });
 }
 
 /**
@@ -144,28 +114,14 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const pageUrl = (n: number) =>
     `/${lang}/dashboard?${new URLSearchParams({ shop: shop.slug, ...(q ? { q } : {}), page: String(n) })}#items`;
   const when = (iso: string | null) => (iso ? formatDateTime(iso, lang, shop.timezone) : dict.account.never);
-  const okTexts: Record<string, string> = {
-    columns: o.columns_saved,
-    cloud: o.cloud_saved,
-    cloud_removed: o.cloud_removed,
-    cloud_pulled: "",
-  };
-  const okText = (ok && okTexts[ok]) ?? dict.account.saved;
-  const pullText = pullResultText(dict, first(sp.pull));
+  const okText = ok === "columns" ? o.columns_saved : dict.account.saved;
   // The message of a form is shown inside that form's section (the page jumps there).
   const at = first(sp.at);
   const notice = (section: string) =>
     at === section && (ok || err) ? (
-      <div role="status" className={ok ? "flex flex-col gap-1 border border-foreground p-3 font-medium" : "border border-line p-3"}>
-        {ok ? (
-          <>
-            {okText && <p>{okText}</p>}
-            {pullText && <p>{pullText}</p>}
-          </>
-        ) : (
-          errorText(dict, err!)
-        )}
-      </div>
+      <p role="status" className={ok ? "border border-foreground p-3 font-medium" : "border border-line p-3"}>
+        {ok ? okText : errorText(dict, err!)}
+      </p>
     ) : null;
 
   // Columns of the stock file, from the sample rows of the last file received.
@@ -221,7 +177,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           <dt className="text-muted">{o.last_file_name}</dt>
           <dd>{shop.last_file_name || "–"}</dd>
           <dt className="text-muted">{dict.dashboard.last_error}</dt>
-          <dd>{shop.last_error ? lastErrorText(dict, shop.last_error) : dict.account.none}</dd>
+          <dd>{shop.last_error || dict.account.none}</dd>
         </dl>
         <FolderSync
           shopId={shop.id}
@@ -232,43 +188,6 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           loginHref={`/${lang}/login`}
           labels={folderSyncLabels(dict)}
         />
-        <form action={saveCloudLink} className="flex flex-col gap-2 border border-line p-4">
-          {hidden({ at: "export" })}
-          <span className="font-medium">{o.cloud_title}</span>
-          <p className="text-sm">{o.cloud_intro}</p>
-          {notice("export")}
-          {shop.file_url && (
-            <p className="break-all text-sm">
-              <span className="text-muted">{o.cloud_current}: </span>
-              {shop.file_url}
-            </p>
-          )}
-          <label className="flex flex-col gap-1">
-            <span className="text-sm">{o.cloud_url}</span>
-            <input
-              name="cloud_url"
-              type="url"
-              inputMode="url"
-              placeholder="https://drive.google.com/file/d/…"
-              className={inputClass}
-            />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button type="submit" name="intent" value="save" className="rounded border border-foreground px-4 py-2 font-medium">
-              {o.cloud_save}
-            </button>
-            {shop.file_url && (
-              <>
-                <button type="submit" name="intent" value="pull" formNoValidate className="rounded border border-line px-4 py-2">
-                  {o.cloud_pull}
-                </button>
-                <button type="submit" name="intent" value="remove" formNoValidate className="rounded border border-line px-4 py-2">
-                  {o.cloud_remove}
-                </button>
-              </>
-            )}
-          </div>
-        </form>
         <div className="flex flex-col gap-1 text-sm">
           <span className="font-medium">{o.export_rules_title}</span>
           <ul className="list-disc pl-6">

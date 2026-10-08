@@ -47,17 +47,14 @@ anon client without cookies (`@/lib/supabase/public`), every result carries `sou
 decides availability/quantity. Every API/MCP request goes through `rateLimit` (`api_hit`: 60/min, daily-salted
 IP hash). `robots.ts`, `sitemap.ts` and `llms.txt` live at the app root.
 
-## Stock pull
+## Stock upload
 
-`supabase/functions/stock-pull/index.ts` (single file, paste-deployable): upload from the shop PC (`?shop_id=`, owner or
-admin JWT checked by `upload_check_in()`), or pull by cron (header `x-ppi-cron-secret`) / admin JWT with credentials
-from Vault via `sync_credentials()`. Owners may pull their own shop and set a cloud share link (`owner_set_file_url()`,
-converted to a direct download by `@/lib/cloudLink`; only public https hosts, `isAllowedFileUrl`); without a
-Last-Modified header, unchanged content (`last_file_hash`) is not counted as a new file. A shared cloud FOLDER link
-(OneDrive share API, Dropbox ZIP, Google Drive with the optional `GOOGLE_API_KEY` secret) → the newest stock file in it; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping
-proposals (Claude `claude-opus-5-5` with structured outputs, else `guessMapping`) are never auto-approved;
-`apply_stock_file()` writes a full file in one transaction (missing items → quantity 0). >5 % unreadable rows →
-keep old stock, propose a new mapping.
+`supabase/functions/stock-pull/index.ts` (single file, paste-deployable) only receives uploads:
+`POST ?shop_id=&file_time=&file_name=[&gzip=1]` with the owner's (or legacy admin's) JWT, checked by `upload_check_in()`.
+It downloads nothing and runs on no schedule (cloud links and the cron pull were removed on 2026-10-08, migration 16).
+A file not newer than `latest_file_time` is skipped; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping proposals
+(Claude with structured outputs, else `guessMapping`) are never auto-approved; `apply_stock_file()` writes a full file
+in one transaction (missing items → quantity 0). >5 % unreadable rows → keep old stock, propose a new mapping.
 
 ## Shop PC
 
@@ -65,7 +62,7 @@ No software on the shop PC except the PPI web app (`app/manifest.ts`, installabl
 → `@/components/FolderSync` (File System Access API, Edge/Chrome only; Firefox/Safari get a message): folder handle in
 IndexedDB (`@/lib/folderStore`), check every 15 min, one window per shop (Web Locks), `upload_check_in()` then POST the
 newest finished file (untouched 60 s) to `stock-pull?shop_id=…` with the owner's JWT. Also "Upload file" (one file by
-hand, any browser) and the cloud link form on the dashboard. Guide: `docs/SHOP_PC_SETUP.md`.
+hand, any browser, same POST). Guide: `docs/SHOP_PC_SETUP.md`.
 
 ## Auth
 

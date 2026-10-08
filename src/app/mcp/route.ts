@@ -41,7 +41,11 @@ function buildServer() {
         "fresher data, then nearer. Each result has price, currency, availability, freshness (when the shop's stock " +
         "was last updated), the shop's name, address and coordinates, and a source_url to cite.",
       inputSchema: {
-        query: z.string().min(1).max(200).describe("Product name, brand or EAN barcode. Accents and case are ignored."),
+        query: z
+          .string()
+          .min(1)
+          .max(200)
+          .describe("Product name, brand, EAN barcode, shop name, street or town. Accents and case are ignored."),
         near: z
           .string()
           .max(100)
