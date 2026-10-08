@@ -97,6 +97,7 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
             loading: dict.search.ai_loading,
             searched: dict.search.ai_searched,
             note: dict.search.ai_note,
+            unavailable: dict.search.ai_unavailable,
           }}
         />
       )}

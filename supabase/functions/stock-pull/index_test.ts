@@ -120,6 +120,7 @@ const CSV = "Kod;Nazov;Mnozstvo;Cena\nC1;Farba fas. biela 5L;4;24,90\nC2;Valcek 
 /** Just enough of the Supabase client for one upload; records every database call. */
 function fakeSupabase() {
   const rpc: { name: string; args: Record<string, unknown> }[] = [];
+  const updates: Record<string, unknown>[] = [];
   const source = {
     shop_id: SHOP,
     file_format: "csv",
@@ -138,7 +139,10 @@ function fakeSupabase() {
     },
     from: () => ({
       select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: source, error: null }) }) }),
-      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+      update: (values: Record<string, unknown>) => {
+        updates.push(values);
+        return { eq: () => Promise.resolve({ error: null }) };
+      },
     }),
     storage: {
       from: () => ({
@@ -149,11 +153,11 @@ function fakeSupabase() {
     },
   };
   const asCaller = { rpc: () => Promise.resolve({ data: { ok: true }, error: null }) };
-  return { db: db as unknown as SupabaseClient, asCaller: asCaller as unknown as SupabaseClient, rpc };
+  return { db: db as unknown as SupabaseClient, asCaller: asCaller as unknown as SupabaseClient, rpc, updates };
 }
 
 async function upload(translate: Translator) {
-  const { db, asCaller, rpc } = fakeSupabase();
+  const { db, asCaller, rpc, updates } = fakeSupabase();
   const tasks: Promise<unknown>[] = [];
   const url = new URL(`http://localhost/stock-pull?shop_id=${SHOP}&file_time=2026-10-08T10:15:00Z&file_name=stock.csv`);
   const response = await receiveUpload(new Request(url, { method: "POST", body: CSV }), url.searchParams, asCaller, db, {
@@ -162,14 +166,15 @@ async function upload(translate: Translator) {
   });
   const body = await response.json();
   const background = await Promise.all(tasks);
-  return { body, background, calls: rpc.map((c) => c.name), rpc };
+  return { body, background, calls: rpc.map((c) => c.name), rpc, lastError: updates.map((u) => u.last_error).filter(Boolean).at(-1) };
 }
 
 Deno.test("a failed translation leaves the stock applied", async () => {
-  const { body, background, calls } = await upload(() => Promise.reject(new Error("Claude is unavailable")));
+  const { body, background, calls, lastError } = await upload(() => Promise.reject(new Error("Claude is unavailable")));
   eq(body.result, { status: "updated", items: 2, zeroed: 0, skipped: 0 }, "stock applied");
   eq(calls, ["apply_stock_file", "items_to_translate"], "translations not saved");
   eq(background, [{ saved: 0, failed: 1 }], "failure caught in the background");
+  eq(lastError, "Item names could not be translated (the stock is fine): Claude is unavailable", "the owner sees why");
 });
 
 Deno.test("translations are saved after the stock, in the background", async () => {

@@ -17,10 +17,12 @@ export function AiSearch({
   q: string;
   lang: string;
   only: boolean;
-  labels: { title: string; loading: string; searched: string; note: string };
+  labels: { title: string; loading: string; searched: string; note: string; unavailable: string };
 }) {
   const [result, setResult] = useState<AiSearchResult | null>(null);
   const [gone, setGone] = useState(false);
+  // Only a logged-in shop owner is told why the AI search did not run (for testing).
+  const [reason, setReason] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -31,9 +33,10 @@ export function AiSearch({
       signal: controller.signal,
     })
       .then((response) => (response.ok ? response.json() : { fallback: true }))
-      .then((data: AiSearchResult | { fallback: true }) => {
-        if ("fallback" in data) setGone(true);
-        else setResult(data);
+      .then((data: AiSearchResult | { fallback: true; reason?: string }) => {
+        if (!("fallback" in data)) setResult(data);
+        else if (data.reason) setReason(data.reason);
+        else setGone(true);
       })
       .catch(() => {
         if (!controller.signal.aborted) setGone(true);
@@ -42,6 +45,13 @@ export function AiSearch({
   }, [q, lang, only]);
 
   if (gone) return null;
+  if (reason) {
+    return (
+      <p role="status" className="max-w-3xl border border-line p-3 text-sm">
+        {labels.unavailable.replace("{reason}", reason)}
+      </p>
+    );
+  }
   return (
     <section aria-live="polite" aria-busy={!result} className="flex max-w-3xl flex-col gap-3 border border-line p-4">
       <h2 className="font-semibold">{labels.title}</h2>

@@ -20,6 +20,9 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
 6. The Next.js website on Vercel shows the stock on server-rendered pages, and the same data goes out through a public
    API and an MCP server. Freshness and availability rules are applied once, in the database, for all of them. On
    request, an AI search (Claude Haiku using the same search) adds an answer above the plain results.
+7. Shops can take a monthly **paid plan** (Stripe, test mode first): the dashboard's "Upgrade" goes through the Edge
+   Function **`stripe-checkout`** to Stripe's payment page; Stripe tells the Edge Function **`stripe-webhook`**, which
+   writes the subscription. One SQL function, `shop_has_plan()`, answers every paid feature.
 
 ```text
 SHOP
@@ -34,6 +37,9 @@ SUPABASE -----------------------------------------------------------------------
                             -> (after the reply) names to sk/hu/en: Claude Haiku -> apply_item_translations()
   Postgres + PostGIS: tables, RLS, SQL rules (freshness, availability, search in 3 languages)
   Auth (e-mail + password, SMTP via Brevo) | Storage (logos, raw files)
+  Edge Functions stripe-checkout (owner's login -> Stripe page) | stripe-webhook (signed event -> subscriptions)
+        ^ ^
+        | +--> STRIPE: Checkout, customer portal, Stripe Tax, invoices (keys only in function secrets)
                                    |
 WEBSITE (Next.js 16 on Vercel)     v
   server-rendered pages + JSON-LD | owner dashboard | /sync app | robots, sitemap, llms.txt
@@ -107,8 +113,8 @@ translated.
 
 ### 2.3 Database (Supabase Postgres + PostGIS)
 
-**Tables:** `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `profiles`, `api_usage`
-(columns in PRD section 7).
+**Tables:** `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `profiles`, `api_usage`,
+`subscriptions` (columns in PRD section 7).
 
 **Rules in SQL (one place for website, API and MCP):**
 
@@ -126,7 +132,9 @@ translated.
 | `town_center(town)` | "near Budince" for API/MCP: middle of the active shops in that town (no outside geocoding) |
 | `api_hit(ip_hash, endpoint, limit)` | rate limit (60/min) and usage log |
 | `apply_stock_file(...)` | stock writing — service role only |
-| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `availability_preview(threshold)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop |
+| `shop_has_plan(shop)` | **the** paid-plan check: subscription `active` or `trialing` and `current_period_end` not passed; callable by anyone (yes/no only) |
+| `link_stripe_customer(shop, customer)`, `apply_stripe_subscription(shop, customer, subscription, status, plan, period_end, cancel_at)` | paid-plan writing — service role only (the Stripe functions); a live subscription is never replaced by an ended one |
+| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `availability_preview(threshold)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop; `owner_delete_shop` refuses a shop whose paid plan still renews |
 
 **Guards:** triggers stop clients from changing a shop's page address, company ID or visibility flag directly
 (`guard_shop_update`; the owner functions run as the database owner and may), from writing stock results into
@@ -134,7 +142,8 @@ translated.
 time zone (`guard_shop_timezone`). A profile row is created for every new account (`handle_new_user`).
 
 **Row Level Security** is on for every table; visitors use only the public views/functions; owners reach only shops
-where they are in `shop_members`; `inventory` and stock results are written only by the service role.
+where they are in `shop_members`; `inventory`, stock results and `subscriptions` are written only by the service role
+(owners may read their own shop's `subscriptions` row; visitors nothing).
 
 **Storage:** `logos` (public read; members may write into their shop's folder; 1 MB; PNG/JPEG/WebP) and `raw-files`
 (private, service role only).
@@ -179,8 +188,10 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 - **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
   `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
 - **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop, approve columns,
-  visibility, logo, item visibility, translation correction, delete); each form returns to its own section with its
-  message.
+  visibility, logo, item visibility, translation correction, plan, delete); each form returns to its own section with
+  its message. The Plan section reads the shop's `subscriptions` row and `shop_has_plan()`; "Upgrade" and "Manage
+  subscription" run `openBilling`, which calls the `stripe-checkout` function with the owner's session and redirects to
+  the Stripe page it returns.
 - **Names** (`lib/names.ts`): `translatedName()` picks the page-language name to show under the shop's own name when
   it reads differently — search results, shop and item pages (title and JSON-LD `alternateName`), dashboard, AI cards.
 
@@ -205,12 +216,41 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 - The route checks `ai_search_hit()` (10 per minute per caller, `AI_DAILY_LIMIT` per day, default 500), then runs a
   tool loop with Claude Haiku (low effort, max 2,048 tokens per turn, prompt caching): one strict tool, `search_stock`
   (query, only_available — no location), served by `publicApi.searchStock` like the API and MCP. Up to 3 turns with
-  searches and 12 searches in total, 30 seconds; then the model must answer. The final answer is structured output:
+  searches and 12 searches in total, 30 seconds; then the model must answer. A hard stop at 50 seconds (inside the
+  route's 60) ends it with a reason rather than a timeout. The final answer is structured output:
   language, a short answer, and the refs (`r1`, `r2`, … given in the tool results) of the fitting items.
 - Cards are built from the search results only (unknown refs are dropped), in the page language: name + translation,
   brand, price, shop, place, availability + freshness, link to the item page. The searched terms are shown.
 - No key, over a limit, a refusal or any error → `{fallback: true}` and the AI box disappears; the plain results stay.
+  For a logged-in owner the reply also carries `reason` (missing key, limit, database update 17 missing, Claude's error
+  message), shown as a short note in place of the box; every reason is logged as `ai-search: …` (Vercel → Logs).
   No CORS headers: only the PPI website calls it.
+
+### 2.8 Paid plan (`supabase/functions/stripe-checkout`, `supabase/functions/stripe-webhook`)
+
+- **No Stripe key on the website.** Both functions are single paste-deployable files with Verify JWT off; they call the
+  Stripe REST API directly (form-encoded, `Stripe-Version: 2026-09-30.endive`), no Stripe SDK. Secrets:
+  `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO`, `STRIPE_WEBHOOK_SECRET`.
+- **`stripe-checkout`** (POST `{shop_id, action: checkout|portal, lang, return_url, company_id_label}` with the owner's
+  JWT): checks the login (`auth.getUser`) and `is_shop_member` with the caller's own rights, reads the shop and its
+  `subscriptions` row through RLS. A live subscription (trialing, active, past_due, unpaid, paused) always gets a
+  customer-portal session. Otherwise: the shop's Stripe customer (made once, idempotency key per shop and user, with
+  the shop's `ico` as an invoice field, saved by `link_stripe_customer()`), then a Checkout Session: `mode=subscription`,
+  `STRIPE_PRICE_PRO`, `automatic_tax`, `tax_id_collection`, required business name (`name_collection`), required
+  billing address, `customer_update` name/address `auto`, a custom field `companyid` pre-filled with `ico`,
+  `locale` = page language, `metadata.shop_id` on the session and the subscription, `client_reference_id` = shop.
+  `return_url` must be a PPI `/{lang}/dashboard` page (https, or http on localhost); Stripe comes back with
+  `?plan=done` or `?plan=canceled` at `#plan`.
+- **`stripe-webhook`** (Stripe → POST): checks the `Stripe-Signature` (HMAC-SHA256 of `t.body` with
+  `STRIPE_WEBHOOK_SECRET`, any `v1`, at most 5 minutes off), then for `checkout.session.completed` and
+  `customer.subscription.created|updated|deleted|paused|resumed` fetches the subscription from Stripe (event order
+  does not matter), finds the shop (`metadata.shop_id`, else by customer) and calls `apply_stripe_subscription()`:
+  status, plan (`pro` for `STRIPE_PRICE_PRO`, else the price's lookup key or id), the period end (from the
+  subscription items; older API versions: the subscription), `cancel_at` (or the period end when
+  `cancel_at_period_end`). After a completed payment page the company ID typed there becomes the customer's invoice
+  field. Any failure answers 500, so Stripe retries (for up to three days); unknown shops are answered 200 and ignored.
+- **Invoices:** Stripe creates and e-mails them (with VAT from Stripe Tax, the company name, address, VAT number and
+  the company ID field); the portal lists them.
 
 ## 3. Main flows step by step
 
@@ -233,6 +273,15 @@ answers in Slovak with the fitting refs → cards from the search results.
 
 **A shop's names get their translations:** an upload is applied → reply to the PPI window → in the background
 `items_to_translate` → Claude Haiku → `apply_item_translations` → from then on "white paint" finds "Farba fas. biela 5L".
+
+**An owner upgrades:** Plan → "Upgrade" → `openBilling` → `stripe-checkout` (owner's login; customer once; Checkout
+Session) → Stripe's payment page (card, company name, address, VAT number, company ID; VAT added) → Stripe sends
+`checkout.session.completed` to `stripe-webhook` → the subscription is fetched and written → the owner lands on
+`/dashboard?plan=done#plan` and sees "Pro, renews on …".
+
+**Renewal, failed payment, cancellation:** Stripe renews each month and sends `customer.subscription.updated` (new
+period end). A failed renewal makes it `past_due` → `shop_has_plan()` is false until the card is fixed in the portal.
+"Cancel" in the portal → `cancel_at` → "Ends on …"; at that date `customer.subscription.deleted` → `canceled`.
 
 **An AI assistant asks "who has paint in Budince?":** MCP `search_stock(query="paint", near="Budince")` →
 `town_center` → `search_stock` with a radius → items with price, availability, freshness and `source_url`. (A search
@@ -257,9 +306,12 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | Export stopped | same | latest file time stops moving |
 | File layout changed (> 5 % rows unreadable) | last good stock stays | new column proposal to approve; message |
 | `stock-pull` failing | stock ages, then hidden after 24 h | `last_error` on the dashboard |
-| Translation fails (Claude unavailable, no key) | stock as usual; new names found only by their original words | names without translation ("made with the next stock file"); retried with the next file |
-| AI search fails or is over a limit | the AI box disappears; plain results as usual | — |
+| Translation fails (Claude unavailable, no key) | stock as usual; new names found only by their original words | names without translation ("made with the next stock file"); `last_error` "Item names could not be translated (the stock is fine): …" until the next applied file; retried with the next file |
+| AI search fails or is over a limit | the AI box disappears; plain results as usual | when logged in: a note with the reason in place of the AI box; Vercel log line `ai-search: …` |
 | E-mail sending fails (SMTP) | — | no confirmation / reset e-mails (check Brevo and Supabase Auth logs) |
+| Stripe not set up (secrets missing) or function not deployed | — | "Paid plans are not available yet" / "Stripe could not be opened: …" in the Plan section |
+| Stripe refuses (wrong key, tax or portal not set up) | — | "Stripe could not be opened: <Stripe's reason>" |
+| `stripe-webhook` unreachable or failing | — | the plan shows late; Stripe retries for up to three days (Stripe → Webhooks → event deliveries); past the paid period `shop_has_plan()` is false until the event arrives |
 | Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
 
 Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown as available.
@@ -274,6 +326,10 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 - Public API/MCP: read-only, 60 requests/minute, no personal data, no IP addresses stored.
 - `ANTHROPIC_API_KEY` is a server-only setting (Supabase function secret for translations and column proposals,
   Vercel variable for the AI search), never `NEXT_PUBLIC_…`; the AI search is limited per caller and per day.
+- Stripe: secret key, webhook signing secret and price only as Supabase function secrets; the website calls
+  `stripe-checkout` with the owner's login and never sees a key. `stripe-webhook` accepts only correctly signed,
+  recent events and re-reads the subscription from Stripe; only it (and `stripe-checkout` for the customer link) writes
+  `subscriptions`, with the service role. Card data never reaches PPI.
 - Secrets (SMTP key, API keys) live in Supabase secrets, Vercel variables and a password manager —
   never in the repository or chat.
 
@@ -288,6 +344,9 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (optional, server only) | `ANTHROPIC_API_KEY` | switches on the AI search on the main page |
 | Vercel env (optional) | `AI_DAILY_LIMIT` | AI searches per day for the whole site (default 500) |
 | Supabase function secret (optional) | `ANTHROPIC_API_KEY` | item-name translations and Claude column proposals (else no translations and a rule-based column guess) |
+| Supabase function secrets (paid plan) | `STRIPE_SECRET_KEY` (`sk_test_…` first), `STRIPE_PRICE_PRO` (`price_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`) | the two Stripe functions; without them the Plan section says paid plans are not available yet |
+| Supabase function secret (local tests only) | `STRIPE_API_BASE` | points the Stripe functions at a stand-in for Stripe; never set it in the real project |
+| Stripe (test mode first) | product + monthly price, Stripe Tax (origin address, registrations), invoice details, customer portal, webhook endpoint `…/functions/v1/stripe-webhook` with 6 events | SETUP.md part K |
 | Supabase Auth | sign-ups on, confirm e-mail on, min. password 8, custom SMTP (Brevo), Site URL + redirect URLs, e-mail templates | accounts and e-mails |
 | Supabase (automatic) | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | given to the function by Supabase |
 
@@ -301,8 +360,8 @@ src/components/            ShopMap, FolderSync, AiSearch, ShopForm, LogoInput, I
 src/lib/                   data, publicApi, aiSearch, names, apiHttp, auth, format, hours, folderStore, supabase/*
 src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh
-supabase/migrations/       17 numbered SQL files (section 9)
-supabase/functions/        stock-pull (index.ts + tests), deno.json
+supabase/migrations/       18 numbered SQL files (section 9)
+supabase/functions/        stock-pull, stripe-checkout, stripe-webhook (each index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
 public/                    logo, app icons, sample stock files, MapLibre worker
@@ -330,6 +389,7 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | 15 | `20261012000001_cloud_link.sql` | cloud links: `owner_set_file_url`, `last_file_hash`, `my_shops` with `file_url` (undone by 16) |
 | 16 | `20261013000001_remove_cloud_link.sql` | upload only: stops the `ppi-stock-pull` schedule, drops `owner_set_file_url` and `last_file_hash`, `my_shops` without `file_url` |
 | 17 | `20261014000001_item_translations.sql` | item names in sk/hu/en (`name_lang`, `name_i18n`, `translated_name_source`, `name_i18n_by_owner`), word search across names and translations with its trigram index, `items_to_translate`, `apply_item_translations`, `owner_set_item_translation`, `ai_search_hit` |
+| 18 | `20261015000001_subscriptions.sql` | paid plan: `subscriptions` (RLS: owners read, service role writes), `shop_has_plan`, `link_stripe_customer`, `apply_stripe_subscription`, `owner_delete_shop` refuses a renewing plan |
 
 ## 10. Testing and releasing
 
@@ -337,14 +397,20 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
   rules as visitor, two owners, a new self-service owner and the service role (RLS, freshness, labels, quantity hiding,
   search incl. shop name/street/town, check-in, owner functions, 5-shop limit, that migration 16 removed the cloud
   links and the schedule; search finds an item by Slovak, Hungarian and English words, the index covers the
-  translations, an owner's correction survives a new file, the AI search limits).
-- `npm run test:functions`: 9 Deno tests of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row
+  translations, an owner's correction survives a new file, the AI search limits; paid plan: only the service role
+  writes `subscriptions`, owners read only their own row, visitors nothing, `shop_has_plan()` for every status and
+  period case, a live subscription is never replaced by an ended one, a renewing plan blocks deleting the shop).
+- `npm run test:functions`: 22 Deno tests — 9 of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row
   counting, translation batches, checking Claude's translations, a failed translation leaves the stock applied,
-  translations saved after the stock).
+  translations saved after the stock), 6 of `stripe-checkout` (the payment page's exact Stripe fields, one customer
+  per shop, live subscription → portal, only owners, return address check, not configured) and 7 of `stripe-webhook`
+  (a signature made with openssl is accepted, forged/old/changed events refused, what each event writes, older API
+  shape, retries on errors).
 - `npm run lint`, `npm run typecheck`, `npm run build` before every push.
 - During development every feature was also run end to end in a real Chromium browser (Playwright) against a local
   stand-in for Supabase (PostgREST + the function in Deno) and, for translations and AI search, a stand-in for the
-  Claude API; those scripts are not part of the repository.
+  Claude API; the paid plan against a stand-in for Stripe (payment page, signed webhook events, portal); those scripts
+  are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).
@@ -360,6 +426,7 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | Supabase | database, Auth, Storage, Edge Function | free to start; Pro about $25/month when live |
 | Brevo | SMTP for account e-mails | free (300 e-mails/day) |
 | Anthropic API | column proposals, item-name translations (Supabase) and AI search (Vercel) — optional | pay per use; with Claude Haiku roughly a few cents per 1,000 names translated (once per name) and well under one cent per AI search; capped by `AI_DAILY_LIMIT` |
+| Stripe | paid plan: payment page, subscriptions, customer portal, Stripe Tax, invoices | no monthly fee; a fee per payment plus Billing and Tax fees (stripe.com/pricing); test mode is free |
 | OpenFreeMap | map tiles | free, no key |
 | Claude Code | writes, tests and fixes the code | Claude plan |
 
@@ -367,4 +434,5 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 
 - 5–50 shops fit the free/entry tiers; uploads scale with Supabase (one function call per new file).
 - Next useful steps: e-mail alert when a shop's stock stops arriving; own domain; registration with Bing/Google; a
-  developer's review of RLS; removing the legacy admin functions together with the unused `file_url` column.
+  developer's review of RLS; removing the legacy admin functions together with the unused `file_url` column; deciding
+  what the paid plan unlocks (every such feature checks `shop_has_plan()`) and switching Stripe to live.

@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
-import { getSession } from "@/lib/auth";
+import { getDictionary } from "@/i18n/dictionaries";
+import { getSession, requestOrigin } from "@/lib/auth";
 import { sanitizeHours } from "@/lib/hours";
 import { MAPPING_FIELDS } from "@/lib/myShops";
 
@@ -190,7 +191,47 @@ export async function deleteShop(formData: FormData) {
   const { session, shopId, back } = await start(formData);
   if (formData.get("confirm") !== "on") back({ err: "confirm" });
   const { error } = await session.supabase.rpc("owner_delete_shop", { p_shop_id: shopId });
-  if (error) back({ err: error.message });
+  if (error) back({ err: error.code === "55000" ? "plan_active" : error.message });
   const langValue = String(formData.get("lang") ?? "");
   redirect(`/${isLocale(langValue) ? langValue : "en"}/dashboard?ok=deleted`);
+}
+
+/** Stripe pages are only ever https (http only for a stand-in on this computer). */
+function stripePage(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  return /^https:\/\//.test(url) || /^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url) ? url : null;
+}
+
+/**
+ * "Upgrade" or "Manage subscription": the stripe-checkout Edge Function checks the login
+ * and the shop with the owner's own login and returns the Stripe page to go to. No Stripe
+ * key is on the website; the paid state is written only by the stripe-webhook function.
+ */
+export async function openBilling(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const langValue = String(formData.get("lang") ?? "");
+  const lang: Locale = isLocale(langValue) ? langValue : "en";
+  const slug = String(formData.get("shop_slug") ?? "");
+  const dict = await getDictionary(lang);
+  const { data, error } = await session.supabase.functions.invoke<{ url?: string }>("stripe-checkout", {
+    body: {
+      shop_id: shopId,
+      action: formData.get("intent") === "portal" ? "portal" : "checkout",
+      lang,
+      return_url: `${await requestOrigin()}/${lang}/dashboard?${new URLSearchParams({ shop: slug })}`,
+      company_id_label: dict.plan.company_id,
+    },
+  });
+  const url = error ? null : stripePage(data?.url);
+  if (!url) back({ err: await billingError(error) });
+  redirect(url!);
+}
+
+/** The function's own reason (it answers JSON {error, message}), for the message on the page. */
+async function billingError(error: unknown): Promise<string> {
+  const context = (error as { context?: unknown } | null)?.context;
+  const reply = context instanceof Response ? await context.json().catch(() => null) : null;
+  if (reply?.error === "not_configured") return "plan_unavailable";
+  const message = reply?.message ?? (error instanceof Error ? error.message : "no answer");
+  return `stripe:${String(message).slice(0, 300)}`;
 }

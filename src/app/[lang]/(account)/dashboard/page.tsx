@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import { formatDateTime, formatPrice } from "@/lib/format";
+import { formatDate, formatDateTime, formatPrice } from "@/lib/format";
 import { MAPPING_FIELDS, REQUIRED_FIELDS, type MyShop } from "@/lib/myShops";
 import { translatedName, type NameI18n } from "@/lib/names";
 import { availabilityText, type AvailabilityKey } from "@/lib/stock";
@@ -13,7 +13,16 @@ import { FolderSync } from "@/components/FolderSync";
 import { LogoInput } from "@/components/LogoInput";
 import { PendingButton } from "@/components/PendingButton";
 import { ShopForm } from "@/components/ShopForm";
-import { approveColumns, deleteShop, saveShop, saveTranslation, saveVisibility, setItemPublic, uploadLogo } from "./actions";
+import {
+  approveColumns,
+  deleteShop,
+  openBilling,
+  saveShop,
+  saveTranslation,
+  saveVisibility,
+  setItemPublic,
+  uploadLogo,
+} from "./actions";
 
 const PAGE_SIZE = 50;
 
@@ -36,14 +45,28 @@ interface OwnerItem {
 
 const NAME_LANGUAGES = ["sk", "hu", "en"] as const;
 
+/** The shop's row in subscriptions (written only by the Stripe functions). */
+interface PlanRow {
+  status: string;
+  plan: string | null;
+  current_period_end: string | null;
+  cancel_at: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+}
+
+/** Subscriptions that still bill or can come back: managed in the Stripe customer portal. */
+const LIVE_PLAN = ["trialing", "active", "past_due", "unpaid", "paused"];
+
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-const ERRORS = ["name", "limit", "columns", "website", "logo", "translation"] as const;
+const ERRORS = ["name", "limit", "columns", "website", "logo", "translation", "plan_active", "plan_unavailable"] as const;
 
 function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
+  if (err.startsWith("stripe:")) return t(dict.plan.failed, { message: err.slice("stripe:".length) });
   const key = ERRORS.find((e) => e === err);
   if (key && key !== "logo") return key === "website" ? t(dict.account.error, { message: err }) : dict.owner[`error_${key}`];
   return t(dict.account.error, { message: err });
@@ -97,10 +120,19 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
   const q = (first(sp.q) ?? "").trim();
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  const [{ data: previewRows, error: e2 }, { data: itemRows, error: e3 }] = await Promise.all([
+  const [{ data: previewRows, error: e2 }, { data: itemRows, error: e3 }, planRow, hasPlan] = await Promise.all([
     supabase.rpc("availability_preview", { p_threshold: shop.low_stock_threshold }),
     supabase.rpc("owner_items", { p_shop_id: shop.id, q: q || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE }),
+    supabase
+      .from("subscriptions")
+      .select("status, plan, current_period_end, cancel_at, stripe_customer_id, stripe_subscription_id")
+      .eq("shop_id", shop.id)
+      .maybeSingle(),
+    supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
   ]);
+  // The database decides whether the shop has the paid plan; before database update 18
+  // the Plan section only says that paid plans are not available yet.
+  const plan = planRow.error || hasPlan.error ? null : { row: planRow.data as PlanRow | null, active: hasPlan.data === true };
   const dbError = e2 ?? e3;
   if (dbError) return <DbError message={dbError.message} dict={dict} />;
   const preview = (previewRows ?? []) as { mode: string; quantity: number; label: AvailabilityKey | null }[];
@@ -398,6 +430,21 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
         )}
       </Section>
 
+      <Section title={dict.plan.title} id="plan">
+        {notice("plan")}
+        {first(sp.plan) === "done" && (
+          <p role="status" className="border border-foreground p-3 font-medium">
+            {plan?.active ? dict.plan.thanks : dict.plan.done}
+          </p>
+        )}
+        {first(sp.plan) === "canceled" && <p role="status" className="border border-line p-3">{dict.plan.canceled}</p>}
+        {plan ? (
+          <PlanDetails plan={plan} shop={shop} lang={lang} dict={dict} hidden={hidden} />
+        ) : (
+          <p className="text-sm text-muted">{dict.plan.unavailable}</p>
+        )}
+      </Section>
+
       <Section title={o.delete_title} id="delete">
         <form action={deleteShop} className="flex flex-col gap-3">
           {hidden({ at: "delete" })}
@@ -483,6 +530,65 @@ function ItemNames({
         </form>
       </details>
     </div>
+  );
+}
+
+/** Current plan, the subscription's state and date, "Upgrade" and "Manage subscription". */
+function PlanDetails({
+  plan,
+  shop,
+  lang,
+  dict,
+  hidden,
+}: {
+  plan: { row: PlanRow | null; active: boolean };
+  shop: MyShop;
+  lang: Locale;
+  dict: Dictionary;
+  hidden: (extra?: Record<string, string>) => React.ReactNode;
+}) {
+  const p = dict.plan;
+  const row = plan.row;
+  const subscribed = Boolean(row?.stripe_subscription_id) && row?.status !== "none";
+  const live = subscribed && LIVE_PLAN.includes(row?.status ?? "");
+  const until = row?.cancel_at ?? row?.current_period_end ?? null;
+  const statusText = row ? ((p as Record<string, string>)[`status_${row.status}`] ?? row.status) : "";
+  return (
+    <>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
+        <dt className="text-muted">{p.current}</dt>
+        <dd className="font-semibold">{plan.active ? p.pro : p.free}</dd>
+        {subscribed && (
+          <>
+            <dt className="text-muted">{p.status}</dt>
+            <dd>{statusText}</dd>
+          </>
+        )}
+        {plan.active && until && (
+          <>
+            <dt className="text-muted">{row?.cancel_at ? p.ends : p.renews}</dt>
+            <dd>{formatDate(until, lang, shop.timezone)}</dd>
+          </>
+        )}
+      </dl>
+      {(row?.status === "past_due" || row?.status === "unpaid") && <p className="text-sm font-medium">{p.payment_problem}</p>}
+      <p className="text-sm text-muted">{p.intro}</p>
+      <div className="flex flex-wrap gap-2">
+        {!live && (
+          <form action={openBilling}>
+            {hidden({ at: "plan", intent: "checkout" })}
+            <PendingButton pending={p.opening}>{p.upgrade}</PendingButton>
+          </form>
+        )}
+        {subscribed && (
+          <form action={openBilling}>
+            {hidden({ at: "plan", intent: "portal" })}
+            <PendingButton pending={p.opening}>{p.manage}</PendingButton>
+          </form>
+        )}
+      </div>
+      {!live && !shop.ico && <p className="text-sm text-muted">{p.company_tip}</p>}
+    </>
   );
 }
 
