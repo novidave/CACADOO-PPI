@@ -264,22 +264,6 @@
     "rule_public": "Csak nyilvános adatok: beszerzési ár, szállító és vásárlói adat nélkül.",
     "rule_pc": "A gép nyitvatartási időben bekapcsolva marad, és nyitva van rajta ez az oldal vagy a PPI alkalmazás (lehet kis méretre állítva).",
     "saving": "Mentés…",
-    "uploading": "Feltöltés…",
-    "cloud_title": "Felhőben lévő fájl hivatkozása",
-    "cloud_intro": "A készletkezelő program OneDrive-ra, Dropboxba vagy Google Drive-ra menti a készletet? Illessze be a fájl vagy az egész mappa hivatkozását („bárki, aki rendelkezik a linkkel” megosztással) – mappából a PPI mindig a legújabb készletfájlt veszi. A PPI 15 percenként letölti; a bolti gépnek nem kell bekapcsolva lennie.",
-    "cloud_url": "A fájl vagy mappa hivatkozása",
-    "cloud_save": "Mentés és letöltés most",
-    "cloud_pull": "Letöltés most",
-    "cloud_remove": "Hivatkozás törlése",
-    "cloud_current": "Mentett hivatkozás",
-    "cloud_saved": "A hivatkozás mentve.",
-    "cloud_removed": "A hivatkozás törölve.",
-    "cloud_result": "Letöltés: {result}",
-    "cloud_share_hint": "A fájl nincs nyilvánosan megosztva. Állítsa be a felhőben: „Bárki, aki rendelkezik a linkkel, megtekintheti”, majd próbálja újra.",
-    "error_cloud_url": "A hivatkozásnak teljes, https:// kezdetű címnek kell lennie.",
-    "error_cloud_fn": "A letöltés még nem működik: a „stock-pull” funkció nincs telepítve.",
-    "cloud_webpage_hint": "A hivatkozás egy weboldalt nyit meg, nem magát a fájlt. A felhőben nyissa meg a készletfájlt, állítsa be a „Bárki, aki rendelkezik a linkkel” megosztást, és annak a fájlnak a hivatkozását illessze be (ne mappáét).",
-    "cloud_no_stock_file": "A felhőben lévő mappában nincs készletfájl (XML, CSV, TXT vagy XLSX).",
-    "cloud_google_key": "A Google Drive mappái egyelőre nem olvashatók. Illessze be közvetlenül a készletfájl hivatkozását."
+    "uploading": "Feltöltés…"
   }
 }

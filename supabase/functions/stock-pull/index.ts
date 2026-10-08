@@ -1,13 +1,11 @@
 /// <reference lib="deno.ns" />
 // PPI · stock-pull Edge Function
 //
-// Two ways a shop's stock file arrives:
-//   * upload — the PPI window on the shop PC (/sync page in Edge or Chrome) watches the
-//     folder the stock software exports to and POSTs the newest file here, with the
-//     owner's own login (?shop_id=…&file_time=…&file_name=…, body = the file)
-//   * pull — every 15 minutes (pg_cron, SETUP.md part G) for shops with a file address
-//     (or a manual call): download the file, only if it changed
-// Then, for both:
+// Receives a shop's stock file. The only way in is an upload with the shop owner's own
+// login (?shop_id=…&file_time=…&file_name=…[&gzip=1], body = the file): the PPI window
+// on the shop PC (/sync page in Edge or Chrome) sends the newest file from the folder the
+// stock software exports to, or the owner picks one with "Upload file". PPI downloads
+// nothing itself (no schedule, no cloud links). Then:
 //   1. read XML, CSV or Excel into rows
 //   2. no approved field mapping yet → propose one (Claude, or a rule-based guess),
 //      save it as "proposed" with 10 sample rows and stop: the shop owner approves it
@@ -18,15 +16,14 @@
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor →
 // name "stock-pull" → paste this file → Deploy, then switch OFF "Verify JWT"
-// (this function checks its callers itself). Secrets: PPI_CRON_SECRET (required),
-// ANTHROPIC_API_KEY (optional, for AI mapping proposals).
+// (this function checks its callers itself). Secret: ANTHROPIC_API_KEY (optional,
+// for AI mapping proposals).
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { XMLParser } from "npm:fast-xml-parser@5.11.2";
 // SheetJS 0.20.3 (official release, republished on npm by e965).
 import * as XLSX from "npm:@e965/xlsx@0.20.3";
 import Anthropic from "npm:@anthropic-ai/sdk@0.131.0";
-import JSZip from "npm:jszip@3.10.1";
 
 // ---------------------------------------------------------------- types
 
@@ -49,8 +46,6 @@ export interface StockRow {
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_BAD_SHARE = 0.05;
 const RAW_FILE_DAYS = 7;
-const FETCH_TIMEOUT_MS = 30_000;
-const CONCURRENCY = 4;
 
 // ---------------------------------------------------------------- reading files
 
@@ -350,11 +345,9 @@ export async function proposeWithClaude(columns: string[], sample: Row[]): Promi
 interface Source {
   shop_id: string;
   file_format: string | null;
-  file_url: string | null;
   field_mapping: Mapping | null;
   mapping_status: "proposed" | "confirmed";
   latest_file_time: string | null;
-  last_file_hash: string | null;
   shops: { slug: string; name: string; country: string | null } | null;
 }
 
@@ -363,11 +356,6 @@ type Outcome =
   | { status: "proposed" | "waiting_for_approval" | "layout_changed"; rows: number }
   | { status: "updated"; items: number; zeroed: number; skipped: number }
   | { status: "error"; error: string };
-
-function basicAuth(user: string, password: string): string {
-  const bytes = new TextEncoder().encode(`${user}:${password}`);
-  return `Basic ${btoa(String.fromCharCode(...bytes))}`;
-}
 
 async function keepRawFile(db: SupabaseClient, shopId: string, bytes: Uint8Array, format: FileFormat) {
   const bucket = db.storage.from("raw-files");
@@ -392,329 +380,18 @@ function sourceUpdater(db: SupabaseClient, shopId: string): Update {
 }
 
 async function failed(update: Update, e: unknown): Promise<Outcome> {
-  const message = e instanceof Error ? (e.name === "TimeoutError" ? "The shop's computer did not answer within 30 seconds." : e.message) : String(e);
+  const message = e instanceof Error ? e.message : String(e);
   await update({ last_error: message.slice(0, 500) });
   return { status: "error", error: message };
 }
 
 const isApproved = (src: Source) => src.mapping_status === "confirmed" && Boolean(src.field_mapping);
 
-/** A file already applied (or older) is skipped, unless the admin forces a pull. */
-const alreadyApplied = (src: Source, fileTime: Date, force: boolean) =>
-  isApproved(src) && Boolean(src.latest_file_time) && !force && fileTime <= new Date(src.latest_file_time as string);
+/** A file already applied (or older) is skipped. */
+const alreadyApplied = (src: Source, fileTime: Date) =>
+  isApproved(src) && Boolean(src.latest_file_time) && fileTime <= new Date(src.latest_file_time as string);
 
-/**
- * Only public internet addresses: https with a host name, never localhost, an IP
- * address or an internal name (owners type these links themselves).
- */
-export function isAllowedFileUrl(value: string, allowLocalHttp = false): boolean {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  const host = url.hostname.toLowerCase();
-  if (allowLocalHttp && url.protocol === "http:" && (host === "localhost" || host === "127.0.0.1")) return true;
-  return (
-    url.protocol === "https:" &&
-    !url.username &&
-    !url.password &&
-    host.includes(".") &&
-    /[a-z]/.test(host) &&
-    !/^[0-9.]+$/.test(host) &&
-    !host.startsWith("[") &&
-    host !== "localhost" &&
-    !host.endsWith(".localhost") &&
-    !host.endsWith(".internal") &&
-    !host.endsWith(".local")
-  );
-}
-
-/**
- * Addresses to try for one file link, best first. A OneDrive personal share link opens a
- * web page, so the file itself is asked for through OneDrive's share API (works for links
- * shared with "anyone with the link"), then with download=1, then as given.
- */
-export function downloadCandidates(fileUrl: string): string[] {
-  let url: URL;
-  try {
-    url = new URL(fileUrl);
-  } catch {
-    return [fileUrl];
-  }
-  const host = url.hostname.toLowerCase();
-  if (host === "1drv.ms" || host === "onedrive.live.com") {
-    url.searchParams.delete("download");
-    const share = url.toString();
-    const encoded = encodeShare(share).slice(2);
-    const withDownload = new URL(share);
-    withDownload.searchParams.set("download", "1");
-    const candidates = [`https://api.onedrive.com/v1.0/shares/u!${encoded}/root/content`, withDownload.toString()];
-    if (url.pathname.includes("/redir")) candidates.push(share.replace("/redir", "/download"));
-    return [...candidates, share];
-  }
-  return [fileUrl];
-}
-
-/** OneDrive's id for a share link: "u!" + base64url of the link. */
-export function encodeShare(share: string): string {
-  const bytes = new TextEncoder().encode(share);
-  return "u!" + btoa(String.fromCharCode(...bytes)).replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
-}
-
-// ---------------------------------------------------------------- cloud folders
-
-/** Stock files PPI reads (the old binary .xls is not one of them). */
-const STOCK_FILE = /\.(xml|csv|txt|xlsx)$/i;
-
-interface FolderEntry {
-  name: string;
-  modified: number;
-}
-
-/** The most recently changed stock file of a folder listing (temporary "~$" files skipped). */
-export function newestStockEntry<T extends FolderEntry>(entries: T[]): T | null {
-  return entries
-    .filter((e) => STOCK_FILE.test(e.name) && !e.name.startsWith("~$") && !e.name.startsWith(".") && Number.isFinite(e.modified))
-    .reduce<T | null>((best, e) => (!best || e.modified > best.modified ? e : best), null);
-}
-
-/** OneDrive folder listing (shares API, children) → the newest stock file and how to download it. */
-export function oneDriveNewest(listing: unknown, base: string): (FolderEntry & { url: string }) | null {
-  const children = ((listing as { children?: unknown[] })?.children ?? []) as {
-    id: string;
-    name: string;
-    file?: unknown;
-    lastModifiedDateTime?: string;
-    "@content.downloadUrl"?: string;
-  }[];
-  return newestStockEntry(
-    children
-      .filter((c) => c.file)
-      .map((c) => ({
-        name: c.name,
-        modified: Date.parse(c.lastModifiedDateTime ?? ""),
-        url: c["@content.downloadUrl"] ?? `${base}/items/${encodeURIComponent(c.id)}/content`,
-      })),
-  );
-}
-
-/** Google Drive files.list → the newest stock file or Google Sheet. */
-export function driveNewest(listing: unknown): (FolderEntry & { id: string; sheet: boolean }) | null {
-  const files = ((listing as { files?: unknown[] })?.files ?? []) as { id: string; name: string; mimeType: string; modifiedTime: string }[];
-  return newestStockEntry(
-    files.map((f) => {
-      const sheet = f.mimeType === "application/vnd.google-apps.spreadsheet";
-      return { id: f.id, sheet, name: sheet ? `${f.name}.csv` : f.name, modified: Date.parse(f.modifiedTime) };
-    }),
-  );
-}
-
-/** A Dropbox folder downloads as a ZIP: the newest stock file inside it. */
-export async function newestFromZip(zipBytes: Uint8Array): Promise<{ name: string; modified: number; bytes: Uint8Array } | null> {
-  const zip = await JSZip.loadAsync(zipBytes);
-  const entries = Object.values(zip.files)
-    .filter((f) => !f.dir)
-    .map((f) => ({ file: f, name: f.name.split("/").pop() ?? f.name, modified: f.date.getTime() }));
-  const newest = newestStockEntry(entries);
-  if (!newest) return null;
-  return { name: newest.name, modified: newest.modified, bytes: await newest.file.async("uint8array") };
-}
-
-type FolderPick = { name: string; time: Date; bytes: Uint8Array };
-
-async function download(url: string): Promise<Uint8Array> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(`Could not download the stock file from the cloud folder (HTTP ${response.status}).`);
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length > MAX_FILE_BYTES) throw new Error("The stock file is larger than 50 MB.");
-  return bytes;
-}
-
-const NO_STOCK_FILE = "The cloud folder has no stock file (XML, CSV, TXT or XLSX).";
-
-/**
- * A shared cloud FOLDER link: picks the newest stock file in it. Returns null when the
- * link is not a folder (then it is downloaded as a file). OneDrive and Dropbox need
- * nothing else; Google Drive folders need the GOOGLE_API_KEY secret.
- */
-async function pickFromCloudFolder(link: string): Promise<FolderPick | null> {
-  let url: URL;
-  try {
-    url = new URL(link);
-  } catch {
-    return null;
-  }
-  const host = url.hostname.toLowerCase();
-  const pick = (name: string, modified: number, bytes: Uint8Array): FolderPick => ({
-    name,
-    time: new Date(Math.min(Number.isFinite(modified) ? modified : Date.now(), Date.now())),
-    bytes,
-  });
-
-  if (host === "1drv.ms" || host === "onedrive.live.com") {
-    url.searchParams.delete("download");
-    const base = `https://api.onedrive.com/v1.0/shares/${encodeShare(url.toString())}`;
-    const response = await fetch(`${base}/root?$expand=children`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-    if (!response.ok) {
-      await response.body?.cancel();
-      return null; // not reachable this way: try it as a file link
-    }
-    const listing = await response.json();
-    if (!listing?.folder) return null; // a file, not a folder
-    const newest = oneDriveNewest(listing, base);
-    if (!newest) throw new Error(NO_STOCK_FILE);
-    return pick(newest.name, newest.modified, await download(newest.url));
-  }
-
-  if ((host === "dropbox.com" || host.endsWith(".dropbox.com")) && /\/(scl\/fo|sh)\//.test(url.pathname)) {
-    url.searchParams.set("dl", "1");
-    const newest = await newestFromZip(await download(url.toString()));
-    if (!newest) throw new Error(NO_STOCK_FILE);
-    return pick(newest.name, newest.modified, newest.bytes);
-  }
-
-  const driveFolder = host === "drive.google.com" ? url.pathname.match(/\/folders\/([^/?#]+)/)?.[1] : undefined;
-  if (driveFolder) {
-    const key = Deno.env.get("GOOGLE_API_KEY");
-    if (!key) {
-      throw new Error("Google Drive folders cannot be read yet (no Google API key). Share the stock file itself instead.");
-    }
-    const api = "https://www.googleapis.com/drive/v3/files";
-    const query = new URLSearchParams({
-      q: `'${driveFolder.replace(/'/g, "")}' in parents and trashed = false`,
-      fields: "files(id,name,mimeType,modifiedTime)",
-      pageSize: "200",
-      key,
-    });
-    const response = await fetch(`${api}?${query}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`Could not read the Google Drive folder (HTTP ${response.status}). Share it with "Anyone with the link".`);
-    }
-    const newest = driveNewest(await response.json());
-    if (!newest) throw new Error(NO_STOCK_FILE);
-    const fileUrl = newest.sheet
-      ? `${api}/${encodeURIComponent(newest.id)}/export?mimeType=text/csv&key=${encodeURIComponent(key)}`
-      : `${api}/${encodeURIComponent(newest.id)}?alt=media&key=${encodeURIComponent(key)}`;
-    return pick(newest.name, newest.modified, await download(fileUrl));
-  }
-  return null;
-}
-
-/** A web page (e.g. a cloud viewer or login page) rather than a stock file. */
-export function looksLikeWebPage(contentType: string | null, bytes: Uint8Array): boolean {
-  if ((contentType ?? "").toLowerCase().includes("text/html")) return true;
-  const head = new TextDecoder().decode(bytes.slice(0, 200)).trimStart().toLowerCase();
-  return head.startsWith("<!doctype html") || head.startsWith("<html");
-}
-
-async function sha256(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** Pull mode: download the file from the shop's file address (e.g. a cloud share link). */
-async function pullShop(db: SupabaseClient, src: Source, force: boolean): Promise<Outcome> {
-  const update = sourceUpdater(db, src.shop_id);
-  try {
-    if (!isAllowedFileUrl(src.file_url ?? "", Deno.env.get("PPI_ALLOW_LOCAL_HTTP") === "1")) {
-      throw new Error("The file address must be a public https:// link.");
-    }
-    const { data: creds } = await db.rpc("sync_credentials", { p_shop_id: src.shop_id });
-    const headers: Record<string, string> = { "User-Agent": "PPI stock-pull" };
-    if (creds?.cf_client_id && creds?.cf_client_secret) {
-      headers["CF-Access-Client-Id"] = creds.cf_client_id;
-      headers["CF-Access-Client-Secret"] = creds.cf_client_secret;
-    }
-    if (creds?.basic_user && creds?.basic_password) headers.Authorization = basicAuth(creds.basic_user, creds.basic_password);
-    if (isApproved(src) && src.latest_file_time && !force) headers["If-Modified-Since"] = new Date(src.latest_file_time).toUTCString();
-
-    // A shared cloud folder: take its newest stock file (with that file's own time).
-    const folder = await pickFromCloudFolder(src.file_url as string);
-    if (folder) {
-      await update({ last_file_name: folder.name.slice(0, 200) });
-      if (alreadyApplied(src, folder.time, force)) {
-        await update({});
-        return { status: "unchanged" };
-      }
-      const outcome = await processFile(db, src, folder.bytes, folder.time, update);
-      if (outcome.status === "updated") await update({ last_file_hash: await sha256(folder.bytes) });
-      return outcome;
-    }
-
-    // Try each address for this link until one gives a file (not a web page).
-    let response: Response | null = null;
-    let firstBytes: Uint8Array | null = null;
-    let sawWebPage = false;
-    for (const candidate of downloadCandidates(src.file_url as string)) {
-      const attempt = await fetch(candidate, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-      if (attempt.status === 304) {
-        response = attempt;
-        break;
-      }
-      if (!attempt.ok) {
-        response ??= attempt;
-        await attempt.body?.cancel();
-        continue;
-      }
-      const bytes = new Uint8Array(await attempt.arrayBuffer());
-      if (looksLikeWebPage(attempt.headers.get("content-type"), bytes)) {
-        sawWebPage = true;
-        continue;
-      }
-      response = attempt;
-      firstBytes = bytes;
-      break;
-    }
-    if (!firstBytes && sawWebPage && response?.status !== 304) {
-      throw new Error(
-        "The link opens a web page, not the file. Share the file itself with \"Anyone with the link\" and paste that link (not a folder).",
-      );
-    }
-    if (!response) throw new Error("Could not download the stock file.");
-    if (response.status === 304) {
-      await update({});
-      return { status: "unchanged" };
-    }
-    if (!response.ok) {
-      const hint =
-        response.status === 401 || response.status === 403
-          ? " Check the shop's file access credentials."
-          : response.status === 404
-            ? " Check the file address and that the export file exists."
-            : "";
-      throw new Error(`Could not download the stock file (HTTP ${response.status}).${hint}`);
-    }
-
-    const lastModified = Date.parse(response.headers.get("last-modified") ?? "");
-    const fileTime = new Date(Number.isFinite(lastModified) ? Math.min(lastModified, Date.now()) : Date.now());
-    if (alreadyApplied(src, fileTime, force)) {
-      if (!firstBytes) await response.body?.cancel();
-      await update({});
-      return { status: "unchanged" };
-    }
-    const bytes = firstBytes ?? new Uint8Array(await response.arrayBuffer());
-    // Cloud links often send no file date: then only changed content counts as a new
-    // file, so an export that stopped does not look fresh.
-    const hash = await sha256(bytes);
-    if (!Number.isFinite(lastModified) && isApproved(src) && !force && hash === src.last_file_hash) {
-      await update({});
-      return { status: "unchanged" };
-    }
-    const outcome = await processFile(db, src, bytes, fileTime, update);
-    if (outcome.status === "updated") await update({ last_file_hash: hash });
-    return outcome;
-  } catch (e) {
-    return await failed(update, e);
-  }
-}
-
-/** Both modes: read the file, propose or apply the field mapping, save the stock. */
+/** Reads the file, proposes or applies the field mapping, saves the stock. */
 async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, fileTime: Date, update: Update): Promise<Outcome> {
   if (bytes.length === 0) throw new Error("The stock file is empty.");
   if (bytes.length > MAX_FILE_BYTES) throw new Error("The stock file is larger than 50 MB.");
@@ -793,10 +470,10 @@ async function readBody(req: Request, gzip: boolean): Promise<Uint8Array> {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Upload mode: the PPI window on the shop PC (/sync page) sends the newest file from
- * the shop's export folder. POST body = the file (gzip=1: gzip-compressed),
- * query shop_id, file_time (the file's own time, ISO), file_name.
- * Only the shop's owners and the admin, with their own login.
+ * Upload: the PPI window on the shop PC (/sync page) sends the newest file from the
+ * shop's export folder, or the owner picks one with "Upload file". POST body = the
+ * file (gzip=1: gzip-compressed), query shop_id, file_time (the file's own time, ISO),
+ * file_name. Only the shop's owners and the admin, with their own login.
  */
 async function receiveUpload(req: Request, params: URLSearchParams, asCaller: SupabaseClient, db: SupabaseClient) {
   const shopId = params.get("shop_id") ?? "";
@@ -808,7 +485,7 @@ async function receiveUpload(req: Request, params: URLSearchParams, asCaller: Su
 
   const { data: src, error } = await db
     .from("sync_sources")
-    .select("shop_id, file_format, file_url, field_mapping, mapping_status, latest_file_time, last_file_hash, shops(slug, name, country)")
+    .select("shop_id, file_format, field_mapping, mapping_status, latest_file_time, shops(slug, name, country)")
     .eq("shop_id", shopId)
     .single();
   if (error || !src) return reply(500, { error: error?.message ?? "Stock source missing" });
@@ -823,7 +500,7 @@ async function receiveUpload(req: Request, params: URLSearchParams, asCaller: Su
   try {
     if (Number(req.headers.get("content-length") ?? 0) > MAX_FILE_BYTES) throw new Error("The stock file is larger than 50 MB.");
     await db.from("sync_sources").update({ last_file_name: fileName }).eq("shop_id", shopId);
-    if (alreadyApplied(source, fileTime, false)) {
+    if (alreadyApplied(source, fileTime)) {
       await req.body?.cancel();
       await update({});
       result = { status: "unchanged" };
@@ -858,7 +535,6 @@ export async function handler(req: Request): Promise<Response> {
   const url = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const cronSecret = Deno.env.get("PPI_CRON_SECRET");
   if (!url || !serviceKey || !anonKey) return reply(500, { error: "Function is missing Supabase settings" });
 
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -867,50 +543,8 @@ export async function handler(req: Request): Promise<Response> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // Upload from the PPI window on the shop PC.
-  const params = new URL(req.url).searchParams;
-  if (params.has("shop_id")) return await receiveUpload(req, params, asCaller, db);
-
-  let body: { shop_id?: string; force?: boolean } = {};
-  try {
-    body = await req.json();
-  } catch {
-    body = {};
-  }
-
-  // Pull: the 15-minute schedule (shared secret), the admin, or an owner for their own
-  // shop ("Download now" on the dashboard, never forced).
-  const fromCron = Boolean(cronSecret) && req.headers.get("x-ppi-cron-secret") === cronSecret;
-  if (!fromCron) {
-    const { data: isAdmin } = await asCaller.rpc("is_admin");
-    if (isAdmin !== true) {
-      const shopId = String(body.shop_id ?? "");
-      const { data: isOwner } = UUID.test(shopId)
-        ? await asCaller.rpc("is_shop_member", { p_shop_id: shopId })
-        : { data: false };
-      if (isOwner !== true) return reply(403, { error: "Only the schedule, the admin or the shop's owner may run the stock pull" });
-      body = { shop_id: shopId, force: false };
-    }
-  }
-
-  let query = db
-    .from("sync_sources")
-    .select("shop_id, file_format, file_url, field_mapping, mapping_status, latest_file_time, last_file_hash, shops(slug, name, country)")
-    .not("file_url", "is", null);
-  if (body.shop_id) query = query.eq("shop_id", body.shop_id);
-  const { data: sources, error } = await query;
-  if (error) return reply(500, { error: error.message });
-
-  const results: Record<string, Outcome> = {};
-  const list = (sources ?? []) as unknown as Source[];
-  for (let i = 0; i < list.length; i += CONCURRENCY) {
-    await Promise.all(
-      list.slice(i, i + CONCURRENCY).map(async (src) => {
-        results[src.shops?.slug ?? src.shop_id] = await pullShop(db, src, Boolean(body.force));
-      }),
-    );
-  }
-  return reply(200, { shops: list.length, results });
+  // The only way in: an upload from the PPI window on the shop PC or "Upload file".
+  return await receiveUpload(req, new URL(req.url).searchParams, asCaller, db);
 }
 
 if (!Deno.env.get("PPI_STOCK_PULL_TEST")) Deno.serve(handler);

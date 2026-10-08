@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { sanitizeHours } from "@/lib/hours";
-import { toDownloadLink } from "@/lib/cloudLink";
 import { MAPPING_FIELDS } from "@/lib/myShops";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -173,36 +172,4 @@ export async function deleteShop(formData: FormData) {
   if (error) back({ err: error.message });
   const langValue = String(formData.get("lang") ?? "");
   redirect(`/${isLocale(langValue) ? langValue : "en"}/dashboard?ok=deleted`);
-}
-
-/**
- * Cloud file link: save (and download at once), download now, or remove.
- * The share link is turned into a direct download link first (@/lib/cloudLink);
- * the stock-pull function downloads it every 15 minutes from then on.
- */
-export async function saveCloudLink(formData: FormData) {
-  const { session, shopId, back } = await start(formData);
-  const intent = String(formData.get("intent") ?? "save");
-
-  if (intent === "remove") {
-    const { error } = await session.supabase.rpc("owner_set_file_url", { p_shop_id: shopId, p_url: "" });
-    back(error ? { err: error.message } : { ok: "cloud_removed" });
-  }
-  if (intent === "save") {
-    const link = toDownloadLink(text(formData, "cloud_url", 1000));
-    if ("error" in link) back({ err: "cloud_url" });
-    else {
-      const { error } = await session.supabase.rpc("owner_set_file_url", { p_shop_id: shopId, p_url: link.url });
-      if (error) back({ err: error.code === "22023" ? "cloud_url" : error.message });
-    }
-  }
-
-  // Download now (the function checks again that this is the owner's shop).
-  const { data, error } = await session.supabase.functions.invoke("stock-pull", { body: { shop_id: shopId } });
-  if (error) {
-    const status = (error as { context?: { status?: number } }).context?.status;
-    back({ err: status === 404 ? "cloud_fn" : error.message });
-  }
-  const outcome = Object.values((data?.results ?? {}) as Record<string, unknown>)[0];
-  back({ ok: intent === "save" ? "cloud" : "cloud_pulled", pull: JSON.stringify(outcome ?? { status: "error", error: "-" }) });
 }

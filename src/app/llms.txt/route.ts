@@ -16,7 +16,7 @@ export async function GET() {
 
 > PPI shows which local shops have a product in stock right now, at what price, and how fresh that information is. Shops across Europe; pages in Slovak, Hungarian and English.
 
-PPI reads stock from each shop's own stock software: the shop's export file arrives every 15–30 minutes (from the shop PC or a cloud link). It does not sell anything and has no checkout.
+PPI reads stock from each shop's own stock software: the shop's export file arrives every 15–30 minutes, uploaded from the shop PC. It does not sell anything and has no checkout.
 
 ## Data and freshness rules
 

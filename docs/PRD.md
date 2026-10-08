@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.0 · status 8 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 2.1 · status 8 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -16,8 +16,6 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Owner dashboard: create shop, details, logo, opening hours, facilities, visibility, items | Live |
 | Stock from the shop PC: PPI app window watching the export folder | Built and tested |
 | Stock by hand: "Upload file" | Live, tested by the owner |
-| Stock from a cloud **file** link (OneDrive, Google Drive, Google Sheets, Dropbox) | Live, tested by the owner with OneDrive |
-| Stock from a cloud **folder** link | Built; the first OneDrive folder test did not work, so file links are the recommended way |
 | AI field mapping (Claude) with owner approval | Live (rule-based guess when no Anthropic key is set) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
@@ -30,9 +28,10 @@ PPI shows shoppers which local shops have a product in stock **right now**, at w
 information is. It works anywhere in Europe: any town, country, currency and time zone; nothing is tied to one place.
 
 Shops keep using their own stock software. That software exports a stock file (XML, CSV or Excel) every 15–30
-minutes, and the file reaches PPI in one of three ways: the PPI app window on the shop PC sends it, the owner uploads
-it by hand, or PPI downloads it from a cloud link. PPI reads the file, matches its columns (proposed by AI, approved
-once by the owner) and publishes the stock. The time of the file is the freshness that shoppers see.
+minutes, and the file is uploaded to PPI in one of two ways: the PPI app window on the shop PC sends it every 15
+minutes, or the owner uploads it by hand ("Upload file"). PPI downloads nothing itself. It reads the file, matches
+its columns (proposed by AI, approved once by the owner) and publishes the stock. The time of the file is the
+freshness that shoppers see.
 
 **Goal:** a shopper searches a product, a shop name or a street and finds a shop that really has it, without a wasted
 trip. Every page and answer is also readable by AI assistants and search engines directly, without Google Merchant
@@ -43,7 +42,7 @@ Center.
 | Role | Who | Can do |
 | --- | --- | --- |
 | Visitor | Any shopper, no login | Search, browse shops and items, see the map, switch language |
-| Shop owner | Anyone who signs up (e-mail + password) | Create up to 5 shops; edit details, logo, opening hours, facilities; send stock (folder, file upload, cloud link); approve the stock file's columns; choose what shoppers see; hide items; delete own shops |
+| Shop owner | Anyone who signs up (e-mail + password) | Create up to 5 shops; edit details, logo, opening hours, facilities; send stock (folder or "Upload file"); approve the stock file's columns; choose what shoppers see; hide items; delete own shops |
 | AI assistant / tool | Any program | Read the same public data through the API, the MCP server and the pages |
 
 **Self-service:** there is no admin area on the website and no approval step by the operator. The operator
@@ -57,7 +56,7 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 - Shop pages and item pages with map, opening hours, "open now", facilities and freshness
 - Freshness and availability rules applied in the database for every output
 - Self-service accounts and the owner dashboard
-- Three ways for stock to arrive: PPI app window (folder), "Upload file", cloud link
+- Two ways for stock to arrive, both uploads: the PPI app window (folder, every 15 minutes) and "Upload file"
 - AI-proposed column mapping, always approved by the owner
 - AI and machine access: JSON-LD, robots.txt, sitemap, llms.txt, public REST API with OpenAPI, MCP server
 - Slovak, Hungarian and English; mobile-first; installable PPI app for the shop PC
@@ -142,10 +141,8 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   At most 5 shops per account. After creating: three next steps are shown.
 - **Export folder** section:
   - status: latest file time, Current/Recent/Stale, "PPI window on the shop PC last active", last file received, last
-    error (common problems explained in the owner's language);
+    error;
   - **Connect folder** (Edge/Chrome) and **Upload file** (any browser), with the result of each send;
-  - **Cloud file link**: paste a share link to the file (or folder) → "Save and download now", "Download now",
-    "Remove link";
   - the rules for the stock software's export (below) and a link to the full-screen `/sync` page.
 - **Stock file columns:** after the first file, one drop-down per field (item code, name, EAN, brand, quantity, price,
   currency) pre-filled with the proposal, next to the file's first rows. Code, name, quantity and price are required.
@@ -208,9 +205,8 @@ Freshness comes from the time of the shop's latest applied stock file (`sync_sou
 | 30 minutes – 24 hours | `recent` | availability + "Last confirmed today/yesterday at 14:05" |
 | over 24 hours, or never | `stale` | **no availability**, only "Stock information not currently available" |
 
-The file time is the file's own time: the "last modified" time on the shop PC, the `Last-Modified` header of a
-download, or the cloud file's change time — never later than "now". Sending the same file again does not make it
-fresher. A cloud file without a date counts as new only when its content changed.
+The file time is the file's own "last modified" time on the shop PC (with "Upload file": that of the picked file),
+never later than "now". Sending the same file again, or an older one, does not make the stock fresher.
 
 ### 6.2 Availability (per shop's choice)
 
@@ -242,7 +238,7 @@ Hidden items (owner's choice) and inactive shops are never shown.
 Open if the current time in the shop's own time zone falls inside today's ranges; otherwise "Opens at …"
 (today, tomorrow or the next opening day).
 
-## 7. Data model (after migration 15)
+## 7. Data model (after migration 16)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -251,7 +247,7 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 | `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |
 | `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `is_public`, `updated_at` | Unique per shop + code |
 | `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at` | Written only by the stock-pull function |
-| `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows`, `file_url` (cloud link), `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name`, `last_file_hash` | One per shop: where stock comes from and how it is read |
+| `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows`, `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name` | One per shop: how its stock file is read and the latest upload. A leftover `file_url` column is unused (only the legacy `admin_shops()` reads it) |
 | `profiles` | `user_id`, `display_name`, `language`, `is_admin` | One per account, created automatically |
 | `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP rate limit log; no IP addresses; older than 30 days removed |
 
@@ -266,12 +262,11 @@ Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-
 | Shops | active shops (public fields) | own shops: details through `owner_save_shop()`, visibility and logo directly (never the page address); delete through `owner_delete_shop()` | read |
 | Items (names, codes, EAN) | public items of active shops | own items: read, hide/show only | write |
 | Stock (quantity, price) | only through `public_stock` / `search_stock` / `shop_stock`: labels, never hidden items, raw quantity only for `exact` shops | own stock (`owner_items()`) | write |
-| Stock source (`sync_sources`) | none | own shop through `my_shops()`, `owner_set_mapping()`, `owner_set_file_url()`, `upload_check_in()` | read and write |
+| Stock source (`sync_sources`) | none | own shop through `my_shops()`, `owner_set_mapping()`, `upload_check_in()` | read and write |
 | Accounts (`profiles`) | none | own profile | — |
 
 - Owners never write stock themselves; the function does, after checking the uploader is that shop's owner.
-- The function downloads cloud links only from public `https://` addresses (never localhost, IP addresses or internal
-  names).
+- The function downloads nothing: it only receives files uploaded with the shop owner's login.
 - The API stores no IP addresses: only a hash with a salt that changes daily.
 - Legacy: the `is_admin` flag and the `admin_*` database functions from the old admin area still exist in the database
   but nothing on the website uses them.
@@ -300,10 +295,8 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 
 ## 11. Known limits and open points
 
-- **Freshness needs a running export.** If the shop PC is off or the PPI window is closed (folder way), or the cloud
-  file stops changing (cloud way), the shop goes `recent` and after 24 hours `stale`. No alert e-mail is sent yet.
-- **Cloud folder links:** a OneDrive folder was not read in the first real test; file links work. Google Drive folders
-  also need the optional `GOOGLE_API_KEY`.
+- **Freshness needs the shop PC.** The stock software must keep exporting and the PPI window must stay open (or the
+  owner uploads by hand); otherwise the shop goes `recent` and after 24 hours `stale`. No alert e-mail is sent yet.
 - **Anyone can sign up and add shops** (5 per account); there is no review. Watch for fake shops.
 - **Not yet found by web search** until the site is registered with Bing and Google (SETUP.md part I); Claude finds
   shops at once through the MCP connector.
@@ -331,5 +324,6 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-03 | Europe-wide (no home town, any currency/time zone); phase 3 public pages + map + JSON-LD; phase 4 login, owner dashboard, admin area |
 | 2026-10-04 | Shop facilities; phase 5 AI access (robots, sitemap, llms.txt, API, MCP); phase 6 automatic stock pull with AI mapping; shop PC tunnel installer (later replaced) |
 | 2026-10-06 | Shop PC as a browser app instead of a tunnel; self-service sign-up with passwords; admin area removed; no location services, text search incl. shop name/street/town; logo upload fixes; Cacadoo PPI logo; search-engine verification tags |
-| 2026-10-07 | "Upload file" button; cloud file and folder links (OneDrive, Google Drive, Dropbox) |
+| 2026-10-07 | "Upload file" button |
 | 2026-10-08 | This as-built PRD and architecture document |
+| 2026-10-08 | Cloud links (built 2026-10-07) removed: stock arrives only by upload — the PPI app window and "Upload file" |

@@ -66,3 +66,22 @@ returns void language sql as $$
 $$;
 create or replace view vault.decrypted_secrets as select id, name, description, secret as decrypted_secret from vault.secrets;
 revoke all on schema vault from anon, authenticated;
+
+-- Minimal pg_cron stand-in (real pg_cron runs the jobs; this only mimics cron.job and
+-- cron.unschedule). It starts with the old 15-minute download job, as in a project that
+-- followed the old SETUP.md part G4, plus an unrelated job that must survive.
+create schema if not exists cron;
+create table if not exists cron.job (
+  jobid bigserial primary key,
+  jobname text,
+  schedule text,
+  command text
+);
+create or replace function cron.unschedule(job_id bigint)
+returns boolean language sql as $$
+  with gone as (delete from cron.job where jobid = job_id returning 1) select exists (select 1 from gone)
+$$;
+insert into cron.job (jobname, schedule, command) values
+  ('ppi-stock-pull', '*/15 * * * *', 'select 1'),
+  ('some-other-job', '0 3 * * *', 'select 1');
+revoke all on schema cron from anon, authenticated;

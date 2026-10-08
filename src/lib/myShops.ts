@@ -32,7 +32,6 @@ export interface MyShop {
   freshness_state: FreshnessState;
   folder_seen_at: string | null;
   last_file_name: string | null;
-  file_url: string | null;
 }
 
 export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency"] as const;

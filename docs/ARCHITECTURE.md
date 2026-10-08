@@ -8,12 +8,10 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
 
 1. A sale lowers the stock in the shop's own stock software, as it does today.
 2. Every 15–30 minutes that software exports the whole stock to one file (XML, CSV or Excel).
-3. The file reaches PPI in one of three ways:
+3. The file is uploaded to PPI in one of two ways (PPI downloads nothing itself):
    - **Folder:** the PPI app window on the shop PC (Edge or Chrome) checks the export folder every 15 minutes and
      sends the newest finished file;
-   - **By hand:** the owner clicks "Upload file" and picks it;
-   - **Cloud link:** the stock software saves the file to OneDrive, Google Drive or Dropbox; every 15 minutes a
-     schedule in Supabase downloads it.
+   - **By hand:** the owner clicks "Upload file" and picks it.
 4. The Supabase Edge Function **`stock-pull`** reads the file. For a new file layout it proposes which column is which
    (Claude, or a rule-based guess); the owner approves it once on the dashboard.
 5. The function writes the whole stock in one transaction and records the file's time. That time is the freshness.
@@ -21,17 +19,17 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
    API and an MCP server. Freshness and availability rules are applied once, in the database, for all of them.
 
 ```text
-SHOP                                  CLOUD (optional)
-  stock software --export--> folder     OneDrive / Google Drive / Dropbox
-       |                                   ^ stock software saves there
-       | PPI app window (/sync) or         |
-       | "Upload file" in the browser      | every 15 min: pg_cron -> stock-pull downloads
-       v  HTTPS POST + owner's login       |
-SUPABASE ----------------------------------+----------------------------------------
+SHOP
+  stock software --export--> folder
+       |
+       | PPI app window (/sync), every 15 min, or
+       | "Upload file" in the browser
+       v  HTTPS POST + owner's login
+SUPABASE ---------------------------------------------------------------------------
   Edge Function stock-pull: read file -> column mapping (proposal / approved) -> check
                             -> apply_stock_file() in one transaction -> freshness
   Postgres + PostGIS: tables, RLS, SQL rules (freshness, availability, search)
-  Auth (e-mail + password, SMTP via Brevo) | Storage (logos, raw files) | Vault | pg_cron
+  Auth (e-mail + password, SMTP via Brevo) | Storage (logos, raw files)
                                    |
 WEBSITE (Next.js 16 on Vercel)     v
   server-rendered pages + JSON-LD | owner dashboard | /sync app | robots, sitemap, llms.txt
@@ -49,7 +47,6 @@ READERS                            v
 | --- | --- | --- | --- |
 | Folder (PPI app window) | the open window, every 15 min | browser reads the folder (File System Access API), uploads the newest finished file | the file's "last modified" time on the PC |
 | Upload file | the owner, by hand | file picker, same upload | the file's "last modified" time |
-| Cloud link | the schedule, every 15 min, or "Download now" | `stock-pull` downloads the link stored in `sync_sources.file_url` | `Last-Modified` of the download, or the cloud file's change time; without a date only changed content counts |
 
 **PPI app window** (`src/components/FolderSync.tsx`, on `/[lang]/sync` and inside the dashboard):
 
@@ -67,40 +64,26 @@ READERS                            v
 - Installable as an app: `src/app/manifest.ts` (start page `/sync`, standalone, `focus-existing`); icons in
   `public/icons/`. Starting with Windows is done with the Windows startup folder (steps on the page).
 
-**Cloud links** (`src/lib/cloudLink.ts` on the website, `stock-pull` in Supabase):
-
-- The website turns share links into download links: Google Drive file → `uc?export=download&id=…`, Google Sheets →
-  CSV export, Dropbox → `dl=1`, SharePoint → `download=1`. OneDrive personal links and folder links are stored as
-  shared; the function resolves them.
-- `owner_set_file_url()` stores it (only `https://` with a real host name).
-- The function tries, in order: a shared **folder** (OneDrive share API listing; Dropbox folder as ZIP; Google Drive
-  folder with the optional `GOOGLE_API_KEY`) → the newest stock file in it; otherwise the file itself (for OneDrive
-  first through the share API `api.onedrive.com/v1.0/shares/u!…/root/content`, then `download=1`, then as given).
-  Answers that are web pages (viewer or login pages) are skipped and reported as "the link opens a web page".
-
 ### 2.2 Edge Function `stock-pull` (`supabase/functions/stock-pull/index.ts`)
 
 One file, Deno, deployed by pasting it into the Supabase editor with **Verify JWT off** (it checks callers itself).
 Uses the service role key, which Supabase gives the function automatically.
 
-**Who may call it**
+**Who may call it:** only an upload — `POST ?shop_id=…&file_time=…&file_name=…[&gzip=1]` with the file as the body
+and the caller's login, which must pass `upload_check_in(shop)`: owner of that shop (or the legacy admin flag). It
+records "PPI window last active". A file not newer than the shop's latest applied file is answered `unchanged`. The
+function never downloads anything and runs on no schedule.
 
-| Call | Check |
-| --- | --- |
-| `POST ?shop_id=…&file_time=…&file_name=…[&gzip=1]` with a file body (upload) | the caller's login must pass `upload_check_in(shop)`: owner of that shop (or the legacy admin flag) |
-| `POST {}` with header `x-ppi-cron-secret` (schedule) | secret equals the `PPI_CRON_SECRET` function secret; pulls every shop with a `file_url` |
-| `POST {"shop_id": …}` with a login (dashboard "Download now") | the caller owns that shop (`is_shop_member`), never forced |
-
-**What it does with a file** (`processFile`, the same for all three ways)
+**What it does with a file** (`processFile`)
 
 1. Size check (empty, over 50 MB) and format by content (ZIP → xlsx, `<` → XML, else CSV).
 2. Read rows: XML = the largest list of repeated elements (attributes and nested values flattened); CSV = separator
    guessed from the header (`;` `,` tab `|`), quotes, UTF-8 or Windows-1250; XLSX = first sheet (SheetJS).
 3. Keep the raw file in the private `raw-files` bucket (files older than 7 days deleted).
 4. **No approved mapping:** if a proposal already fits the columns → "waiting for approval"; otherwise propose one:
-   Claude (`claude-opus-5-5`, structured output whose allowed values are the file's real column names, low effort,
-   with server-side fallback) when `ANTHROPIC_API_KEY` is set, else `guessMapping()` (column-name hints in SK, CZ, HU,
-   EN, DE). Save it as `proposed` with 10 sample rows and stop. **Never auto-approved.**
+   Claude (structured output whose allowed values are the file's real column names, low effort, with server-side
+   fallback) when `ANTHROPIC_API_KEY` is set, else `guessMapping()` (column-name hints in SK, CZ, HU, EN, DE). Save it
+   as `proposed` with 10 sample rows and stop. **Never auto-approved.**
 5. **Approved mapping:** map every row (numbers in any European format; currency from the file, else from the shop's
    country, else EUR). More than 5 % unreadable rows → keep the old stock, propose a new mapping
    (`layout_changed`).
@@ -108,10 +91,7 @@ Uses the service role key, which Supabase gives the function automatically.
    `inventory`; items of the shop missing from the file → quantity 0; set `latest_file_time`, clear `last_error`.
 
 Results: `updated`, `unchanged`, `proposed`, `waiting_for_approval`, `layout_changed`, `error` (also written to
-`sync_sources.last_error`). Pulls run 4 shops at a time with a 30-second timeout per download.
-
-**Schedule:** `pg_cron` job `ppi-stock-pull` every 15 minutes calls the function through `pg_net` with the project URL
-and the cron secret, both read from Supabase Vault (`ppi_project_url`, `ppi_cron_secret`) — SETUP.md part G4.
+`sync_sources.last_error`).
 
 ### 2.3 Database (Supabase Postgres + PostGIS)
 
@@ -129,8 +109,8 @@ and the cron secret, both read from Supabase Vault (`ppi_project_url`, `ppi_cron
 | view `public_shops`, `shop_stock(slug, q, limit, offset)` | shop pages and their item lists |
 | `town_center(town)` | "near Budince" for API/MCP: middle of the active shops in that town (no outside geocoding) |
 | `api_hit(ip_hash, endpoint, limit)` | rate limit (60/min) and usage log |
-| `apply_stock_file(...)`, `sync_credentials(shop)` | stock writing and (legacy) download credentials — service role only |
-| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_set_file_url(shop, url)`, `owner_delete_shop(shop)`, `owner_items(...)`, `availability_preview(threshold)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop |
+| `apply_stock_file(...)` | stock writing — service role only |
+| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `availability_preview(threshold)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop |
 
 **Guards:** triggers stop clients from changing a shop's page address, company ID or visibility flag directly
 (`guard_shop_update`; the owner functions run as the database owner and may), from writing stock results into
@@ -143,11 +123,11 @@ where they are in `shop_members`; `inventory` and stock results are written only
 **Storage:** `logos` (public read; members may write into their shop's folder; 1 MB; PNG/JPEG/WebP) and `raw-files`
 (private, service role only).
 
-**Vault:** `ppi_project_url` and `ppi_cron_secret` for the schedule; per-shop download credentials from the old
-tunnel design (`ppi_shop_<id>`, unused by the website now).
+**Vault:** not used any more; the old tunnel design kept per-shop download credentials there (`ppi_shop_<id>`).
 
-**Legacy, kept but unused by the website:** `profiles.is_admin`, `admin_*` functions, `user_id_by_email`,
-`admin_set_sync_credentials`. Removing them needs a new migration; nothing depends on them.
+**Legacy, kept but unused by the website and the function:** `profiles.is_admin`, the `admin_*` functions,
+`user_id_by_email`, `admin_set_sync_credentials`, `sync_credentials`, and the column `sync_sources.file_url` (only the
+legacy `admin_shops()` reads it). Removing them needs a new migration.
 
 ### 2.4 Accounts and e-mail (Supabase Auth)
 
@@ -182,7 +162,7 @@ tunnel design (`ppi_shop_<id>`, unused by the website now).
 - **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
   `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
 - **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop, approve columns,
-  cloud link, visibility, logo, item visibility, delete); each form returns to its own section with its message.
+  visibility, logo, item visibility, delete); each form returns to its own section with its message.
 
 ### 2.6 AI and machine access
 
@@ -202,11 +182,11 @@ with the results; the map loads afterwards in the browser.
 
 **A new owner starts:** `/signup` → Supabase sends a confirmation e-mail (Brevo) → link → `/auth/confirm` → session →
 `/dashboard` shows "Add your shop" → `owner_save_shop()` creates the shop, membership and stock source → owner connects
-the folder, uploads a file or saves a cloud link → first file → "proposed" → owner approves columns
-(`owner_set_mapping()`) → next send/download applies the stock → shop shows "Current".
+the folder or uploads a file → first file → "proposed" → owner approves columns (`owner_set_mapping()`) → the next
+upload applies the stock → shop shows "Current".
 
-**The 15-minute rhythm:** shop PC window: check-in + send if there is a new finished file. Supabase: `pg_cron` →
-`stock-pull` → each shop with a cloud link: download (folder → newest file), skip if not newer/unchanged, else apply.
+**The 15-minute rhythm:** the PPI window on the shop PC checks in (`upload_check_in`) and sends the newest finished
+file if it is new. Supabase itself runs no schedule.
 
 **An AI assistant asks "who has paint in Budince?":** MCP `search_stock(query="paint", near="Budince")` →
 `town_center` → `search_stock` with a radius → items with price, availability, freshness and `source_url`. (A search
@@ -214,12 +194,12 @@ for the town name alone also works: `query="Budince"`.)
 
 ## 4. One stock change, end to end
 
-| Time | Folder or upload | Cloud link |
-| --- | --- | --- |
-| 10:02 | a sale sets stock to 0 in the shop software | same |
-| 10:15 | export overwrites the file | export overwrites the cloud file |
-| 10:16–10:31 | the window's next check (≥ 60 s after writing) sends it; freshness = 10:15 | the next 15-minute schedule downloads it |
-| right after | site, API and MCP show "Out of stock · updated 10:15" | same |
+| Time | What happens |
+| --- | --- |
+| 10:02 | a sale sets stock to 0 in the shop software |
+| 10:15 | the export overwrites the file in the export folder |
+| 10:16–10:31 | the PPI window's next check (≥ 60 s after writing) sends it; freshness = 10:15 |
+| right after | site, API and MCP show "Out of stock · updated 10:15" |
 
 Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes with a 15–30 minute export).
 
@@ -228,9 +208,8 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | Failure | Shoppers and AI see | The owner sees |
 | --- | --- | --- |
 | Shop PC off / asleep, PPI window closed | last stock with "last confirmed at"; after 24 h no availability | "PPI window last active" stops moving |
-| Export stopped, or cloud file no longer changes | same | latest file time stops moving |
+| Export stopped | same | latest file time stops moving |
 | File layout changed (> 5 % rows unreadable) | last good stock stays | new column proposal to approve; message |
-| Cloud link opens a web page / not shared / folder without stock file | last good stock stays | clear message under "Download" and "Last error" |
 | `stock-pull` failing | stock ages, then hidden after 24 h | `last_error` on the dashboard |
 | E-mail sending fails (SMTP) | — | no confirmation / reset e-mails (check Brevo and Supabase Auth logs) |
 | Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
@@ -241,10 +220,11 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 
 - Service role key only inside Supabase (function secrets); the website has only the public URL and anon key.
 - RLS on every table, owner checks inside every owner function, guard triggers on sensitive columns.
-- Uploads accepted only with the shop owner's login; pulls only from public `https://` hosts (`isAllowedFileUrl`).
+- Uploads accepted only with the shop owner's login; the function fetches nothing from other addresses (its only
+  outside call is the optional Claude API).
 - The shop PC runs no server and opens no ports; the browser reads one folder, read-only.
 - Public API/MCP: read-only, 60 requests/minute, no personal data, no IP addresses stored.
-- Secrets (SMTP key, cron secret, API keys) live in Supabase secrets/Vault, Vercel variables and a password manager —
+- Secrets (SMTP key, API keys) live in Supabase secrets, Vercel variables and a password manager —
   never in the repository or chat.
 
 ## 7. Configuration (names only, never values)
@@ -255,10 +235,7 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (optional) | `NEXT_PUBLIC_SITE_URL` | own domain for links, sitemap, JSON-LD (else the Vercel production address) |
 | Vercel env (optional) | `API_HASH_SALT` | salt for hashing API callers' IPs |
 | Vercel env (optional) | `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | search-engine ownership tags |
-| Supabase function secret | `PPI_CRON_SECRET` | the schedule's password for `stock-pull` |
 | Supabase function secret (optional) | `ANTHROPIC_API_KEY` | Claude column proposals (else rule-based guess) |
-| Supabase function secret (optional) | `GOOGLE_API_KEY` | reading Google Drive folders |
-| Supabase Vault | `ppi_project_url`, `ppi_cron_secret` | used by the `pg_cron` job |
 | Supabase Auth | sign-ups on, confirm e-mail on, min. password 8, custom SMTP (Brevo), Site URL + redirect URLs, e-mail templates | accounts and e-mails |
 | Supabase (automatic) | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | given to the function by Supabase |
 
@@ -269,10 +246,10 @@ src/app/[lang]/            public pages, accounts, (account)/dashboard|sync|pass
 src/app/api, mcp, auth     REST API + OpenAPI, MCP server, e-mail link landing / sign out
 src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
 src/components/            ShopMap, FolderSync, ShopForm, LogoInput, InstallApp, StockLine, OpenStatus, …
-src/lib/                   data, publicApi, apiHttp, auth, format, hours, folderStore, cloudLink, supabase/*
+src/lib/                   data, publicApi, apiHttp, auth, format, hours, folderStore, supabase/*
 src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh
-supabase/migrations/       15 numbered SQL files (section 9)
+supabase/migrations/       16 numbered SQL files (section 9)
 supabase/functions/        stock-pull (index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
@@ -298,15 +275,17 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | 12 | `20261009000001_folder_upload.sql` | `upload_check_in`, `folder_seen_at`, `last_file_name` |
 | 13 | `20261010000001_self_service.sql` | `my_shops`, `owner_save_shop`, `owner_set_mapping`, `owner_delete_shop` |
 | 14 | `20261011000001_search_shop_name.sql` | search also by shop name, street, town |
-| 15 | `20261012000001_cloud_link.sql` | `owner_set_file_url`, `last_file_hash`, `my_shops` with `file_url` |
+| 15 | `20261012000001_cloud_link.sql` | cloud links: `owner_set_file_url`, `last_file_hash`, `my_shops` with `file_url` (undone by 16) |
+| 16 | `20261013000001_remove_cloud_link.sql` | upload only: stops the `ppi-stock-pull` schedule, drops `owner_set_file_url` and `last_file_hash`, `my_shops` without `file_url` |
 
 ## 10. Testing and releasing
 
 - `npm run test:db`: applies all migrations and the sample data to a throwaway local Postgres/PostGIS and checks the
   rules as visitor, two owners, a new self-service owner and the service role (RLS, freshness, labels, quantity hiding,
-  search incl. shop name/street/town, check-in, owner functions, cloud-link validation, 5-shop limit).
-- `npm run test:functions`: 8 Deno tests of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row
-  counting, allowed download hosts, OneDrive share links, cloud-folder newest file).
+  search incl. shop name/street/town, check-in, owner functions, 5-shop limit, and that migration 16 removed the cloud
+  links and the schedule).
+- `npm run test:functions`: 5 Deno tests of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row
+  counting).
 - `npm run lint`, `npm run typecheck`, `npm run build` before every push.
 - During development every feature was also run end to end in a real Chromium browser (Playwright) against a local
   stand-in for Supabase (PostgREST + the function in Deno); those scripts are not part of the repository.
@@ -320,10 +299,9 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | --- | --- | --- |
 | Shop's stock software | exports the stock file | the shop already has it |
 | Edge or Chrome | PPI app window on the shop PC | free |
-| OneDrive / Google Drive / Dropbox | optional cloud link | free tiers |
 | GitHub | code and history | free |
 | Vercel | website, API, MCP, previews | free to start; paid plan for commercial use |
-| Supabase | database, Auth, Storage, Vault, Edge Function, schedule | free to start; Pro about $25/month when live |
+| Supabase | database, Auth, Storage, Edge Function | free to start; Pro about $25/month when live |
 | Brevo | SMTP for account e-mails | free (300 e-mails/day) |
 | Anthropic API | column proposals (optional) | pay per use, small (once per shop and layout change) |
 | OpenFreeMap | map tiles | free, no key |
@@ -331,6 +309,6 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 
 ## 12. Growing and next steps
 
-- 5–50 shops fit the free/entry tiers; the schedule processes cloud links 4 at a time; uploads scale with Supabase.
+- 5–50 shops fit the free/entry tiers; uploads scale with Supabase (one function call per new file).
 - Next useful steps: e-mail alert when a shop's stock stops arriving; own domain; registration with Bing/Google; a
-  developer's review of RLS; removing the legacy admin functions; deciding whether to keep cloud folder links.
+  developer's review of RLS; removing the legacy admin functions together with the unused `file_url` column.
