@@ -2,7 +2,7 @@ import { CORS_HEADERS, LIMIT_PER_MINUTE } from "@/lib/apiHttp";
 import { DATA_RULES } from "@/lib/publicApi";
 import { siteUrl } from "@/lib/site";
 
-const lang = { name: "lang", in: "query", required: false, schema: { type: "string", enum: ["sk", "hu", "en"], default: "en" }, description: "Language of the source_url pages." };
+const lang = { name: "lang", in: "query", required: false, schema: { type: "string", enum: ["sk", "hu", "en"], default: "en" }, description: "Language of name_translated and of the source_url pages." };
 
 const freshness = {
   type: "object",
@@ -17,7 +17,9 @@ const item = {
   type: "object",
   properties: {
     id: { type: "string", format: "uuid" },
-    name: { type: "string" },
+    name: { type: "string", description: "As the shop wrote it.", example: "Farba fas. biela 5L" },
+    name_translated: { type: ["string", "null"], description: "The name in the requested language (lang); null until translated.", example: "White facade paint 5 l" },
+    name_lang: { type: ["string", "null"], description: "Language of name (ISO 639-1).", example: "sk" },
     brand: { type: ["string", "null"] },
     ean: { type: ["string", "null"] },
     price: { type: ["number", "null"] },
@@ -28,7 +30,7 @@ const item = {
     quantity: { type: ["number", "null"], description: "Only for shops that publish exact quantities." },
     freshness,
     distance_km: { type: ["number", "null"] },
-    shop: { type: "object", properties: { slug: { type: "string" }, name: { type: "string" }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] }, country: { type: ["string", "null"] }, lat: { type: ["number", "null"] }, lng: { type: ["number", "null"] }, source_url: { type: "string", format: "uri" } } },
+    shop: { type: "object", properties: { slug: { type: "string" }, name: { type: "string" }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] }, country: { type: ["string", "null"] }, timezone: { type: ["string", "null"] }, lat: { type: ["number", "null"] }, lng: { type: ["number", "null"] }, source_url: { type: "string", format: "uri" } } },
     source_url: { type: "string", format: "uri", description: "PPI page to cite." },
   },
 };
@@ -66,7 +68,7 @@ export function GET() {
         get: {
           summary: "Search items in stock near a place",
           parameters: [
-            { name: "q", in: "query", schema: { type: "string" }, description: "Product name, brand, EAN, shop name, street or town; accents and case ignored." },
+            { name: "q", in: "query", schema: { type: "string" }, description: "Product name in Slovak, Hungarian or English (every word must match, any order), brand, EAN, shop name, street or town; accents and case ignored." },
             { name: "lat", in: "query", schema: { type: "number" } },
             { name: "lng", in: "query", schema: { type: "number" } },
             { name: "near", in: "query", schema: { type: "string" }, description: "Town name where PPI has shops (e.g. Michalovce) or 'lat,lng'. Used when lat/lng are not given." },

@@ -2,11 +2,14 @@ import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, type Dictionary } from "@/i18n/dictionaries";
 import Link from "next/link";
+import { aiSearchEnabled } from "@/lib/aiSearch";
 import { createClient } from "@/lib/supabase/server";
 import { getShopsByIds, type PublicShop } from "@/lib/data";
 import { missingSupabaseEnv, supabaseEnv } from "@/lib/supabase/env";
 import { formatPrice } from "@/lib/format";
+import { translatedName } from "@/lib/names";
 import type { StockRow } from "@/lib/stock";
+import { AiSearch } from "@/components/AiSearch";
 import { OpenStatus } from "@/components/OpenStatus";
 import { ShopMap } from "@/components/ShopMap";
 import { StockLine } from "@/components/StockLine";
@@ -24,6 +27,9 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
   const sp = await searchParams;
   const q = (first(sp.q) ?? "").trim();
   const onlyAvailable = first(sp.only) === "1";
+  // AI is an extra layer above the plain results, only when the shopper asks for it.
+  const aiEnabled = aiSearchEnabled();
+  const askAi = aiEnabled && first(sp.ai) === "1" && q.length >= 2;
 
   let rows: StockRow[] = [];
   let shops = new Map<string, PublicShop>();
@@ -72,8 +78,28 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
             <input type="checkbox" name="only" value="1" defaultChecked={onlyAvailable} />
             {dict.search.only_available}
           </label>
+          {aiEnabled && (
+            <button type="submit" name="ai" value="1" className="rounded border border-line px-3 py-1">
+              {dict.search.ai_button}
+            </button>
+          )}
         </div>
       </form>
+
+      {askAi && (
+        <AiSearch
+          key={`${q}|${onlyAvailable}`}
+          q={q}
+          lang={lang}
+          only={onlyAvailable}
+          labels={{
+            title: dict.search.ai_title,
+            loading: dict.search.ai_loading,
+            searched: dict.search.ai_searched,
+            note: dict.search.ai_note,
+          }}
+        />
+      )}
 
       {error && <p className="rounded border border-line p-3 text-sm">{error}</p>}
 
@@ -119,12 +145,16 @@ function ResultRow({
   lang: Locale;
   dict: Dictionary;
 }) {
+  const translated = translatedName(row.item_name, row.item_name_i18n, lang);
   return (
     <li data-shop={row.shop_slug} className="flex flex-col gap-1 py-3">
       <div className="flex items-baseline justify-between gap-3">
-        <Link href={`/${lang}/items/${row.item_id}`} className="font-medium hover:underline">
-          {row.item_name}
-        </Link>
+        <div className="min-w-0">
+          <Link href={`/${lang}/items/${row.item_id}`} className="font-medium hover:underline">
+            {row.item_name}
+          </Link>
+          {translated && <p className="text-sm text-muted">{translated}</p>}
+        </div>
         <span className="whitespace-nowrap font-medium">{formatPrice(row.price, lang, row.currency)}</span>
       </div>
       <div className="text-sm text-muted">

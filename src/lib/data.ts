@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { createClient } from "./supabase/server";
 import type { OpeningHours } from "./hours";
+import type { NameI18n } from "./names";
 import type { AvailabilityKey, FreshnessState, StockRow } from "./stock";
 
 /** One row of public.public_shops. */
@@ -43,6 +44,8 @@ export interface ShopItemRow {
   latest_file_time: string | null;
   updated_at: string | null;
   total_count: number;
+  item_name_lang: string | null;
+  item_name_i18n: NameI18n | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -96,7 +99,7 @@ export const getItem = cache(async (id: string): Promise<StockRow | null> => {
   const { data, error } = await (await client())
     .from("public_stock")
     .select(
-      "item_id, item_name, ean, brand, shop_id, shop_slug, shop_name, shop_address, shop_city, shop_country, shop_timezone, shop_lat, shop_lng, price, currency, quantity, availability, is_available, freshness_state, freshness_age_minutes, latest_file_time, updated_at",
+      "item_id, item_name, ean, brand, shop_id, shop_slug, shop_name, shop_address, shop_city, shop_country, shop_timezone, shop_lat, shop_lng, price, currency, quantity, availability, is_available, freshness_state, freshness_age_minutes, latest_file_time, updated_at, item_name_lang, item_name_i18n",
     )
     .eq("item_id", id)
     .maybeSingle();

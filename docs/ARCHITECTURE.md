@@ -15,8 +15,11 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
 4. The Supabase Edge Function **`stock-pull`** reads the file. For a new file layout it proposes which column is which
    (Claude, or a rule-based guess); the owner approves it once on the dashboard.
 5. The function writes the whole stock in one transaction and records the file's time. That time is the freshness.
+   After replying it translates new or renamed item names into Slovak, Hungarian and English in the background
+   (Claude Haiku), so every search finds items in all three languages.
 6. The Next.js website on Vercel shows the stock on server-rendered pages, and the same data goes out through a public
-   API and an MCP server. Freshness and availability rules are applied once, in the database, for all of them.
+   API and an MCP server. Freshness and availability rules are applied once, in the database, for all of them. On
+   request, an AI search (Claude Haiku using the same search) adds an answer above the plain results.
 
 ```text
 SHOP
@@ -28,12 +31,13 @@ SHOP
 SUPABASE ---------------------------------------------------------------------------
   Edge Function stock-pull: read file -> column mapping (proposal / approved) -> check
                             -> apply_stock_file() in one transaction -> freshness
-  Postgres + PostGIS: tables, RLS, SQL rules (freshness, availability, search)
+                            -> (after the reply) names to sk/hu/en: Claude Haiku -> apply_item_translations()
+  Postgres + PostGIS: tables, RLS, SQL rules (freshness, availability, search in 3 languages)
   Auth (e-mail + password, SMTP via Brevo) | Storage (logos, raw files)
                                    |
 WEBSITE (Next.js 16 on Vercel)     v
   server-rendered pages + JSON-LD | owner dashboard | /sync app | robots, sitemap, llms.txt
-  public API /api/v1 + OpenAPI    | MCP server /mcp
+  public API /api/v1 + OpenAPI    | MCP server /mcp | /api/ai-search (Claude Haiku + search_stock)
                                    |
 READERS                            v
   shoppers | shop owners | search engines and AI crawlers | AI assistants (MCP) | tools (API)
@@ -93,6 +97,14 @@ function never downloads anything and runs on no schedule.
 Results: `updated`, `unchanged`, `proposed`, `waiting_for_approval`, `layout_changed`, `error` (also written to
 `sync_sources.last_error`).
 
+**Item names in three languages** (after `updated`, in the background with `EdgeRuntime.waitUntil`, so the reply and
+the stock never wait for it): `items_to_translate(shop)` lists names without a translation or renamed since (never the
+owner's corrections; public items first; up to 1,200 per file) → batches of 200 names, 3 at a time, to Claude Haiku
+(structured output: language, sk, hu, en per name; abbreviations written out, brand/sizes/model and part numbers kept;
+low effort, streamed) → `apply_item_translations(shop, items)` saves them, skipping owner corrections and names that
+changed meanwhile. Any failure is logged and left for the next file; without `ANTHROPIC_API_KEY` nothing is
+translated.
+
 ### 2.3 Database (Supabase Postgres + PostGIS)
 
 **Tables:** `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `profiles`, `api_usage`
@@ -105,8 +117,12 @@ Results: `updated`, `unchanged`, `proposed`, `waiting_for_approval`, `layout_cha
 | `freshness_label(time)`, `freshness_age_minutes(time)`, `freshness_state(shop)` | current < 30 min, recent < 24 h, stale otherwise |
 | `availability_label(mode, quantity, threshold, freshness)` | label key per visibility mode; NULL when stale |
 | view `public_stock` | the only public read path for stock: public items of active shops, labels, raw quantity only for `exact` shops that are not stale |
-| `search_stock(q, lat, lng, radius_km, only_available)` | text search (accents/case ignored via `search_text()` = `unaccent` + lower, trigram indexes) on item name, brand, EAN, shop name, street, town; optional radius for API/MCP callers; available first, fresher, nearer, name; 50 rows |
-| view `public_shops`, `shop_stock(slug, q, limit, offset)` | shop pages and their item lists |
+| `search_stock(q, lat, lng, radius_km, only_available)` | text search: every word of `q` must appear (`matches_all_words()`, accents/case ignored via `search_text()` = `unaccent` + lower) in the item's names (original + sk/hu/en, `item_names_text()`), brand, EAN, or the shop's name, street, town; candidates come from the trigram indexes (longest word); optional radius for API/MCP callers; available first, fresher, nearer, name; 50 rows with the translations |
+| view `public_shops`, `shop_stock(slug, q, limit, offset)` | shop pages and their item lists (same word search, with translations) |
+| index `shop_items_names_search_idx` | trigram index over `item_names_text(name, name_i18n)`: original name and all three translations |
+| `items_to_translate(shop)`, `apply_item_translations(shop, items)` | translation queue and saving — service role only; never touch owner corrections |
+| `owner_set_item_translation(item, names)` | the owner's correction (or `null` = back to automatic) |
+| `ai_search_hit(ip_hash, daily_limit)` | AI search limits: 10 per minute per caller, a daily total for the site; logs in `api_usage` |
 | `town_center(town)` | "near Budince" for API/MCP: middle of the active shops in that town (no outside geocoding) |
 | `api_hit(ip_hash, endpoint, limit)` | rate limit (60/min) and usage log |
 | `apply_stock_file(...)` | stock writing — service role only |
@@ -148,6 +164,7 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 | `/[lang]/dashboard`, `/sync`, `/password` | owner area (login required, not indexed) |
 | `/auth/confirm`, `/auth/signout` | e-mail link landing, sign out |
 | `/api/v1/*`, `/api/openapi.json`, `/mcp` | public API, OpenAPI, MCP server |
+| `/api/ai-search` | AI search for the main page (POST, website only) |
 | `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/manifest.webmanifest` | discovery files, app manifest |
 
 - **Languages:** `src/proxy.ts` sends addresses without a language to `/sk`, `/hu` or `/en` (saved choice → browser
@@ -162,7 +179,10 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 - **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
   `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
 - **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop, approve columns,
-  visibility, logo, item visibility, delete); each form returns to its own section with its message.
+  visibility, logo, item visibility, translation correction, delete); each form returns to its own section with its
+  message.
+- **Names** (`lib/names.ts`): `translatedName()` picks the page-language name to show under the shop's own name when
+  it reads differently — search results, shop and item pages (title and JSON-LD `alternateName`), dashboard, AI cards.
 
 ### 2.6 AI and machine access
 
@@ -171,8 +191,26 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 - Every API/MCP request passes `rateLimit` (`lib/apiHttp.ts`): SHA-256 of IP + daily date + `API_HASH_SALT`,
   `api_hit()` allows 60 per minute; open CORS.
 - MCP: `@modelcontextprotocol/sdk`, stateless Streamable HTTP with JSON responses, read-only tool annotations.
-- Discovery: `robots.ts` (AI crawlers named), `sitemap.ts` (hourly), `llms.txt/route.ts`; optional search-engine
-  verification tags from `GOOGLE_SITE_VERIFICATION` / `BING_SITE_VERIFICATION`.
+- Every item carries `name` (as the shop wrote it), `name_translated` (in `lang`) and `name_lang`; the shop carries
+  its `timezone`.
+- Discovery: `robots.ts` (AI crawlers named; `/api/ai-search` and `?ai=1` pages kept off), `sitemap.ts` (hourly),
+  `llms.txt/route.ts`; optional search-engine verification tags from `GOOGLE_SITE_VERIFICATION` /
+  `BING_SITE_VERIFICATION`.
+
+### 2.7 AI search (`lib/aiSearch.ts`, `app/api/ai-search/route.ts`, `components/AiSearch.tsx`)
+
+- The main page shows "Search with AI" only when `ANTHROPIC_API_KEY` is set in Vercel. It submits `?q=…&ai=1`; the
+  plain results are rendered on the server as always, and the `AiSearch` component above them POSTs the question to
+  `/api/ai-search` and shows "AI is searching all shops…" while it works.
+- The route checks `ai_search_hit()` (10 per minute per caller, `AI_DAILY_LIMIT` per day, default 500), then runs a
+  tool loop with Claude Haiku (low effort, max 2,048 tokens per turn, prompt caching): one strict tool, `search_stock`
+  (query, only_available — no location), served by `publicApi.searchStock` like the API and MCP. Up to 3 turns with
+  searches and 12 searches in total, 30 seconds; then the model must answer. The final answer is structured output:
+  language, a short answer, and the refs (`r1`, `r2`, … given in the tool results) of the fitting items.
+- Cards are built from the search results only (unknown refs are dropped), in the page language: name + translation,
+  brand, price, shop, place, availability + freshness, link to the item page. The searched terms are shown.
+- No key, over a limit, a refusal or any error → `{fallback: true}` and the AI box disappears; the plain results stay.
+  No CORS headers: only the PPI website calls it.
 
 ## 3. Main flows step by step
 
@@ -187,6 +225,14 @@ upload applies the stock → shop shows "Current".
 
 **The 15-minute rhythm:** the PPI window on the shop PC checks in (`upload_check_in`) and sends the newest finished
 file if it is new. Supabase itself runs no schedule.
+
+**A shopper asks the AI "biela farba na fasádu":** main page `?q=…&ai=1` → plain results rendered on the server →
+`AiSearch` → `/api/ai-search` → `ai_search_hit()` → Claude Haiku calls `search_stock` for "biela farba", "white paint",
+"homlokzatfesték" at once → `search_stock()` finds the paint through its Slovak, Hungarian and English names → Haiku
+answers in Slovak with the fitting refs → cards from the search results.
+
+**A shop's names get their translations:** an upload is applied → reply to the PPI window → in the background
+`items_to_translate` → Claude Haiku → `apply_item_translations` → from then on "white paint" finds "Farba fas. biela 5L".
 
 **An AI assistant asks "who has paint in Budince?":** MCP `search_stock(query="paint", near="Budince")` →
 `town_center` → `search_stock` with a radius → items with price, availability, freshness and `source_url`. (A search
@@ -211,6 +257,8 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | Export stopped | same | latest file time stops moving |
 | File layout changed (> 5 % rows unreadable) | last good stock stays | new column proposal to approve; message |
 | `stock-pull` failing | stock ages, then hidden after 24 h | `last_error` on the dashboard |
+| Translation fails (Claude unavailable, no key) | stock as usual; new names found only by their original words | names without translation ("made with the next stock file"); retried with the next file |
+| AI search fails or is over a limit | the AI box disappears; plain results as usual | — |
 | E-mail sending fails (SMTP) | — | no confirmation / reset e-mails (check Brevo and Supabase Auth logs) |
 | Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
 
@@ -224,6 +272,8 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
   outside call is the optional Claude API).
 - The shop PC runs no server and opens no ports; the browser reads one folder, read-only.
 - Public API/MCP: read-only, 60 requests/minute, no personal data, no IP addresses stored.
+- `ANTHROPIC_API_KEY` is a server-only setting (Supabase function secret for translations and column proposals,
+  Vercel variable for the AI search), never `NEXT_PUBLIC_…`; the AI search is limited per caller and per day.
 - Secrets (SMTP key, API keys) live in Supabase secrets, Vercel variables and a password manager —
   never in the repository or chat.
 
@@ -235,7 +285,9 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (optional) | `NEXT_PUBLIC_SITE_URL` | own domain for links, sitemap, JSON-LD (else the Vercel production address) |
 | Vercel env (optional) | `API_HASH_SALT` | salt for hashing API callers' IPs |
 | Vercel env (optional) | `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | search-engine ownership tags |
-| Supabase function secret (optional) | `ANTHROPIC_API_KEY` | Claude column proposals (else rule-based guess) |
+| Vercel env (optional, server only) | `ANTHROPIC_API_KEY` | switches on the AI search on the main page |
+| Vercel env (optional) | `AI_DAILY_LIMIT` | AI searches per day for the whole site (default 500) |
+| Supabase function secret (optional) | `ANTHROPIC_API_KEY` | item-name translations and Claude column proposals (else no translations and a rule-based column guess) |
 | Supabase Auth | sign-ups on, confirm e-mail on, min. password 8, custom SMTP (Brevo), Site URL + redirect URLs, e-mail templates | accounts and e-mails |
 | Supabase (automatic) | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | given to the function by Supabase |
 
@@ -245,11 +297,11 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 src/app/[lang]/            public pages, accounts, (account)/dashboard|sync|password
 src/app/api, mcp, auth     REST API + OpenAPI, MCP server, e-mail link landing / sign out
 src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
-src/components/            ShopMap, FolderSync, ShopForm, LogoInput, InstallApp, StockLine, OpenStatus, …
-src/lib/                   data, publicApi, apiHttp, auth, format, hours, folderStore, supabase/*
+src/components/            ShopMap, FolderSync, AiSearch, ShopForm, LogoInput, InstallApp, StockLine, OpenStatus, …
+src/lib/                   data, publicApi, aiSearch, names, apiHttp, auth, format, hours, folderStore, supabase/*
 src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh
-supabase/migrations/       16 numbered SQL files (section 9)
+supabase/migrations/       17 numbered SQL files (section 9)
 supabase/functions/        stock-pull (index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
@@ -277,18 +329,22 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | 14 | `20261011000001_search_shop_name.sql` | search also by shop name, street, town |
 | 15 | `20261012000001_cloud_link.sql` | cloud links: `owner_set_file_url`, `last_file_hash`, `my_shops` with `file_url` (undone by 16) |
 | 16 | `20261013000001_remove_cloud_link.sql` | upload only: stops the `ppi-stock-pull` schedule, drops `owner_set_file_url` and `last_file_hash`, `my_shops` without `file_url` |
+| 17 | `20261014000001_item_translations.sql` | item names in sk/hu/en (`name_lang`, `name_i18n`, `translated_name_source`, `name_i18n_by_owner`), word search across names and translations with its trigram index, `items_to_translate`, `apply_item_translations`, `owner_set_item_translation`, `ai_search_hit` |
 
 ## 10. Testing and releasing
 
 - `npm run test:db`: applies all migrations and the sample data to a throwaway local Postgres/PostGIS and checks the
   rules as visitor, two owners, a new self-service owner and the service role (RLS, freshness, labels, quantity hiding,
-  search incl. shop name/street/town, check-in, owner functions, 5-shop limit, and that migration 16 removed the cloud
-  links and the schedule).
-- `npm run test:functions`: 5 Deno tests of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row
-  counting).
+  search incl. shop name/street/town, check-in, owner functions, 5-shop limit, that migration 16 removed the cloud
+  links and the schedule; search finds an item by Slovak, Hungarian and English words, the index covers the
+  translations, an owner's correction survives a new file, the AI search limits).
+- `npm run test:functions`: 9 Deno tests of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row
+  counting, translation batches, checking Claude's translations, a failed translation leaves the stock applied,
+  translations saved after the stock).
 - `npm run lint`, `npm run typecheck`, `npm run build` before every push.
 - During development every feature was also run end to end in a real Chromium browser (Playwright) against a local
-  stand-in for Supabase (PostgREST + the function in Deno); those scripts are not part of the repository.
+  stand-in for Supabase (PostgREST + the function in Deno) and, for translations and AI search, a stand-in for the
+  Claude API; those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).
@@ -303,7 +359,7 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | Vercel | website, API, MCP, previews | free to start; paid plan for commercial use |
 | Supabase | database, Auth, Storage, Edge Function | free to start; Pro about $25/month when live |
 | Brevo | SMTP for account e-mails | free (300 e-mails/day) |
-| Anthropic API | column proposals (optional) | pay per use, small (once per shop and layout change) |
+| Anthropic API | column proposals, item-name translations (Supabase) and AI search (Vercel) — optional | pay per use; with Claude Haiku roughly a few cents per 1,000 names translated (once per name) and well under one cent per AI search; capped by `AI_DAILY_LIMIT` |
 | OpenFreeMap | map tiles | free, no key |
 | Claude Code | writes, tests and fixes the code | Claude plan |
 

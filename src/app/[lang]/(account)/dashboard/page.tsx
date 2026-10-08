@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { isLocale } from "@/i18n/config";
+import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { formatDateTime, formatPrice } from "@/lib/format";
 import { MAPPING_FIELDS, REQUIRED_FIELDS, type MyShop } from "@/lib/myShops";
+import { translatedName, type NameI18n } from "@/lib/names";
 import { availabilityText, type AvailabilityKey } from "@/lib/stock";
 import { folderSyncLabels } from "@/lib/syncLabels";
 import { DbError } from "@/components/DbError";
@@ -12,7 +13,7 @@ import { FolderSync } from "@/components/FolderSync";
 import { LogoInput } from "@/components/LogoInput";
 import { PendingButton } from "@/components/PendingButton";
 import { ShopForm } from "@/components/ShopForm";
-import { approveColumns, deleteShop, saveShop, saveVisibility, setItemPublic, uploadLogo } from "./actions";
+import { approveColumns, deleteShop, saveShop, saveTranslation, saveVisibility, setItemPublic, uploadLogo } from "./actions";
 
 const PAGE_SIZE = 50;
 
@@ -27,13 +28,19 @@ interface OwnerItem {
   availability: AvailabilityKey | null;
   is_public: boolean;
   total_count: number;
+  name_lang: string | null;
+  name_i18n: NameI18n | null;
+  name_i18n_by_owner: boolean;
+  translated_name_source: string | null;
 }
+
+const NAME_LANGUAGES = ["sk", "hu", "en"] as const;
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-const ERRORS = ["name", "limit", "columns", "website", "logo"] as const;
+const ERRORS = ["name", "limit", "columns", "website", "logo", "translation"] as const;
 
 function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
@@ -114,7 +121,12 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const pageUrl = (n: number) =>
     `/${lang}/dashboard?${new URLSearchParams({ shop: shop.slug, ...(q ? { q } : {}), page: String(n) })}#items`;
   const when = (iso: string | null) => (iso ? formatDateTime(iso, lang, shop.timezone) : dict.account.never);
-  const okText = ok === "columns" ? o.columns_saved : dict.account.saved;
+  const okTexts: Record<string, string> = {
+    columns: o.columns_saved,
+    translation: dict.dashboard.translation_saved,
+    translation_auto: dict.dashboard.translation_auto_done,
+  };
+  const okText = (ok && okTexts[ok]) || dict.account.saved;
   // The message of a form is shown inside that form's section (the page jumps there).
   const at = first(sp.at);
   const notice = (section: string) =>
@@ -329,6 +341,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
 
       <Section title={dict.dashboard.items_title} id="items">
         <p className="text-sm text-muted">{dict.dashboard.items_hint}</p>
+        <p className="text-sm text-muted">{dict.dashboard.translation_hint}</p>
+        {notice("items")}
         <form method="get" className="flex gap-2" role="search">
           <input type="hidden" name="shop" value={shop.slug} />
           <input type="search" name="q" defaultValue={q} placeholder={dict.dashboard.search} className={`${inputClass} min-w-0 flex-1`} />
@@ -352,7 +366,9 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
               <tbody>
                 {items.map((item) => (
                   <tr key={item.item_id} className={`border-b border-line ${item.is_public ? "" : "text-muted"}`}>
-                    <td className="py-2 pr-2">{item.item_name}</td>
+                    <td className="py-2 pr-2">
+                      <ItemNames item={item} lang={lang} dict={dict} hidden={hidden({ at: "items", item_id: item.item_id, q, page: String(page) })} />
+                    </td>
                     <td className="py-2 pr-2 tabular-nums">{item.source_code}</td>
                     <td className="whitespace-nowrap py-2 pr-2 text-right">{formatPrice(item.price, lang, item.currency)}</td>
                     <td className="py-2 pr-2 text-right tabular-nums">{item.quantity ?? ""}</td>
@@ -415,6 +431,58 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-sm">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** The shop's own name, its translation in the page language, and the owner's correction form. */
+function ItemNames({
+  item,
+  lang,
+  dict,
+  hidden,
+}: {
+  item: OwnerItem;
+  lang: Locale;
+  dict: Dictionary;
+  hidden: React.ReactNode;
+}) {
+  const d = dict.dashboard;
+  const translated = translatedName(item.item_name, item.name_i18n, lang);
+  const renamed = item.name_i18n_by_owner && item.translated_name_source !== null && item.translated_name_source !== item.item_name;
+  return (
+    <div className="flex min-w-48 flex-col gap-1">
+      <span>{item.item_name}</span>
+      {translated && <span className="text-muted">{translated}</span>}
+      {!item.name_i18n && <span className="text-xs text-muted">{d.translation_waiting}</span>}
+      <details>
+        <summary className="cursor-pointer text-xs text-muted underline underline-offset-4">
+          {item.name_i18n_by_owner ? d.translation_yours : d.translation_edit}
+        </summary>
+        <form action={saveTranslation} className="mt-2 flex flex-col gap-2">
+          {hidden}
+          {NAME_LANGUAGES.map((l) => (
+            <label key={l} className="flex flex-col gap-1">
+              <span className="text-xs text-muted">{d[`translation_${l}`]}</span>
+              <input
+                name={`name_${l}`}
+                defaultValue={item.name_i18n?.[l] ?? ""}
+                maxLength={300}
+                className={inputClass}
+              />
+            </label>
+          ))}
+          {renamed && <p className="text-xs">{d.translation_name_changed}</p>}
+          <div className="flex flex-wrap gap-2">
+            <SubmitButton pending={dict.owner.saving}>{d.translation_save}</SubmitButton>
+            {item.name_i18n_by_owner && (
+              <button type="submit" name="intent" value="auto" className="rounded border border-line px-4 py-2">
+                {d.translation_auto}
+              </button>
+            )}
+          </div>
+        </form>
+      </details>
+    </div>
   );
 }
 

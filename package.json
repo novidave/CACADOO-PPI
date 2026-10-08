@@ -15,6 +15,7 @@
     "test:functions": "cd supabase/functions && (PPI_STOCK_PULL_TEST=1 deno test --config deno.json --allow-env stock-pull/ || PPI_STOCK_PULL_TEST=1 npx -y deno test --config deno.json --allow-env stock-pull/)"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@modelcontextprotocol/sdk": "^1.32.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",

@@ -5,6 +5,7 @@ import { isLocale, locales, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { getShop, getShopItems, type PublicShop } from "@/lib/data";
 import { addressLine, directionsUrl, formatPrice } from "@/lib/format";
+import { translatedName } from "@/lib/names";
 import { DAYS, dayName, hasHours, openingHoursSpecification, rangesFor } from "@/lib/hours";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { freshnessText } from "@/lib/stock";
@@ -127,19 +128,25 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
           <p>{dict.shop.no_items}</p>
         ) : (
           <ul className="divide-y divide-line border-y border-line">
-            {items.map((item) => (
-              <li key={item.item_id} className="flex flex-col gap-1 py-3">
-                <div className="flex items-baseline justify-between gap-3">
-                  <Link href={`/${lang}/items/${item.item_id}`} className="font-medium hover:underline">
-                    {item.item_name}
-                  </Link>
-                  <span className="whitespace-nowrap font-medium">{formatPrice(item.price, lang, item.currency)}</span>
-                </div>
-                <div className="text-sm">
-                  <StockLine row={item} timeZone={shop.timezone} dict={dict} />
-                </div>
-              </li>
-            ))}
+            {items.map((item) => {
+              const translated = translatedName(item.item_name, item.item_name_i18n, lang);
+              return (
+                <li key={item.item_id} className="flex flex-col gap-1 py-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link href={`/${lang}/items/${item.item_id}`} className="font-medium hover:underline">
+                        {item.item_name}
+                      </Link>
+                      {translated && <p className="text-sm text-muted">{translated}</p>}
+                    </div>
+                    <span className="whitespace-nowrap font-medium">{formatPrice(item.price, lang, item.currency)}</span>
+                  </div>
+                  <div className="text-sm">
+                    <StockLine row={item} timeZone={shop.timezone} dict={dict} />
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
 

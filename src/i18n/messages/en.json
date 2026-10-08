@@ -10,7 +10,12 @@
     "only_available": "Only available now",
     "results": "Results",
     "not_connected": "The database is not connected yet. Set the Supabase environment variables (see SETUP.md).",
-    "empty_everywhere": "No shop has this right now."
+    "empty_everywhere": "No shop has this right now.",
+    "ai_button": "Search with AI",
+    "ai_title": "AI answer",
+    "ai_loading": "AI is searching all shops…",
+    "ai_searched": "Searched for: {terms}",
+    "ai_note": "Answer written by AI; prices and stock come straight from the shops."
   },
   "stock": {
     "in_stock": "In stock",
@@ -155,7 +160,19 @@
     "no_items": "No items yet. They appear after the first stock file arrives.",
     "amenities_title": "Facilities for customers",
     "amenities_hint": "Ticked items are shown on the shop page.",
-    "sync_link": "Connect the export folder on the shop PC →"
+    "sync_link": "Connect the export folder on the shop PC →",
+    "translation_hint": "Item names are translated automatically into Slovak, Hungarian and English, so shoppers find them in each of these languages. You can correct a translation; a corrected one is never overwritten.",
+    "translation_edit": "Correct the translation",
+    "translation_yours": "Translation (corrected by you)",
+    "translation_waiting": "The translation is made with the next stock file.",
+    "translation_sk": "Slovak",
+    "translation_hu": "Hungarian",
+    "translation_en": "English",
+    "translation_save": "Save translation",
+    "translation_auto": "Translate automatically",
+    "translation_name_changed": "The name has changed since your correction – please check the translation.",
+    "translation_saved": "Translation saved.",
+    "translation_auto_done": "The translation will be made automatically again with the next stock file."
   },
   "sync": {
     "title": "Export folder",
@@ -264,6 +281,7 @@
     "rule_public": "Only public information: no purchase prices, suppliers or customer data.",
     "rule_pc": "The PC stays on during opening hours with this page or the PPI app open (minimised is fine).",
     "saving": "Saving…",
-    "uploading": "Uploading…"
+    "uploading": "Uploading…",
+    "error_translation": "Enter at least one translation (up to 300 characters)."
   }
 }

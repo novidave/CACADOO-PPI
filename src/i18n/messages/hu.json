@@ -10,7 +10,12 @@
     "only_available": "Csak a most elérhetők",
     "results": "Találatok",
     "not_connected": "Az adatbázis még nincs csatlakoztatva. Állítsa be a Supabase környezeti változókat (lásd SETUP.md).",
-    "empty_everywhere": "Most egyik üzletben sincs ilyen."
+    "empty_everywhere": "Most egyik üzletben sincs ilyen.",
+    "ai_button": "AI-keresés",
+    "ai_title": "Az AI válasza",
+    "ai_loading": "Az AI az összes üzletben keres…",
+    "ai_searched": "Keresett kifejezések: {terms}",
+    "ai_note": "A választ AI írja; az árak és a készlet közvetlenül az üzletektől származnak."
   },
   "stock": {
     "in_stock": "Raktáron",
@@ -155,7 +160,19 @@
     "no_items": "Még nincs termék. Az első készletfájl után jelenik meg.",
     "amenities_title": "Szolgáltatások a vásárlóknak",
     "amenities_hint": "A bejelölt tételek megjelennek az üzlet oldalán.",
-    "sync_link": "Az exportmappa összekapcsolása a bolti számítógépen →"
+    "sync_link": "Az exportmappa összekapcsolása a bolti számítógépen →",
+    "translation_hint": "A termékneveket automatikusan lefordítjuk szlovákra, magyarra és angolra, hogy a vásárlók mindhárom nyelven megtalálják őket. A fordítást kijavíthatja; a javított fordítást már nem írjuk felül.",
+    "translation_edit": "Fordítás javítása",
+    "translation_yours": "Fordítás (Ön javította)",
+    "translation_waiting": "A fordítás a következő készletfájllal készül el.",
+    "translation_sk": "Szlovákul",
+    "translation_hu": "Magyarul",
+    "translation_en": "Angolul",
+    "translation_save": "Fordítás mentése",
+    "translation_auto": "Automatikus fordítás",
+    "translation_name_changed": "A név a javítása óta megváltozott – ellenőrizze a fordítást.",
+    "translation_saved": "Fordítás mentve.",
+    "translation_auto_done": "A fordítás a következő készletfájllal ismét automatikusan elkészül."
   },
   "sync": {
     "title": "Exportmappa",
@@ -264,6 +281,7 @@
     "rule_public": "Csak nyilvános adatok: beszerzési ár, szállító és vásárlói adat nélkül.",
     "rule_pc": "A gép nyitvatartási időben bekapcsolva marad, és nyitva van rajta ez az oldal vagy a PPI alkalmazás (lehet kis méretre állítva).",
     "saving": "Mentés…",
-    "uploading": "Feltöltés…"
+    "uploading": "Feltöltés…",
+    "error_translation": "Adjon meg legalább egy fordítást (legfeljebb 300 karakter)."
   }
 }

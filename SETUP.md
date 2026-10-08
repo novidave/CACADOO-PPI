@@ -42,6 +42,7 @@ For **each** file below:
 | 14 | `supabase/migrations/20261011000001_search_shop_name.sql` | Search also by shop name, street and town |
 | 15 | `supabase/migrations/20261012000001_cloud_link.sql` | Cloud file links (taken out again by file 16) |
 | 16 | `supabase/migrations/20261013000001_remove_cloud_link.sql` | Upload only: removes the cloud file links and stops the old 15-minute download schedule |
+| 17 | `supabase/migrations/20261014000001_item_translations.sql` | Item names in Slovak, Hungarian and English, search across languages, AI search limits |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -169,7 +170,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001 20261012000001 20261013000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001 20261012000001 20261013000001 20261014000001
 ```
 
 ---
@@ -295,7 +296,7 @@ Supabase → **Edge Functions** → **Secrets** (or *Manage secrets*) → add:
 
 | Name | Value |
 |---|---|
-| `ANTHROPIC_API_KEY` | *optional* — an API key from console.anthropic.com. With it, Claude proposes the field mappings; without it, a simple rule-based guess is proposed. The shop owner approves either way. |
+| `ANTHROPIC_API_KEY` | *optional* — an API key from console.anthropic.com. With it, Claude proposes the field mappings and translates item names into Slovak, Hungarian and English; without it, a simple rule-based guess is proposed and names stay untranslated. The shop owner approves the columns either way. |
 
 ### G3. Deploy the function
 
@@ -347,6 +348,25 @@ MCP connector (Part F). A short own domain (e.g. ppi.sk) instead of `*.vercel.ap
 
 ---
 
+## Part J — Item names in three languages and AI search (8 October 2026)
+
+1. **Function first:** Supabase → **Edge Functions** → `stock-pull` → **Code** → replace everything with the new
+   `supabase/functions/stock-pull/index.ts` → **Deploy**. Keep **Verify JWT** off.
+2. **Database:** SQL Editor → run file 17 (`supabase/migrations/20261014000001_item_translations.sql`) →
+   "Success. No rows returned".
+3. **Translations:** Supabase → **Edge Functions** → **Secrets**: `ANTHROPIC_API_KEY` must be there (part G2). Each
+   shop's names are translated with its next new stock file; to start at once, send a file with **Nahrať súbor**.
+4. **AI search:** Vercel → Project → **Settings → Environment Variables** → add `ANTHROPIC_API_KEY` (an Anthropic key;
+   a separate key from the Supabase one is fine) and, optionally, `AI_DAILY_LIMIT` (AI searches per day for the whole
+   site, default 500) for Production → **Redeploy**. The "Hľadať s AI" button appears only when the key is set.
+5. **Check:** search "white paint" on `/en` for an item named in Slovak (after its translation); click
+   **Hľadať s AI** on `/sk` with a question such as "čo potrebujem na tečúcu rúru" — an answer box appears above the
+   results within a few seconds.
+
+Never put the Anthropic key in a `NEXT_PUBLIC_…` variable or in the repository.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -370,3 +390,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 5. AI access — robots.txt, sitemap, llms.txt, public API, MCP server | ✅ done |
 | 6. Stock pull Edge Function + AI field mapping | ✅ done |
 | 7. Self-service: sign-up with password, password reset, owners create shops, export folder on the dashboard, column approval; no admin area | ✅ built — set up Part E and H |
+| 8. Item names in Slovak, Hungarian and English (search across languages, owner corrections); AI search on the main page | ✅ built — set up Part J |

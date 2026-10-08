@@ -52,7 +52,12 @@ function availabilityText(key: AvailabilityKey | null, quantity: number | null):
 export function apiItem(row: StockRow, lang: Locale) {
   return {
     id: row.item_id,
+    /** As the shop wrote it. */
     name: row.item_name,
+    /** In the requested language (null until translated). */
+    name_translated: row.item_name_i18n?.[lang]?.trim() || null,
+    /** Language of `name` (ISO 639-1), detected with the translation. */
+    name_lang: row.item_name_lang ?? null,
     brand: row.brand,
     ean: row.ean,
     price: row.price === null ? null : Number(row.price),
@@ -73,6 +78,7 @@ export function apiItem(row: StockRow, lang: Locale) {
       address: row.shop_address,
       city: row.shop_city,
       country: row.shop_country,
+      timezone: row.shop_timezone,
       lat: row.shop_lat,
       lng: row.shop_lng,
       source_url: page(lang, `/shops/${row.shop_slug}`),
@@ -252,7 +258,7 @@ export async function getItem(id: string, lang: Locale) {
   const { data, error } = await db()
     .from("public_stock")
     .select(
-      "item_id, item_name, ean, brand, shop_id, shop_slug, shop_name, shop_address, shop_city, shop_country, shop_timezone, shop_lat, shop_lng, price, currency, quantity, availability, is_available, freshness_state, freshness_age_minutes, latest_file_time, updated_at",
+      "item_id, item_name, ean, brand, shop_id, shop_slug, shop_name, shop_address, shop_city, shop_country, shop_timezone, shop_lat, shop_lng, price, currency, quantity, availability, is_available, freshness_state, freshness_age_minutes, latest_file_time, updated_at, item_name_lang, item_name_i18n",
     )
     .eq("item_id", id)
     .maybeSingle();

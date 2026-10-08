@@ -13,11 +13,14 @@
 //      old stock and propose a new mapping; otherwise apply the whole file in one
 //      transaction (apply_stock_file). The file's time becomes the freshness.
 //   4. keep the raw file 7 days in the private "raw-files" bucket
+//   5. after the reply, in the background: names without a translation (or renamed) get
+//      their Slovak, Hungarian and English names from Claude Haiku; never touches stock,
+//      and whatever fails is tried again with the next file
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor →
 // name "stock-pull" → paste this file → Deploy, then switch OFF "Verify JWT"
-// (this function checks its callers itself). Secret: ANTHROPIC_API_KEY (optional,
-// for AI mapping proposals).
+// (this function checks its callers itself). Secret: ANTHROPIC_API_KEY (optional:
+// AI mapping proposals and the item-name translations).
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { XMLParser } from "npm:fast-xml-parser@5.11.2";
@@ -46,6 +49,11 @@ export interface StockRow {
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_BAD_SHARE = 0.05;
 const RAW_FILE_DAYS = 7;
+const TRANSLATE_MODEL = "claude-haiku-5-5";
+const TRANSLATE_BATCH = 200;
+const TRANSLATE_PARALLEL = 3;
+/** Per received file; the rest is translated with the next files. */
+const TRANSLATE_MAX_ITEMS = 1200;
 
 // ---------------------------------------------------------------- reading files
 
@@ -340,6 +348,155 @@ export async function proposeWithClaude(columns: string[], sample: Row[]): Promi
   }
 }
 
+// ---------------------------------------------------------------- item names in three languages
+
+/** A name the database asks to translate (items_to_translate). */
+export interface NameToTranslate {
+  item_id: string;
+  name: string;
+}
+
+/** What apply_item_translations() saves: source is the name that was translated. */
+export interface NameTranslation {
+  item_id: string;
+  source: string;
+  lang: string | null;
+  sk: string;
+  hu: string;
+  en: string;
+}
+
+export type Translator = (batch: NameToTranslate[]) => Promise<NameTranslation[]>;
+
+export function batches<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+const TRANSLATION_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          i: { type: "integer" },
+          lang: { type: "string" },
+          sk: { type: "string" },
+          hu: { type: "string" },
+          en: { type: "string" },
+        },
+        required: ["i", "lang", "sk", "hu", "en"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+const TRANSLATION_PROMPT =
+  "You turn product names from a shop's stock list into plain product names in Slovak, Hungarian and English, " +
+  "for a product search that works in all three languages.\n" +
+  'You get a JSON list of {"i": number, "name": text}. For every name return {"i", "lang", "sk", "hu", "en"}:\n' +
+  "- lang: the language the name is written in, as an ISO 639-1 code (sk, hu, cs, de, pl, en, ...).\n" +
+  "- sk, hu, en: the name in plain Slovak, Hungarian and English, the way a shopper would search for it.\n" +
+  "Rules:\n" +
+  "- Expand the shop's abbreviations into full words, e.g. \"Farba fas. biela 5L\" becomes " +
+  "sk \"Fasádna farba biela 5 l\", hu \"Homlokzatfesték fehér 5 l\", en \"White facade paint 5 l\".\n" +
+  "- Keep brand names, sizes and quantities, model numbers and part numbers unchanged; only write units the usual " +
+  "way, with a space (\"5L\" becomes \"5 l\", \"250G\" becomes \"250 g\").\n" +
+  "- Translate only what the name says; add nothing.\n" +
+  "- A name that is only a code, a brand or a model stays the same in all three languages.\n" +
+  "Return every i exactly once.";
+
+/** Claude's answer for one batch: one complete translation per name; anything else is dropped. */
+export function readTranslations(text: string, batch: NameToTranslate[]): NameTranslation[] {
+  const parsed = JSON.parse(text) as { items?: Record<string, unknown>[] };
+  const seen = new Set<number>();
+  const out: NameTranslation[] = [];
+  for (const row of parsed.items ?? []) {
+    const i = Number(row.i);
+    if (!Number.isInteger(i) || i < 0 || i >= batch.length || seen.has(i)) continue;
+    const [sk, hu, en] = [row.sk, row.hu, row.en].map((v) => (typeof v === "string" ? v.trim().slice(0, 300) : ""));
+    if (!sk || !hu || !en) continue;
+    seen.add(i);
+    const lang = typeof row.lang === "string" ? row.lang.trim().toLowerCase() : "";
+    out.push({ item_id: batch[i].item_id, source: batch[i].name, lang: /^[a-z]{2}$/.test(lang) ? lang : null, sk, hu, en });
+  }
+  return out;
+}
+
+/** One batch through Claude Haiku. Structured output keeps the answer valid JSON. */
+export const translateWithClaude: Translator = async (batch) => {
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey || batch.length === 0) return [];
+  const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 120_000 });
+  const message = await client.messages
+    .stream({
+      model: TRANSLATE_MODEL,
+      max_tokens: 32000,
+      output_config: { effort: "low", format: { type: "json_schema", schema: TRANSLATION_SCHEMA } },
+      system: TRANSLATION_PROMPT,
+      messages: [{ role: "user", content: JSON.stringify(batch.map((item, i) => ({ i, name: item.name }))) }],
+    })
+    .finalMessage();
+  if (message.stop_reason !== "end_turn") throw new Error(`translation stopped: ${message.stop_reason}`);
+  const text = message.content.find((block) => block.type === "text");
+  if (!text || text.type !== "text") throw new Error("translation returned no text");
+  return readTranslations(text.text, batch);
+};
+
+/**
+ * After a file was applied: translate the shop's names that have no translation yet or
+ * were renamed (never the owner's corrections) and save them. Runs after the reply, never
+ * throws and never touches stock; whatever fails is tried again with the next file.
+ */
+export async function translateShopItems(
+  db: SupabaseClient,
+  shopId: string,
+  translate: Translator = translateWithClaude,
+): Promise<{ saved: number; failed: number }> {
+  let saved = 0;
+  let failed = 0;
+  try {
+    if (translate === translateWithClaude && !Deno.env.get("ANTHROPIC_API_KEY")) return { saved, failed };
+    const { data, error } = await db.rpc("items_to_translate", { p_shop_id: shopId, p_limit: TRANSLATE_MAX_ITEMS });
+    if (error) throw new Error(error.message);
+    const groups = batches((data ?? []) as NameToTranslate[], TRANSLATE_BATCH);
+    for (let i = 0; i < groups.length; i += TRANSLATE_PARALLEL) {
+      const results = await Promise.allSettled(groups.slice(i, i + TRANSLATE_PARALLEL).map((group) => translate(group)));
+      for (const result of results) {
+        if (result.status === "rejected") {
+          failed++;
+          console.error("translation failed:", result.reason instanceof Error ? result.reason.message : result.reason);
+          continue;
+        }
+        if (result.value.length === 0) continue;
+        const { data: count, error: saveError } = await db.rpc("apply_item_translations", {
+          p_shop_id: shopId,
+          p_items: result.value,
+        });
+        if (saveError) throw new Error(saveError.message);
+        saved += Number(count ?? 0);
+      }
+    }
+  } catch (e) {
+    failed++;
+    console.error("translation failed:", e instanceof Error ? e.message : e);
+  }
+  return { saved, failed };
+}
+
+/** Keeps work running after the reply (Supabase Edge Runtime); elsewhere it just runs on. */
+function inBackground(task: Promise<unknown>): void {
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
+  if (runtime) runtime.waitUntil(task);
+  else task.catch(() => {});
+}
+
 // ---------------------------------------------------------------- one shop
 
 interface Source {
@@ -475,7 +632,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * file (gzip=1: gzip-compressed), query shop_id, file_time (the file's own time, ISO),
  * file_name. Only the shop's owners and the admin, with their own login.
  */
-async function receiveUpload(req: Request, params: URLSearchParams, asCaller: SupabaseClient, db: SupabaseClient) {
+export async function receiveUpload(
+  req: Request,
+  params: URLSearchParams,
+  asCaller: SupabaseClient,
+  db: SupabaseClient,
+  options: { translate?: Translator; background?: (task: Promise<unknown>) => void } = {},
+) {
   const shopId = params.get("shop_id") ?? "";
   if (!UUID.test(shopId)) return reply(400, { error: "shop_id is missing" });
 
@@ -510,6 +673,8 @@ async function receiveUpload(req: Request, params: URLSearchParams, asCaller: Su
   } catch (e) {
     result = await failed(update, e);
   }
+  // The new stock is saved; names are translated after the reply, so this never delays it.
+  if (result.status === "updated") (options.background ?? inBackground)(translateShopItems(db, shopId, options.translate));
   return reply(200, { result });
 }
 

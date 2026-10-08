@@ -10,7 +10,12 @@
     "only_available": "Len dostupné teraz",
     "results": "Výsledky",
     "not_connected": "Databáza ešte nie je pripojená. Nastavte premenné prostredia Supabase (pozri SETUP.md).",
-    "empty_everywhere": "Žiadny obchod to teraz nemá."
+    "empty_everywhere": "Žiadny obchod to teraz nemá.",
+    "ai_button": "Hľadať s AI",
+    "ai_title": "Odpoveď AI",
+    "ai_loading": "AI hľadá vo všetkých obchodoch…",
+    "ai_searched": "Hľadané výrazy: {terms}",
+    "ai_note": "Odpoveď píše AI; ceny a zásoby sú priamo z obchodov."
   },
   "stock": {
     "in_stock": "Na sklade",
@@ -155,7 +160,19 @@
     "no_items": "Zatiaľ žiadny tovar. Objaví sa po prvom súbore zo skladového programu.",
     "amenities_title": "Vybavenie pre zákazníkov",
     "amenities_hint": "Zaškrtnuté položky sa zobrazia na stránke obchodu.",
-    "sync_link": "Prepojiť priečinok s exportom na počítači v obchode →"
+    "sync_link": "Prepojiť priečinok s exportom na počítači v obchode →",
+    "translation_hint": "Názvy tovaru sa automaticky prekladajú do slovenčiny, maďarčiny a angličtiny, aby ich zákazníci našli v každom z týchto jazykov. Preklad môžete opraviť; opravený preklad sa už neprepíše.",
+    "translation_edit": "Upraviť preklad",
+    "translation_yours": "Preklad (upravený vami)",
+    "translation_waiting": "Preklad sa urobí s ďalším súborom so zásobami.",
+    "translation_sk": "Slovensky",
+    "translation_hu": "Maďarsky",
+    "translation_en": "Anglicky",
+    "translation_save": "Uložiť preklad",
+    "translation_auto": "Prekladať automaticky",
+    "translation_name_changed": "Názov sa od vašej opravy zmenil – skontrolujte preklad.",
+    "translation_saved": "Preklad uložený.",
+    "translation_auto_done": "Preklad sa znova urobí automaticky s ďalším súborom so zásobami."
   },
   "sync": {
     "title": "Priečinok s exportom",
@@ -264,6 +281,7 @@
     "rule_public": "Len verejné údaje: žiadne nákupné ceny, dodávatelia ani údaje o zákazníkoch.",
     "rule_pc": "Počítač je počas otváracích hodín zapnutý a je na ňom otvorená táto stránka alebo aplikácia PPI (môže byť minimalizovaná).",
     "saving": "Ukladám…",
-    "uploading": "Nahrávam…"
+    "uploading": "Nahrávam…",
+    "error_translation": "Zadajte aspoň jeden preklad (najviac 300 znakov)."
   }
 }

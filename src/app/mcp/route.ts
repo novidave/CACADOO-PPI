@@ -38,14 +38,18 @@ function buildServer() {
       title: "Search shop stock",
       description:
         "Find local shops that have a product in stock right now. Returns up to 50 items: available first, then " +
-        "fresher data, then nearer. Each result has price, currency, availability, freshness (when the shop's stock " +
-        "was last updated), the shop's name, address and coordinates, and a source_url to cite.",
+        "fresher data, then nearer. Each result has the name as the shop wrote it (name) and in the requested " +
+        "language (name_translated), price, currency, availability, freshness (when the shop's stock was last " +
+        "updated), the shop's name, address and coordinates, and a source_url to cite.",
       inputSchema: {
         query: z
           .string()
           .min(1)
           .max(200)
-          .describe("Product name, brand, EAN barcode, shop name, street or town. Accents and case are ignored."),
+          .describe(
+            "Product name in Slovak, Hungarian or English (every word must match, any order), brand, EAN barcode, " +
+              "shop name, street or town. Accents and case are ignored.",
+          ),
         near: z
           .string()
           .max(100)
@@ -53,7 +57,10 @@ function buildServer() {
           .describe("Town where PPI has shops (e.g. 'Michalovce') or coordinates 'lat,lng'. Omit to search all shops."),
         radius_km: z.number().min(0.1).max(500).optional().describe("Search radius around 'near' in km (default 10)."),
         only_available: z.boolean().optional().describe("Only items that are in stock and have fresh data."),
-        lang: z.enum(["sk", "hu", "en"]).optional().describe("Language of the source_url pages (default en)."),
+        lang: z
+          .enum(["sk", "hu", "en"])
+          .optional()
+          .describe("Language of name_translated and of the source_url pages (default en)."),
       },
       annotations: { title: "Search shop stock", ...readOnly },
     },
