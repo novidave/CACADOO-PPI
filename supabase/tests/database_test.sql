@@ -922,4 +922,50 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 
+\echo '--- shop assistant: paid plan, 20 messages an hour per caller, monthly cap per shop'
+set role anon;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');      -- has the plan (above)
+  v_none uuid := (select id from public.shops where slug = 'zeleziarstvo-vychod'); -- no plan
+  i int;
+begin
+  assert public.shop_chat_hit(repeat('d', 64), v_none, 20, 1000) = 'no_plan', 'no paid plan: no assistant';
+  for i in 1..20 loop
+    assert public.shop_chat_hit(repeat('d', 64), v_a, 20, 1000) = 'ok', format('message %s allowed', i);
+  end loop;
+  assert public.shop_chat_hit(repeat('d', 64), v_a, 20, 1000) = 'caller_limit', 'the 21st message in an hour is refused';
+  assert public.shop_chat_hit(repeat('e', 64), v_a, 20, 1000) = 'ok', 'another caller is still allowed';
+  -- 21 messages counted for the shop this month
+  assert public.shop_chat_hit(repeat('f', 64), v_a, 20, 21) = 'shop_limit', 'monthly cap reached';
+  assert public.shop_chat_hit(repeat('f', 64), v_a, 20, 22) = 'ok', 'below the monthly cap';
+  assert public.shop_chat_hit(repeat('f', 64), v_a, 20, 0) = 'shop_limit', 'cap 0 switches the assistant off';
+  begin
+    perform public.shop_chat_hit('short', v_a, 20, 1000);
+    raise exception 'invalid caller hash accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform count(*) from public.shop_chat_usage;
+    raise exception 'visitor read the assistant usage';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select messages from public.shop_chat_usage
+          where shop_id = v_a and month = date_trunc('month', now() at time zone 'UTC')::date) = 22,
+    'only allowed messages are counted, per shop and month';
+  assert (select count(*) from public.api_usage where endpoint = 'shop-chat') = 22, 'each allowed message logged once';
+  -- the plan ends (payment failed): the assistant stops at once
+  perform public.apply_stripe_subscription(v_a, 'cus_A1', 'sub_A1', 'past_due', 'pro', now() + interval '30 days', null);
+  assert public.shop_chat_hit(repeat('g', 64), v_a, 20, 1000) = 'no_plan', 'no assistant without a paid plan';
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'

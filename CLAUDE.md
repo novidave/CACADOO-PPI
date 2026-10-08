@@ -73,6 +73,17 @@ server action `openBilling` → stripe-checkout. Checkout: automatic tax, busine
 collection), company ID (custom field, pre-filled from `shops.ico`, copied to the customer's invoices). A shop whose
 plan still renews cannot be deleted (`owner_delete_shop`).
 
+## Shop assistant (paid)
+
+Shop page only, only when `shop_has_plan(shop)` is true and `ANTHROPIC_API_KEY` is set: `@/components/ShopChat`
+(collapsed box; the page stays server-rendered without it) → `POST /api/shops/[slug]/chat` → `@/lib/shopChat` (Claude
+Haiku `claude-haiku-5-5`; two strict tools bound to that shop on the server: `search_items` → `shop_stock`, `get_item`
+→ `public_stock` filtered by the shop; never other shops; structured answer: answer, item_refs, shopping_list, photo
+read/match). Cards and the list only from tool results; availability from the database. Every message passes
+`shop_chat_hit()` (plan, 20/hour per caller in `api_usage`, `CHAT_MONTHLY_LIMIT_PER_SHOP` per shop and month in
+`shop_chat_usage`). Photos: shrunk in the browser (≤1568 px JPEG), sent once, never stored or logged; "found" without
+an item becomes "unsure". History: last 8 messages, text only.
+
 ## Stock upload
 
 `supabase/functions/stock-pull/index.ts` (single file, paste-deployable) only receives uploads:

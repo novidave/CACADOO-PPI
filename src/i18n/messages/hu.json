@@ -315,5 +315,32 @@
     "unavailable": "A fizetős csomagok még nem érhetők el.",
     "failed": "A Stripe-ot nem sikerült megnyitni: {message}",
     "company_id": "Cégjegyzékszám"
+  },
+  "chat": {
+    "title": "Kérdezze az üzlet asszisztensét",
+    "intro": "Kérdezzen az üzlet termékeiről, áráról és készletéről, kérjen bevásárlólistát egy munkához, vagy küldjön fotót egy alkatrészről, készülékről vagy típustábláról, hogy kiderüljön, kapható-e itt.",
+    "placeholder": "Az Ön kérdése…",
+    "send": "Küldés",
+    "photo": "Fotó hozzáadása",
+    "photo_remove": "Fotó eltávolítása",
+    "photo_note": "A fotókat csak a válaszhoz használjuk, nem tároljuk.",
+    "note": "A válaszokat AI írja; az árak és a készlet közvetlenül az üzlettől származnak.",
+    "thinking": "Keresés ebben az üzletben…",
+    "you": "Ön",
+    "assistant": "Asszisztens",
+    "photo_read": "A fotóról:",
+    "match_found": "Ebben az üzletben van egyező termék.",
+    "match_not_found": "Ebben az üzletben nincs egyező termék.",
+    "match_unsure": "Nem biztos – kérjük, ellenőrizze.",
+    "list_title": "Bevásárlólista",
+    "copy": "Lista másolása",
+    "copied": "Másolva",
+    "copy_failed": "A másolás nem sikerült",
+    "print": "Lista nyomtatása",
+    "clear": "Új beszélgetés",
+    "error_caller_limit": "Túl sok üzenet: óránként legfeljebb 20. Kérjük, próbálja később.",
+    "error_shop_limit": "Az üzlet asszisztense ebben a hónapban elérte az üzenetkeretét.",
+    "error_photo": "Ezt a fotót nem sikerült beolvasni. Kérjük, próbáljon egy másikat.",
+    "error_failed": "Az asszisztens most nem válaszol. Kérjük, próbálja meg kicsit később."
   }
 }

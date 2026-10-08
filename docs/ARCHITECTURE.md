@@ -22,7 +22,8 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
    request, an AI search (Claude Haiku using the same search) adds an answer above the plain results.
 7. Shops can take a monthly **paid plan** (Stripe, test mode first): the dashboard's "Upgrade" goes through the Edge
    Function **`stripe-checkout`** to Stripe's payment page; Stripe tells the Edge Function **`stripe-webhook`**, which
-   writes the subscription. One SQL function, `shop_has_plan()`, answers every paid feature.
+   writes the subscription. One SQL function, `shop_has_plan()`, answers every paid feature. The first one is the
+   **AI assistant on the shop page** (Claude Haiku, tools limited to that shop's stock, photos of parts welcome).
 
 ```text
 SHOP
@@ -44,6 +45,7 @@ SUPABASE -----------------------------------------------------------------------
 WEBSITE (Next.js 16 on Vercel)     v
   server-rendered pages + JSON-LD | owner dashboard | /sync app | robots, sitemap, llms.txt
   public API /api/v1 + OpenAPI    | MCP server /mcp | /api/ai-search (Claude Haiku + search_stock)
+  /api/shops/[slug]/chat (shop assistant, paid plan: Claude Haiku + this shop's stock only)
                                    |
 READERS                            v
   shoppers | shop owners | search engines and AI crawlers | AI assistants (MCP) | tools (API)
@@ -114,7 +116,7 @@ translated.
 ### 2.3 Database (Supabase Postgres + PostGIS)
 
 **Tables:** `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `profiles`, `api_usage`,
-`subscriptions` (columns in PRD section 7).
+`subscriptions`, `shop_chat_usage` (columns in PRD section 7).
 
 **Rules in SQL (one place for website, API and MCP):**
 
@@ -129,6 +131,7 @@ translated.
 | `items_to_translate(shop)`, `apply_item_translations(shop, items)` | translation queue and saving — service role only; never touch owner corrections |
 | `owner_set_item_translation(item, names)` | the owner's correction (or `null` = back to automatic) |
 | `ai_search_hit(ip_hash, daily_limit)` | AI search limits: 10 per minute per caller, a daily total for the site; logs in `api_usage` |
+| `shop_chat_hit(ip_hash, shop, hourly_limit, monthly_limit)` | shop assistant gate for every message: `no_plan` unless `shop_has_plan()`, `caller_limit` after 20 an hour per caller (`api_usage`, `shop-chat`), `shop_limit` at the monthly cap (`shop_chat_usage`), else `ok` (counted) |
 | `town_center(town)` | "near Budince" for API/MCP: middle of the active shops in that town (no outside geocoding) |
 | `api_hit(ip_hash, endpoint, limit)` | rate limit (60/min) and usage log |
 | `apply_stock_file(...)` | stock writing — service role only |
@@ -174,6 +177,7 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 | `/auth/confirm`, `/auth/signout` | e-mail link landing, sign out |
 | `/api/v1/*`, `/api/openapi.json`, `/mcp` | public API, OpenAPI, MCP server |
 | `/api/ai-search` | AI search for the main page (POST, website only) |
+| `/api/shops/[slug]/chat` | the shop assistant on a shop page (POST, website only, paid plan) |
 | `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/manifest.webmanifest` | discovery files, app manifest |
 
 - **Languages:** `src/proxy.ts` sends addresses without a language to `/sk`, `/hu` or `/en` (saved choice → browser
@@ -252,6 +256,27 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 - **Invoices:** Stripe creates and e-mails them (with VAT from Stripe Tax, the company name, address, VAT number and
   the company ID field); the portal lists them.
 
+### 2.9 Shop assistant (`lib/shopChat.ts`, `app/api/shops/[slug]/chat/route.ts`, `components/ShopChat.tsx`)
+
+- The shop page renders `ShopChat` (a collapsed box, client component) only when `ANTHROPIC_API_KEY` is set and
+  `shop_has_plan(shop)` is true; everything else on the page stays server-rendered. The browser keeps the
+  conversation and sends `{lang, history (last 8, text only), message, photo?}`; a photo is shrunk to at most
+  1568 px, JPEG quality 0.85, base64, and sent with that one message only (later messages carry "[photo]" and what
+  was read from it).
+- The route takes the shop from the address (`public_shops`, active shops only), checks the photo (JPEG, at most about
+  2 MB), then `shop_chat_hit()` (plan, 20 an hour per caller, `CHAT_MONTHLY_LIMIT_PER_SHOP`, default 1,000), then runs
+  Claude Haiku (`claude-haiku-5-5`, effort low — medium with a photo, 4,096 tokens per turn, prompt caching) with a
+  system prompt naming the shop and two strict tools bound to it on the server: `search_items(query)` → `shop_stock`
+  (15 items, refs `r1`, `r2`, …) and `get_item(ref)` → `public_stock` for this item **and** this shop. Up to 3 turns
+  with tools and 10 tool calls, 25 seconds; then it must answer; a hard stop at 50 seconds (route limit 60).
+- The final answer is structured output: `answer`, `item_refs`, `shopping_list` (ref, quantity, note), `photo`
+  (`read`, `match`: none/found/not_found/unsure). The server keeps only refs the tools returned, builds cards and the
+  list in the page language (name + translation, price, availability, freshness, link), and turns a "found" without
+  any item into "unsure". Replies: `{answer, cards, list, photo}` or `{error}` (`no_plan` 403, `caller_limit` /
+  `shop_limit` 429, `bad_photo` 400, `failed` 502 — with the reason for a logged-in owner, logged as `shop-chat: …`).
+- "Copy list" puts the list as text on the clipboard; "Print list" marks the list and prints with a print style that
+  leaves out everything else (`globals.css`).
+
 ## 3. Main flows step by step
 
 **A shopper searches "farba":** browser → Vercel → `/[lang]?q=farba` server component → `search_stock('farba')` with
@@ -283,6 +308,11 @@ Session) → Stripe's payment page (card, company name, address, VAT number, com
 period end). A failed renewal makes it `past_due` → `shop_has_plan()` is false until the card is fixed in the portal.
 "Cancel" in the portal → `cancel_at` → "Ends on …"; at that date `customer.subscription.deleted` → `canceled`.
 
+**A shopper photographs a model plate on a paid shop's page:** "Add photo" → shrunk to 1568 px JPEG → "Send" →
+`/api/shops/{slug}/chat` → `shop_chat_hit()` ok → Claude Haiku reads "Bosch GSR 12V-15", calls `search_items` for
+"GSR 12V", "Bosch aku" → this shop's items → answer with `photo.read`, `match: found` and the refs → the chat shows what
+was read, "This shop has a match." and the item cards with availability and links.
+
 **An AI assistant asks "who has paint in Budince?":** MCP `search_stock(query="paint", near="Budince")` →
 `town_center` → `search_stock` with a radius → items with price, availability, freshness and `source_url`. (A search
 for the town name alone also works: `query="Budince"`.)
@@ -312,6 +342,9 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | Stripe not set up (secrets missing) or function not deployed | — | "Paid plans are not available yet" / "Stripe could not be opened: …" in the Plan section |
 | Stripe refuses (wrong key, tax or portal not set up) | — | "Stripe could not be opened: <Stripe's reason>" |
 | `stripe-webhook` unreachable or failing | — | the plan shows late; Stripe retries for up to three days (Stripe → Webhooks → event deliveries); past the paid period `shop_has_plan()` is false until the event arrives |
+| Shop assistant: Claude fails (no credit, wrong key, slow) | "The assistant is not answering right now" in the chat; the page works as usual | when logged in: the reason in the chat; Vercel log `shop-chat: …` |
+| Shop assistant over a limit | "Too many messages" (20 an hour) or "used up its messages for this month" | — |
+| Paid plan ends | the assistant box disappears; the route answers `no_plan` | Plan section shows the state |
 | Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
 
 Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown as available.
@@ -326,6 +359,9 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 - Public API/MCP: read-only, 60 requests/minute, no personal data, no IP addresses stored.
 - `ANTHROPIC_API_KEY` is a server-only setting (Supabase function secret for translations and column proposals,
   Vercel variable for the AI search), never `NEXT_PUBLIC_…`; the AI search is limited per caller and per day.
+- Shop assistant: its tools are bound to one shop on the server (the model only ever sees that shop's items and
+  refs); every message passes `shop_chat_hit()` (plan + limits); photos are checked to be JPEG, never stored or logged;
+  no CORS. The limit functions are callable with the public key, so someone could use up a limit directly (no cost).
 - Stripe: secret key, webhook signing secret and price only as Supabase function secrets; the website calls
   `stripe-checkout` with the owner's login and never sees a key. `stripe-webhook` accepts only correctly signed,
   recent events and re-reads the subscription from Stripe; only it (and `stripe-checkout` for the customer link) writes
@@ -343,6 +379,7 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (optional) | `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | search-engine ownership tags |
 | Vercel env (optional, server only) | `ANTHROPIC_API_KEY` | switches on the AI search on the main page |
 | Vercel env (optional) | `AI_DAILY_LIMIT` | AI searches per day for the whole site (default 500) |
+| Vercel env (optional) | `CHAT_MONTHLY_LIMIT_PER_SHOP` | shop assistant messages per shop per calendar month (default 1,000; 0 = assistants off) |
 | Supabase function secret (optional) | `ANTHROPIC_API_KEY` | item-name translations and Claude column proposals (else no translations and a rule-based column guess) |
 | Supabase function secrets (paid plan) | `STRIPE_SECRET_KEY` (`sk_test_…` first), `STRIPE_PRICE_PRO` (`price_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`) | the two Stripe functions; without them the Plan section says paid plans are not available yet |
 | Supabase function secret (local tests only) | `STRIPE_API_BASE` | points the Stripe functions at a stand-in for Stripe; never set it in the real project |
@@ -356,11 +393,11 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 src/app/[lang]/            public pages, accounts, (account)/dashboard|sync|password
 src/app/api, mcp, auth     REST API + OpenAPI, MCP server, e-mail link landing / sign out
 src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
-src/components/            ShopMap, FolderSync, AiSearch, ShopForm, LogoInput, InstallApp, StockLine, OpenStatus, …
-src/lib/                   data, publicApi, aiSearch, names, apiHttp, auth, format, hours, folderStore, supabase/*
+src/components/            ShopMap, FolderSync, AiSearch, ShopChat, ShopForm, LogoInput, InstallApp, StockLine, OpenStatus, …
+src/lib/                   data, publicApi, aiSearch, shopChat, names, apiHttp, auth, format, hours, folderStore, supabase/*
 src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh
-supabase/migrations/       18 numbered SQL files (section 9)
+supabase/migrations/       19 numbered SQL files (section 9)
 supabase/functions/        stock-pull, stripe-checkout, stripe-webhook (each index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
@@ -390,6 +427,7 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | 16 | `20261013000001_remove_cloud_link.sql` | upload only: stops the `ppi-stock-pull` schedule, drops `owner_set_file_url` and `last_file_hash`, `my_shops` without `file_url` |
 | 17 | `20261014000001_item_translations.sql` | item names in sk/hu/en (`name_lang`, `name_i18n`, `translated_name_source`, `name_i18n_by_owner`), word search across names and translations with its trigram index, `items_to_translate`, `apply_item_translations`, `owner_set_item_translation`, `ai_search_hit` |
 | 18 | `20261015000001_subscriptions.sql` | paid plan: `subscriptions` (RLS: owners read, service role writes), `shop_has_plan`, `link_stripe_customer`, `apply_stripe_subscription`, `owner_delete_shop` refuses a renewing plan |
+| 19 | `20261016000001_shop_assistant.sql` | shop assistant: `shop_chat_usage`, `shop_chat_hit` (paid plan, 20 an hour per caller, monthly cap per shop) |
 
 ## 10. Testing and releasing
 
@@ -399,7 +437,9 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
   links and the schedule; search finds an item by Slovak, Hungarian and English words, the index covers the
   translations, an owner's correction survives a new file, the AI search limits; paid plan: only the service role
   writes `subscriptions`, owners read only their own row, visitors nothing, `shop_has_plan()` for every status and
-  period case, a live subscription is never replaced by an ended one, a renewing plan blocks deleting the shop).
+  period case, a live subscription is never replaced by an ended one, a renewing plan blocks deleting the shop; shop
+  assistant: no plan → no assistant, the 21st message in an hour refused, another caller allowed, the monthly cap, only
+  allowed messages counted, visitors cannot read the usage, a plan that ends stops it at once).
 - `npm run test:functions`: 22 Deno tests — 9 of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row
   counting, translation batches, checking Claude's translations, a failed translation leaves the stock applied,
   translations saved after the stock), 6 of `stripe-checkout` (the payment page's exact Stripe fields, one customer
@@ -409,8 +449,11 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 - `npm run lint`, `npm run typecheck`, `npm run build` before every push.
 - During development every feature was also run end to end in a real Chromium browser (Playwright) against a local
   stand-in for Supabase (PostgREST + the function in Deno) and, for translations and AI search, a stand-in for the
-  Claude API; the paid plan against a stand-in for Stripe (payment page, signed webhook events, portal); those scripts
-  are not part of the repository.
+  Claude API; the paid plan against a stand-in for Stripe (payment page, signed webhook events, portal); the shop
+  assistant against a Claude stand-in that checks what it receives (only this shop's tools and items, invented refs
+  dropped, a 3000×2000 photo arriving as a 1568×1045 JPEG once, "found" without an item turned into "not sure", stale
+  shop without availability, copy and print of the list, limits, owner-only reasons, the page without JavaScript);
+  those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).
@@ -425,7 +468,7 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | Vercel | website, API, MCP, previews | free to start; paid plan for commercial use |
 | Supabase | database, Auth, Storage, Edge Function | free to start; Pro about $25/month when live |
 | Brevo | SMTP for account e-mails | free (300 e-mails/day) |
-| Anthropic API | column proposals, item-name translations (Supabase) and AI search (Vercel) — optional | pay per use; with Claude Haiku roughly a few cents per 1,000 names translated (once per name) and well under one cent per AI search; capped by `AI_DAILY_LIMIT` |
+| Anthropic API | column proposals, item-name translations (Supabase), AI search and the shop assistant (Vercel) — optional | pay per use; with Claude Haiku roughly a few cents per 1,000 names translated (once per name) and well under one cent per AI search or assistant message (a photo adds about 1,600 input tokens); capped by `AI_DAILY_LIMIT` and `CHAT_MONTHLY_LIMIT_PER_SHOP` |
 | Stripe | paid plan: payment page, subscriptions, customer portal, Stripe Tax, invoices | no monthly fee; a fee per payment plus Billing and Tax fees (stripe.com/pricing); test mode is free |
 | OpenFreeMap | map tiles | free, no key |
 | Claude Code | writes, tests and fixes the code | Claude plan |

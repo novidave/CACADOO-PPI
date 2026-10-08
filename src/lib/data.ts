@@ -93,6 +93,12 @@ export async function getShopItems(
   return { items, total: Number(items[0]?.total_count ?? 0) };
 }
 
+/** Whether the shop has the paid plan — the database decides (false until the plan is set up). */
+export async function shopHasPlan(shopId: string): Promise<boolean> {
+  const { data, error } = await (await client()).rpc("shop_has_plan", { p_shop_id: shopId });
+  return !error && data === true;
+}
+
 /** An item as visitors may see it (public_stock), or null. */
 export const getItem = cache(async (id: string): Promise<StockRow | null> => {
   if (!UUID.test(id)) return null;

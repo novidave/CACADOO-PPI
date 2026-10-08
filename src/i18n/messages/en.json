@@ -315,5 +315,32 @@
     "unavailable": "Paid plans are not available yet.",
     "failed": "Stripe could not be opened: {message}",
     "company_id": "Company registration number"
+  },
+  "chat": {
+    "title": "Ask the shop's assistant",
+    "intro": "Ask about this shop's items, prices and availability, get a shopping list for a job, or send a photo of a part, device or model plate to find it here.",
+    "placeholder": "Your question…",
+    "send": "Send",
+    "photo": "Add photo",
+    "photo_remove": "Remove photo",
+    "photo_note": "Photos are used only for the answer and are not stored.",
+    "note": "Answers are written by AI; prices and stock come straight from the shop.",
+    "thinking": "Searching this shop…",
+    "you": "You",
+    "assistant": "Assistant",
+    "photo_read": "Read from the photo:",
+    "match_found": "This shop has a match.",
+    "match_not_found": "No match in this shop.",
+    "match_unsure": "Not sure – please check.",
+    "list_title": "Shopping list",
+    "copy": "Copy list",
+    "copied": "Copied",
+    "copy_failed": "Could not copy",
+    "print": "Print list",
+    "clear": "New conversation",
+    "error_caller_limit": "Too many messages: at most 20 an hour. Please try again later.",
+    "error_shop_limit": "This shop's assistant has used up its messages for this month.",
+    "error_photo": "This photo could not be read. Please try another one.",
+    "error_failed": "The assistant is not answering right now. Please try again shortly."
   }
 }

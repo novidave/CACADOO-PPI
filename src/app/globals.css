@@ -51,3 +51,23 @@ body {
   box-shadow: inset 3px 0 0 var(--foreground);
   padding-left: 0.75rem;
 }
+
+/* "Print list" in the shop assistant prints only that shopping list: everything else is
+   taken out of the page (no empty pages), the boxes around the list lose their frames. */
+@media print {
+  html[data-print-list] body *:not(:has([data-print-area])):not([data-print-area]):not([data-print-area] *) {
+    display: none !important;
+  }
+  html[data-print-list] body *:has([data-print-area]) {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    gap: 0 !important;
+  }
+  html[data-print-list] [data-print-area] {
+    border: 0;
+  }
+  html[data-print-list] [data-print-hide] {
+    display: none !important;
+  }
+}

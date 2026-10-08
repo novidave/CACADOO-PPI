@@ -44,6 +44,7 @@ For **each** file below:
 | 16 | `supabase/migrations/20261013000001_remove_cloud_link.sql` | Upload only: removes the cloud file links and stops the old 15-minute download schedule |
 | 17 | `supabase/migrations/20261014000001_item_translations.sql` | Item names in Slovak, Hungarian and English, search across languages, AI search limits |
 | 18 | `supabase/migrations/20261015000001_subscriptions.sql` | Paid plan per shop (Stripe): subscriptions, `shop_has_plan` |
+| 19 | `supabase/migrations/20261016000001_shop_assistant.sql` | AI assistant on the shop page: message limits |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -171,7 +172,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001 20261012000001 20261013000001 20261014000001 20261015000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001 20261012000001 20261013000001 20261014000001 20261015000001 20261016000001
 ```
 
 ---
@@ -444,6 +445,23 @@ has its own `whsec_…`), then replace the three secrets with the live values. T
 
 ---
 
+## Part L — AI assistant on the shop page (8 October 2026)
+
+A paid feature: it appears on a shop's page only while the shop has the paid plan (Part K).
+
+1. **Database:** SQL Editor → run file 19 (`supabase/migrations/20261016000001_shop_assistant.sql`) → "Success. No rows
+   returned". Safe to run again.
+2. **Vercel** (Settings → Environment Variables, Production): `ANTHROPIC_API_KEY` must be there (Part J) and the
+   Anthropic account must have credit (console.anthropic.com → Billing). Optional: `CHAT_MONTHLY_LIMIT_PER_SHOP`
+   (assistant messages per shop per month, default 1000; `0` switches the assistants off) → **Redeploy**.
+3. **Test:** give a shop the paid plan (Part K4), open its public page → "Opýtajte sa asistenta obchodu" → ask about an
+   item; ask for a shopping list ("Kopírovať zoznam", "Vytlačiť zoznam"); add a photo of a product label → it says what
+   it read and whether the shop has it. A shop without the plan shows no assistant.
+4. If it does not answer: log in (Môj obchod) and ask again — the chat shows the reason (only to logged-in owners);
+   or Vercel → **Logs** → search `shop-chat`.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -469,3 +487,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 7. Self-service: sign-up with password, password reset, owners create shops, export folder on the dashboard, column approval; no admin area | ✅ built — set up Part E and H |
 | 8. Item names in Slovak, Hungarian and English (search across languages, owner corrections); AI search on the main page | ✅ built — set up Part J |
 | 9. Paid plan per shop with Stripe (Checkout, customer portal, webhook, VAT invoices, `shop_has_plan`) | ✅ built (test mode) — set up Part K |
+| 10. AI assistant on the shop page (paid plan): questions, shopping lists, photos of parts | ✅ built — set up Part L |
