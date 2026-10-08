@@ -15,7 +15,8 @@
     "ai_title": "AI answer",
     "ai_loading": "AI is searching all shops…",
     "ai_searched": "Searched for: {terms}",
-    "ai_note": "Answer written by AI; prices and stock come straight from the shops."
+    "ai_note": "Answer written by AI; prices and stock come straight from the shops.",
+    "ai_unavailable": "AI search is not working right now (only you see this, as a logged-in shop owner): {reason}"
   },
   "stock": {
     "in_stock": "In stock",

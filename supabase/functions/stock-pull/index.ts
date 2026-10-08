@@ -461,6 +461,13 @@ export async function translateShopItems(
 ): Promise<{ saved: number; failed: number }> {
   let saved = 0;
   let failed = 0;
+  let firstError: string | null = null;
+  const fail = (e: unknown) => {
+    failed++;
+    const message = e instanceof Error ? e.message : String(e);
+    firstError ??= message;
+    console.error("translation failed:", message);
+  };
   try {
     if (translate === translateWithClaude && !Deno.env.get("ANTHROPIC_API_KEY")) return { saved, failed };
     const { data, error } = await db.rpc("items_to_translate", { p_shop_id: shopId, p_limit: TRANSLATE_MAX_ITEMS });
@@ -470,8 +477,7 @@ export async function translateShopItems(
       const results = await Promise.allSettled(groups.slice(i, i + TRANSLATE_PARALLEL).map((group) => translate(group)));
       for (const result of results) {
         if (result.status === "rejected") {
-          failed++;
-          console.error("translation failed:", result.reason instanceof Error ? result.reason.message : result.reason);
+          fail(result.reason);
           continue;
         }
         if (result.value.length === 0) continue;
@@ -484,8 +490,15 @@ export async function translateShopItems(
       }
     }
   } catch (e) {
-    failed++;
-    console.error("translation failed:", e instanceof Error ? e.message : e);
+    fail(e);
+  }
+  // The owner sees it as the last error in My shop; the next applied file clears it.
+  if (firstError) {
+    await Promise.resolve(
+      db.from("sync_sources")
+        .update({ last_error: `Item names could not be translated (the stock is fine): ${firstError}`.slice(0, 500) })
+        .eq("shop_id", shopId),
+    ).catch(() => {});
   }
   return { saved, failed };
 }

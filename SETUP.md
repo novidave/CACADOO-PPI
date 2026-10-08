@@ -361,7 +361,8 @@ MCP connector (Part F). A short own domain (e.g. ppi.sk) instead of `*.vercel.ap
    site, default 500) for Production → **Redeploy**. The "Hľadať s AI" button appears only when the key is set.
 5. **Check:** search "white paint" on `/en` for an item named in Slovak (after its translation); click
    **Hľadať s AI** on `/sk` with a question such as "čo potrebujem na tečúcu rúru" — an answer box appears above the
-   results within a few seconds.
+   results within a few seconds. No box: log in (Môj obchod) and try again — a note says why (only logged-in owners
+   see it); or Vercel → **Logs** → search `ai-search`.
 
 Never put the Anthropic key in a `NEXT_PUBLIC_…` variable or in the repository.
 

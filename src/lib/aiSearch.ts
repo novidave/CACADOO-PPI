@@ -25,6 +25,8 @@ const RESULTS_PER_SEARCH = 15;
 const MAX_CARDS = 12;
 /** After this, the next turn must answer with what was found. */
 const TIME_BUDGET_MS = 30_000;
+/** Hard stop, inside the route's 60 seconds, so the page always gets an answer (or a reason). */
+const DEADLINE_MS = 50_000;
 const DEFAULT_DAILY_LIMIT = 500;
 
 type FoundItem = ReturnType<typeof apiItem>;
@@ -59,15 +61,17 @@ function dailyLimit(): number {
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : DEFAULT_DAILY_LIMIT;
 }
 
-/** 10 AI searches per minute per caller and AI_DAILY_LIMIT per day for the site; false = plain results only. */
-export async function aiSearchAllowed(request: Request): Promise<boolean> {
+/** 10 AI searches per minute per caller and AI_DAILY_LIMIT per day for the site; otherwise why not. */
+export async function aiSearchAllowed(request: Request): Promise<{ ok: true } | { ok: false; reason: string }> {
   const supabase = createPublicClient();
-  if (!supabase) return false;
+  if (!supabase) return { ok: false, reason: "Supabase is not configured" };
   const { data, error } = await supabase.rpc("ai_search_hit", {
     p_ip_hash: callerHash(request),
     p_daily_limit: dailyLimit(),
   });
-  return !error && data === true;
+  if (error) return { ok: false, reason: `limit check failed (database update 17 missing?): ${error.message}` };
+  if (data !== true) return { ok: false, reason: "limit reached: 10 AI searches per minute per visitor, or AI_DAILY_LIMIT per day" };
+  return { ok: true };
 }
 
 const SYSTEM =
@@ -122,6 +126,7 @@ const ANSWER_FORMAT = {
 export async function runAiSearch(question: string, lang: Locale, onlyAvailable: boolean): Promise<AiSearchResult> {
   const client = new Anthropic({ maxRetries: 1, timeout: 15_000 });
   const started = Date.now();
+  const deadline = AbortSignal.timeout(DEADLINE_MS);
   const found = new Map<string, FoundItem>(); // ref → item
   const refOf = new Map<string, string>(); // item id → ref
   const searched: string[] = [];
@@ -157,16 +162,23 @@ export async function runAiSearch(question: string, lang: Locale, onlyAvailable:
 
   for (let round = 0; ; round++) {
     const mustAnswer = round >= MAX_SEARCH_ROUNDS || searched.length >= MAX_SEARCHES || Date.now() - started > TIME_BUDGET_MS;
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 2048,
-      system: SYSTEM,
-      tools: [SEARCH_TOOL],
-      tool_choice: { type: mustAnswer ? "none" : "auto" },
-      output_config: { effort: "low", format: ANSWER_FORMAT },
-      cache_control: { type: "ephemeral" },
-      messages,
-    });
+    const response = await client.messages
+      .create(
+        {
+          model: MODEL,
+          max_tokens: 2048,
+          system: SYSTEM,
+          tools: [SEARCH_TOOL],
+          tool_choice: { type: mustAnswer ? "none" : "auto" },
+          output_config: { effort: "low", format: ANSWER_FORMAT },
+          cache_control: { type: "ephemeral" },
+          messages,
+        },
+        { signal: deadline },
+      )
+      .catch((e: unknown): never => {
+        throw deadline.aborted ? new Error(`no answer within ${DEADLINE_MS / 1000} seconds`) : e;
+      });
 
     if (response.stop_reason === "tool_use" && !mustAnswer) {
       const calls = response.content.filter((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");

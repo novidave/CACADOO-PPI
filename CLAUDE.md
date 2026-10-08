@@ -56,7 +56,8 @@ Main page only, on request ("Search with AI" → `?ai=1`), as an extra layer abo
 `@/components/AiSearch` → `POST /api/ai-search` → `@/lib/aiSearch` (Claude Haiku, one strict tool `search_stock` from
 `publicApi.ts`, no location, structured final answer; cards only from the tool results). `ai_search_hit()`: 10 per
 minute per caller, `AI_DAILY_LIMIT` per day. `ANTHROPIC_API_KEY` is a server env variable (never `NEXT_PUBLIC`); without
-it, over a limit or on any error the layer disappears silently.
+it, over a limit or on any error the layer disappears silently for shoppers; a logged-in owner sees the reason instead
+(`search.ai_unavailable`), and every reason is logged as `ai-search: …` (Vercel logs).
 
 ## Stock upload
 

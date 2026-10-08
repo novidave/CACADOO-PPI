@@ -274,6 +274,8 @@ Hidden items (owner's choice) and inactive shops are never shown.
   cannot appear, and stale shops show no availability. Nothing found: it says so and the searched terms are shown.
 - At most 10 AI searches per minute per caller (hashed IP, as for the API) and `AI_DAILY_LIMIT` per day for the whole
   site (default 500). Over a limit, or on any error, the AI layer silently disappears and the plain results remain.
+  A logged-in shop owner sees a short note with the reason instead (to test it), and every reason is written to the
+  Vercel log as `ai-search: …`.
 - Crawlers are kept away from it (robots.txt); the Anthropic key is only on the server.
 
 ### 6.6 Open now

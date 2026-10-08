@@ -15,7 +15,8 @@
     "ai_title": "Odpoveď AI",
     "ai_loading": "AI hľadá vo všetkých obchodoch…",
     "ai_searched": "Hľadané výrazy: {terms}",
-    "ai_note": "Odpoveď píše AI; ceny a zásoby sú priamo z obchodov."
+    "ai_note": "Odpoveď píše AI; ceny a zásoby sú priamo z obchodov.",
+    "ai_unavailable": "AI vyhľadávanie teraz nefunguje (vidíte to len vy, ako prihlásený majiteľ obchodu): {reason}"
   },
   "stock": {
     "in_stock": "Na sklade",

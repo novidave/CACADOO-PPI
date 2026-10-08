@@ -205,11 +205,14 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 - The route checks `ai_search_hit()` (10 per minute per caller, `AI_DAILY_LIMIT` per day, default 500), then runs a
   tool loop with Claude Haiku (low effort, max 2,048 tokens per turn, prompt caching): one strict tool, `search_stock`
   (query, only_available — no location), served by `publicApi.searchStock` like the API and MCP. Up to 3 turns with
-  searches and 12 searches in total, 30 seconds; then the model must answer. The final answer is structured output:
+  searches and 12 searches in total, 30 seconds; then the model must answer. A hard stop at 50 seconds (inside the
+  route's 60) ends it with a reason rather than a timeout. The final answer is structured output:
   language, a short answer, and the refs (`r1`, `r2`, … given in the tool results) of the fitting items.
 - Cards are built from the search results only (unknown refs are dropped), in the page language: name + translation,
   brand, price, shop, place, availability + freshness, link to the item page. The searched terms are shown.
 - No key, over a limit, a refusal or any error → `{fallback: true}` and the AI box disappears; the plain results stay.
+  For a logged-in owner the reply also carries `reason` (missing key, limit, database update 17 missing, Claude's error
+  message), shown as a short note in place of the box; every reason is logged as `ai-search: …` (Vercel → Logs).
   No CORS headers: only the PPI website calls it.
 
 ## 3. Main flows step by step
@@ -257,8 +260,8 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | Export stopped | same | latest file time stops moving |
 | File layout changed (> 5 % rows unreadable) | last good stock stays | new column proposal to approve; message |
 | `stock-pull` failing | stock ages, then hidden after 24 h | `last_error` on the dashboard |
-| Translation fails (Claude unavailable, no key) | stock as usual; new names found only by their original words | names without translation ("made with the next stock file"); retried with the next file |
-| AI search fails or is over a limit | the AI box disappears; plain results as usual | — |
+| Translation fails (Claude unavailable, no key) | stock as usual; new names found only by their original words | names without translation ("made with the next stock file"); `last_error` "Item names could not be translated (the stock is fine): …" until the next applied file; retried with the next file |
+| AI search fails or is over a limit | the AI box disappears; plain results as usual | when logged in: a note with the reason in place of the AI box; Vercel log line `ai-search: …` |
 | E-mail sending fails (SMTP) | — | no confirmation / reset e-mails (check Brevo and Supabase Auth logs) |
 | Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
 

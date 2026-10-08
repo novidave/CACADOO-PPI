@@ -15,7 +15,8 @@
     "ai_title": "Az AI válasza",
     "ai_loading": "Az AI az összes üzletben keres…",
     "ai_searched": "Keresett kifejezések: {terms}",
-    "ai_note": "A választ AI írja; az árak és a készlet közvetlenül az üzletektől származnak."
+    "ai_note": "A választ AI írja; az árak és a készlet közvetlenül az üzletektől származnak.",
+    "ai_unavailable": "Az AI-keresés most nem működik (ezt csak Ön látja, bejelentkezett üzlettulajdonosként): {reason}"
   },
   "stock": {
     "in_stock": "Raktáron",
