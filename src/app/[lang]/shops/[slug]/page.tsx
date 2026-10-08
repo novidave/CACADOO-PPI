@@ -3,14 +3,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isLocale, locales, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
-import { getShop, getShopItems, type PublicShop } from "@/lib/data";
+import { getShop, getShopItems, shopHasPlan, type PublicShop } from "@/lib/data";
 import { addressLine, directionsUrl, formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
 import { DAYS, dayName, hasHours, openingHoursSpecification, rangesFor } from "@/lib/hours";
+import { shopChatEnabled } from "@/lib/shopChat";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { freshnessText } from "@/lib/stock";
 import { JsonLd } from "@/components/JsonLd";
 import { OpenStatus } from "@/components/OpenStatus";
+import { ShopChat } from "@/components/ShopChat";
 import { ShopMap } from "@/components/ShopMap";
 import { StockLine } from "@/components/StockLine";
 
@@ -41,7 +43,11 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
   const sp = await searchParams;
   const q = (first(sp.q) ?? "").trim();
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  const { items, total } = await getShopItems(shop.slug, q, requestedPage, PAGE_SIZE);
+  // The AI assistant is a paid feature: shown only when the database says the shop has the plan.
+  const [{ items, total }, assistant] = await Promise.all([
+    getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
+    shopChatEnabled() ? shopHasPlan(shop.id) : Promise.resolve(false),
+  ]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(requestedPage, pages);
   const pageUrl = (n: number) =>
@@ -94,6 +100,8 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
           )}
         </p>
       </header>
+
+      {assistant && <ShopChat slug={shop.slug} lang={lang} shopName={shop.name} labels={dict.chat} />}
 
       {hasLocation && (
         <ShopMap

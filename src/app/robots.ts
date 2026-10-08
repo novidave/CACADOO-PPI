@@ -3,8 +3,8 @@ import { siteUrl } from "@/lib/site";
 
 // Everyone may read the public pages, AI crawlers explicitly included.
 // Login-only pages are kept out.
-// The AI search costs money per question: no crawler should start one.
-const disallow = ["/*/dashboard", "/*/login", "/*/signup", "/*/forgot", "/*/password", "/*/sync", "/auth/", "/api/ai-search", "/*?*ai=1"];
+// The AI search and the shop assistants cost money per question: no crawler should start one.
+const disallow = ["/*/dashboard", "/*/login", "/*/signup", "/*/forgot", "/*/password", "/*/sync", "/auth/", "/api/ai-search", "/api/shops/", "/*?*ai=1"];
 const AI_BOTS = ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-User", "Claude-SearchBot", "PerplexityBot", "Perplexity-User", "Google-Extended", "Applebot-Extended", "CCBot"];
 
 export default function robots(): MetadataRoute.Robots {

@@ -315,5 +315,32 @@
     "unavailable": "Platené plány zatiaľ nie sú k dispozícii.",
     "failed": "Stripe sa nepodarilo otvoriť: {message}",
     "company_id": "IČO"
+  },
+  "chat": {
+    "title": "Opýtajte sa asistenta obchodu",
+    "intro": "Pýtajte sa na tovar, ceny a dostupnosť v tomto obchode, nechajte si zostaviť nákupný zoznam na prácu alebo pošlite fotku súčiastky, zariadenia či typového štítku a zistite, či ju tu majú.",
+    "placeholder": "Vaša otázka…",
+    "send": "Poslať",
+    "photo": "Pridať fotku",
+    "photo_remove": "Odstrániť fotku",
+    "photo_note": "Fotky sa použijú len na odpoveď a neukladajú sa.",
+    "note": "Odpovede píše AI; ceny a zásoby sú priamo z obchodu.",
+    "thinking": "Hľadá sa v tomto obchode…",
+    "you": "Vy",
+    "assistant": "Asistent",
+    "photo_read": "Z fotky:",
+    "match_found": "Tento obchod to má.",
+    "match_not_found": "V tomto obchode sa zhoda nenašla.",
+    "match_unsure": "Nie je to isté – skontrolujte, prosím.",
+    "list_title": "Nákupný zoznam",
+    "copy": "Kopírovať zoznam",
+    "copied": "Skopírované",
+    "copy_failed": "Nepodarilo sa skopírovať",
+    "print": "Vytlačiť zoznam",
+    "clear": "Nová konverzácia",
+    "error_caller_limit": "Príliš veľa správ: najviac 20 za hodinu. Skúste to neskôr.",
+    "error_shop_limit": "Asistent tohto obchodu už tento mesiac vyčerpal svoje správy.",
+    "error_photo": "Túto fotku sa nepodarilo načítať. Skúste inú.",
+    "error_failed": "Asistent teraz neodpovedá. Skúste to o chvíľu."
   }
 }

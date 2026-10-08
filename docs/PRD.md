@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.3 · status 8 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 2.4 · status 8 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -19,7 +19,8 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | AI field mapping (Claude) with owner approval | Live (rule-based guess when no Anthropic key is set) |
 | Item names in Slovak, Hungarian and English; search across the three languages | Built and tested; live after migration 17, the new stock function and the Anthropic key in Supabase |
 | AI search on the main page (Claude Haiku) | Built and tested; switched on by the Anthropic key in Vercel |
-| Paid plan per shop (Stripe: monthly subscription, VAT invoices) | Built and tested against a Stripe stand-in; Stripe **test mode** first (SETUP.md part K). No feature is limited by it yet |
+| Paid plan per shop (Stripe: monthly subscription, VAT invoices) | Built and tested against a Stripe stand-in; Stripe **test mode** first (SETUP.md part K) |
+| AI assistant on the shop page (paid plan only, Claude Haiku) | Built and tested against a Claude stand-in; live after migration 19 (SETUP.md part L) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -66,6 +67,8 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 - AI search on the main page: an extra layer above the plain results, on request
 - Paid plan per shop: a monthly Stripe subscription (Stripe Checkout to subscribe, the Stripe customer portal to
   cancel or change the card), invoices with VAT; one database function says whether a shop has it
+- AI assistant on the shop page (the first paid feature): questions about the shop's items, prices and availability,
+  shopping lists to copy or print, and photos of a device, part or model plate matched against the shop's stock
 - AI and machine access: JSON-LD, robots.txt, sitemap, llms.txt, public REST API with OpenAPI, MCP server
 - Slovak, Hungarian and English; mobile-first; installable PPI app for the shop PC
 
@@ -83,7 +86,7 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 
 - E-mail alerts when a shop's stock stops arriving during opening hours
 - Online ordering, payments by shoppers, reservations, reviews, native mobile apps
-- Paid features (the plan exists; what it unlocks is still to be decided — each will check `shop_has_plan()`)
+- More paid features (each will check `shop_has_plan()`)
 - Writing anything back to the shop's software
 
 ## 4. Principles and constraints
@@ -133,6 +136,13 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 - Stock freshness line, then the shop's public items: searchable in all three languages, 50 per page, name +
   translation, price and availability.
 - JSON-LD `Store` (address, geo, opening hours, phone, logo, `paymentAccepted`, `amenityFeature`).
+- **AI assistant** (only when the shop has the paid plan and the Anthropic key is set in Vercel): a collapsed box
+  "Ask the shop's assistant" under the shop's details, in the page language. The shopper can ask about the shop's
+  items, prices and availability; ask for a shopping list for a job (shown as a list with quantity, price and each
+  item's availability, with "Copy list" and "Print list"); or add a photo of a device, part, model plate or serial
+  number — the assistant says what it read, searches the shop and says plainly whether the shop has a match, is not
+  sure (and asks), or has none. Every answer shows the items it is about as cards linking to their item pages. The
+  rest of the page is server-rendered without it.
 
 ### 5.3 Item page (`/[lang]/items/{id}`)
 
@@ -308,7 +318,23 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 - Cancelling in the portal ends the plan at the end of the paid period ("Ends on …"); until then the shop keeps it.
 - A shop whose plan still renews cannot be deleted (it would keep being charged); once cancelled it can.
 
-## 7. Data model (after migration 18)
+### 6.8 Shop assistant
+
+- A paid feature: shown and answered only while `shop_has_plan(shop)` is true; the database checks it again for every
+  message (`shop_chat_hit()`).
+- Claude Haiku (`claude-haiku-5-5`) with two tools bound to this shop on the server: search this shop's items
+  (`shop_stock`) and one item's details (`public_stock` of this shop). It cannot see other shops and never names
+  them. Cards and the shopping list are built only from what those tools returned (anything else is dropped), with
+  availability, quantities and freshness from the database: a stale shop shows no availability.
+- Photos: shrunk in the browser to at most 1568 px, JPEG, sent once with that message only, never stored by PPI.
+  The answer always says what was read; "match found" needs an item from the shop to show, otherwise it becomes
+  "not sure" and the assistant asks.
+- Limits: 20 messages an hour per shopper (hashed IP, logged in `api_usage` as `shop-chat`), and a monthly cap per shop
+  (`CHAT_MONTHLY_LIMIT_PER_SHOP`, default 1,000; 0 switches the assistants off). Only the last 8 messages of a
+  conversation are sent along, each up to 1,500 characters. Over a limit the shopper is told in the chat.
+- A logged-in owner who tests it sees the reason of a failure (for example Claude's error); shoppers see a plain message.
+
+## 7. Data model (after migration 19)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -319,8 +345,9 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 | `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at` | Written only by the stock-pull function |
 | `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows`, `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name` | One per shop: how its stock file is read and the latest upload. A leftover `file_url` column is unused (only the legacy `admin_shops()` reads it) |
 | `profiles` | `user_id`, `display_name`, `language`, `is_admin` | One per account, created automatically |
-| `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP and AI search (`ai-search`) rate limit log; no IP addresses; older than 30 days removed |
+| `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP, AI search (`ai-search`) and shop assistant (`shop-chat`) rate limit log; no IP addresses; older than 30 days removed |
 | `subscriptions` | `shop_id` (key: one row per shop), `stripe_customer_id`, `stripe_subscription_id`, `status` (`none` = customer only, else Stripe's status), `plan`, `current_period_end`, `cancel_at`, `updated_at` | Paid plan; written only by the Stripe functions (service role), read by the shop's owners |
+| `shop_chat_usage` | `shop_id`, `month`, `messages` | Shop assistant messages per shop per calendar month (UTC), for the monthly cap; no client access |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
 Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-files` (private, last raw files kept
@@ -342,7 +369,9 @@ Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-
 - Stripe: the website holds no Stripe key. The stripe-checkout function answers only a shop's owners (their own login);
   the stripe-webhook function accepts only events signed with the endpoint's secret and at most 5 minutes old, and
   fetches the subscription from Stripe itself rather than trusting the event's copy. Card details never touch PPI.
-- The API and the AI search store no IP addresses: only a hash with a salt that changes daily.
+- The API, the AI search and the shop assistant store no IP addresses: only a hash with a salt that changes daily.
+- The shop assistant stores no conversations and no photos; the browser keeps the conversation until the page is
+  closed and sends at most the last 8 messages along.
 - The Anthropic key is a server setting (Supabase function secret, Vercel variable), never in the browser; the AI
   search endpoint answers only the PPI website (no CORS).
 - Legacy: the `is_admin` flag and the `admin_*` database functions from the old admin area still exist in the database
@@ -383,9 +412,15 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   with its next new stock file.
 - **The four sample shops** from the build are still live (their names have no translations).
 - The site runs on `cacadooppivercel.vercel.app`; an own domain is still to come.
-- **Paid plan in test mode, nothing paid for yet.** Stripe runs with test keys (test cards only) until it is switched
-  to live; no feature checks `shop_has_plan()` yet. If Stripe cannot reach the webhook, the plan shows late (Stripe
-  retries for up to three days) and, past the paid period, counts as not paid until the event arrives.
+- **Paid plan in test mode.** Stripe runs with test keys (test cards only) until it is switched to live; the shop
+  assistant is the only feature that checks `shop_has_plan()` so far. If Stripe cannot reach the webhook, the plan
+  shows late (Stripe retries for up to three days) and, past the paid period, counts as not paid until the event arrives.
+- **AI limits can be used up by others.** The AI search's daily total and the shop assistant's monthly cap are counted
+  by database functions that the website calls with the public key; someone calling them directly could use up a
+  limit (it costs nothing, the feature just pauses until the next day or month). A secret shared by Vercel and
+  Supabase would close this.
+- **The assistant can be wrong.** It reads photos and writes answers by machine; the cards, prices and availability
+  come from the database, and it says when it is not sure, but a shopper should check the item page.
 
 ## 12. Launch checklist
 
@@ -399,6 +434,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] Stripe switched to live: live product and price, Stripe Tax registrations, customer portal, webhook endpoint,
       and the three Stripe secrets replaced with live values (SETUP.md part K5)
 - [ ] Price, terms and what Pro includes published for shop owners
+- [ ] `CHAT_MONTHLY_LIMIT_PER_SHOP` chosen in Vercel (default 1,000 assistant messages per shop a month)
 - [ ] Privacy page and terms (shop data, cookies, e-mail)
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
@@ -417,3 +453,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-08 | Cloud links (built 2026-10-07) removed: stock arrives only by upload — the PPI app window and "Upload file" |
 | 2026-10-08 | Item names in Slovak, Hungarian and English with search across languages; AI search on the main page |
 | 2026-10-08 | Paid plan per shop with Stripe (test mode): Checkout, customer portal, webhook, VAT invoices, `shop_has_plan()` |
+| 2026-10-08 | AI assistant on the shop page for shops with the paid plan: questions, shopping lists, photos of parts |
