@@ -8,7 +8,7 @@ Setup steps for humans are in `SETUP.md`.
 ## Hard rules
 
 - **Never** put the Supabase service role / secret key in the web app, `.env*`, Vercel or the repo.
-  Anything that needs it (stock pull, inviting owners) is a Supabase Edge Function.
+  Anything that needs it (stock pull, Stripe, inviting owners) is a Supabase Edge Function.
 - Public pages (home, shop, item) load data in **server components** via `@/lib/supabase/server`.
   Never fetch public data in the browser: crawlers and AI assistants read only the first HTML.
 - Freshness, availability labels and quantity hiding live **in the database**
@@ -39,7 +39,8 @@ always an extra — every page must work and show its data without it.
 - `npm run lint` · `npm run typecheck` · `npm run build`
 - `npm run test:db` — applies all migrations + seed to a throwaway local Postgres/PostGIS and runs the RLS and stock-logic checks
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
-- `npm run test:functions` — unit tests of the stock-pull file reading and mapping (Deno)
+- `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
+  checkout and webhook
 
 ## AI access
 
@@ -58,6 +59,19 @@ Main page only, on request ("Search with AI" → `?ai=1`), as an extra layer abo
 minute per caller, `AI_DAILY_LIMIT` per day. `ANTHROPIC_API_KEY` is a server env variable (never `NEXT_PUBLIC`); without
 it, over a limit or on any error the layer disappears silently for shoppers; a logged-in owner sees the reason instead
 (`search.ai_unavailable`), and every reason is logged as `ai-search: …` (Vercel logs).
+
+## Paid plan (Stripe)
+
+One monthly subscription per shop; test mode first. `public.subscriptions` (one row per shop, owners read their own) is
+written only by the service role: `supabase/functions/stripe-checkout` (owner's JWT → `is_shop_member`; makes the shop's
+Stripe customer once → `link_stripe_customer()`; returns the Checkout URL, or the customer-portal URL when the shop's
+subscription is live) and `supabase/functions/stripe-webhook` (verifies the Stripe signature, fetches the subscription
+fresh, `apply_stripe_subscription()`). **Every paid feature checks only `shop_has_plan(shop)`** (active or trialing and
+not past `current_period_end`); never decide it in React. `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_PRICE_PRO` are function secrets; the website has no Stripe key and reaches Stripe only through the dashboard
+server action `openBilling` → stripe-checkout. Checkout: automatic tax, business name (required), VAT number (tax ID
+collection), company ID (custom field, pre-filled from `shops.ico`, copied to the customer's invoices). A shop whose
+plan still renews cannot be deleted (`owner_delete_shop`).
 
 ## Stock upload
 

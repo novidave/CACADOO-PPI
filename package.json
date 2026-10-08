@@ -12,7 +12,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test:db": "bash supabase/tests/run.sh",
     "check:functions": "cd supabase/functions && (deno check --config deno.json */index.ts || npx -y deno check --config deno.json */index.ts)",
-    "test:functions": "cd supabase/functions && (PPI_STOCK_PULL_TEST=1 deno test --config deno.json --allow-env stock-pull/ || PPI_STOCK_PULL_TEST=1 npx -y deno test --config deno.json --allow-env stock-pull/)"
+    "test:functions": "cd supabase/functions && (PPI_STOCK_PULL_TEST=1 PPI_FUNCTION_TEST=1 deno test --config deno.json --allow-env . || PPI_STOCK_PULL_TEST=1 PPI_FUNCTION_TEST=1 npx -y deno test --config deno.json --allow-env .)"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

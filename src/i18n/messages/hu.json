@@ -283,6 +283,37 @@
     "rule_pc": "A gép nyitvatartási időben bekapcsolva marad, és nyitva van rajta ez az oldal vagy a PPI alkalmazás (lehet kis méretre állítva).",
     "saving": "Mentés…",
     "uploading": "Feltöltés…",
-    "error_translation": "Adjon meg legalább egy fordítást (legfeljebb 300 karakter)."
+    "error_translation": "Adjon meg legalább egy fordítást (legfeljebb 300 karakter).",
+    "error_plan_active": "Ennek az üzletnek olyan fizetős csomagja van, amely még megújul. Először mondja le: Csomag → Előfizetés kezelése.",
+    "error_plan_unavailable": "A fizetős csomagok még nem érhetők el."
+  },
+  "plan": {
+    "title": "Csomag",
+    "intro": "Havi előfizetés ehhez az üzlethez, bankkártyás fizetéssel a Stripe-on keresztül. Az ÁFA-s számlákat az Előfizetés kezelése alatt találja.",
+    "current": "Jelenlegi csomag",
+    "free": "Ingyenes",
+    "pro": "Pro",
+    "status": "Előfizetés",
+    "status_active": "Aktív",
+    "status_trialing": "Próbaidőszak",
+    "status_past_due": "Sikertelen fizetés",
+    "status_unpaid": "Kifizetetlen",
+    "status_canceled": "Lemondva",
+    "status_incomplete": "Befejezetlen fizetés",
+    "status_incomplete_expired": "Lejárt fizetés",
+    "status_paused": "Szüneteltetve",
+    "renews": "Megújul",
+    "ends": "Lejár",
+    "upgrade": "Váltás Pro csomagra",
+    "manage": "Előfizetés kezelése",
+    "opening": "A Stripe megnyitása…",
+    "thanks": "Köszönjük! Ez az üzlet mostantól Pro csomaggal rendelkezik.",
+    "done": "Köszönjük! A Pro csomag itt jelenik meg, amint a Stripe visszaigazolja a fizetést, általában egy percen belül. Ezután frissítse az oldalt.",
+    "canceled": "A fizetés megszakadt. Nem történt terhelés.",
+    "payment_problem": "Az utolsó fizetés nem sikerült. Nyissa meg az Előfizetés kezelése oldalt, és frissítse a kártyáját.",
+    "company_tip": "Előbb adja meg a cégjegyzékszámot az Üzlet adatai között, hogy az első számlán is szerepeljen.",
+    "unavailable": "A fizetős csomagok még nem érhetők el.",
+    "failed": "A Stripe-ot nem sikerült megnyitni: {message}",
+    "company_id": "Cégjegyzékszám"
   }
 }

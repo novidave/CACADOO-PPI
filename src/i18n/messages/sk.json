@@ -283,6 +283,37 @@
     "rule_pc": "Počítač je počas otváracích hodín zapnutý a je na ňom otvorená táto stránka alebo aplikácia PPI (môže byť minimalizovaná).",
     "saving": "Ukladám…",
     "uploading": "Nahrávam…",
-    "error_translation": "Zadajte aspoň jeden preklad (najviac 300 znakov)."
+    "error_translation": "Zadajte aspoň jeden preklad (najviac 300 znakov).",
+    "error_plan_active": "Tento obchod má platený plán, ktorý sa stále obnovuje. Najprv ho zrušte v časti Plán → Spravovať predplatné.",
+    "error_plan_unavailable": "Platené plány zatiaľ nie sú k dispozícii."
+  },
+  "plan": {
+    "title": "Plán",
+    "intro": "Mesačné predplatné pre tento obchod, platba kartou cez Stripe. Faktúry s DPH nájdete v časti Spravovať predplatné.",
+    "current": "Aktuálny plán",
+    "free": "Zadarmo",
+    "pro": "Pro",
+    "status": "Predplatné",
+    "status_active": "Aktívne",
+    "status_trialing": "Skúšobné obdobie",
+    "status_past_due": "Platba sa nepodarila",
+    "status_unpaid": "Nezaplatené",
+    "status_canceled": "Zrušené",
+    "status_incomplete": "Platba nedokončená",
+    "status_incomplete_expired": "Platba vypršala",
+    "status_paused": "Pozastavené",
+    "renews": "Obnoví sa",
+    "ends": "Skončí",
+    "upgrade": "Prejsť na Pro",
+    "manage": "Spravovať predplatné",
+    "opening": "Otvára sa Stripe…",
+    "thanks": "Ďakujeme! Tento obchod má teraz plán Pro.",
+    "done": "Ďakujeme! Plán Pro sa tu zobrazí, hneď ako Stripe potvrdí platbu, zvyčajne do minúty. Potom obnovte stránku.",
+    "canceled": "Platba bola zrušená. Nič sa nezaplatilo.",
+    "payment_problem": "Posledná platba sa nepodarila. Otvorte Spravovať predplatné a aktualizujte kartu.",
+    "company_tip": "Najprv zadajte IČO v Údajoch obchodu, aby bolo aj na prvej faktúre.",
+    "unavailable": "Platené plány zatiaľ nie sú k dispozícii.",
+    "failed": "Stripe sa nepodarilo otvoriť: {message}",
+    "company_id": "IČO"
   }
 }

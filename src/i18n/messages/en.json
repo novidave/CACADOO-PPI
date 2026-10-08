@@ -283,6 +283,37 @@
     "rule_pc": "The PC stays on during opening hours with this page or the PPI app open (minimised is fine).",
     "saving": "Saving…",
     "uploading": "Uploading…",
-    "error_translation": "Enter at least one translation (up to 300 characters)."
+    "error_translation": "Enter at least one translation (up to 300 characters).",
+    "error_plan_active": "This shop has a paid plan that still renews. Cancel it first under Plan → Manage subscription.",
+    "error_plan_unavailable": "Paid plans are not available yet."
+  },
+  "plan": {
+    "title": "Plan",
+    "intro": "Monthly subscription for this shop, paid by card through Stripe. Invoices with VAT are under Manage subscription.",
+    "current": "Current plan",
+    "free": "Free",
+    "pro": "Pro",
+    "status": "Subscription",
+    "status_active": "Active",
+    "status_trialing": "Trial",
+    "status_past_due": "Payment failed",
+    "status_unpaid": "Unpaid",
+    "status_canceled": "Cancelled",
+    "status_incomplete": "Payment not finished",
+    "status_incomplete_expired": "Payment expired",
+    "status_paused": "Paused",
+    "renews": "Renews on",
+    "ends": "Ends on",
+    "upgrade": "Upgrade",
+    "manage": "Manage subscription",
+    "opening": "Opening Stripe…",
+    "thanks": "Thank you! This shop now has Pro.",
+    "done": "Thank you! Pro shows here as soon as Stripe confirms the payment, usually within a minute. Then reload the page.",
+    "canceled": "Payment cancelled. Nothing was charged.",
+    "payment_problem": "The last payment failed. Open Manage subscription and update your card.",
+    "company_tip": "Enter the company ID under Shop details first, so that it is on the first invoice too.",
+    "unavailable": "Paid plans are not available yet.",
+    "failed": "Stripe could not be opened: {message}",
+    "company_id": "Company registration number"
   }
 }

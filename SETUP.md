@@ -43,6 +43,7 @@ For **each** file below:
 | 15 | `supabase/migrations/20261012000001_cloud_link.sql` | Cloud file links (taken out again by file 16) |
 | 16 | `supabase/migrations/20261013000001_remove_cloud_link.sql` | Upload only: removes the cloud file links and stops the old 15-minute download schedule |
 | 17 | `supabase/migrations/20261014000001_item_translations.sql` | Item names in Slovak, Hungarian and English, search across languages, AI search limits |
+| 18 | `supabase/migrations/20261015000001_subscriptions.sql` | Paid plan per shop (Stripe): subscriptions, `shop_has_plan` |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -170,7 +171,7 @@ npx supabase db push                     # applies any migrations not yet applie
 If you already applied the migrations by copy-paste, tell the CLI once that they are done:
 
 ```bash
-npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001 20261012000001 20261013000001 20261014000001
+npx supabase migration repair --status applied 20261001000001 20261001000002 20261001000003 20261001000004 20261001000005 20261003000001 20261004000001 20261005000001 20261006000001 20261007000001 20261008000001 20261009000001 20261010000001 20261011000001 20261012000001 20261013000001 20261014000001 20261015000001
 ```
 
 ---
@@ -368,6 +369,81 @@ Never put the Anthropic key in a `NEXT_PUBLIC_…` variable or in the repository
 
 ---
 
+## Part K — Paid plan with Stripe, test mode first (8 October 2026)
+
+One monthly subscription per shop. Stripe's keys live only in Supabase (function secrets); Vercel needs nothing new.
+You need a Stripe account and your Supabase project's **Reference ID** (Supabase → Project Settings → General; it is the
+`xxxx` in `https://xxxx.supabase.co`). Menu names in Stripe change now and then: if one is not where it says, type it
+into the search box at the top of the Stripe Dashboard.
+
+### K1. Supabase: database and the two functions
+
+1. SQL Editor → run file 18 (`supabase/migrations/20261015000001_subscriptions.sql`) → "Success. No rows returned"
+   (a notice "policy … does not exist, skipping" on the first run is normal). Safe to run again.
+2. Edge Functions → **Deploy a new function** → **Via Editor** → name **`stripe-checkout`** → paste the whole
+   `supabase/functions/stripe-checkout/index.ts` → **Deploy** → open the function → switch **off** "Verify JWT" → Save.
+3. The same for **`stripe-webhook`** with `supabase/functions/stripe-webhook/index.ts` → "Verify JWT" **off** (Stripe
+   signs its calls instead of logging in).
+
+### K2. Stripe, in test mode
+
+Switch the Stripe Dashboard to **test mode** (the "Test mode" switch, or a Sandbox). Keys in test mode start with
+`sk_test_`; nothing is charged.
+
+1. **Product and price:** Product catalog → **Add product** → name "PPI Pro" → **Recurring**, **Monthly**, the price in
+   EUR → "Include tax in price": **No** (VAT is added on top; choose Yes if your price already includes VAT) → Save →
+   open the price → copy its ID (`price_…`).
+2. **Stripe Tax:** Tax (or Settings → Tax) → set up: your business address (origin), default product tax code
+   "Software as a service (SaaS) – business use", default tax behaviour as in step 1 → **Registrations** → add your
+   country's VAT registration. Stripe adds VAT only where you are registered; ask your accountant about other EU
+   countries (OSS).
+3. **Invoice details:** Settings → Business: company name and address. Settings → Billing → **Invoice template**: your
+   VAT ID (IČ DPH) and company ID (IČO), so they are on every invoice. Settings → Billing → **Subscriptions and
+   emails**: "Email finalized invoices to customers" on.
+4. **Customer portal:** Settings → Billing → **Customer portal**: invoice history on; customer information (name,
+   billing address, tax ID) on; payment methods on; **cancel subscriptions** on, "at the end of the billing period" →
+   **Save** (without saving once, "Manage subscription" shows a Stripe error).
+5. **Webhook:** Developers → **Webhooks** → **Add endpoint** (newer dashboards: Add destination → Webhook endpoint) →
+   URL `https://<Reference ID>.supabase.co/functions/v1/stripe-webhook` → events `checkout.session.completed`,
+   `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`,
+   `customer.subscription.paused`, `customer.subscription.resumed` → create → **Signing secret** → Reveal → copy
+   (`whsec_…`).
+6. **API key:** Developers → **API keys** → Secret key → Reveal → copy (`sk_test_…`).
+
+### K3. Supabase: the three Stripe secrets
+
+Edge Functions → **Secrets** → add:
+
+| Name | Value |
+| --- | --- |
+| `STRIPE_SECRET_KEY` | the secret key from K2.6 (`sk_test_…`) |
+| `STRIPE_PRICE_PRO` | the price ID from K2.1 (`price_…`) |
+| `STRIPE_WEBHOOK_SECRET` | the signing secret from K2.5 (`whsec_…`) |
+
+Never put them in Vercel, the repository or a chat.
+
+### K4. Publish and test
+
+1. GitHub → merge the pull request; Vercel publishes the website.
+2. Log in → **Môj obchod** → section **Plán**: "Aktuálny plán: Zadarmo". Fill in the IČO under **Údaje obchodu** first
+   (then it is on the first invoice too) → **Prejsť na Pro**.
+3. On Stripe's test page: card `4242 4242 4242 4242`, any future date, any CVC; company name, address, VAT number
+   (optional), IČO (pre-filled) → subscribe.
+4. Back on the dashboard: "Ďakujeme! Tento obchod má teraz plán Pro." and "Obnoví sa <date>". If it still says
+   Zadarmo, wait a few seconds and reload.
+5. Stripe → Customers: the customer with the company name; its invoice with VAT and the IČO. Stripe → Webhooks → the
+   endpoint: deliveries answered with 200.
+6. **Spravovať predplatné** → Stripe's portal → cancel → back on the dashboard: "Skončí <date>".
+7. If something fails, the Plan section says why ("Stripe sa nepodarilo otvoriť: …"); Supabase → Edge Functions →
+   `stripe-webhook` / `stripe-checkout` → Logs show each call.
+
+### K5. Later: switch to live
+
+Repeat K2 in live mode (product and price, Stripe Tax, invoice details, portal, webhook endpoint — the live endpoint
+has its own `whsec_…`), then replace the three secrets with the live values. Test subscriptions do not carry over.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -392,3 +468,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 6. Stock pull Edge Function + AI field mapping | ✅ done |
 | 7. Self-service: sign-up with password, password reset, owners create shops, export folder on the dashboard, column approval; no admin area | ✅ built — set up Part E and H |
 | 8. Item names in Slovak, Hungarian and English (search across languages, owner corrections); AI search on the main page | ✅ built — set up Part J |
+| 9. Paid plan per shop with Stripe (Checkout, customer portal, webhook, VAT invoices, `shop_has_plan`) | ✅ built (test mode) — set up Part K |

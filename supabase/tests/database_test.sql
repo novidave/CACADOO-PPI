@@ -751,4 +751,175 @@ begin
 end $$;
 reset role;
 
+\echo '--- paid plan: only the service role writes subscriptions; shop_has_plan'
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  assert not public.shop_has_plan(v_a), 'no subscription row: no plan';
+  assert public.link_stripe_customer(v_a, 'cus_A1') = 'cus_A1', 'customer linked';
+  assert public.link_stripe_customer(v_a, 'cus_A2') = 'cus_A1', 'the first customer stays';
+  assert (select status from public.subscriptions where shop_id = v_a) = 'none';
+  assert not public.shop_has_plan(v_a), 'a customer without a subscription is no plan';
+
+  assert public.apply_stripe_subscription(v_a, 'cus_A1', 'sub_A1', 'active', 'pro', now() + interval '30 days', null);
+  assert public.shop_has_plan(v_a), 'active and inside the period: plan';
+  assert public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'trialing', 'pro', now() + interval '7 days', null);
+  assert public.shop_has_plan(v_b), 'trialing inside the period: plan';
+
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'active', 'pro', now() - interval '1 minute', null);
+  assert not public.shop_has_plan(v_b), 'past current_period_end: no plan';
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'trialing', 'pro', now() - interval '1 minute', null);
+  assert not public.shop_has_plan(v_b), 'trial past its end: no plan';
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'active', 'pro', null, null);
+  assert not public.shop_has_plan(v_b), 'no period end: no plan';
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'past_due', 'pro', now() + interval '30 days', null);
+  assert not public.shop_has_plan(v_b), 'past_due: no plan';
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'unpaid', 'pro', now() + interval '30 days', null);
+  assert not public.shop_has_plan(v_b), 'unpaid: no plan';
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'paused', 'pro', now() + interval '30 days', null);
+  assert not public.shop_has_plan(v_b), 'paused: no plan';
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'incomplete', 'pro', now() + interval '30 days', null);
+  assert not public.shop_has_plan(v_b), 'incomplete: no plan';
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'canceled', 'pro', now() + interval '30 days', null);
+  assert not public.shop_has_plan(v_b), 'canceled: no plan';
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'active', 'pro', now() + interval '30 days',
+                                           now() + interval '30 days');
+  assert public.shop_has_plan(v_b), 'cancelled at the period end: still the plan until then';
+
+  -- a new subscription replaces an ended one; a late event about the old one changes nothing
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'canceled', 'pro', now(), null);
+  assert public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B2', 'active', 'pro', now() + interval '30 days', null),
+    'a new live subscription replaces the ended one';
+  assert not public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'canceled', 'pro', now(), null),
+    'an ended subscription never replaces the live one';
+  assert (select stripe_subscription_id || ' ' || status from public.subscriptions where shop_id = v_b) = 'sub_B2 active';
+  assert public.shop_has_plan(v_b);
+
+  assert not public.apply_stripe_subscription(gen_random_uuid(), 'cus_X1', 'sub_X1', 'active', 'pro', now(), null),
+    'unknown shop: nothing written';
+  begin
+    perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B2', 'gold', 'pro', now(), null);
+    raise exception 'unknown status accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.link_stripe_customer(v_b, 'not-a-customer');
+    raise exception 'invalid customer id accepted';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+reset role;
+
+-- owner A reads only their own row and can never write one
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select count(*) from public.subscriptions) = 1, 'owner A sees only their own subscription';
+  assert (select stripe_subscription_id from public.subscriptions where shop_id = v_a) = 'sub_A1';
+  assert public.shop_has_plan(v_a);
+  begin
+    insert into public.subscriptions (shop_id, status) values (gen_random_uuid(), 'none');
+    raise exception 'owner inserted a subscription';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.subscriptions set status = 'active', current_period_end = now() + interval '10 years';
+    raise exception 'owner changed a subscription';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from public.subscriptions;
+    raise exception 'owner deleted a subscription';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.apply_stripe_subscription(v_a, 'cus_A1', 'sub_A9', 'active', 'pro', now() + interval '10 years', null);
+    raise exception 'owner wrote the subscription through the webhook function';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.link_stripe_customer(v_a, 'cus_A9');
+    raise exception 'owner linked a customer';
+  exception when insufficient_privilege then null;
+  end;
+  -- a shop whose plan still renews cannot be deleted (it would keep being charged)
+  begin
+    perform public.owner_delete_shop(v_a);
+    raise exception 'shop with a renewing plan deleted';
+  exception when object_not_in_prerequisite_state then null;
+  end;
+  assert exists (select 1 from public.shops where id = v_a), 'the shop is still there';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- visitors: no subscription data, but anyone may ask whether a shop has the plan
+set role anon;
+do $$ begin
+  begin
+    perform count(*) from public.subscriptions;
+    raise exception 'visitor read subscriptions';
+  exception when insufficient_privilege then null;
+  end;
+  assert public.shop_has_plan((select id from public.shops where slug = 'potraviny-centrum'));
+  assert not public.shop_has_plan((select id from public.shops where slug = 'zeleziarstvo-vychod'));
+end $$;
+reset role;
+
+-- once the plan is cancelled at the period end, the owner can delete the shop
+set role service_role;
+do $$
+declare
+  v_c uuid := (select s.id from public.shops s join public.shop_members m on m.shop_id = s.id
+               where m.user_id = '00000000-0000-0000-0000-00000000000c' order by s.created_at, s.slug limit 1);
+begin
+  assert v_c is not null, 'owner C still has a shop';
+  perform public.link_stripe_customer(v_c, 'cus_C1');
+  perform public.apply_stripe_subscription(v_c, 'cus_C1', 'sub_C1', 'active', 'pro', now() + interval '30 days', null);
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000c';
+do $$
+declare
+  v_c uuid := (select s.id from public.shops s join public.shop_members m on m.shop_id = s.id
+               where m.user_id = '00000000-0000-0000-0000-00000000000c' order by s.created_at, s.slug limit 1);
+begin
+  begin
+    perform public.owner_delete_shop(v_c);
+    raise exception 'owner C deleted a shop with a renewing plan';
+  exception when object_not_in_prerequisite_state then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role service_role;
+do $$
+declare
+  v_c uuid := (select shop_id from public.subscriptions where stripe_customer_id = 'cus_C1');
+begin
+  perform public.apply_stripe_subscription(v_c, 'cus_C1', 'sub_C1', 'active', 'pro', now() + interval '30 days',
+                                           now() + interval '30 days');
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000c';
+do $$
+declare
+  v_c uuid := (select s.id from public.shops s join public.shop_members m on m.shop_id = s.id
+               where m.user_id = '00000000-0000-0000-0000-00000000000c' order by s.created_at, s.slug limit 1);
+begin
+  perform public.owner_delete_shop(v_c);
+  assert not exists (select 1 from public.shops where id = v_c), 'shop with a plan that ends deleted';
+  assert not exists (select 1 from public.subscriptions where shop_id = v_c), 'its plan row went with it';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
 \echo 'ALL DATABASE CHECKS PASSED'
