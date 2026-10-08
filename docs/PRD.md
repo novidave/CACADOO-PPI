@@ -46,7 +46,7 @@ Center.
 | Shop owner | Anyone who signs up (e-mail + password) | Create up to 5 shops; edit details, logo, opening hours, facilities; send stock (folder, file upload, cloud link); approve the stock file's columns; choose what shoppers see; hide items; delete own shops |
 | AI assistant / tool | Any program | Read the same public data through the API, the MCP server and the pages |
 
-**Self-service:** there is no admin area on the website and no approval step by the operator. The operator (David)
+**Self-service:** there is no admin area on the website and no approval step by the operator. The operator
 uses the Supabase dashboard if something ever needs fixing by hand.
 
 ## 3. Scope
