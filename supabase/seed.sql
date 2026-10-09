@@ -1,34 +1,34 @@
 -- PPI · TEST DATA ONLY. Do not run on the live project after launch.
 -- Four shops in two countries, covering every freshness state and currency case:
---   potraviny-centrum   Michalovce SK, EUR  file 10 min old -> current (mode: in_stock)
---   drogeria-kostolne   Michalovce SK, EUR  file 3 h old    -> recent  (mode: exact)
---   zeleziarstvo-vychod Michalovce SK, EUR  file 25 h old   -> stale   (mode: yes_no)
---   kisbolt-budapest    Budapest HU,   HUF  file 5 min old  -> current (mode: in_stock)
+--   potraviny-centrum   Michalovce SK, EUR  file 10 min old -> current
+--   drogeria-kostolne   Michalovce SK, EUR  file 3 h old    -> recent
+--   zeleziarstvo-vychod Michalovce SK, EUR  file 25 h old   -> stale
+--   kisbolt-budapest    Budapest HU,   HUF  file 5 min old  -> current
+-- Every shop shows the quantity exactly as in its file (migration 21).
 -- Times are relative to when you run this, so re-run it to reset them.
 
 delete from public.shops
 where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 'kisbolt-budapest');
 
 insert into public.shops
-  (slug, name, ico, address, city, country, timezone, location, phone, website, opening_hours,
-   visibility_mode, low_stock_threshold, is_active)
+  (slug, name, ico, address, city, country, timezone, location, phone, website, opening_hours, is_active)
 values
   ('potraviny-centrum', 'Potraviny Centrum', '12345678', 'Námestie osloboditeľov 10',
    'Michalovce', 'SK', 'Europe/Bratislava', 'SRID=4326;POINT(21.9185 48.7547)', '+421 56 000 0001', null,
    '{"mon":[["07:00","18:00"]],"tue":[["07:00","18:00"]],"wed":[["07:00","18:00"]],"thu":[["07:00","18:00"]],"fri":[["07:00","18:00"]],"sat":[["07:00","12:00"]],"sun":[]}',
-   'in_stock', 3, true),
+   true),
   ('drogeria-kostolne', 'Drogéria Kostolné', '23456789', 'Kostolné námestie 4',
    'Michalovce', 'SK', 'Europe/Bratislava', 'SRID=4326;POINT(21.9140 48.7570)', '+421 56 000 0002', null,
    '{"mon":[["08:00","12:00"],["13:00","17:00"]],"tue":[["08:00","12:00"],["13:00","17:00"]],"wed":[["08:00","12:00"],["13:00","17:00"]],"thu":[["08:00","12:00"],["13:00","17:00"]],"fri":[["08:00","12:00"],["13:00","17:00"]],"sat":[],"sun":[]}',
-   'exact', 3, true),
+   true),
   ('zeleziarstvo-vychod', 'Železiarstvo Východ', '34567890', 'Užhorodská 25',
    'Michalovce', 'SK', 'Europe/Bratislava', 'SRID=4326;POINT(21.9350 48.7520)', '+421 56 000 0003', null,
    '{"mon":[["08:00","17:00"]],"tue":[["08:00","17:00"]],"wed":[["08:00","17:00"]],"thu":[["08:00","17:00"]],"fri":[["08:00","17:00"]],"sat":[["08:00","12:00"]],"sun":[]}',
-   'yes_no', 3, true),
+   true),
   ('kisbolt-budapest', 'Kisbolt Budapest', null, 'Király utca 12',
    'Budapest', 'HU', 'Europe/Budapest', 'SRID=4326;POINT(19.0610 47.4990)', '+36 1 000 0004', null,
    '{"mon":[["07:00","20:00"]],"tue":[["07:00","20:00"]],"wed":[["07:00","20:00"]],"thu":[["07:00","20:00"]],"fri":[["07:00","20:00"]],"sat":[["08:00","14:00"]],"sun":[]}',
-   'in_stock', 3, true);
+   true);
 
 insert into public.sync_sources (shop_id, file_format, mapping_status, latest_file_time, last_checked_at)
 select id, 'xml', 'confirmed',
@@ -77,11 +77,6 @@ select ni.id, i.qty, i.price, i.currency, now() - interval '10 minutes'
 from new_items ni
 join public.shops s on s.id = ni.shop_id
 join items i on i.slug = s.slug and i.code = ni.source_code;
-
--- One hidden item, to check that is_public = false never shows publicly.
-update public.shop_items set is_public = false
-where source_code = 'P007'
-  and shop_id = (select id from public.shops where slug = 'potraviny-centrum');
 
 -- Amenities (migration 9): Potraviny Centrum has a customer toilet with douchette
 -- and takes cards; Kisbolt Budapest takes cards.

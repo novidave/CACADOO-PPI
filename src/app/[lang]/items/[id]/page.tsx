@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isLocale, locales, type Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
-import { getItem, getOtherOffers, getShop, getShopsByIds } from "@/lib/data";
+import { getItem, getOtherOffers, getShop, getShopsByIds, shopHasPlan } from "@/lib/data";
 import { addressLine, directionsUrl, formatDistance, formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
 import { pageAlternates, siteUrl } from "@/lib/site";
@@ -38,9 +38,12 @@ export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]
   if (!item) notFound();
 
   // Other shops with the same EAN, nearest to this shop first (no visitor location is used).
+  // A shop with the paid plan has its own page: never other shops on it (not in the list,
+  // the map or the JSON-LD).
   const near = item.shop_lat !== null && item.shop_lng !== null ? { lat: item.shop_lat, lng: item.shop_lng } : null;
+  const pro = await shopHasPlan(item.shop_id);
 
-  const [shop, others] = await Promise.all([getShop(item.shop_slug), getOtherOffers(item, near)]);
+  const [shop, others] = await Promise.all([getShop(item.shop_slug), pro ? Promise.resolve([]) : getOtherOffers(item, near)]);
   const otherShops = await getShopsByIds([...new Set(others.map((o) => o.shop_id))]);
   const hasLocation = item.shop_lat !== null && item.shop_lng !== null;
   const translated = translatedName(item.item_name, item.item_name_i18n, lang);
@@ -54,7 +57,7 @@ export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]
         {translated && <p className="text-lg text-muted">{translated}</p>}
         <p className="text-2xl font-semibold">{formatPrice(item.price, lang, item.currency)}</p>
         <p>
-          <StockLine row={item} timeZone={item.shop_timezone} dict={dict} />
+          <StockLine row={item} timeZone={item.shop_timezone} dict={dict} lang={lang} />
         </p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 text-sm">
           {item.brand && (
@@ -113,7 +116,7 @@ export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]
         />
       )}
 
-      {item.ean && (
+      {item.ean && !pro && (
         <section aria-labelledby="others-heading" className="flex flex-col gap-2">
           <h2 id="others-heading" className="text-lg font-semibold">
             {dict.item.also_at}
@@ -138,7 +141,7 @@ export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]
                         .join(" · ")}
                     </div>
                     <div className="flex flex-wrap gap-x-3 text-sm">
-                      <StockLine row={o} timeZone={o.shop_timezone} dict={dict} />
+                      <StockLine row={o} timeZone={o.shop_timezone} dict={dict} lang={lang} />
                       {otherShop && (
                         <OpenStatus hours={otherShop.opening_hours} timeZone={otherShop.timezone} lang={lang} dict={dict} />
                       )}
@@ -156,11 +159,7 @@ export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]
 
 const SCHEMA_AVAILABILITY: Record<string, string> = {
   in_stock_count: "https://schema.org/InStock",
-  in_stock: "https://schema.org/InStock",
-  available: "https://schema.org/InStock",
-  low_stock: "https://schema.org/LimitedAvailability",
   out_of_stock: "https://schema.org/OutOfStock",
-  not_available: "https://schema.org/OutOfStock",
 };
 
 /** schema.org Product + Offer. The offer is left out entirely when the shop's stock data is stale. */

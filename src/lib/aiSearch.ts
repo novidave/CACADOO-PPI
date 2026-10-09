@@ -216,7 +216,7 @@ async function toCards(items: FoundItem[], lang: Locale): Promise<AiCard[]> {
     shop: item.shop.name,
     shopHref: `/${lang}/shops/${item.shop.slug}`,
     place: [item.shop.address, item.shop.city].filter(Boolean).join(", "),
-    availability: availabilityText(dict, item.availability, item.quantity),
+    availability: availabilityText(dict, item.availability, item.quantity, lang),
     freshness: freshnessText(dict, item.freshness.state, item.freshness.age_minutes, item.freshness.updated_at, item.shop.timezone),
   }));
 }

@@ -33,6 +33,7 @@ function fakes(setup: Setup = {}) {
   const document = setup.document === undefined
     ? { id: DOC, shop_id: SHOP, status: "processing", extracted: false, storage_path: `${SHOP}/docs/${DOC}.pdf`, pages: 10 }
     : setup.document;
+  const picture = { id: PIC, status: "ready", storage_path: `${SHOP}/pictures/${PIC}.jpg`, kind: "picture" };
   const asCaller = {
     auth: { getUser: (token: string) => Promise.resolve({ data: { user: token === "owner-jwt" ? { id: "u1" } : null } }) },
     rpc: (name: string, args: Record<string, unknown>) => {
@@ -45,7 +46,12 @@ function fakes(setup: Setup = {}) {
         eq: (_c: string, id: string) => ({
           maybeSingle: () => {
             log.push(`caller read ${table}`);
-            return Promise.resolve(ok(setup.member === false || id !== DOC ? null : document));
+            if (setup.member === false) return Promise.resolve(ok(null));
+            if (table === "shop_pictures") {
+              const row = id === PIC ? picture : id === SCAN ? { ...picture, id: SCAN, kind: "scan" } : null;
+              return Promise.resolve(ok(row));
+            }
+            return Promise.resolve(ok(id !== DOC ? null : document));
           },
         }),
       }),
@@ -80,7 +86,10 @@ function fakes(setup: Setup = {}) {
           log.push(`storage download ${path}`);
           return Promise.resolve(ok(new Blob([new Uint8Array([1, 2, 3])])));
         },
-        createSignedUrl: (path: string, seconds: number) => Promise.resolve(ok({ signedUrl: `https://signed/${path}?s=${seconds}` })),
+        createSignedUrl: (path: string, seconds: number) => {
+          log.push(`storage sign ${path}`);
+          return Promise.resolve(ok({ signedUrl: `https://signed/${path}?s=${seconds}` }));
+        },
         createSignedUrls: (paths: string[], seconds: number) =>
           Promise.resolve(ok(paths.map((p) => ({ signedUrl: `https://signed/${p}?s=${seconds}` })))),
       }),
@@ -292,4 +301,20 @@ Deno.test("Links: the owner's own thumbnails, signed for 10 minutes", async () =
       pictures: { [PIC]: `https://signed/${SHOP}/pictures/${PIC}.webp?s=600` },
       limits: { files: 30, pages: 500, pictures: 300 },
     }], "links and limits");
+});
+
+Deno.test("Open: only the owner's own PDF or picture, signed for 10 minutes", async () => {
+  const { deps } = fakes();
+  eq(await call(deps, { action: "open_file", kind: "document", id: DOC }),
+    [200, { url: `https://signed/${SHOP}/docs/${DOC}.pdf?s=600` }], "own PDF");
+  eq(await call(deps, { action: "open_file", kind: "picture", id: PIC }),
+    [200, { url: `https://signed/${SHOP}/pictures/${PIC}.jpg?s=600` }], "own picture");
+  eq((await call(deps, { action: "open_file", kind: "picture", id: SCAN }))[0], 403, "a scanned page is only for the AI");
+  eq((await call(deps, { action: "open_file", kind: "folder", id: DOC }))[0], 400, "unknown kind");
+  const uploading = fakes({ document: { id: DOC, shop_id: SHOP, status: "uploading", extracted: false, storage_path: "x", pages: 1 } });
+  eq((await call(uploading.deps, { action: "open_file", kind: "document", id: DOC }))[0], 409, "not in storage yet");
+  const other = fakes({ member: false });
+  eq((await call(other.deps, { action: "open_file", kind: "document", id: DOC }))[0], 403, "another shop's PDF");
+  eq((await call(other.deps, { action: "open_file", kind: "picture", id: PIC }))[0], 403, "another shop's picture");
+  eq(other.log.some((l) => l.startsWith("storage")), false, "nothing signed");
 });

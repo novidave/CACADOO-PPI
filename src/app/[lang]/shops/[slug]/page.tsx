@@ -11,6 +11,7 @@ import { DAYS, dayName, hasHours, openingHoursSpecification, rangesFor } from "@
 import { shopChatEnabled } from "@/lib/shopChat";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { freshnessText } from "@/lib/stock";
+import { ContactLinks } from "@/components/ContactLinks";
 import { JsonLd } from "@/components/JsonLd";
 import { OpenStatus } from "@/components/OpenStatus";
 import { ShopChat } from "@/components/ShopChat";
@@ -99,6 +100,7 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
               {dict.shop.website}
             </a>
           )}
+          <ContactLinks email={shop.email} facebookUrl={shop.facebook_url} facebookLabel={dict.shop.facebook} />
         </p>
       </header>
 
@@ -110,6 +112,8 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
           timeZone={shop.timezone}
           keys={docsKeysEnabled()}
           labels={dict.chat}
+          buttonLabel={shop.assistant_label}
+          welcome={shop.assistant_welcome}
         />
       )}
 
@@ -160,7 +164,7 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
                     <span className="whitespace-nowrap font-medium">{formatPrice(item.price, lang, item.currency)}</span>
                   </div>
                   <div className="text-sm">
-                    <StockLine row={item} timeZone={shop.timezone} dict={dict} />
+                    <StockLine row={item} timeZone={shop.timezone} dict={dict} lang={lang} />
                   </div>
                 </li>
               );
@@ -229,7 +233,8 @@ function localBusiness(shop: PublicShop, lang: Locale) {
     url: `${siteUrl()}/${lang}/shops/${shop.slug}`,
     ...(shop.logo_url ? { logo: shop.logo_url, image: shop.logo_url } : {}),
     ...(shop.phone ? { telephone: shop.phone } : {}),
-    ...(shop.website ? { sameAs: [shop.website] } : {}),
+    ...(shop.email ? { email: shop.email } : {}),
+    ...(shop.website || shop.facebook_url ? { sameAs: [shop.website, shop.facebook_url].filter(Boolean) } : {}),
     address: {
       "@type": "PostalAddress",
       ...(shop.address ? { streetAddress: shop.address } : {}),

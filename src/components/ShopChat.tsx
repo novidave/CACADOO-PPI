@@ -73,6 +73,8 @@ export function ShopChat({
   timeZone,
   keys,
   labels,
+  buttonLabel,
+  welcome,
 }: {
   slug: string;
   lang: string;
@@ -81,7 +83,12 @@ export function ShopChat({
   /** "I have an access key" for the shop's private folders (when the website can keep sessions). */
   keys: boolean;
   labels: Labels;
+  /** The owner's own button label and welcome text (plain text, as written); empty = the default texts. */
+  buttonLabel?: string | null;
+  welcome?: string | null;
 }) {
+  const title = buttonLabel?.trim() || labels.title;
+  const intro = welcome?.trim() || labels.intro;
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [text, setText] = useState("");
@@ -153,19 +160,21 @@ export function ShopChat({
   }
 
   return (
-    <section className="border border-line" aria-label={labels.title}>
+    <section className="border border-line" aria-label={title}>
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between gap-3 p-3 text-left font-semibold"
       >
-        <span>{labels.title}</span>
+        <span>{title}</span>
         <span aria-hidden="true">{open ? "−" : "+"}</span>
       </button>
       {open && (
         <div className="flex flex-col gap-3 border-t border-line p-3">
-          <p className="text-sm text-muted">{labels.intro}</p>
+          <p className="text-sm text-muted" data-chat-welcome>
+            {intro}
+          </p>
           {entries.length > 0 && (
             <ol className="flex flex-col gap-4" aria-live="polite">
               {entries.map((entry, i) => (

@@ -17,6 +17,8 @@
 //                      (describes a picture once; writes out a scanned page's text as written)
 //   links              {shop_id, picture_ids} → signed addresses (10 minutes) for the
 //                      owner's thumbnails, and the shop's limits
+//   open_file          {kind: document | picture, id} → {url}: a 10-minute address of the
+//                      owner's own PDF or picture (Môj obchod "Open")
 //   delete             {kind: "document" | "picture", id}   files first, then text and rows
 // The browser does the PDF reading because Edge Functions get only 2 seconds of CPU per
 // request; here there is only light work and waiting for the AI.
@@ -566,6 +568,25 @@ async function links(body: Body, deps: Deps) {
   return reply(200, out);
 }
 
+/** The owner opens one of their own PDFs or pictures (RLS: only the shop's members read the row). */
+async function openFile(body: Body, deps: Deps) {
+  const kind = body.kind === "document" || body.kind === "picture" ? body.kind : null;
+  const id = uuidOrNull(body.id);
+  if (!kind || !id) return reply(400, { error: "bad_request", message: "kind and id are required" });
+  const { data } = await deps.asCaller
+    .from(kind === "document" ? "shop_documents" : "shop_pictures")
+    .select(kind === "document" ? "id, status, storage_path" : "id, status, storage_path, kind")
+    .eq("id", id)
+    .maybeSingle();
+  const row = data as { status: string; storage_path: string; kind?: string } | null;
+  // Scans of PDF pages without text are only for the AI: never opened on their own.
+  if (!row || (kind === "picture" && row.kind !== "picture")) return notMember();
+  if (row.status === "uploading") return reply(409, { error: "not_uploaded", message: "The file is not in storage" });
+  const { data: signed, error } = await deps.db.storage.from(BUCKET).createSignedUrl(row.storage_path, 600);
+  if (error || !signed?.signedUrl) return reply(404, { error: "not_found", message: "The file is missing" });
+  return reply(200, { url: signed.signedUrl });
+}
+
 /** Files first (they would otherwise stay in storage), then the rows: text and pictures go with them. */
 async function remove(body: Body, deps: Deps) {
   const kind = body.kind === "document" || body.kind === "picture" ? body.kind : null;
@@ -592,6 +613,7 @@ const ACTIONS: Record<string, (body: Body, deps: Deps) => Promise<Response>> = {
   document_done: documentDone,
   work,
   links,
+  open_file: openFile,
   delete: remove,
 };
 

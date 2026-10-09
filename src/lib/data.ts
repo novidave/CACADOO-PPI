@@ -26,6 +26,11 @@ export interface PublicShop {
   has_toilet: boolean;
   has_douchette: boolean;
   has_card_terminal: boolean;
+  email: string | null;
+  facebook_url: string | null;
+  /** The owner's own assistant button label and welcome text (plain text; null = the default text). */
+  assistant_label: string | null;
+  assistant_welcome: string | null;
 }
 
 /** One row of public.shop_stock(). */
@@ -50,7 +55,7 @@ export interface ShopItemRow {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHOP_COLUMNS =
-  "id, slug, name, address, city, country, timezone, phone, website, logo_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal";
+  "id, slug, name, address, city, country, timezone, phone, website, logo_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal, email, facebook_url, assistant_label, assistant_welcome";
 
 async function client() {
   const supabase = await createClient();

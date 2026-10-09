@@ -13,12 +13,16 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
      sends the newest finished file;
    - **By hand:** the owner clicks "Upload file" and picks it.
 4. The Supabase Edge Function **`stock-pull`** reads the file. For a new file layout it proposes which column is which
-   (Claude, or a rule-based guess); the owner approves it once on the dashboard.
+   (Claude sees only the column names and up to 3 sample values per column — none of the columns whose names point to
+   purchase price, supplier, margin or invoice — or a rule-based guess); the owner approves it once on the dashboard.
+   Every column not in the approved mapping is private: it stays only in the raw-files bucket (7 days).
 5. The function writes the whole stock in one transaction and records the file's time. That time is the freshness.
+   Each received file also gets an import report for the owner (`stock_imports`, the last 10).
    After replying it translates new or renamed item names into Slovak, Hungarian and English in the background
    (Claude Haiku), so every search finds items in all three languages.
 6. The Next.js website on Vercel shows the stock on server-rendered pages, and the same data goes out through a public
-   API and an MCP server. Freshness and availability rules are applied once, in the database, for all of them. On
+   API and an MCP server. Freshness and availability rules are applied once, in the database, for all of them: every
+   shop shows the quantity exactly as in its file ("12 ks na sklade", "Vypredané" at 0 or less). On
    request, an AI search (Claude Haiku using the same search) adds an answer above the plain results.
 7. Shops can take a monthly **paid plan** (Stripe, test mode first): the dashboard's "Upgrade" goes through the Edge
    Function **`stripe-checkout`** to Stripe's payment page; Stripe tells the Edge Function **`stripe-webhook`**, which
@@ -101,20 +105,29 @@ function never downloads anything and runs on no schedule.
 3. Keep the raw file in the private `raw-files` bucket (files older than 7 days deleted).
 4. **No approved mapping:** if a proposal already fits the columns → "waiting for approval"; otherwise propose one:
    Claude (structured output whose allowed values are the file's real column names, low effort, with server-side
-   fallback) when `ANTHROPIC_API_KEY` is set, else `guessMapping()` (column-name hints in SK, CZ, HU, EN, DE). Save it
-   as `proposed` with 10 sample rows and stop. **Never auto-approved.**
+   fallback) when `ANTHROPIC_API_KEY` is set, else `guessMapping()` (column-name hints in SK, CZ, HU, EN, DE). Claude
+   gets `columnSamples()`: every column name with up to 3 values, and only the name for columns that
+   `isPrivateColumn()` flags (purchase price, cost, supplier, margin, profit, invoice in SK/CZ/HU/EN/DE, "NC"). Save
+   it as `proposed` with every column name (`file_columns`) and 3 sample rows without those columns
+   (`approvalSample()`) and stop. **Never auto-approved.**
 5. **Approved mapping:** map every row (numbers in any European format; currency from the file, else from the shop's
    country, else EUR). More than 5 % unreadable rows → keep the old stock, propose a new mapping
    (`layout_changed`).
 6. `apply_stock_file(shop, rows, file_time, sample)` in one transaction: upsert products by EAN, `shop_items`,
    `inventory`; items of the shop missing from the file → quantity 0; set `latest_file_time`, clear `last_error`.
+   The sample is the first 5 rows of the approved columns only.
+7. **Import report** (`record_stock_import()`, before the reply; a failure there never fails the upload): file name,
+   file time, status (`ok`; `errors` = unreadable rows, layout changed or an error; `waiting` = columns wait for
+   approval), rows, imported, set to 0, skipped, error, and a preview of the first 5 rows — the database keeps only
+   the columns of the approved mapping (none before approval) and the last 10 reports per shop. The uploader's
+   reply never carries rows.
 
 Results: `updated`, `unchanged`, `proposed`, `waiting_for_approval`, `layout_changed`, `error` (also written to
 `sync_sources.last_error`).
 
 **Item names in three languages** (after `updated`, in the background with `EdgeRuntime.waitUntil`, so the reply and
 the stock never wait for it): `items_to_translate(shop)` lists names without a translation or renamed since (never the
-owner's corrections; public items first; up to 1,200 per file) → batches of 200 names, 3 at a time, to Claude Haiku
+owner's corrections; up to 1,200 per file) → batches of 200 names, 3 at a time, to Claude Haiku
 (structured output: language, sk, hu, en per name; abbreviations written out, brand/sizes/model and part numbers kept;
 low effort, streamed) → `apply_item_translations(shop, items)` saves them, skipping owner corrections and names that
 changed meanwhile. Any failure is logged and left for the next file; without `ANTHROPIC_API_KEY` nothing is
@@ -122,16 +135,17 @@ translated.
 
 ### 2.3 Database (Supabase Postgres + PostGIS)
 
-**Tables:** `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `profiles`, `api_usage`,
-`subscriptions`, `shop_chat_usage` (columns in PRD section 7).
+**Tables:** `shops`, `shop_members`, `products`, `shop_items`, `inventory`, `sync_sources`, `stock_imports`,
+`profiles`, `api_usage`, `subscriptions`, `shop_chat_usage`, and the documents tables of section 2.10 (columns in PRD
+section 7).
 
 **Rules in SQL (one place for website, API and MCP):**
 
 | Object | Purpose |
 | --- | --- |
 | `freshness_label(time)`, `freshness_age_minutes(time)`, `freshness_state(shop)` | current < 30 min, recent < 24 h, stale otherwise |
-| `availability_label(mode, quantity, threshold, freshness)` | label key per visibility mode; NULL when stale |
-| view `public_stock` | the only public read path for stock: public items of active shops, labels, raw quantity only for `exact` shops that are not stale |
+| `availability_label(quantity, freshness)` | one rule for every shop: `in_stock_count` when the quantity is above 0 ("12 ks na sklade"), `out_of_stock` at 0 or less, NULL when stale. No setting can change it (migration 21 dropped `visibility_mode`, `low_stock_threshold`, `shop_items.is_public` and the functions that set them) |
+| view `public_stock` | the only public read path for stock: every item of an active shop, the quantity exactly as in the file and its label; neither for stale shops |
 | `search_stock(q, lat, lng, radius_km, only_available)` | text search: every word of `q` must appear (`matches_all_words()`, accents/case ignored via `search_text()` = `unaccent` + lower) in the item's names (original + sk/hu/en, `item_names_text()`), brand, EAN, or the shop's name, street, town; candidates come from the trigram indexes (longest word); optional radius for API/MCP callers; available first, fresher, nearer, name; 50 rows with the translations |
 | view `public_shops`, `shop_stock(slug, q, limit, offset)` | shop pages and their item lists (same word search, with translations) |
 | index `shop_items_names_search_idx` | trigram index over `item_names_text(name, name_i18n)`: original name and all three translations |
@@ -144,16 +158,23 @@ translated.
 | `apply_stock_file(...)` | stock writing — service role only |
 | `shop_has_plan(shop)` | **the** paid-plan check: subscription `active` or `trialing` and `current_period_end` not passed; callable by anyone (yes/no only) |
 | `link_stripe_customer(shop, customer)`, `apply_stripe_subscription(shop, customer, subscription, status, plan, period_end, cancel_at)` | paid-plan writing — service role only (the Stripe functions); a live subscription is never replaced by an ended one |
-| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `availability_preview(threshold)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop; `owner_delete_shop` refuses a shop whose paid plan still renews |
+| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop; `owner_delete_shop` refuses a shop whose paid plan still renews; `owner_save_shop` also takes the e-mail (lower case) and Facebook page (`clean_contact()`: https added; only facebook.com / fb.com, else `email` / `facebook` errors) |
+| `owner_set_assistant_texts(shop, label, welcome)` | the assistant's button label (≤ 40) and welcome text (≤ 300): owner + `shop_has_plan()` (`no_plan`), plain text via `plain_text()` (HTML tags, links, bare domains and e-mail addresses removed, spaces collapsed; empty = NULL = the default text) |
+| `record_stock_import(shop, file, file_time, status, total, imported, zeroed, skipped, error, rows)` | import report — service role only; keeps `mapped_columns()` of the approved mapping (`keep_columns()`), 5 rows, the last 10 per shop |
+| `is_private_column(name)`, `mapped_columns(mapping)` | the private-column name check (same words as `isPrivateColumn()` in stock-pull) and the approved columns in field order |
 
-**Guards:** triggers stop clients from changing a shop's page address, company ID or visibility flag directly
-(`guard_shop_update`; the owner functions run as the database owner and may), from writing stock results into
-`sync_sources` (`guard_sync_source_write`), from setting `is_admin` (`guard_profile_update`), and from saving an unknown
-time zone (`guard_shop_timezone`). A profile row is created for every new account (`handle_new_user`).
+**Guards:** triggers stop clients from changing a shop's page address, company ID or active flag directly
+(`guard_shop_update`; the owner functions run as the database owner and may), from writing stock results (incl.
+`sample_rows`, `file_columns`) into `sync_sources` (`guard_sync_source_write`), from setting `is_admin`
+(`guard_profile_update`), and from saving an unknown time zone (`guard_shop_timezone`). `guard_shop_assistant_texts`
+cleans the assistant texts on every write and refuses a direct client write without the plan; `trim_sample_rows`
+keeps private columns out of `sample_rows` (3 rows without private-looking columns while a mapping is proposed, the
+approved columns only once confirmed); check constraints keep `email` and `facebook_url` valid. A profile row is
+created for every new account (`handle_new_user`).
 
 **Row Level Security** is on for every table; visitors use only the public views/functions; owners reach only shops
-where they are in `shop_members`; `inventory`, stock results and `subscriptions` are written only by the service role
-(owners may read their own shop's `subscriptions` row; visitors nothing).
+where they are in `shop_members`; `inventory`, stock results, `stock_imports` and `subscriptions` are written only by
+the service role (owners may read their own shop's `subscriptions` row and import reports; visitors nothing).
 
 **Storage:** `logos` (public read; members may write into their shop's folder; 1 MB; PNG/JPEG/WebP) and `raw-files`
 (private, service role only).
@@ -161,8 +182,8 @@ where they are in `shop_members`; `inventory`, stock results and `subscriptions`
 **Vault:** not used any more; the old tunnel design kept per-shop download credentials there (`ppi_shop_<id>`).
 
 **Legacy, kept but unused by the website and the function:** `profiles.is_admin`, the `admin_*` functions,
-`user_id_by_email`, `admin_set_sync_credentials`, `sync_credentials`, and the column `sync_sources.file_url` (only the
-legacy `admin_shops()` reads it). Removing them needs a new migration.
+`user_id_by_email`, `admin_set_sync_credentials`, `sync_credentials`, and the column `sync_sources.file_url`
+(`admin_shops()` and `admin_save_shop()` were dropped by migration 21). Removing them needs a new migration.
 
 ### 2.4 Accounts and e-mail (Supabase Auth)
 
@@ -185,6 +206,7 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
 | `/api/v1/*`, `/api/openapi.json`, `/mcp` | public API, OpenAPI, MCP server |
 | `/api/ai-search` | AI search for the main page (POST, website only) |
 | `/api/shops/[slug]/chat` | the shop assistant on a shop page (POST, website only, paid plan) |
+| `/api/owner/files/[kind]/[id]` | "Open" for the owner's own PDF or picture: login required → `doc-ingest` `open_file` (RLS: the owner's shop only) → 302 to a 10-minute signed address |
 | `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/manifest.webmanifest` | discovery files, app manifest |
 
 - **Languages:** `src/proxy.ts` sends addresses without a language to `/sk`, `/hu` or `/en` (saved choice → browser
@@ -194,13 +216,23 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
   `lib/supabase/client.ts` (browser: login finish, PPI app window), `lib/supabase/public.ts` (API, MCP, sitemap,
   llms.txt: anon, no cookies). Only the public URL and the anon/publishable key are in the website.
 - **Public pages** load data in server components (`lib/data.ts`) so crawlers see everything without JavaScript.
+  The item page asks `shop_has_plan()` for the item's shop: with the plan it loads no other offers at all (no "Also
+  available at" block or "not found elsewhere" text, no other pins, nothing in the JSON-LD). The shop page shows the
+  e-mail and Facebook page next to the website (`components/ContactLinks.tsx`, black inline icons; JSON-LD `email` and
+  `sameAs`) and gives `ShopChat` the owner's label and welcome text (`public_shops`).
 - **Formatting** (`lib/format.ts`): prices with the item's own currency in the visitor's language; times in the shop's
   time zone. Opening hours and "open now" in `lib/hours.ts`.
 - **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
   `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
-- **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop, approve columns,
-  visibility, logo, item visibility, translation correction, plan, delete); each form returns to its own section with
-  its message. The Plan section reads the shop's `subscriptions` row and `shop_has_plan()`; "Upgrade" and "Manage
+- **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop incl. e-mail and
+  Facebook page, approve columns, logo, translation correction, assistant texts, plan, delete) and `docActions.ts`;
+  each form returns to its own section with its message. Every main section is a `components/DashboardSection.tsx`
+  (`<details>` with heading and summary line; a phone starts with only the first open, a computer with all; the owner's
+  choice per section in `localStorage` key `ppi.dashboard.open`; `?at=`/`#` opens a section). Under "Export folder":
+  `PrivateFiles.tsx` (files of private folders, from the same `loadShopDocs()` data as "Documents for the assistant";
+  Open via `/api/owner/files`, Delete via `deleteDocOrPicture`) and `components/RecentImports.tsx` (the last 10
+  `stock_imports` rows: scroll-snap cards, arrow buttons from 640 px, a tap shows the full report). The column
+  drop-downs list `my_shops().file_columns`. Nothing on the dashboard changes how stock is shown. The Plan section reads the shop's `subscriptions` row and `shop_has_plan()`; "Upgrade" and "Manage
   subscription" run `openBilling`, which calls the `stripe-checkout` function with the owner's session and redirects to
   the Stripe page it returns.
 - **Names** (`lib/names.ts`): `translatedName()` picks the page-language name to show under the shop's own name when
@@ -330,6 +362,9 @@ legacy `admin_shops()` reads it). Removing them needs a new migration.
   → `shop_file_path()` decides (Public or opened folder; "Assistant may show it" / "Shoppers may download it"; plan) →
   a 10-minute signed Storage address → 302. Owners see their thumbnails through `doc-ingest` `links`
   (`owner_picture_paths()`).
+- **Open (owner):** `doc-ingest` `open_file` `{kind: document | picture, id}` reads the row with the owner's login
+  (RLS: members only; scanned pages refused) and returns a 10-minute signed address; the website's
+  `/api/owner/files/{kind}/{id}` redirects to it ("Files in private folders" and the document cards).
 - **Delete:** `doc-ingest` `delete` asks `owner_docs_files()` with the owner's login (only their own), removes the
   files with the service role first, then the row; pictures and excerpts go with it (foreign keys). A shop with
   documents cannot be deleted until they are.
@@ -412,7 +447,8 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | `stripe-webhook` unreachable or failing | — | the plan shows late; Stripe retries for up to three days (Stripe → Webhooks → event deliveries); past the paid period `shop_has_plan()` is false until the event arrives |
 | Shop assistant: Claude fails (no credit, wrong key, slow) | "The assistant is not answering right now" in the chat; the page works as usual | when logged in: the reason in the chat; Vercel log `shop-chat: …` |
 | Shop assistant over a limit | "Too many messages" (20 an hour) or "used up its messages for this month" | — |
-| Paid plan ends | the assistant box disappears; the route answers `no_plan` | Plan section shows the state |
+| Paid plan ends | the assistant box disappears; the route answers `no_plan`; product pages show "Also available at" again | Plan section shows the state; the assistant texts stay saved but cannot be changed |
+| Import report not saved (database error) | — | the stock is applied as usual; the report is missing from "Recently uploaded files" (logged as `import report not saved`) |
 | `doc-ingest` not deployed | — | "Uploading is not set up yet" in Documents for the assistant |
 | Claude unavailable while pictures wait | answers use text excerpts; pictures without a description are found by their title | "AI is looking at pictures: N left" or "Pictures are waiting: AI is not set up"; retried next time (3 attempts) |
 | The owner leaves during an upload | — | the document shows "Processing", after an hour "Error – upload interrupted: delete it and upload it again" |
@@ -436,8 +472,14 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
   refs); every message passes `shop_chat_hit()` (plan + limits); photos are checked to be JPEG, never stored or logged;
   no CORS. The limit functions are callable with the public key, so someone could use up a limit directly (no cost).
 - Documents: the bucket `shop-docs` is private; owners can only add files they registered (no reading, replacing or
-  deleting); everything else goes through `doc-ingest` (owner's login checked) and `shop-files` (database decides), both
-  with the service role inside Supabase. Excerpts are readable only through `search_shop_docs()`; access keys and
+  deleting); everything else goes through `doc-ingest` (owner's login checked; "Open" for the owner too) and
+  `shop-files` (database decides), both with the service role inside Supabase.
+- Private columns of the stock file (all not in the approved mapping) stay only in the private `raw-files` bucket:
+  `sample_rows` and import reports keep no private values (enforced by triggers and `record_stock_import()`), the AI
+  proposing columns never sees values of purchase price, supplier, margin or invoice columns, and the shop assistant
+  only reads `shop_stock` / `public_stock`.
+- Shop texts shown to visitors (assistant label and welcome) are plain text cleaned in the database and rendered as
+  text; the e-mail and Facebook link are validated by the database (only facebook.com / fb.com, https). Excerpts are readable only through `search_shop_docs()`; access keys and
   session tokens are stored as hashes; the session cookie is HttpOnly and signed; the key never reaches Claude.
 - Stripe: secret key, webhook signing secret and price only as Supabase function secrets; the website calls
   `stripe-checkout` with the owner's login and never sees a key. `stripe-webhook` accepts only correctly signed,
@@ -473,7 +515,8 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 src/app/[lang]/            public pages, accounts, (account)/dashboard|sync|password
 src/app/api, mcp, auth     REST API + OpenAPI, MCP server, e-mail link landing / sign out
 src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
-src/components/            ShopMap, FolderSync, AiSearch, ShopChat, DocUpload, FolderKeyForm, ShopForm, LogoInput, …
+src/components/            ShopMap, FolderSync, AiSearch, ShopChat, DocUpload, FolderKeyForm, ShopForm, LogoInput,
+                           DashboardSection, RecentImports, ContactLinks, …
 src/lib/                   data, publicApi, aiSearch, shopChat, docsAccess, pdfRead, names, apiHttp, auth, format, …
 src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh
@@ -509,6 +552,7 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | 18 | `20261015000001_subscriptions.sql` | paid plan: `subscriptions` (RLS: owners read, service role writes), `shop_has_plan`, `link_stripe_customer`, `apply_stripe_subscription`, `owner_delete_shop` refuses a renewing plan |
 | 19 | `20261016000001_shop_assistant.sql` | shop assistant: `shop_chat_usage`, `shop_chat_hit` (paid plan, 20 an hour per caller, monthly cap per shop) |
 | 20 | `20261017000001_shop_documents.sql` | documents for the assistant: folders (Public made for every shop), documents, pictures, excerpts with full-text and trigram indexes, access keys and sessions, the `owner_*` and `docs_*` functions, `search_shop_docs`, `shop_docs_list`, `shop_file_path`, `unlock_shop_folders` / `lock_shop_folders` / `shop_folder_session`, bucket `shop-docs` and its upload policy; `owner_delete_shop` also refuses a shop with documents |
+| 21 | `20261018000001_shop_page_updates.sql` | one display rule for every shop: `availability_label(quantity, freshness)`, `public_stock` without display modes or hidden items; drops `shops.visibility_mode`, `shops.low_stock_threshold`, `shop_items.is_public`, the owner's item update policy, `availability_preview`, `admin_shops`, `admin_save_shop`; `shops.email`, `facebook_url`, `assistant_label`, `assistant_welcome` (checks, `plain_text`, `clean_contact`, `guard_shop_assistant_texts`, `owner_set_assistant_texts`), `owner_save_shop` and `my_shops` and `public_shops` with them; private columns (`is_private_column`, `mapped_columns`, `keep_columns`, `trim_sample_rows`, `sync_sources.file_columns`); `stock_imports` + `record_stock_import` (last 10 per shop, owners read). Safe to run twice |
 
 ## 10. Testing and releasing
 
@@ -529,14 +573,23 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
   text saved page by page in the document's language; scans become text of their page; moving a document moves its
   text and pictures; keys stored as hashes and counted; 5 wrong keys per caller and shop; deleting a document removes
   its pictures and excerpts; a shop with documents cannot be deleted).
-- `npm run test:functions`: 37 Deno tests — 12 of `doc-ingest` (text kept as written, pages kept apart, long pages
+- `npm run test:db` also checks (migration 21): only two labels exist and the quantity is shown as in the file (14, 2,
+  0, -1), every item is public, the display columns and functions are gone and no owner can update items; e-mail and
+  Facebook links cleaned and refused (`evilfacebook.com`, `facebook.com.evil.io`, `javascript:`), also by direct
+  writes; the assistant texts lose HTML, links and e-mail addresses, are cut to 40/300, empty becomes NULL, and need the
+  plan and the shop's owner; sample rows keep no private columns (before and after approval); import reports keep only
+  the approved columns (nothing before approval), the last 10 per shop, owners read only their own, nobody else reads
+  or writes them.
+- `npm run test:functions`: 43 Deno tests — 13 of `doc-ingest` (text kept as written, pages kept apart, long pages
   split without losing a word, language found for six languages, limits from the secrets, no login / another shop's
   owner never reaches the service role, limits and refusals when registering, the PDF must be in storage, text and
   pictures checks, the AI's description and scan text saved and failures kept for a retry, no AI without the plan or
-  key, files deleted before the row and nothing deleted for another shop, owner thumbnails), 3 of `shop-files` (signed
-  only when the database says yes, bad requests never reach it), 9 of `stock-pull` (number formats, Windows-1250 CSV,
-  XML, XLSX, bad-row counting, translation batches, checking Claude's translations, a failed translation leaves the stock applied,
-  translations saved after the stock), 6 of `stripe-checkout` (the payment page's exact Stripe fields, one customer
+  key, files deleted before the row and nothing deleted for another shop, owner thumbnails, "Open" only for the owner's
+  own PDF or picture and never a scan), 3 of `shop-files` (signed only when the database says yes, bad requests never
+  reach it), 14 of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row counting, translation batches,
+  checking Claude's translations, a failed translation leaves the stock applied, translations saved after the stock,
+  private column names, what the AI sees for a proposal, import report statuses, an applied file's report and sample
+  without private values, a new layout's waiting report without rows), 6 of `stripe-checkout` (the payment page's exact Stripe fields, one customer
   per shop, live subscription → portal, only owners, return address check, not configured) and 7 of `stripe-webhook`
   (a signature made with openssl is accepted, forged/old/changed events refused, what each event writes, older API
   shape, retries on errors).
@@ -551,7 +604,14 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
   logo and a scanned page; consent, folders, own picture, corrected description, key shown once; an Italian question
   answered with "From: Katalóg 2026, page 4" and a fake document price dropped; the private price list only with the
   key; HttpOnly cookie; files 404 without the session; "Lock again"; phone fallback; 5 wrong keys; the key never sent
-  to Claude; deleting removes files and excerpts; phone width);
+  to Claude; deleting removes files and excerpts; phone width); the shop page updates (Pro product pages in sk/hu/en
+  without other shops in text, links or JSON-LD, free ones with them; quantities as in the file on pages and in the
+  API; e-mail and Facebook saved cleaned, refused when wrong, shown as icons with text, in JSON-LD and the API; the
+  assistant's label and welcome text cleaned, shown, empty → default in each language, no form without the plan;
+  private files with folder, date and key on/off, Open (302 to a signed address, 401 without login) and Delete; a file
+  with purchase price and supplier columns uploaded before and after approving the columns: no private value stored
+  anywhere, every column name in the drop-downs; 10 report cards, errors card, arrows, the full report; on a phone
+  only the first section open, choices remembered, cards swiped, no sideways page scroll);
   those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with

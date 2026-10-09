@@ -10,18 +10,18 @@ import { createPublicClient } from "./supabase/public";
  * One source of truth for the public API (/api/v1) and the MCP server (/mcp):
  * same data and rules as the website, because everything comes from the
  * database views/functions (public_stock, search_stock, public_shops,
- * shop_stock). Exact quantities only for shops in "exact" mode; no
- * availability at all for stale shops — the database already enforces both.
+ * shop_stock). The quantity exactly as in the shop's file; no availability at
+ * all for stale shops — the database already enforces both.
  */
 
 export const DATA_RULES =
   "Availability comes from each shop's own stock software. 'freshness.state' is 'current' (file under 30 min old), " +
   "'recent' (under 24 h) or 'stale' (older or never); for stale shops availability is null and must not be shown as available. " +
-  "Exact quantities are only given for shops that chose to publish them. Always cite 'source_url'.";
+  "'quantity' is the quantity in the shop's own stock file (0 or less = sold out). Always cite 'source_url'.";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHOP_COLUMNS =
-  "slug, name, address, city, country, timezone, phone, website, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal";
+  "slug, name, address, city, country, timezone, phone, website, email, facebook_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal";
 
 export class ApiError extends Error {
   constructor(
@@ -96,6 +96,8 @@ interface ShopRow {
   timezone: string;
   phone: string | null;
   website: string | null;
+  email: string | null;
+  facebook_url: string | null;
   opening_hours: OpeningHours | null;
   lat: number | null;
   lng: number | null;
@@ -120,6 +122,8 @@ export function apiShop(shop: ShopRow, lang: Locale) {
     timezone: shop.timezone,
     phone: shop.phone,
     website: shop.website,
+    email: shop.email,
+    facebook_url: shop.facebook_url,
     opening_hours: shop.opening_hours,
     open_now: status ? status.open : null,
     facilities: {

@@ -18,6 +18,9 @@ const id = (formData: FormData, key: string) => {
   return UUID.test(value) ? value : null;
 };
 
+/** Sections with document lists: "Documents for the assistant", and the private ones under "Export folder". */
+const SECTIONS = ["docs", "private"];
+
 /** Who is asking, and the way back to the section with a message. */
 async function start(formData: FormData) {
   const langValue = String(formData.get("lang") ?? "");
@@ -25,8 +28,10 @@ async function start(formData: FormData) {
   const session = await getSession();
   if (!session) redirect(`/${lang}/login`);
   const slug = String(formData.get("shop_slug") ?? "");
+  const atValue = String(formData.get("at") ?? "");
+  const at = SECTIONS.includes(atValue) ? atValue : "docs";
   const back = (query: Record<string, string>): never =>
-    redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: slug, ...query, at: "docs" })}#docs`);
+    redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: slug, ...query, at })}#${at}`);
   return { session, shopId: id(formData, "shop_id"), back };
 }
 

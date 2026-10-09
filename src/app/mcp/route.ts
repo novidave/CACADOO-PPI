@@ -80,7 +80,7 @@ function buildServer() {
     {
       title: "Get a shop",
       description:
-        "One shop by its slug (from search results): address, coordinates, phone, website, opening hours, " +
+        "One shop by its slug (from search results): address, coordinates, phone, website, e-mail, Facebook page, opening hours, " +
         "open now, facilities (customer toilet, douchette, card payment) and stock freshness.",
       inputSchema: {
         slug: z.string().min(1).max(80).describe("Shop slug, e.g. 'potraviny-centrum'."),

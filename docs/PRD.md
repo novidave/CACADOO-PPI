@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.5 · status 9 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 2.6 · status 9 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -13,7 +13,8 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Public search, shop pages, item pages, map | Live |
 | Slovak, Hungarian, English | Live |
 | Sign-up, log-in, forgotten password, change password (e-mail + password) | Live (e-mail through Brevo SMTP) |
-| Owner dashboard: create shop, details, logo, opening hours, facilities, visibility, items | Live |
+| Owner dashboard: create shop, details, logo, opening hours, facilities, items | Live |
+| Shop page updates: no other shops on Pro product pages, shop e-mail and Facebook page, the assistant's own button label and welcome text, "My shop" as dropdowns, private folder files and the last 10 stock files there, one display rule for every shop | Built and tested; live after migration 21, the two updated functions and the merge (SETUP.md part N) |
 | Stock from the shop PC: PPI app window watching the export folder | Built and tested |
 | Stock by hand: "Upload file" | Live, tested by the owner |
 | AI field mapping (Claude) with owner approval | Live (rule-based guess when no Anthropic key is set) |
@@ -94,8 +95,17 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 
 - **Stack:** Next.js 16 (App Router, TypeScript) on Vercel; Supabase (Postgres + PostGIS, Auth, Storage, Vault, Edge
   Functions, pg_cron). Code in GitHub; every database change is a numbered migration in `supabase/migrations/`.
-- **Rules live in the database.** Freshness, availability labels and hiding exact quantities are SQL functions and
-  views, so the website, the API and the MCP server always say the same thing.
+- **Rules live in the database.** Freshness and the availability label (the quantity exactly as in the shop's file)
+  are SQL functions and views, so the website, the API and the MCP server always say the same thing.
+- **PPI never edits, corrects or completes shop data.** What shoppers see of the stock comes only from the shop's own
+  stock software through the uploaded file; "My shop" has no setting that changes the uploaded data or how it is
+  shown. Translations of item names are not shop data (6.4).
+- **Private columns** are every column of the stock file that is not in the approved column mapping (purchase price,
+  supplier, margin, invoice number, …): they stay only in the private raw-files bucket (7 days), are never shown
+  publicly and never reach the shop assistant. For the one-time column proposal the AI gets only the column names and
+  up to 3 sample values per column; columns whose name points to purchase price, supplier, margin or invoice go by
+  name only.
+- **Payment never affects search ranking.**
 - **Only the stock-pull function writes stock**, with the service role key. That key never appears in the web app,
   Vercel or the repository. Likewise **only the stripe-webhook function writes a shop's paid state**, after checking
   Stripe's signature; Stripe keys live only in Supabase function secrets.
@@ -131,14 +141,17 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 
 ### 5.2 Shop page (`/[lang]/shops/{slug}`)
 
-- Name, logo, address, phone, website, "Get directions" (Google Maps with the shop's coordinates), map pin.
+- Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
+  with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
 - Opening hours for the week in the shop's time zone, "Open now / Closes at / Opens at".
 - Facilities: customer toilet, douchette (bidet shower), card payment.
 - Stock freshness line, then the shop's public items: searchable in all three languages, 50 per page, name +
   translation, price and availability.
-- JSON-LD `Store` (address, geo, opening hours, phone, logo, `paymentAccepted`, `amenityFeature`).
+- JSON-LD `Store` (address, geo, opening hours, phone, `email`, `sameAs` = website and Facebook page, logo,
+  `paymentAccepted`, `amenityFeature`).
 - **AI assistant** (only when the shop has the paid plan and the Anthropic key is set in Vercel): a collapsed box
-  "Ask the shop's assistant" under the shop's details, in the page language. The shopper can ask about the shop's
+  "Ask the shop's assistant" under the shop's details, in the page language — or the owner's own button label and
+  welcome message (plain text, shown as written; empty = the default texts). The shopper can ask about the shop's
   items, prices and availability; ask for a shopping list for a job (shown as a list with quantity, price and each
   item's availability, with "Copy list" and "Print list"); or add a photo of a device, part, model plate or serial
   number — the assistant says what it read, searches the shop and says plainly whether the shop has a match, is not
@@ -156,7 +169,10 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 
 - Item name as the shop wrote it, its name in the page language under it, brand, EAN, price, availability with
   freshness, shop card with directions and "open now". The page title carries both names.
-- "Also available at": the same product (EAN) in other shops, nearest to this shop first.
+- "Also available at": the same product (EAN) in other shops, nearest to this shop first (or "We did not find this
+  product in other shops."). **Not on product pages of shops with the paid plan** (`shop_has_plan`): no block, no
+  text, no other shops on the map or in the JSON-LD; the shop's own assistant never names other shops either. Shops
+  without the plan and the main search work as before.
 - JSON-LD `Product` (translation as `alternateName`) with an `Offer` (price, currency, availability) only when the
   shop is not stale.
 
@@ -178,23 +194,39 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 
 - **Add your shop** (shown when the account has none, or via "+ Add another shop"): name, street, town, country (two
   letters), time zone, phone, company ID, website, location on the map, opening hours (several ranges per day),
-  facilities, "Visible to shoppers" (ticked by default). The page address is made from name and town and made unique.
+  facilities, contact e-mail and Facebook page (optional; only facebook.com / fb.com links), "Visible to shoppers"
+  (ticked by default). The page address is made from name and town and made unique.
   At most 5 shops per account. After creating: three next steps are shown.
+- Every main section is a **dropdown** with its heading and a one-line summary while closed ("Last upload: today
+  14:20 · 152 products", "Approved – new files are applied automatically.", "Button: “…”", …). On a phone only the
+  first section starts open, on a computer all of them; what the owner opens or closes is remembered on that device.
+  The section a form was sent from opens with its message.
 - **Export folder** section:
   - status: latest file time, Current/Recent/Stale, "PPI window on the shop PC last active", last file received, last
     error;
   - **Connect folder** (Edge/Chrome) and **Upload file** (any browser), with the result of each send;
   - the rules for the stock software's export (below) and a link to the full-screen `/sync` page.
+- **Files in private folders** (owner only): every PDF and picture of the shop's private folders with its name,
+  upload date, folder and "Access key: on/off" (on = a valid key opens that folder), **Open** (a 10-minute link, new
+  tab) and **Delete** (as in Documents for the assistant).
+- **Recently uploaded files:** a card per received stock file, the last 10 (swipe on a phone, arrows on a computer):
+  file name, date and time, products imported, rows skipped, status (OK / errors / waiting for column approval) and
+  the first 5 rows exactly as in the file — approved columns only, never a private column (no preview before the
+  columns are approved). A tap shows the full import report (received, file time, rows in the file, imported, set to
+  sold out, skipped, error, preview).
 - **Stock file columns:** after the first file, one drop-down per field (item code, name, EAN, brand, quantity, price,
-  currency) pre-filled with the proposal, next to the file's first rows. Code, name, quantity and price are required.
-  **Approve columns** → from then on every new file is applied automatically.
+  currency) listing every column name of the file, pre-filled with the proposal, next to the file's first rows (before
+  approval 3 rows without the columns whose name points to purchase price, supplier, margin or invoice; after it only
+  the approved columns). Code, name, quantity and price are required. **Approve columns** → from then on every new
+  file is applied automatically. A note says that the columns not chosen stay private.
 - **Shop details:** everything from "Add your shop", editable.
 - **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once.
-- **What shoppers see:** exact number / In stock–Low stock–Out of stock / Available–Not available, the "low stock"
-  threshold (1–50) and a live preview table.
-- **Items:** name (and its translation), code, price, quantity, what shoppers see; search, 50 per page; Hide/Show per
-  item. **Correct the translation** per item (Slovak, Hungarian, English): a corrected item is never translated by
+- **Items:** name (and its translation), code, price, quantity, what shoppers see ("12 in stock" / "Out of stock",
+  exactly as in the file); search, 50 per page. **Correct the translation** per item (Slovak, Hungarian, English): a corrected item is never translated by
   machine again ("Translate automatically" hands it back); a note appears when the shop renames a corrected item.
+- **Shop assistant** (paid plan): the button label (up to 40 characters) and the welcome message shown when the
+  assistant opens (up to 300). Plain text only: HTML, links and e-mail addresses are removed (the owner is told);
+  empty = the default texts in the page language. Without the plan the section only says it is part of the plan.
 - **Plan:** current plan (Free or Pro), the subscription's state (Active, Trial, Payment failed, Cancelled, …) and
   "Renews on" or "Ends on" with the date in the shop's time zone. **Upgrade** opens the Stripe payment page; **Manage
   subscription** opens the Stripe customer portal (cancel, change card, invoices). After paying, the owner comes back to
@@ -249,7 +281,8 @@ sold out); every 15–30 minutes during opening hours plus once at night; only p
   website itself never uses a location.
 - Every result carries `source_url` (the PPI page to cite), `name` (as the shop wrote it), `name_translated` (in the
   requested `lang`), `name_lang`, price, currency, availability text, freshness and the shop's address, coordinates and
-  time zone. Exact quantities only for shops that publish them; no availability for stale shops. Search works across
+  time zone, the quantity exactly as in the shop's file; no availability for stale shops. `get_shop` also gives the
+  shop's e-mail and Facebook page. Search works across
   Slovak, Hungarian and English as on the website.
 - Search-engine ownership tags (`GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`) can be set in Vercel so the
   sitemap can be submitted (SETUP.md part I).
@@ -269,16 +302,17 @@ Freshness comes from the time of the shop's latest applied stock file (`sync_sou
 The file time is the file's own "last modified" time on the shop PC (with "Upload file": that of the picked file),
 never later than "now". Sending the same file again, or an older one, does not make the stock fresher.
 
-### 6.2 Availability (per shop's choice)
+### 6.2 Availability (one rule for every shop)
 
-| What shoppers see (`visibility_mode`) | quantity > threshold | 0 < quantity ≤ threshold | quantity ≤ 0 |
-| --- | --- | --- | --- |
-| Exact number (`exact`) | "12 in stock" | "2 in stock" | "Out of stock" |
-| In stock / Low stock (`in_stock`, default) | "In stock" | "Low stock" | "Out of stock" |
-| Available / Not available (`yes_no`) | "Available" | "Available" | "Not available" |
+| Quantity in the shop's file | Shown (sk / hu / en) |
+| --- | --- |
+| more than 0 | "12 ks na sklade" / "12 db raktáron" / "12 in stock" (the number exactly as in the file) |
+| 0 or less (also: item missing from the file) | "Vypredané" / "Elfogyott" / "Out of stock" |
 
-The label is computed in the database. Raw quantities leave the database only for `exact` shops that are not stale.
-Hidden items (owner's choice) and inactive shops are never shown.
+The label is computed in the database (`availability_label(quantity, freshness)`); a stale shop shows no availability
+and no quantity (6.1). There is no setting for it: how stock is shown is decided only by the shop's own stock software
+through the file. Every item of an active shop is shown; inactive shops are never shown. (Until migration 21 shops could
+choose "exact number / in stock–low stock / available" and hide items; migration 21 removed those columns.)
 
 ### 6.3 Stock files
 
@@ -292,7 +326,10 @@ Hidden items (owner's choice) and inactive shops are never shown.
   Windows-1250), Excel `.xlsx` (first sheet). Numbers in any European or English format ("1 234,50 €", "1,234.50").
   Up to 50 MB. When the file has no currency column, the shop's country decides (HU → HUF, CZ → CZK, PL → PLN,
   CH → CHF, …), otherwise EUR.
-- Items are linked across shops by EAN ("also available at").
+- Items are linked across shops by EAN ("also available at"; not on product pages of shops with the paid plan).
+- Every received file gets an **import report** (`stock_imports`, owner only, the last 10 per shop): file name, file
+  time, received, status (`ok`, `errors` = unreadable rows or not applied, `waiting` = columns wait for approval),
+  rows, imported, set to 0, skipped, error, and the first 5 rows of the approved columns exactly as in the file.
 
 ### 6.4 Item names in three languages
 
@@ -387,16 +424,17 @@ Open if the current time in the shop's own time zone falls inside today's ranges
   pictures of the shop separately.
 - Deleting a document deletes its file, its pictures and all its text; deleting a picture its file and description.
 
-## 7. Data model (after migration 20)
+## 7. Data model (after migration 21)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
-| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `visibility_mode`, `low_stock_threshold` (1–50, default 3), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops |
+| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
 | `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |
-| `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `is_public`, `updated_at`, `name_lang`, `name_i18n` (`{"sk","hu","en"}`), `translated_name_source`, `name_i18n_by_owner` | Unique per shop + code; names searchable through one trigram index over the original and the three translations |
+| `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `updated_at`, `name_lang`, `name_i18n` (`{"sk","hu","en"}`), `translated_name_source`, `name_i18n_by_owner` | Unique per shop + code; names searchable through one trigram index over the original and the three translations. Every item of an active shop is public (`is_public` dropped by migration 21) |
 | `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at` | Written only by the stock-pull function |
-| `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows`, `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name` | One per shop: how its stock file is read and the latest upload. A leftover `file_url` column is unused (only the legacy `admin_shops()` reads it) |
+| `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows` (never private columns: 3 rows without purchase price / supplier / margin / invoice columns before approval, only the approved columns after), `file_columns` (every column name of the latest file), `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name` | One per shop: how its stock file is read and the latest upload. A leftover `file_url` column is unused |
+| `stock_imports` | `shop_id`, `file_name`, `file_time`, `received_at`, `status` (`ok`/`errors`/`waiting`), `total_rows`, `imported`, `zeroed`, `skipped`, `error`, `columns`, `preview` | Import report per received file, the last 10 per shop; written only by stock-pull (`record_stock_import()`), read only by the shop's owners; the preview holds only approved columns |
 | `profiles` | `user_id`, `display_name`, `language`, `is_admin` | One per account, created automatically |
 | `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP, AI search (`ai-search`) and shop assistant (`shop-chat`) rate limit log; no IP addresses; older than 30 days removed |
 | `subscriptions` | `shop_id` (key: one row per shop), `stripe_customer_id`, `stripe_subscription_id`, `status` (`none` = customer only, else Stripe's status), `plan`, `current_period_end`, `cancel_at`, `updated_at` | Paid plan; written only by the Stripe functions (service role), read by the shop's owners |
@@ -417,9 +455,10 @@ may only add files they registered; only the service role reads or deletes).
 
 | Data | Visitor | Shop owner | Stock-pull function |
 | --- | --- | --- | --- |
-| Shops | active shops (public fields) | own shops: details through `owner_save_shop()`, visibility and logo directly (never the page address); delete through `owner_delete_shop()` | read |
-| Items (names, codes, EAN, translations) | public items of active shops | own items: read, hide/show, correct the translation (`owner_set_item_translation()`) | write (stock and machine translations) |
-| Stock (quantity, price) | only through `public_stock` / `search_stock` / `shop_stock`: labels, never hidden items, raw quantity only for `exact` shops | own stock (`owner_items()`) | write |
+| Shops | active shops (public fields, incl. e-mail, Facebook page and the assistant texts) | own shops: details through `owner_save_shop()`, the assistant texts through `owner_set_assistant_texts()` (paid plan), logo directly (never the page address); delete through `owner_delete_shop()` | read |
+| Items (names, codes, EAN, translations) | items of active shops | own items: read, correct the translation (`owner_set_item_translation()`); no way to hide an item | write (stock and machine translations) |
+| Stock (quantity, price) | only through `public_stock` / `search_stock` / `shop_stock`: the quantity as in the file and its label, nothing for stale shops | own stock (`owner_items()`) | write |
+| Import reports (`stock_imports`) | none | own shops' reports (read) | writes them (`record_stock_import()`, keeps the last 10) |
 | Stock source (`sync_sources`) | none | own shop through `my_shops()`, `owner_set_mapping()`, `upload_check_in()` | read and write |
 | Accounts (`profiles`) | none | own profile | — |
 | Paid plan (`subscriptions`) | none (only yes/no through `shop_has_plan()`) | own shops' row (read) | the Stripe functions write it: stripe-checkout links the customer, stripe-webhook the subscription |
@@ -440,8 +479,9 @@ may only add files they registered; only the service role reads or deletes).
   shop-files function issues after the database said yes.
 - The Anthropic key is a server setting (Supabase function secret, Vercel variable), never in the browser; the AI
   search endpoint answers only the PPI website (no CORS).
-- Legacy: the `is_admin` flag and the `admin_*` database functions from the old admin area still exist in the database
-  but nothing on the website uses them.
+- Legacy: the `is_admin` flag and the remaining `admin_*` database functions from the old admin area still exist in
+  the database but nothing on the website uses them (`admin_shops()` and `admin_save_shop()` were dropped by migration
+  21 with the display columns they set).
 
 ## 9. Design
 
@@ -457,11 +497,10 @@ may only add files they registered; only the service role reads or deletes).
 
 | Key | SK | HU | EN |
 | --- | --- | --- | --- |
-| in\_stock | Na sklade | Raktáron | In stock |
-| low\_stock | Málo na sklade | Kevés raktáron | Low stock |
+| in\_stock\_count | {n} ks na sklade | {n} db raktáron | {n} in stock |
 | out\_of\_stock | Vypredané | Elfogyott | Out of stock |
-| available | Dostupné | Elérhető | Available |
-| not\_available | Nedostupné | Nem elérhető | Not available |
+| chat.title (default button) | Opýtajte sa asistenta obchodu | Kérdezze az üzlet asszisztensét | Ask the shop's assistant |
+| imports.title | Posledné nahrané súbory | Legutóbb feltöltött fájlok | Recently uploaded files |
 | stale | Informácia o zásobe momentálne nie je dostupná | A készletinformáció jelenleg nem elérhető | Stock information not currently available |
 
 All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should check Slovak and Hungarian before launch.
@@ -479,7 +518,8 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - **The four sample shops** from the build are still live (their names have no translations).
 - The site runs on `cacadooppivercel.vercel.app`; an own domain is still to come.
 - **Paid plan in test mode.** Stripe runs with test keys (test cards only) until it is switched to live; the shop
-  assistant is the only feature that checks `shop_has_plan()` so far. If Stripe cannot reach the webhook, the plan
+  assistant, its texts, its documents and hiding other shops on product pages are the features that check
+  `shop_has_plan()` so far. If Stripe cannot reach the webhook, the plan
   shows late (Stripe retries for up to three days) and, past the paid period, counts as not paid until the event arrives.
 - **AI limits can be used up by others.** The AI search's daily total and the shop assistant's monthly cap are counted
   by database functions that the website calls with the public key; someone calling them directly could use up a

@@ -1,11 +1,12 @@
 import type { Dictionary } from "@/i18n/dictionaries";
 import { availabilityText, freshnessText, type AvailabilityKey, type FreshnessState } from "@/lib/stock";
 
-/** "Málo na sklade · Aktualizované pred 10 min", or only the stale text. Always text, never colour. */
+/** "12 ks na sklade · Aktualizované pred 10 min", or only the stale text. Always text, never colour. */
 export function StockLine({
   row,
   timeZone,
   dict,
+  lang,
 }: {
   row: {
     availability: AvailabilityKey | null;
@@ -16,8 +17,9 @@ export function StockLine({
   };
   timeZone: string | null;
   dict: Dictionary;
+  lang?: string;
 }) {
-  const availability = availabilityText(dict, row.availability, row.quantity);
+  const availability = availabilityText(dict, row.availability, row.quantity, lang);
   const freshness = freshnessText(dict, row.freshness_state, row.freshness_age_minutes, row.latest_file_time, timeZone);
   return (
     <span>

@@ -630,7 +630,7 @@ async function toReply(
       translated: translatedName(item.name, { [lang]: item.name_translated ?? undefined }, lang),
       brand: item.brand,
       price: formatPrice(item.price, lang, item.currency),
-      availability: availabilityText(dict, item.availability, item.quantity),
+      availability: availabilityText(dict, item.availability, item.quantity, lang),
       freshness: freshnessText(dict, item.freshness.state, item.freshness.age_minutes, item.freshness.updated_at, shop.timezone),
       docPrices: docPrices.get(item.id)?.slice(0, 3) ?? [],
     };

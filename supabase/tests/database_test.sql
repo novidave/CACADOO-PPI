@@ -38,25 +38,25 @@ begin
     and (availability is not null or quantity is not null or is_available or freshness_state <> 'stale');
   assert n = 0, 'stale shop must not show availability';
 
-  -- in_stock mode: quantity never leaves the database
-  select count(*) into n from public.public_stock
-  where shop_slug = 'potraviny-centrum' and quantity is not null;
-  assert n = 0, 'in_stock mode must hide quantity';
-
-  -- in_stock mode labels with threshold 3
-  assert (select availability from public.public_stock where item_name = 'Káva zrnková 1 kg') = 'in_stock';
-  assert (select availability from public.public_stock where item_name = 'Káva mletá 250 g') = 'low_stock';
-  assert (select availability from public.public_stock where item_name = 'Chlieb konzumný 1 kg') = 'out_of_stock';
+  -- one rule for every shop: the quantity exactly as in the shop's file
+  assert (select quantity || ' ' || availability from public.public_stock where item_name = 'Káva zrnková 1 kg')
+         = '14 in_stock_count', 'quantity as in the file';
+  assert (select quantity || ' ' || availability from public.public_stock where item_name = 'Káva mletá 250 g')
+         = '2 in_stock_count', 'no "low stock" label any more';
+  assert (select quantity || ' ' || availability from public.public_stock where item_name = 'Chlieb konzumný 1 kg')
+         = '0 out_of_stock', 'sold out at 0';
   assert (select freshness_state from public.public_stock where item_name = 'Maslo 250 g') = 'current';
-
-  -- exact mode (recent shop): quantity shown
   assert (select quantity from public.public_stock where item_name = 'Zubná pasta 75 ml') = 12;
   assert (select availability from public.public_stock where item_name = 'Zubná pasta 75 ml') = 'in_stock_count';
   assert (select freshness_state from public.public_stock where item_name = 'Zubná pasta 75 ml') = 'recent';
+  assert (select count(*) from public.public_stock where shop_slug = 'kisbolt-budapest' and quantity is null) = 0,
+    'every current shop shows its quantities';
+  assert not exists (select 1 from public.public_stock
+                     where availability not in ('in_stock_count', 'out_of_stock')), 'only the one rule''s labels';
 
-  -- hidden item never public
+  -- every item of the file is public: there is no hide switch any more
   select count(*) into n from public.public_stock where item_name like 'Čaj zelený%';
-  assert n = 0, 'is_public = false item must be hidden';
+  assert n = 1, 'every item of the file is shown';
 
   -- only_available hides stale and out-of-stock rows
   select count(*) into n from public.search_stock(null, 48.755, 21.918, 10, true) where not is_available;
@@ -93,7 +93,7 @@ begin
   assert not exists (
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'public_shops'
-      and column_name in ('ico', 'visibility_mode', 'low_stock_threshold', 'is_active', 'location')
+      and column_name in ('ico', 'is_active', 'location', 'docs_terms_accepted_at')
   ), 'public_shops exposes a private column';
   assert (select freshness_state from public.public_shops where slug = 'zeleziarstvo-vychod') = 'stale';
   assert (select round(lat::numeric, 3) from public.public_shops where slug = 'kisbolt-budapest') = 47.499;
@@ -102,12 +102,14 @@ begin
   assert (select has_toilet and has_douchette and has_card_terminal from public.public_shops where slug = 'potraviny-centrum');
   assert (select not has_toilet and has_card_terminal from public.public_shops where slug = 'kisbolt-budapest');
 
-  -- shop_stock: paging, total count, accent-insensitive filter, hidden items excluded
+  -- shop_stock: paging, total count, accent-insensitive filter
   select count(*) into n from public.shop_stock('potraviny-centrum');
-  assert n = 6, format('shop page should list 6 public items (1 hidden), got %s', n);
-  assert (select max(total_count) from public.shop_stock('potraviny-centrum', null, 2, 0)) = 6;
+  assert n = 7, format('shop page should list all 7 items of the file, got %s', n);
+  assert (select max(total_count) from public.shop_stock('potraviny-centrum', null, 2, 0)) = 7;
   select count(*) into n from public.shop_stock('potraviny-centrum', null, 2, 4);
   assert n = 2, 'third page of 2 should have 2 rows';
+  select count(*) into n from public.shop_stock('potraviny-centrum', null, 2, 6);
+  assert n = 1, 'fourth page of 2 should have 1 row';
   select count(*) into n from public.shop_stock('potraviny-centrum', 'cokolada');
   assert n = 1, 'cokolada should find Čokoláda';
   select count(*) into n from public.shop_stock('zeleziarstvo-vychod') where availability is not null;
@@ -160,12 +162,6 @@ begin
     raise exception 'anon ran owner_items';
   exception when insufficient_privilege then null;
   end;
-  begin
-    perform * from public.admin_shops();
-    raise exception 'anon ran admin_shops';
-  exception when insufficient_privilege then null;
-  end;
-
   -- freshness_state() function
   assert (select state from public.freshness_state(
     (select id from public.shops where slug = 'zeleziarstvo-vychod'))) = 'stale';
@@ -207,13 +203,15 @@ begin
   exception when insufficient_privilege then null;
   end;
 
-  -- can hide own item, cannot rename it
-  update public.shop_items set is_public = false where source_code = 'P006';
-  get diagnostics n = row_count;
-  assert n = 1, 'owner should toggle is_public';
+  -- owners change nothing of their items: no hide switch, no renaming
   begin
     update public.shop_items set name = 'x' where source_code = 'P006';
     raise exception 'owner renamed an item';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.shop_items set updated_at = now() where source_code = 'P006';
+    raise exception 'owner changed an item';
   exception when insufficient_privilege then null;
   end;
 
@@ -240,28 +238,16 @@ begin
   assert n = 0, 'owner A changed shop B amenities';
   update public.shops set has_toilet = true where slug = 'potraviny-centrum';
 
-  -- dashboard item list: own shop incl. hidden items, never another shop's
+  -- dashboard item list: own shop, never another shop's; the same rule as shoppers see
   select count(*) into n from public.owner_items((select id from public.shops where slug = 'potraviny-centrum'));
-  assert n = 7, format('owner should see all 7 own items incl. hidden, got %s', n);
-  assert (select availability from public.owner_items((select id from public.shops where slug = 'potraviny-centrum'), 'kava zrnkova')) = 'in_stock';
+  assert n = 7, format('owner should see all 7 own items, got %s', n);
+  assert (select quantity || ' ' || availability
+          from public.owner_items((select id from public.shops where slug = 'potraviny-centrum'), 'kava zrnkova'))
+         = '14 in_stock_count';
   select count(*) into n from public.owner_items((select id from public.shops s where s.slug = 'drogeria-kostolne'));
   assert n = 0, 'owner A listed shop B items';
 
-  -- visibility preview comes from availability_label()
-  assert (select string_agg(coalesce(label, '-'), ',') from public.availability_preview(3))
-         = 'in_stock_count,in_stock_count,out_of_stock,in_stock,low_stock,out_of_stock,available,available,not_available';
-
   -- admin-only functions refuse owners
-  begin
-    perform * from public.admin_shops();
-    raise exception 'owner ran admin_shops';
-  exception when insufficient_privilege then null;
-  end;
-  begin
-    perform public.admin_save_shop('{"slug":"x","name":"x"}');
-    raise exception 'owner ran admin_save_shop';
-  exception when insufficient_privilege then null;
-  end;
   begin
     perform * from public.admin_shop_owners((select id from public.shops where slug = 'potraviny-centrum'));
     raise exception 'owner ran admin_shop_owners';
@@ -304,21 +290,42 @@ $$;
 reset role;
 reset request.jwt.claim.sub;
 
-\echo '--- owner B switches to yes_no'
+\echo '--- nothing can change how stock is shown'
+do $$ begin
+  assert not exists (select 1 from information_schema.columns
+                     where table_schema = 'public'
+                       and ((table_name = 'shops' and column_name in ('visibility_mode', 'low_stock_threshold'))
+                            or (table_name = 'shop_items' and column_name = 'is_public'))),
+    'the old display settings are gone';
+  assert to_regprocedure('public.availability_preview(integer)') is null, 'availability_preview is gone';
+  assert to_regprocedure('public.availability_label(text, numeric, integer, text)') is null;
+  assert to_regprocedure('public.admin_save_shop(jsonb)') is null and to_regprocedure('public.admin_shops()') is null,
+    'the legacy admin functions that set the display are gone';
+  assert not exists (select 1 from pg_policies where tablename = 'shop_items' and cmd = 'UPDATE'),
+    'no update path on items for owners';
+  assert public.availability_label(-2, 'current') = 'out_of_stock', 'sold out at less than 0';
+  assert public.availability_label(0.5, 'recent') = 'in_stock_count';
+  assert public.availability_label(12, 'stale') is null, 'nothing while stale';
+end $$;
 set role authenticated;
 set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
-update public.shops set visibility_mode = 'yes_no' where slug = 'drogeria-kostolne';
+do $$
+declare v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  -- the owner's shop form cannot carry a display setting any more
+  perform public.owner_save_shop(jsonb_build_object('id', v_b, 'name', 'Drogéria Kostolné', 'timezone', 'Europe/Bratislava',
+    'country', 'SK', 'city', 'Michalovce', 'address', 'Kostolné námestie 4', 'lat', '48.757', 'lng', '21.914',
+    'is_active', 'true', 'visibility_mode', 'yes_no', 'low_stock_threshold', '10'));
+end $$;
 reset role;
 reset request.jwt.claim.sub;
-
 set role anon;
 do $$
 begin
-  assert (select count(*) from public.public_stock
-          where shop_slug = 'drogeria-kostolne' and quantity is not null) = 0,
-    'yes_no must hide quantities immediately';
-  assert (select availability from public.public_stock where item_name = 'Zubná pasta 75 ml') = 'available';
-  assert (select availability from public.public_stock where item_name = 'Prací prášok 3 kg') = 'not_available';
+  assert (select quantity || ' ' || availability from public.public_stock where item_name = 'Zubná pasta 75 ml')
+         = '12 in_stock_count', 'still the quantity as in the file';
+  assert (select quantity || ' ' || availability from public.public_stock where item_name = 'Prací prášok 3 kg')
+         = '0 out_of_stock';
 end;
 $$;
 reset role;
@@ -354,33 +361,9 @@ begin
   exception when insufficient_privilege then null;
   end;
 
-  -- admin list, owners, create + edit a shop
-  assert (select count(*) from public.admin_shops()) = 4;
-  assert (select owner_count from public.admin_shops() where slug = 'potraviny-centrum') = 1;
+  -- legacy owner lookup still works for the admin
   assert (select email from public.admin_shop_owners((select id from public.shops where slug = 'potraviny-centrum')))
          = 'owner-a@example.invalid';
-  declare v_id uuid;
-  begin
-    v_id := public.admin_save_shop(jsonb_build_object(
-      'slug', 'test-wien', 'name', 'Test Wien', 'city', 'Wien', 'country', 'at',
-      'timezone', 'Europe/Vienna', 'lat', '48.2082', 'lng', '16.3738', 'is_active', 'false',
-      'opening_hours', '{"mon":[["09:00","18:00"]]}'::jsonb));
-    assert (select country || ' ' || round(lat::numeric, 2) from public.admin_shops() where id = v_id) = 'AT 48.21';
-    assert exists (select 1 from public.sync_sources where shop_id = v_id), 'new shop needs a sync source row';
-    perform public.admin_save_shop(jsonb_build_object('id', v_id, 'slug', 'test-wien', 'name', 'Test Wien 2',
-      'timezone', 'Europe/Vienna', 'is_active', 'true'));
-    assert (select name || ' ' || is_active from public.shops where id = v_id) = 'Test Wien 2 true';
-    perform public.admin_save_shop(jsonb_build_object('id', v_id, 'slug', 'test-wien', 'name', 'Test Wien 2',
-      'timezone', 'Europe/Vienna', 'is_active', 'true', 'has_toilet', 'true', 'has_card_terminal', 'true'));
-    assert (select has_toilet and not has_douchette and has_card_terminal from public.admin_shops() where id = v_id),
-      'admin_save_shop should save amenities';
-    begin
-      perform public.admin_save_shop(jsonb_build_object('id', v_id, 'slug', 'test-wien', 'name', 'x', 'lat', '95', 'lng', '0'));
-      raise exception 'invalid coordinates accepted';
-    exception when invalid_parameter_value then null;
-    end;
-    delete from public.shops where id = v_id;
-  end;
   begin
     update public.shops set timezone = 'Mars/Olympus' where slug = 'kisbolt-budapest';
     raise exception 'unknown time zone accepted';
@@ -442,8 +425,10 @@ begin
     'item linked to product by EAN';
   assert (select latest_file_time = '2026-10-04 08:15:00+00' and last_error is null and sample_rows = '[{"KOD":"P001"}]'
           from public.sync_sources where shop_id = v_shop);
-  -- hidden items stay hidden after a pull
-  assert (select not is_public from public.shop_items where shop_id = v_shop and source_code = 'P007');
+  -- an item missing from the file stays listed, sold out
+  assert (select count(*) from public.public_stock where shop_id = v_shop and item_name = 'Čaj zelený 20 vreciek') = 1;
+  assert (select i.quantity from public.inventory i join public.shop_items si on si.id = i.shop_item_id
+          where si.shop_id = v_shop and si.source_code = 'P007') = 0;
 end $$;
 reset role;
 
@@ -1666,5 +1651,231 @@ do $$ begin
 end $$;
 reset role;
 reset request.jwt.claim.sub;
+
+\echo '--- shop profile: e-mail and Facebook page, assistant texts (plain text, paid plan)'
+set role service_role;
+do $$ begin
+  perform public.apply_stripe_subscription((select id from public.shops where slug = 'potraviny-centrum'),
+    'cus_A1', 'sub_A1', 'active', 'pro', now() + interval '30 days', null);
+  perform public.apply_stripe_subscription((select id from public.shops where slug = 'drogeria-kostolne'),
+    'cus_B1', 'sub_B2', 'past_due', 'pro', now() + interval '30 days', null);
+  assert public.plain_text('  <b>Vitajte</b> v obchode!  Pozrite www.farby.sk a https://x.sk/a?b=1 alebo info@farby.sk  ', 300)
+         = 'Vitajte v obchode! Pozrite a alebo', 'HTML, links and e-mail addresses are stripped';
+  assert public.plain_text('Farby s.r.o., 12.50 €, napr. otvorené', 300) = 'Farby s.r.o., 12.50 €, napr. otvorené',
+    'ordinary text stays as written';
+  assert public.plain_text(E'Riadok\nďalší\tkoniec', 300) = 'Riadok ďalší koniec';
+  assert public.plain_text('farby.sk/akcia dnes', 300) = 'dnes', 'a bare web address is a link too';
+  assert length(public.plain_text(repeat('a', 50), 40)) = 40;
+  assert public.plain_text('  <br>  ', 40) is null, 'nothing left = the default text';
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_r jsonb;
+begin
+  v_r := public.owner_set_assistant_texts(v_a, '<i>Spýtajte sa nás</i>', 'Dobrý deň! Píšte nám aj na https://evil.example/x.');
+  assert v_r = '{"label": "Spýtajte sa nás", "welcome": "Dobrý deň! Píšte nám aj na"}'::jsonb, format('saved %s', v_r);
+  v_r := public.owner_set_assistant_texts(v_a, '', '   ');
+  assert v_r = '{"label": null, "welcome": null}'::jsonb, 'empty = the default texts';
+  perform public.owner_set_assistant_texts(v_a, repeat('x', 60), 'Vitajte');
+  assert (select length(assistant_label) from public.shops where id = v_a) = 40, 'label at most 40 characters';
+  -- written directly: still cleaned
+  update public.shops set assistant_welcome = '<script>alert(1)</script>Ahoj' where id = v_a;
+  assert (select assistant_welcome from public.shops where id = v_a) = 'alert(1) Ahoj';
+  begin
+    perform public.owner_set_assistant_texts(v_b, 'x', 'y');
+    raise exception 'owner A changed shop B''s assistant';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- e-mail and Facebook page: checked and tidied
+  perform public.owner_save_shop(jsonb_build_object('id', v_a, 'name', 'Potraviny Centrum', 'timezone', 'Europe/Bratislava',
+    'country', 'SK', 'city', 'Michalovce', 'address', 'Námestie osloboditeľov 10', 'lat', '48.7547', 'lng', '21.9185',
+    'phone', '+421 56 000 0001', 'is_active', 'true', 'has_toilet', 'true', 'has_douchette', 'true', 'has_card_terminal', 'true',
+    'email', ' Info@Potraviny.SK ', 'facebook_url', 'facebook.com/potravinycentrum'));
+  assert (select email || ' ' || facebook_url from public.shops where id = v_a)
+         = 'info@potraviny.sk https://facebook.com/potravinycentrum';
+  perform public.owner_save_shop(jsonb_build_object('id', v_a, 'name', 'Potraviny Centrum', 'timezone', 'Europe/Bratislava',
+    'is_active', 'true', 'email', 'info@potraviny.sk', 'facebook_url', 'http://www.facebook.com/potravinycentrum'));
+  assert (select facebook_url from public.shops where id = v_a) = 'https://www.facebook.com/potravinycentrum';
+  begin
+    perform public.owner_save_shop(jsonb_build_object('id', v_a, 'name', 'x', 'email', 'info@'));
+    raise exception 'invalid e-mail accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'email', sqlerrm;
+  end;
+  foreach v_r in array array['"https://example.com/potraviny"', '"https://evilfacebook.com/x"',
+                             '"https://facebook.com.evil.io/x"', '"javascript:alert(1)//facebook.com/x"']::jsonb[] loop
+    begin
+      perform public.owner_save_shop(jsonb_build_object('id', v_a, 'name', 'x', 'facebook_url', v_r #>> '{}'));
+      raise exception 'not a Facebook page accepted: %', v_r;
+    exception when invalid_parameter_value then assert sqlerrm = 'facebook', sqlerrm;
+    end;
+  end loop;
+  begin
+    update public.shops set email = 'not an address' where id = v_a;
+    raise exception 'invalid e-mail written directly';
+  exception when check_violation then null;
+  end;
+  perform public.owner_save_shop(jsonb_build_object('id', v_a, 'name', 'Potraviny Centrum', 'timezone', 'Europe/Bratislava',
+    'country', 'SK', 'city', 'Michalovce', 'address', 'Námestie osloboditeľov 10', 'lat', '48.7547', 'lng', '21.9185',
+    'phone', '+421 56 000 0001', 'is_active', 'true', 'has_toilet', 'true', 'has_douchette', 'true', 'has_card_terminal', 'true',
+    'email', 'info@potraviny.sk', 'facebook_url', 'https://fb.com/potravinycentrum'));
+  assert (select facebook_url from public.shops where id = v_a) = 'https://fb.com/potravinycentrum';
+  assert (select email from public.my_shops() where id = v_a) = 'info@potraviny.sk', 'the owner reads them back';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- a shop without the paid plan cannot set the assistant texts in any way
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  begin
+    perform public.owner_set_assistant_texts(v_b, 'Spýtajte sa', 'Vitajte');
+    raise exception 'assistant texts set without the plan';
+  exception when raise_exception then assert sqlerrm = 'no_plan', sqlerrm;
+  end;
+  begin
+    update public.shops set assistant_label = 'Spýtajte sa' where id = v_b;
+    raise exception 'assistant texts written directly without the plan';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  assert (select email || ' ' || facebook_url || ' ' || assistant_label || '|' || assistant_welcome
+          from public.public_shops where slug = 'potraviny-centrum')
+         = 'info@potraviny.sk https://fb.com/potravinycentrum xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|alert(1) Ahoj',
+    'the shop page reads the contact links and the assistant texts';
+end $$;
+reset role;
+
+\echo '--- stock file reports and private columns'
+do $$ begin
+  assert public.is_private_column('Nákupná cena') and public.is_private_column('NC bez DPH')
+     and public.is_private_column('Dodávateľ') and public.is_private_column('Marža %')
+     and public.is_private_column('Číslo faktúry') and public.is_private_column('Beszerzési ár')
+     and public.is_private_column('Supplier') and public.is_private_column('Invoice no')
+     and public.is_private_column('Zisk'), 'purchase price, supplier, margin and invoice columns';
+  assert not (public.is_private_column('Cena s DPH') or public.is_private_column('Názov')
+     or public.is_private_column('Množstvo') or public.is_private_column('EAN') or public.is_private_column('Kód')
+     or public.is_private_column('Popis') or public.is_private_column('Mena')), 'ordinary columns';
+  assert public.mapped_columns('{"price":"Cena","source_code":"Kód","name":"Názov","ean":null,"quantity":"Množstvo"}')
+         = array['Kód', 'Názov', 'Množstvo', 'Cena'], 'in field order';
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_rows jsonb := '[
+    {"Kód":"P1","Názov":"Káva","Množstvo":"5","Cena":"2,50","Nákupná cena":"1,20","Dodávateľ":"Veľkosklad","Poznámka":"a"},
+    {"Kód":"P2","Názov":"Čaj","Množstvo":"0","Cena":"1,10","Nákupná cena":"0,60","Dodávateľ":"Veľkosklad","Poznámka":"b"},
+    {"Kód":"P3","Názov":"Mlieko","Množstvo":"-1","Cena":"0,99","Nákupná cena":"0,50","Dodávateľ":"Mliekáreň","Poznámka":"c"},
+    {"Kód":"P4","Názov":"Maslo","Množstvo":"3","Cena":"2,10","Nákupná cena":"1,50","Dodávateľ":"Mliekáreň","Poznámka":"d"},
+    {"Kód":"P5","Názov":"Chlieb","Množstvo":"8","Cena":"1,30","Nákupná cena":"0,70","Dodávateľ":"Pekáreň","Poznámka":"e"},
+    {"Kód":"P6","Názov":"Rožok","Množstvo":"90","Cena":"0,10","Nákupná cena":"0,05","Dodávateľ":"Pekáreň","Poznámka":"f"}]';
+  v_id bigint;
+  v_wait bigint;
+  i int;
+begin
+  -- a proposed mapping: 3 sample rows, never the private-looking columns
+  update public.sync_sources
+  set field_mapping = '{"source_code":"Kód","name":"Názov","quantity":"Množstvo","price":"Cena"}',
+      mapping_status = 'proposed', sample_rows = v_rows,
+      file_columns = array['Kód', 'Názov', 'Množstvo', 'Cena', 'Nákupná cena', 'Dodávateľ', 'Poznámka']
+  where shop_id = v_a;
+  assert (select jsonb_array_length(sample_rows) from public.sync_sources where shop_id = v_a) = 3;
+  assert not exists (select 1 from public.sync_sources s, jsonb_array_elements(s.sample_rows) r
+                     where s.shop_id = v_a and (r ? 'Nákupná cena' or r ? 'Dodávateľ')), 'no private values before approval';
+  assert (select sample_rows -> 0 ->> 'Poznámka' from public.sync_sources where shop_id = v_a) = 'a';
+  -- approved: only the mapped columns
+  update public.sync_sources set mapping_status = 'confirmed' where shop_id = v_a;
+  assert (select sample_rows -> 0 from public.sync_sources where shop_id = v_a)
+         = '{"Kód":"P1","Názov":"Káva","Množstvo":"5","Cena":"2,50"}'::jsonb, 'only the approved columns';
+  assert (select cardinality(file_columns) from public.sync_sources where shop_id = v_a) = 7, 'the names stay, for re-mapping';
+  update public.sync_sources set sample_rows = v_rows where shop_id = v_a;
+  assert (select jsonb_array_length(sample_rows) = 5 and not (sample_rows -> 4 ? 'Poznámka')
+          from public.sync_sources where shop_id = v_a), 'a new sample is trimmed too';
+
+  -- import reports: the mapped columns of the first 5 rows, exactly as in the file
+  v_id := public.record_stock_import(v_a, 'sklad.csv', now() - interval '1 minute', 'ok', 6, 6, 0, 0, null, v_rows);
+  assert (select columns from public.stock_imports where id = v_id) = array['Kód', 'Názov', 'Množstvo', 'Cena'];
+  assert (select jsonb_array_length(preview) from public.stock_imports where id = v_id) = 5;
+  assert (select preview -> 2 from public.stock_imports where id = v_id)
+         = '{"Kód":"P3","Názov":"Mlieko","Množstvo":"-1","Cena":"0,99"}'::jsonb, 'values as written';
+  assert not exists (select 1 from public.stock_imports i, jsonb_array_elements(i.preview) r
+                     where (r ? 'Nákupná cena') or (r ? 'Dodávateľ') or (r ? 'Poznámka')), 'never a private column';
+  -- columns not approved yet: every column is private, so no preview at all
+  update public.sync_sources set mapping_status = 'proposed' where shop_id = v_a;
+  v_wait := public.record_stock_import(v_a, 'novy.csv', now(), 'waiting', 6, 0, 0, 0, null, v_rows);
+  assert (select cardinality(columns) = 0 and preview = '[]'::jsonb from public.stock_imports where id = v_wait),
+         'no preview before the columns are approved';
+  delete from public.stock_imports where id = v_wait;
+  update public.sync_sources set mapping_status = 'confirmed' where shop_id = v_a;
+  for i in 1..11 loop
+    perform public.record_stock_import(v_a, 'sklad.csv', now(), case when i = 11 then 'errors' else 'ok' end,
+                                       6, 5, 1, 1, case when i = 11 then 'Riadok 7: chýba cena' end, v_rows);
+  end loop;
+  assert (select count(*) from public.stock_imports where shop_id = v_a) = 10, 'the last 10 files are kept';
+  assert not exists (select 1 from public.stock_imports where id = v_id), 'the oldest went';
+  perform public.record_stock_import((select id from public.shops where slug = 'drogeria-kostolne'),
+                                     'export.xml', now(), 'waiting', 2, 0, 0, 0, null, '[{"a":"1"}]');
+  begin
+    perform public.record_stock_import(v_a, 'x', now(), 'great', 0, 0, 0, 0, null, '[]');
+    raise exception 'unknown status accepted';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  assert (select count(*) from public.stock_imports) = 10, 'owner A reads only their own reports';
+  assert (select status || ' ' || error from public.stock_imports order by received_at desc, id desc limit 1)
+         = 'errors Riadok 7: chýba cena';
+  begin
+    insert into public.stock_imports (shop_id, status) values ((select id from public.shops where slug = 'potraviny-centrum'), 'ok');
+    raise exception 'an owner wrote an import report';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.record_stock_import((select id from public.shops where slug = 'potraviny-centrum'), 'x', now(), 'ok',
+                                       0, 0, 0, 0, null, '[]');
+    raise exception 'an owner recorded an import';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert (select count(*) from public.stock_imports) = 1, 'owner B sees only shop B''s report';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  begin
+    perform count(*) from public.stock_imports;
+    raise exception 'a visitor read import reports';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
 
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -8,12 +8,17 @@
 // nothing itself (no schedule, no cloud links). Then:
 //   1. read XML, CSV or Excel into rows
 //   2. no approved field mapping yet → propose one (Claude, or a rule-based guess),
-//      save it as "proposed" with 10 sample rows and stop: the shop owner approves it
+//      save it as "proposed" with 3 sample rows and stop: the shop owner approves it.
+//      Claude sees only the column names and up to 3 values per column, and only the
+//      names of columns that look private (purchase price, supplier, margin, invoice)
 //   3. approved mapping → check the rows; if more than 5 % cannot be read, keep the
 //      old stock and propose a new mapping; otherwise apply the whole file in one
 //      transaction (apply_stock_file). The file's time becomes the freshness.
-//   4. keep the raw file 7 days in the private "raw-files" bucket
-//   5. after the reply, in the background: names without a translation (or renamed) get
+//   4. keep the raw file 7 days in the private "raw-files" bucket — the only place the
+//      file's private columns (any column not in the approved mapping) are ever kept
+//   5. record a report of the file for the owner (stock_imports: counts, status and the
+//      first 5 rows of the mapped columns only; the last 10 files are kept)
+//   6. after the reply, in the background: names without a translation (or renamed) get
 //      their Slovak, Hungarian and English names from Claude Haiku; never touches stock,
 //      and whatever fails is tried again with the next file
 //
@@ -302,6 +307,54 @@ export function isValidMapping(mapping: Mapping, columns: string[]): boolean {
   return MAPPING_FIELDS.every((f) => mapping[f] === null || columns.includes(mapping[f] as string));
 }
 
+// ---------------------------------------------------------------- private columns
+
+/**
+ * A column whose name points to purchase prices, suppliers, margins or invoices (the same
+ * list as is_private_column() in the database). Its values never leave the raw file.
+ */
+export function isPrivateColumn(name: string): boolean {
+  const n = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return /(nakup|purchase|cost|beszerz|dodavatel|supplier|vendor|lieferant|szallit|marz|margin|arres|haszon|zisk|profit|faktur|invoice|rechnung|szamla)/
+    .test(n) || /(^|[^\p{L}\p{N}_])nc($|[^\p{L}\p{N}_])/u.test(n);
+}
+
+/** The file columns a mapping uses, in field order. */
+export function mappedColumns(mapping: Mapping | null | undefined): string[] {
+  if (!mapping) return [];
+  return [...new Set(MAPPING_FIELDS.map((f) => mapping[f]).filter((c): c is string => Boolean(c)))];
+}
+
+/** The first rows with only the given columns, values exactly as in the file. */
+export function onlyColumns(rows: Row[], columns: string[], limit: number): Row[] {
+  return rows.slice(0, limit).map((row) => Object.fromEntries(columns.filter((c) => c in row).map((c) => [c, row[c]])));
+}
+
+/** Sample rows for the owner before the columns are approved: 3 rows, no private-looking column. */
+export function approvalSample(rows: Row[], columns: string[]): Row[] {
+  return onlyColumns(rows, columns.filter((c) => !isPrivateColumn(c)), 3);
+}
+
+export interface ColumnSample {
+  column: string;
+  samples: string[];
+}
+
+/** What the AI may see to propose the mapping: every column name, up to 3 values, none for private columns. */
+export function columnSamples(columns: string[], rows: Row[], max = 3): ColumnSample[] {
+  return columns.map((column) => {
+    const samples: string[] = [];
+    if (!isPrivateColumn(column)) {
+      for (const row of rows.slice(0, 200)) {
+        const value = String(row[column] ?? "").trim().slice(0, 100);
+        if (value && !samples.includes(value)) samples.push(value);
+        if (samples.length >= max) break;
+      }
+    }
+    return { column, samples };
+  });
+}
+
 // ---------------------------------------------------------------- Claude proposal
 
 /**
@@ -310,8 +363,9 @@ export function isValidMapping(mapping: Mapping, columns: string[]): boolean {
  * usable. Returns null when no API key is set or the call fails — the caller then
  * falls back to guessMapping(). Never auto-approved: the shop owner confirms it.
  */
-export async function proposeWithClaude(columns: string[], sample: Row[]): Promise<Mapping | null> {
+export async function proposeWithClaude(samples: ColumnSample[]): Promise<Mapping | null> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  const columns = samples.map((s) => s.column);
   if (!apiKey || columns.length === 0) return null;
   const column = { anyOf: [{ type: "string", enum: columns }, { type: "null" }] };
   const schema = {
@@ -334,8 +388,9 @@ export async function proposeWithClaude(columns: string[], sample: Row[]): Promi
         "(unique per item), name = product name, ean = EAN/GTIN barcode, brand = brand or manufacturer, " +
         "quantity = units in stock now, price = selling price per unit for customers (incl. VAT when both exist), " +
         "currency = currency code column. Column names may be Slovak, Hungarian, Czech, German or English. " +
+        "You get each column's name and up to 3 of its values (no values for columns that may be private). " +
         "Use null when a field is not in the file or you are not sure.",
-      messages: [{ role: "user", content: JSON.stringify({ columns, sample_rows: sample.slice(0, 20) }) }],
+      messages: [{ role: "user", content: JSON.stringify({ columns: samples }) }],
     });
     if (response.stop_reason === "refusal") return null;
     const text = response.content.find((b) => b.type === "text");
@@ -521,11 +576,59 @@ interface Source {
   shops: { slug: string; name: string; country: string | null } | null;
 }
 
-type Outcome =
+export type Outcome =
   | { status: "unchanged" }
-  | { status: "proposed" | "waiting_for_approval" | "layout_changed"; rows: number }
-  | { status: "updated"; items: number; zeroed: number; skipped: number }
+  | { status: "proposed" | "waiting_for_approval"; rows: number }
+  | { status: "layout_changed"; rows: number; skipped: number }
+  | { status: "updated"; items: number; zeroed: number; skipped: number; rows?: number; preview?: Row[] }
   | { status: "error"; error: string };
+
+export interface ImportReport {
+  status: "ok" | "errors" | "waiting";
+  total: number;
+  imported: number;
+  zeroed: number;
+  skipped: number;
+  error: string | null;
+}
+
+/** The owner's report of one received file (stock_imports); none for a file already applied. */
+export function importReport(result: Outcome): ImportReport | null {
+  switch (result.status) {
+    case "unchanged":
+      return null;
+    case "updated":
+      return {
+        status: result.skipped > 0 ? "errors" : "ok",
+        total: result.rows ?? result.items + result.skipped,
+        imported: result.items,
+        zeroed: result.zeroed,
+        skipped: result.skipped,
+        error: null,
+      };
+    case "proposed":
+    case "waiting_for_approval":
+      return { status: "waiting", total: result.rows, imported: 0, zeroed: 0, skipped: 0, error: null };
+    case "layout_changed":
+      return {
+        status: "errors",
+        total: result.rows,
+        imported: 0,
+        zeroed: 0,
+        skipped: result.skipped,
+        error: `${result.skipped} of ${result.rows} rows could not be read — the file layout may have changed.`,
+      };
+    case "error":
+      return { status: "errors", total: 0, imported: 0, zeroed: 0, skipped: 0, error: result.error.slice(0, 500) };
+  }
+}
+
+/** What the uploader gets back: the outcome without the preview rows. */
+function publicResult(result: Outcome): Record<string, unknown> {
+  const { preview: _preview, ...rest } = result as Outcome & { preview?: unknown };
+  if (rest.status === "updated") delete (rest as { rows?: number }).rows;
+  return rest;
+}
 
 async function keepRawFile(db: SupabaseClient, shopId: string, bytes: Uint8Array, format: FileFormat) {
   const bucket = db.storage.from("raw-files");
@@ -570,19 +673,27 @@ async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, f
   if (rows.length === 0) throw new Error(`No items could be read from the file (read as ${format.toUpperCase()}).`);
   await keepRawFile(db, src.shop_id, bytes, format);
 
+  // Column names are kept (to choose them again); values only of the approved columns
+  // (until the owner approves them, every column counts as private: no preview).
   const columns = Object.keys(rows[0]);
-  const sample = rows.slice(0, 10);
-  const propose = async () => (await proposeWithClaude(columns, rows.slice(0, 20))) ?? guessMapping(columns);
+  const propose = async () => (await proposeWithClaude(columnSamples(columns, rows))) ?? guessMapping(columns);
+  const preview = (mapping: Mapping | null | undefined) => onlyColumns(rows, mappedColumns(mapping), 5);
 
   if (!isApproved(src)) {
     if (src.field_mapping && isValidMapping(src.field_mapping, columns)) {
-      await update({ sample_rows: sample, last_error: "Waiting for you to approve the file's columns in My shop." });
+      await update({
+        sample_rows: approvalSample(rows, columns),
+        file_columns: columns,
+        last_error: "Waiting for you to approve the file's columns in My shop.",
+      });
       return { status: "waiting_for_approval", rows: rows.length };
     }
+    const proposal = await propose();
     await update({
-      field_mapping: await propose(),
+      field_mapping: proposal,
       mapping_status: "proposed",
-      sample_rows: sample,
+      sample_rows: approvalSample(rows, columns),
+      file_columns: columns,
       last_error: "New file layout: check and approve the file's columns in My shop.",
     });
     return { status: "proposed", rows: rows.length };
@@ -590,25 +701,55 @@ async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, f
 
   const { good, bad } = applyMapping(rows, src.field_mapping as Mapping, currencyForCountry(src.shops?.country));
   if (good.length === 0 || bad / rows.length > MAX_BAD_SHARE) {
+    const proposal = await propose();
     await update({
-      field_mapping: await propose(),
+      field_mapping: proposal,
       mapping_status: "proposed",
-      sample_rows: sample,
+      sample_rows: approvalSample(rows, columns),
+      file_columns: columns,
       last_error:
         `${bad} of ${rows.length} rows could not be read — the file layout may have changed. ` +
         "The previous stock is kept until you approve the new columns in My shop.",
     });
-    return { status: "layout_changed", rows: rows.length };
+    return { status: "layout_changed", rows: rows.length, skipped: bad };
   }
 
   const { data, error } = await db.rpc("apply_stock_file", {
     p_shop_id: src.shop_id,
     p_rows: good,
     p_file_time: fileTime.toISOString(),
-    p_sample: sample,
+    p_sample: preview(src.field_mapping),
   });
   if (error) throw new Error(`Saving the stock failed: ${error.message}`);
-  return { status: "updated", items: data.items, zeroed: data.zeroed, skipped: bad };
+  await update({ file_columns: columns });
+  return {
+    status: "updated",
+    items: data.items,
+    zeroed: data.zeroed,
+    skipped: bad,
+    rows: rows.length,
+    preview: preview(src.field_mapping),
+  };
+}
+
+/** The owner's report of this file; a failure here never fails the upload. */
+async function recordImport(db: SupabaseClient, shopId: string, fileName: string | null, fileTime: Date, result: Outcome) {
+  const report = importReport(result);
+  if (!report) return;
+  const preview = "preview" in result && result.preview ? result.preview : [];
+  const { error } = await db.rpc("record_stock_import", {
+    p_shop_id: shopId,
+    p_file_name: fileName,
+    p_file_time: fileTime.toISOString(),
+    p_status: report.status,
+    p_total: report.total,
+    p_imported: report.imported,
+    p_zeroed: report.zeroed,
+    p_skipped: report.skipped,
+    p_error: report.error,
+    p_rows: preview,
+  });
+  if (error) console.warn("import report not saved:", error.message);
 }
 
 /** Reads a (possibly gzip-compressed) request body, refusing anything over 50 MB. */
@@ -686,9 +827,10 @@ export async function receiveUpload(
   } catch (e) {
     result = await failed(update, e);
   }
+  await recordImport(db, shopId, fileName, fileTime, result);
   // The new stock is saved; names are translated after the reply, so this never delays it.
   if (result.status === "updated") (options.background ?? inBackground)(translateShopItems(db, shopId, options.translate));
-  return reply(200, { result });
+  return reply(200, { result: publicResult(result) });
 }
 
 // ---------------------------------------------------------------- HTTP entry
