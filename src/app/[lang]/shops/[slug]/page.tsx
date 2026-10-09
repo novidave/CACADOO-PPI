@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { isLocale, locales, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { getShop, getShopItems, shopHasPlan, type PublicShop } from "@/lib/data";
+import { docsKeysEnabled } from "@/lib/docsAccess";
 import { addressLine, directionsUrl, formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
 import { DAYS, dayName, hasHours, openingHoursSpecification, rangesFor } from "@/lib/hours";
@@ -101,7 +102,16 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
         </p>
       </header>
 
-      {assistant && <ShopChat slug={shop.slug} lang={lang} shopName={shop.name} labels={dict.chat} />}
+      {assistant && (
+        <ShopChat
+          slug={shop.slug}
+          lang={lang}
+          shopName={shop.name}
+          timeZone={shop.timezone}
+          keys={docsKeysEnabled()}
+          labels={dict.chat}
+        />
+      )}
 
       {hasLocation && (
         <ShopMap

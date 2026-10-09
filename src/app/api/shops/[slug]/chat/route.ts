@@ -1,10 +1,11 @@
 import { isLocale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
+import { docsToken } from "@/lib/docsAccess";
 import { chatAllowed, chatShop, cleanHistory, cleanPhoto, MAX_TEXT, runShopChat, shopChatEnabled } from "@/lib/shopChat";
 
 /**
  * POST {lang, history: [{role, text}], message, photo?} from the AI assistant on a shop
- * page. Answers {answer, cards, list, photo} or {error}: unavailable, not_found, no_plan,
+ * page. Answers {answer, cards, list, photo, sources, pictures, docPrices, callShop} or {error}: unavailable, not_found, no_plan,
  * caller_limit, shop_limit, bad_request, bad_photo, failed. The shop comes from the
  * address; the assistant's tools only ever see that shop. A logged-in owner also gets
  * the reason of a failure (for testing); every failure is logged as "shop-chat: …".
@@ -44,7 +45,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
     if (verdict !== "ok") return failed(verdict, 429);
     // Text sent with a photo but without words: the photo is the question.
     const question = message || "What is on this photo, and does this shop have it?";
-    return reply(await runShopChat(shop, lang, cleanHistory(body?.history), question, photo));
+    // The access-key session (cookie) goes only to the database, never to the AI.
+    const token = await docsToken(shop.slug);
+    return reply(await runShopChat(shop, lang, cleanHistory(body?.history), question, photo, token));
   } catch (e) {
     return failed("failed", 502, (e instanceof Error ? e.message : String(e)).slice(0, 500));
   }

@@ -968,4 +968,703 @@ begin
 end $$;
 reset role;
 
+\echo '--- documents for the assistant: folders, keys, sessions, search, files'
+-- Both test shops get the paid plan; owner A accepts the terms and makes two private folders.
+set role service_role;
+do $$ begin
+  perform public.apply_stripe_subscription((select id from public.shops where slug = 'potraviny-centrum'),
+    'cus_A1', 'sub_A1', 'active', 'pro', now() + interval '30 days', null);
+  assert (select count(*) from public.shops s
+          where not exists (select 1 from public.shop_folders f where f.shop_id = s.id and f.is_public)) = 0,
+    'every shop has its Public folder';
+end $$;
+reset role;
+
+set role anon;
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['shop_folders', 'shop_documents', 'shop_pictures', 'shop_document_chunks',
+                           'folder_keys', 'folder_sessions'] loop
+    begin
+      execute format('select count(*) from public.%I', t);
+      raise exception 'visitor read %', t;
+    exception when insufficient_privilege then null;
+    end;
+  end loop;
+  begin
+    perform public.owner_save_folder((select id from public.shops where slug = 'potraviny-centrum'), null, 'X');
+    raise exception 'visitor made a folder';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.docs_visible_folders((select id from public.shops where slug = 'potraviny-centrum'), null);
+    raise exception 'visitor asked which folders are visible';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.shop_file_path('potraviny-centrum', 'document', gen_random_uuid(), null);
+    raise exception 'visitor asked for a file path';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_w uuid;
+  v_s uuid;
+  v_key text;
+begin
+  perform public.owner_accept_docs_terms(v_a);
+  v_w := public.owner_save_folder(v_a, null, 'Veľkoobchod');
+  v_s := public.owner_save_folder(v_a, null, 'Servis');
+  perform set_config('ppi.folder_w', v_w::text, false);
+  perform set_config('ppi.folder_s', v_s::text, false);
+  assert (select count(*) from public.shop_folders) = 3, 'owner A sees only their own three folders';
+  begin
+    perform public.owner_save_folder(v_a, null, 'veľkoobchod');
+    raise exception 'two folders with one name';
+  exception when unique_violation then null;
+  end;
+  begin
+    perform public.owner_save_folder(v_a, (select id from public.shop_folders where shop_id = v_a and is_public), 'Iné');
+    raise exception 'the Public folder renamed';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_save_folder(v_b, null, 'Cudzí');
+    raise exception 'owner A made a folder in shop B';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_accept_docs_terms(v_b);
+    raise exception 'owner A accepted terms for shop B';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- keys: shown once, in groups of four; stored only as a hash
+  v_key := public.owner_create_folder_key(v_a, 'Partner Veľkoobchod', array[v_w], null);
+  assert v_key ~ '^[A-HJKMNP-Z2-9]{4}(-[A-HJKMNP-Z2-9]{4}){4}$', format('key format: %s', v_key);
+  perform set_config('ppi.key_w', v_key, false);
+  perform set_config('ppi.key_s', public.owner_create_folder_key(v_a, 'Servis 1 day', array[v_s], now() + interval '1 day'), false);
+  perform set_config('ppi.key_r', public.owner_create_folder_key(v_a, 'To revoke', array[v_w], null), false);
+  perform set_config('ppi.key_all', public.owner_create_folder_key(v_a, 'Both', array[v_w, v_s], null), false);
+  assert (select count(*) from public.folder_keys) = 4;
+  begin
+    perform key_hash from public.folder_keys;
+    raise exception 'owner read a key hash';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_create_folder_key(v_a, 'Public', array[(select id from public.shop_folders where shop_id = v_a and is_public)], null);
+    raise exception 'a key for the Public folder';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_create_folder_key(v_a, 'Made up', array[gen_random_uuid()], null);
+    raise exception 'a key for a made-up folder';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_create_folder_key(v_a, 'Past', array[v_w], now() - interval '1 minute');
+    raise exception 'a key that has already expired';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.docs_register_document(v_a, v_w, 'X', null, 1, 1, 30, 500);
+    raise exception 'owner registered a document without doc-ingest';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.shop_folders (shop_id, name) values (v_a, 'Direct');
+    raise exception 'owner wrote a folder directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- doc-ingest (service role): four PDFs, their text, pictures and a scanned page
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_pub uuid := (select id from public.shop_folders where shop_id = v_a and is_public);
+  v_w uuid := current_setting('ppi.folder_w')::uuid;
+  v_s uuid := current_setting('ppi.folder_s')::uuid;
+  v_doc uuid;
+  v_path text;
+  v_pic uuid;
+  r record;
+  n int;
+begin
+  select document_id, storage_path into v_doc, v_path
+  from public.docs_register_document(v_a, v_pub, 'Katalóg 2026', 'Záhrada', 10, 1000, 30, 500);
+  assert v_path = v_a || '/docs/' || v_doc || '.pdf', 'files live in a folder per shop';
+  perform set_config('ppi.doc_p', v_doc::text, false);
+  select document_id into v_doc from public.docs_register_document(v_a, v_w, 'Veľkoobchodný cenník 2026', null, 2, 1000, 30, 500);
+  perform set_config('ppi.doc_w', v_doc::text, false);
+  select document_id into v_doc from public.docs_register_document(v_a, v_s, 'Servisný manuál', null, 5, 1000, 30, 500);
+  perform set_config('ppi.doc_s', v_doc::text, false);
+  select document_id into v_doc from public.docs_register_document(v_a, v_pub, 'Stará akcia', null, 1, 1000, 30, 500);
+  perform set_config('ppi.doc_off', v_doc::text, false);
+  select document_id into v_doc from public.docs_register_document(v_a, v_pub, 'Nedokončený', null, 1, 1000, 30, 500);
+  perform set_config('ppi.doc_up', v_doc::text, false);
+
+  -- limits, terms, plan, folder
+  begin
+    perform public.docs_register_document(v_a, v_pub, 'Too many', null, 1, 1000, 5, 500);
+    raise exception 'file limit ignored';
+  exception when raise_exception then assert sqlerrm = 'limit_files', sqlerrm;
+  end;
+  begin
+    perform public.docs_register_document(v_a, v_pub, 'Too long', null, 500, 1000, 30, 500);
+    raise exception 'page limit ignored';
+  exception when raise_exception then assert sqlerrm = 'limit_pages', sqlerrm;
+  end;
+  begin
+    perform public.docs_register_document(v_b, (select id from public.shop_folders where shop_id = v_b and is_public),
+                                          'No terms', null, 1, 1000, 30, 500);
+    raise exception 'terms not accepted, still registered';
+  exception when raise_exception then assert sqlerrm = 'terms', sqlerrm;
+  end;
+  begin
+    perform public.docs_register_document(v_a, (select id from public.shop_folders where shop_id = v_b and is_public),
+                                          'Other shop folder', null, 1, 1000, 30, 500);
+    raise exception 'registered into another shop''s folder';
+  exception when raise_exception then assert sqlerrm = 'folder', sqlerrm;
+  end;
+  begin
+    perform public.docs_register_document((select id from public.shops where slug = 'zeleziarstvo-vychod'),
+      (select f.id from public.shop_folders f join public.shops s on s.id = f.shop_id
+       where s.slug = 'zeleziarstvo-vychod' and f.is_public), 'No plan', null, 1, 1000, 30, 500);
+    raise exception 'registered without the paid plan';
+  exception when raise_exception then assert sqlerrm = 'no_plan', sqlerrm;
+  end;
+
+  -- text as written, page by page
+  foreach v_doc in array array[current_setting('ppi.doc_p'), current_setting('ppi.doc_w'),
+                               current_setting('ppi.doc_s'), current_setting('ppi.doc_off')]::uuid[] loop
+    assert public.docs_document_uploaded(v_doc);
+  end loop;
+  assert not public.docs_document_uploaded(current_setting('ppi.doc_p')::uuid), 'uploaded only once';
+  n := public.docs_save_text(current_setting('ppi.doc_p')::uuid,
+    '[{"page": 4, "text": "Záhradná hadica Flexi 25 m, odolná voči UV žiareniu."},
+      {"page": 1, "text": "Katalóg záhradnej techniky 2026"},
+      {"page": 99, "text": "a page the PDF does not have"}]', 'sk');
+  assert n = 2, format('two pages saved, the one outside the PDF ignored (%s)', n);
+  perform public.docs_save_text(current_setting('ppi.doc_p')::uuid,
+    '[{"page": 4, "text": "Záhradná hadica Flexi 25 m, odolná voči UV žiareniu. Cena 21,90 €."}]', 'hu');
+  assert (select count(*) from public.shop_document_chunks where document_id = current_setting('ppi.doc_p')::uuid and page = 4) = 1,
+    'saving a page again replaces its text';
+  assert (select lang from public.shop_documents where id = current_setting('ppi.doc_p')::uuid) = 'sk',
+    'the document keeps the first language found';
+  perform public.docs_save_text(current_setting('ppi.doc_w')::uuid,
+    '[{"page": 2, "text": "Veľkoobchodná cena hadice Flexi 25 m: 18,40 € bez DPH."}]', 'sk');
+  perform public.docs_save_text(current_setting('ppi.doc_s')::uuid,
+    '[{"page": 3, "text": "Výmena tesnenia čerpadla Hydro 300: povoľte štyri skrutky."}]', 'sk');
+  perform public.docs_save_text(current_setting('ppi.doc_off')::uuid,
+    '[{"page": 1, "text": "Tajná akcia: hadica Flexi zadarmo."}]', 'sk');
+  begin
+    perform public.docs_save_text(current_setting('ppi.doc_up')::uuid, '[{"page": 1, "text": "x"}]', 'sk');
+    raise exception 'text saved before the file was uploaded';
+  exception when raise_exception then assert sqlerrm = 'document', sqlerrm;
+  end;
+
+  -- pictures: the owner's own (Public), one from the service manual, a scanned page of the catalogue
+  select picture_id, storage_path into v_pic, v_path from public.docs_register_pictures(v_a, v_pub, null,
+    '[{"title": "Hotová záhrada", "caption": "Projekt 2025, Košice", "bytes": 5000, "type": "image/webp"}]', 'sk', 300);
+  assert v_path = v_a || '/pictures/' || v_pic || '.webp';
+  perform set_config('ppi.pic_own', v_pic::text, false);
+  select picture_id into v_pic from public.docs_register_pictures(v_a, null, current_setting('ppi.doc_s')::uuid,
+    '[{"page": 3, "bytes": 5000, "type": "image/webp"}]', null, 300);
+  assert (select folder_id from public.shop_pictures where id = v_pic) = v_s, 'a PDF picture is in its document''s folder';
+  assert (select lang from public.shop_pictures where id = v_pic) = 'sk', 'and in its document''s language';
+  perform set_config('ppi.pic_s', v_pic::text, false);
+  select picture_id into v_pic from public.docs_register_pictures(v_a, null, current_setting('ppi.doc_p')::uuid,
+    '[{"page": 5, "kind": "scan", "bytes": 5000, "type": "image/jpeg"}]', null, 300);
+  assert (select kind = 'scan' and not show from public.shop_pictures where id = v_pic), 'a scan page is never shown';
+  perform set_config('ppi.pic_scan', v_pic::text, false);
+  select picture_id into v_pic from public.docs_register_pictures(v_a, v_pub, null,
+    '[{"title": "Skrytý obrázok", "bytes": 5000, "type": "image/png"}]', 'sk', 300);
+  perform set_config('ppi.pic_hidden', v_pic::text, false);
+  -- the picture limit counts own and PDF pictures, never scan pages
+  select count(*) into n from public.docs_register_pictures(v_a, v_pub, null,
+    '[{"title": "Over the limit", "bytes": 5000}]', 'sk', 3) where picture_id is null;
+  assert n = 1, 'a picture over the limit is refused';
+  select count(*) into n from public.docs_register_pictures(v_a, null, current_setting('ppi.doc_p')::uuid,
+    '[{"page": 6, "kind": "scan", "bytes": 5000}, {"page": 7, "bytes": 5000}]', null, 3) where picture_id is null;
+  assert n = 1, 'scan pages are not pictures and do not count';
+  delete from public.shop_pictures where document_id = current_setting('ppi.doc_p')::uuid and page in (6, 7);
+
+  assert public.docs_pictures_uploaded(v_a, array[current_setting('ppi.pic_own'), current_setting('ppi.pic_s'),
+    current_setting('ppi.pic_scan'), current_setting('ppi.pic_hidden')]::uuid[]) = 4;
+  assert public.docs_pictures_uploaded(v_b, array[current_setting('ppi.pic_own')]::uuid[]) = 0,
+    'another shop cannot mark these pictures';
+  select count(*) into n from public.docs_claim_work(v_a, 10);
+  assert n = 4, format('four pictures for the AI (%s)', n);
+  assert (select count(*) from public.docs_claim_work(v_a, 10)) = 0, 'claimed pictures are not handed out twice';
+  perform public.docs_save_work(current_setting('ppi.pic_own')::uuid,
+    'Záhrada s hadicou Flexi a zavlažovačom.', null, null);
+  perform public.docs_save_work(current_setting('ppi.pic_s')::uuid, 'Čerpadlo Hydro 300, štítok HY-300.', null, null);
+  perform public.docs_save_work(current_setting('ppi.pic_scan')::uuid, null,
+    array['Návod na zapojenie hadice Flexi do rýchlospojky.'], null);
+  perform public.docs_save_work(current_setting('ppi.pic_hidden')::uuid, 'Sklad.', null, 'timeout');
+  assert (select status from public.shop_pictures where id = current_setting('ppi.pic_hidden')::uuid) = 'pending',
+    'a failed picture is tried again';
+  assert (select count(*) from public.shop_document_chunks
+          where document_id = current_setting('ppi.doc_p')::uuid and page = 5 and type = 'text') = 1,
+    'a scanned page becomes document text of that page';
+  assert (select text from public.shop_document_chunks where picture_id = current_setting('ppi.pic_own')::uuid)
+         = E'Hotová záhrada\nProjekt 2025, Košice\nZáhrada s hadicou Flexi a zavlažovačom.',
+    'a picture is found by its title, the owner''s caption and the AI description';
+
+  perform public.docs_finish(v_a);
+  assert (select status from public.shop_documents where id = current_setting('ppi.doc_p')::uuid) = 'processing',
+    'not ready while the browser is still sending';
+  foreach v_doc in array array[current_setting('ppi.doc_p'), current_setting('ppi.doc_w'),
+                               current_setting('ppi.doc_s'), current_setting('ppi.doc_off')]::uuid[] loop
+    assert public.docs_document_extracted(v_doc);
+  end loop;
+  assert public.docs_finish(v_a) = 1, 'one picture still waits for the AI';
+  for r in select name, status from public.shop_documents where shop_id = v_a and id <> current_setting('ppi.doc_up')::uuid loop
+    assert r.status = 'ready', format('%s is %s', r.name, r.status);
+  end loop;
+  assert (select status from public.shop_documents where id = current_setting('ppi.doc_up')::uuid) = 'uploading';
+  -- an upload left unfinished for an hour is shown as an error
+  update public.shop_documents set updated_at = now() - interval '2 hours' where id = current_setting('ppi.doc_up')::uuid;
+  perform public.docs_finish(v_a);
+  assert (select status from public.shop_documents where id = current_setting('ppi.doc_up')::uuid) = 'error';
+end $$;
+reset role;
+
+-- owner A switches things: the old offer off for the assistant, one picture not shown
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_pub uuid := (select id from public.shop_folders where shop_id = (select id from public.shops where slug = 'potraviny-centrum') and is_public);
+begin
+  perform public.owner_update_document(current_setting('ppi.doc_off')::uuid, 'Stará akcia', null, v_pub, false, true);
+  perform public.owner_update_picture(current_setting('ppi.pic_hidden')::uuid, 'Skrytý obrázok', null, null, null, false);
+  perform public.owner_update_document(current_setting('ppi.doc_w')::uuid, 'Veľkoobchodný cenník 2026', 'Len pre partnerov',
+                                       current_setting('ppi.folder_w')::uuid, true, true);
+  -- the upload check: only a registered file of the owner's own shop that is not uploaded yet
+  assert public.shop_docs_upload_allowed((select storage_path from public.shop_documents where id = current_setting('ppi.doc_up')::uuid)) = false,
+    'an upload marked as failed cannot be finished';
+  assert not public.shop_docs_upload_allowed((select storage_path from public.shop_documents where id = current_setting('ppi.doc_p')::uuid)),
+    'an uploaded file is never replaced';
+  assert not public.shop_docs_upload_allowed((select id from public.shops where slug = 'potraviny-centrum') || '/docs/made-up.pdf');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_path text;
+begin
+  select storage_path into v_path from public.docs_register_document(v_a, (select id from public.shop_folders where shop_id = v_a and is_public),
+                                                                     'Nový', null, 1, 1000, 30, 500);
+  perform set_config('ppi.path_new', v_path, false);
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  assert public.shop_docs_upload_allowed(current_setting('ppi.path_new')), 'the owner may upload a registered file';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert not public.shop_docs_upload_allowed(current_setting('ppi.path_new')), 'another shop''s owner may not';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- a visitor without a key, with a made-up token or a folder id: only the Public folder
+set role anon;
+do $$
+declare
+  v_slug text := 'potraviny-centrum';
+  v_bad text;
+  n int;
+begin
+  select count(*) into n from public.search_shop_docs(v_slug, 'hadica', null, 20);
+  assert n = 3, format('Public: catalogue text, scanned page, own picture (%s)', n);
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'hadica', null, 20) where not is_public),
+    'nothing private without a key';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'hadica', null, 20) where source = 'Stará akcia'),
+    'a document the assistant may not use is never found';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'tesnenie', null, 20)), 'private text needs a key';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'skryty obrazok', null, 20)),
+    'a picture the assistant may not show is never found';
+  assert exists (select 1 from public.search_shop_docs(v_slug, 'zahradnu hadicu', null, 20) where page = 4),
+    'inflected words match by their start, without accents';
+  assert (select source from public.search_shop_docs(v_slug, 'zavlazovac', null, 20) where type = 'picture' and page is null)
+         = 'Hotová záhrada', 'an own picture is named by its title';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, '', null, 20) where not is_public),
+    'an empty question lists Public excerpts only';
+  foreach v_bad in array array[current_setting('ppi.folder_w'), current_setting('ppi.folder_s'),
+                               '{' || current_setting('ppi.folder_w') || ',' || current_setting('ppi.folder_s') || '}',
+                               repeat('A', 40), current_setting('ppi.key_w'), ''] loop
+    assert not exists (select 1 from public.search_shop_docs(v_slug, 'hadica', v_bad, 20) where not is_public),
+      format('made-up token %s opened a private folder', v_bad);
+    assert not exists (select 1 from public.search_shop_docs(v_slug, 'tesnenie', v_bad, 20));
+    assert not exists (select 1 from public.shop_docs_list(v_slug, v_bad) where not is_public);
+    assert public.shop_folder_session(v_slug, v_bad) is null;
+  end loop;
+  assert (select count(*) from public.shop_docs_list(v_slug, null)) = 1, 'a visitor knows only the Public catalogue';
+  assert (select status from jsonb_to_record(public.unlock_shop_folders(v_slug, 'AAAA-BBBB-CCCC-DDDD-EEEE', repeat('k', 64)))
+          as x(status text)) = 'wrong', 'a wrong key opens nothing';
+  assert public.unlock_shop_folders('no-such-shop', current_setting('ppi.key_w'), repeat('k', 64)) ->> 'status' = 'unavailable';
+  assert public.unlock_shop_folders('drogeria-kostolne', current_setting('ppi.key_w'), repeat('k', 64)) ->> 'status' = 'wrong',
+    'a key works only in its own shop';
+end $$;
+reset role;
+
+-- keys: each opens only its folders, for 12 hours, until revoked or expired
+set role anon;
+do $$
+declare
+  v_slug text := 'potraviny-centrum';
+  v_r jsonb;
+  t text;
+begin
+  v_r := public.unlock_shop_folders(v_slug, lower(current_setting('ppi.key_w')), repeat('m', 64));
+  assert v_r ->> 'status' = 'ok', format('key for Veľkoobchod (typed in small letters): %s', v_r);
+  assert v_r -> 'folders' = '["Veľkoobchod"]'::jsonb;
+  assert (v_r ->> 'expires_at')::timestamptz between now() + interval '11 hours 59 minutes' and now() + interval '12 hours 1 minute';
+  t := v_r ->> 'token';
+  assert length(t) >= 32;
+  perform set_config('ppi.t_w', t, false);
+  assert exists (select 1 from public.search_shop_docs(v_slug, 'cena hadice', t, 20)
+                 where source = 'Veľkoobchodný cenník 2026' and page = 2 and not is_public and downloadable),
+    'the key opens Veľkoobchod';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'tesnenie cerpadla', t, 20)),
+    'a key for folder Veľkoobchod does not open Servis';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'hydro', t, 20)),
+    'nor its pictures';
+  assert not exists (select 1 from public.search_shop_docs('drogeria-kostolne', 'hadica', t, 20) where not is_public),
+    'a session works only in its own shop';
+  assert public.shop_folder_session(v_slug, t) -> 'folders' = '["Veľkoobchod"]'::jsonb;
+  assert (select count(*) from public.shop_docs_list(v_slug, t)) = 2;
+
+  perform set_config('ppi.t_s', public.unlock_shop_folders(v_slug, current_setting('ppi.key_s'), repeat('m', 64)) ->> 'token', false);
+  perform set_config('ppi.t_r', public.unlock_shop_folders(v_slug, current_setting('ppi.key_r'), repeat('m', 64)) ->> 'token', false);
+  perform set_config('ppi.t_all', public.unlock_shop_folders(v_slug, current_setting('ppi.key_all'), repeat('m', 64)) ->> 'token', false);
+  assert exists (select 1 from public.search_shop_docs(v_slug, 'tesnenie', current_setting('ppi.t_s'), 20)), 'key for Servis works';
+  assert exists (select 1 from public.search_shop_docs(v_slug, 'hydro', current_setting('ppi.t_all'), 20) where type = 'picture'
+                 and source = 'Servisný manuál' and page = 3), 'a PDF picture is named by its document and page';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'zadarmo', current_setting('ppi.t_all'), 20)),
+    'a document the assistant may not use stays hidden with every key';
+end $$;
+reset role;
+
+set role service_role;
+do $$ begin
+  assert not exists (select 1 from public.folder_sessions where token_hash = current_setting('ppi.t_w')), 'tokens are stored only as a hash';
+  assert exists (select 1 from public.folder_sessions where token_hash = public.docs_hash(current_setting('ppi.t_w')));
+  assert not exists (select 1 from public.folder_keys where key_hash = current_setting('ppi.key_w'));
+  assert (select use_count from public.folder_keys where label = 'Partner Veľkoobchod') = 1;
+  assert (select last_used_at is not null from public.folder_keys where label = 'Partner Veľkoobchod');
+  -- the Servis key expires; a session older than 12 hours ends
+  update public.folder_keys set expires_at = now() - interval '1 second' where label = 'Servis 1 day';
+  update public.folder_sessions set expires_at = now() - interval '1 second'
+  where token_hash = public.docs_hash(current_setting('ppi.t_all'));
+end $$;
+reset role;
+
+-- owner A revokes a key: whoever opened folders with it loses them at once
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  perform public.owner_revoke_folder_key((select id from public.folder_keys where label = 'To revoke'));
+  assert (select revoked_at is not null from public.folder_keys where label = 'To revoke');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$
+declare
+  v_slug text := 'potraviny-centrum';
+  i int;
+begin
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'tesnenie', current_setting('ppi.t_s'), 20)),
+    'an expired key closes its folders';
+  assert public.unlock_shop_folders(v_slug, current_setting('ppi.key_s'), repeat('n', 64)) ->> 'status' = 'wrong',
+    'an expired key opens nothing';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'cena', current_setting('ppi.t_r'), 20) where not is_public),
+    'a revoked key closes its folders';
+  assert public.unlock_shop_folders(v_slug, current_setting('ppi.key_r'), repeat('n', 64)) ->> 'status' = 'wrong',
+    'a revoked key opens nothing';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'tesnenie', current_setting('ppi.t_all'), 20)),
+    'a session ends after 12 hours';
+  assert public.shop_folder_session(v_slug, current_setting('ppi.t_all')) is null;
+
+  -- "Lock again"
+  assert public.lock_shop_folders(v_slug, current_setting('ppi.t_w'));
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'cena', current_setting('ppi.t_w'), 20) where not is_public),
+    'locked again: private folders closed';
+  assert not public.lock_shop_folders(v_slug, current_setting('ppi.t_w'));
+
+  -- at most 5 wrong keys per caller and shop in 15 minutes (n already has 2)
+  for i in 1..3 loop
+    assert public.unlock_shop_folders(v_slug, 'WRONG-KEY-' || i, repeat('n', 64)) ->> 'status' = 'wrong';
+  end loop;
+  assert public.unlock_shop_folders(v_slug, current_setting('ppi.key_w'), repeat('n', 64)) ->> 'status' = 'too_many',
+    'after 5 wrong keys even the right key waits';
+  assert public.unlock_shop_folders(v_slug, current_setting('ppi.key_w'), repeat('o', 64)) ->> 'status' = 'ok',
+    'another caller is not blocked';
+  assert public.unlock_shop_folders('drogeria-kostolne', 'WRONG', repeat('n', 64)) ->> 'status' = 'wrong',
+    'the counter is per shop';
+  begin
+    perform public.unlock_shop_folders(v_slug, 'x', 'short');
+    raise exception 'invalid caller hash accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_update_picture(current_setting('ppi.pic_own')::uuid, 'x', null, 'Visitor text', null, true);
+    raise exception 'a visitor corrected a picture description';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- files a shopper may open (shop-files signs a 10-minute address only for these)
+set role service_role;
+do $$
+declare
+  v_slug text := 'potraviny-centrum';
+  v_t text := public.unlock_shop_folders(v_slug, current_setting('ppi.key_w'), repeat('p', 64)) ->> 'token';
+  v_all text := public.unlock_shop_folders(v_slug, current_setting('ppi.key_all'), repeat('p', 64)) ->> 'token';
+begin
+  assert public.shop_file_path(v_slug, 'document', current_setting('ppi.doc_w')::uuid, null) is null,
+    'a private document needs a session';
+  assert public.shop_file_path(v_slug, 'document', current_setting('ppi.doc_w')::uuid, current_setting('ppi.t_r')) is null,
+    'a session of a revoked key opens no file';
+  assert public.shop_file_path(v_slug, 'document', current_setting('ppi.doc_w')::uuid, v_t) like '%/docs/%.pdf',
+    'with a valid session and "Shoppers may download it"';
+  assert public.shop_file_path('drogeria-kostolne', 'document', current_setting('ppi.doc_w')::uuid, v_t) is null,
+    'never through another shop';
+  assert public.shop_file_path(v_slug, 'document', current_setting('ppi.doc_p')::uuid, null) is null,
+    'a document is not downloadable unless the owner allows it';
+  assert public.shop_file_path(v_slug, 'picture', current_setting('ppi.pic_own')::uuid, null) like '%/pictures/%.webp',
+    'a Public picture the assistant may show';
+  assert public.shop_file_path(v_slug, 'picture', current_setting('ppi.pic_hidden')::uuid, null) is null,
+    'never a picture the assistant may not show';
+  assert public.shop_file_path(v_slug, 'picture', current_setting('ppi.pic_scan')::uuid, v_all) is null,
+    'never a scan page';
+  assert public.shop_file_path(v_slug, 'picture', current_setting('ppi.pic_s')::uuid, v_t) is null,
+    'a key for Veľkoobchod opens no picture in Servis';
+  assert public.shop_file_path(v_slug, 'picture', current_setting('ppi.pic_s')::uuid, v_all) is not null;
+  assert public.shop_file_path(v_slug, 'document', current_setting('ppi.doc_off')::uuid, null) is not null,
+    'downloadable even when the assistant may not use it';
+end $$;
+reset role;
+
+-- another shop's owner gets nothing of shop A and can change nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select count(*) from public.shop_documents) = 0, 'owner B sees no documents of shop A';
+  assert (select count(*) from public.shop_pictures) = 0;
+  assert (select count(*) from public.folder_keys) = 0;
+  assert (select count(*) from public.shop_folders) = 1, 'owner B sees only their own Public folder';
+  assert not exists (select 1 from public.search_shop_docs('potraviny-centrum', 'cena', null, 20) where not is_public),
+    'logged in as another owner: still only the Public folder';
+  assert (select count(*) from public.owner_picture_paths(v_a, array[current_setting('ppi.pic_own')]::uuid[])) = 0;
+  begin
+    perform public.owner_update_picture(current_setting('ppi.pic_own')::uuid, 'x', null, 'Owner B text', null, true);
+    raise exception 'owner B corrected shop A''s picture';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_update_document(current_setting('ppi.doc_w')::uuid, 'x', null,
+      (select id from public.shop_folders where is_public), true, true);
+    raise exception 'owner B moved shop A''s document';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_docs_files('document', current_setting('ppi.doc_w')::uuid);
+    raise exception 'owner B got shop A''s file paths';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_create_folder_key(v_a, 'B', array[current_setting('ppi.folder_w')]::uuid[], null);
+    raise exception 'owner B made a key for shop A';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_revoke_folder_key((select id from public.folder_keys limit 1));
+    raise exception 'owner B revoked a key';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.shop_pictures set description = 'x';
+    raise exception 'owner B wrote a picture directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- owner A corrects a picture description; the AI never writes over it
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin
+    update public.shop_pictures set description = 'Directly';
+    raise exception 'owner wrote a picture row directly';
+  exception when insufficient_privilege then null;
+  end;
+  perform public.owner_update_picture(current_setting('ppi.pic_own')::uuid, 'Hotová záhrada', 'Projekt 2025, Košice',
+    'Záhrada s hadicou Flexi 25 m a zavlažovačom Rain.', null, true);
+  assert (select description_by_owner from public.shop_pictures where id = current_setting('ppi.pic_own')::uuid);
+  begin
+    perform count(*) from public.shop_document_chunks;
+    raise exception 'an owner read the search excerpts directly';
+  exception when insufficient_privilege then null;
+  end;
+  -- a document picture stays in its document's folder
+  perform public.owner_update_picture(current_setting('ppi.pic_s')::uuid, '', null, 'Čerpadlo Hydro 300.',
+    (select id from public.shop_folders where is_public), true);
+  assert (select folder_id from public.shop_pictures where id = current_setting('ppi.pic_s')::uuid) = current_setting('ppi.folder_s')::uuid;
+  begin
+    perform public.owner_update_picture(current_setting('ppi.pic_scan')::uuid, 'x', null, 'x', null, true);
+    raise exception 'a scan page edited as a picture';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$ begin
+  assert (select text from public.shop_document_chunks where picture_id = current_setting('ppi.pic_own')::uuid)
+         like '%zavlažovačom Rain.', 'the corrected description is what the assistant finds';
+  update public.shop_pictures set status = 'working' where id = current_setting('ppi.pic_own')::uuid;
+  perform public.docs_save_work(current_setting('ppi.pic_own')::uuid, 'The AI again.', null, null);
+  assert (select description from public.shop_pictures where id = current_setting('ppi.pic_own')::uuid)
+         = 'Záhrada s hadicou Flexi 25 m a zavlažovačom Rain.', 'the owner''s correction stays';
+end $$;
+reset role;
+
+-- moving a document moves its text and pictures; folders with files cannot be deleted
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_pub uuid := (select id from public.shop_folders where is_public);
+  v_files text[];
+  v_empty uuid;
+begin
+  perform public.owner_update_document(current_setting('ppi.doc_s')::uuid, 'Servisný manuál', null, v_pub, true, false);
+  assert (select count(*) from public.shop_pictures where document_id = current_setting('ppi.doc_s')::uuid and folder_id = v_pub) = 1;
+  perform set_config('ppi.moved', 'yes', false);
+  begin
+    perform public.owner_delete_folder(current_setting('ppi.folder_w')::uuid);
+    raise exception 'a folder with documents deleted';
+  exception when object_in_use then null;
+  end;
+  begin
+    perform public.owner_delete_folder(v_pub);
+    raise exception 'the Public folder deleted';
+  exception when invalid_parameter_value then null;
+  end;
+  v_empty := public.owner_save_folder((select id from public.shops where slug = 'potraviny-centrum'), null, 'Prázdny');
+  perform public.owner_create_folder_key((select id from public.shops where slug = 'potraviny-centrum'), 'Only empty', array[v_empty], null);
+  perform public.owner_create_folder_key((select id from public.shops where slug = 'potraviny-centrum'), 'Empty and W',
+                                         array[v_empty, current_setting('ppi.folder_w')::uuid], null);
+  perform public.owner_delete_folder(v_empty);
+  assert not exists (select 1 from public.folder_keys where label = 'Only empty'), 'a key left without folders is deleted';
+  assert (select folder_ids from public.folder_keys where label = 'Empty and W') = array[current_setting('ppi.folder_w')::uuid];
+
+  v_files := public.owner_docs_files('document', current_setting('ppi.doc_s')::uuid);
+  assert cardinality(v_files) = 2, format('the PDF and its picture: %s', v_files);
+  perform set_config('ppi.files_s', array_to_string(v_files, ','), false);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  assert exists (select 1 from public.search_shop_docs('potraviny-centrum', 'tesnenie', null, 20) where is_public),
+    'moved to Public: found without a key';
+end $$;
+reset role;
+
+-- deleting a document (doc-ingest removes the files first) removes its pictures and text
+set role service_role;
+do $$
+declare
+  v_doc uuid := current_setting('ppi.doc_s')::uuid;
+begin
+  delete from public.shop_documents where id = v_doc;
+  assert not exists (select 1 from public.shop_document_chunks where document_id = v_doc), 'its text is gone';
+  assert not exists (select 1 from public.shop_pictures where document_id = v_doc), 'its pictures are gone';
+  assert not exists (select 1 from public.shop_document_chunks where picture_id = current_setting('ppi.pic_s')::uuid);
+  delete from public.shop_pictures where id = current_setting('ppi.pic_hidden')::uuid;
+  assert not exists (select 1 from public.shop_document_chunks where picture_id = current_setting('ppi.pic_hidden')::uuid);
+end $$;
+reset role;
+
+-- a shop without the paid plan (or not active): nothing at all, not even Public
+set role service_role;
+do $$ begin
+  perform public.apply_stripe_subscription((select id from public.shops where slug = 'potraviny-centrum'),
+    'cus_A1', 'sub_A1', 'past_due', 'pro', now() + interval '30 days', null);
+end $$;
+reset role;
+set role anon;
+do $$
+declare
+  v_slug text := 'potraviny-centrum';
+begin
+  assert not exists (select 1 from public.search_shop_docs(v_slug, 'hadica', null, 20)), 'no plan: nothing found';
+  assert not exists (select 1 from public.search_shop_docs(v_slug, '', null, 20));
+  assert not exists (select 1 from public.shop_docs_list(v_slug, null));
+  assert public.unlock_shop_folders(v_slug, current_setting('ppi.key_w'), repeat('q', 64)) ->> 'status' = 'unavailable';
+end $$;
+reset role;
+set role service_role;
+do $$ begin
+  assert public.shop_file_path('potraviny-centrum', 'picture', current_setting('ppi.pic_own')::uuid, null) is null,
+    'no plan: no files';
+  perform public.apply_stripe_subscription((select id from public.shops where slug = 'potraviny-centrum'),
+    'cus_A1', 'sub_A1', 'active', 'pro', now() + interval '30 days', null);
+  update public.shops set is_active = false where slug = 'potraviny-centrum';
+  assert not exists (select 1 from public.search_shop_docs('potraviny-centrum', 'hadica', null, 20)), 'inactive shop: nothing';
+  update public.shops set is_active = true where slug = 'potraviny-centrum';
+  assert exists (select 1 from public.search_shop_docs('potraviny-centrum', 'hadica', null, 20));
+  -- the plan ends at the period end: the shop cannot be deleted while it has documents
+  perform public.apply_stripe_subscription((select id from public.shops where slug = 'potraviny-centrum'),
+    'cus_A1', 'sub_A1', 'active', 'pro', now() + interval '30 days', now() + interval '30 days');
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin
+    perform public.owner_delete_shop((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'a shop with documents deleted';
+  exception when object_in_use then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
 \echo 'ALL DATABASE CHECKS PASSED'

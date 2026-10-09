@@ -45,6 +45,7 @@ For **each** file below:
 | 17 | `supabase/migrations/20261014000001_item_translations.sql` | Item names in Slovak, Hungarian and English, search across languages, AI search limits |
 | 18 | `supabase/migrations/20261015000001_subscriptions.sql` | Paid plan per shop (Stripe): subscriptions, `shop_has_plan` |
 | 19 | `supabase/migrations/20261016000001_shop_assistant.sql` | AI assistant on the shop page: message limits |
+| 20 | `supabase/migrations/20261017000001_shop_documents.sql` | Documents and pictures for the assistant: folders, access keys, private file storage |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -462,6 +463,41 @@ A paid feature: it appears on a shop's page only while the shop has the paid pla
 
 ---
 
+## Part M — Documents and pictures for the assistant (9 October 2026)
+
+A paid feature (Part K): shop owners upload PDFs and pictures that their shop's assistant (Part L) uses to answer;
+private folders open only with an access key. Needs Parts J, K and L first.
+
+1. **Database:** SQL Editor → run file 20 (`supabase/migrations/20261017000001_shop_documents.sql`) → "Success. No rows
+   returned" (notices "… does not exist, skipping" on the first run are normal). Safe to run again. It also creates the
+   private storage bucket `shop-docs` (Storage → you see it there).
+2. **Two new Edge Functions**, each: Edge Functions → **Deploy a new function** → **Via Editor** → type the name →
+   in the editor **delete the example code** that is already there and paste the whole file → **Deploy** → open the
+   function → switch **off** "Verify JWT" → Save.
+   - **`doc-ingest`** ← `supabase/functions/doc-ingest/index.ts`
+   - **`shop-files`** ← `supabase/functions/shop-files/index.ts`
+3. **Supabase secrets** (Edge Functions → Secrets): `ANTHROPIC_API_KEY` is already there (Part G/J). Optional:
+   `AI_MODEL` (default `claude-haiku-5-5`), `SHOP_DOCS_MAX_FILES` (30), `SHOP_DOCS_MAX_PAGES` (500),
+   `SHOP_DOCS_MAX_PICTURES` (300) — limits per shop.
+4. **Vercel** (Settings → Environment Variables, Production): add **`SESSION_COOKIE_SECRET`** = at least 32 random
+   letters and digits (let your password manager generate 40 characters; keep it there; never paste it into a chat).
+   Optional: `AI_MODEL` (same default). → **Redeploy**.
+5. **Test** (a shop with the paid plan, logged in, Edge or Chrome):
+   - Môj obchod → **Dokumenty pre asistenta** → tick the box → Súhlasím.
+   - Create a private folder (e.g. "Veľkoobchod"). Upload a catalogue PDF into **Verejný** and a price list into the
+     private folder. The status goes "Číta sa strana …" → "AI si prezerá obrázky…" → **Pripravené**.
+   - Add a picture; open "Zmeniť alebo opraviť popis" and correct what the AI wrote.
+   - Create a key for the private folder → **Kopírovať**. (It is shown only once.)
+   - Open the shop page in a private/incognito window → the assistant → ask something the catalogue answers, e.g. in
+     Italian → the answer is in Italian with "Zdroj: <catalogue>, strana …".
+   - Ask about the price list → nothing from it. Click "Mám prístupový kľúč", paste the key → "Otvorené: Veľkoobchod" →
+     ask again → the price list is now the source; "Znova zamknúť" closes it.
+   - Delete a test document on the dashboard → it disappears with its pictures (Storage → shop-docs: its files are gone).
+6. If something does not work: Supabase → Edge Functions → `doc-ingest` → **Logs** (lines start with `doc-ingest:`);
+   Vercel → Logs → search `shop-chat` or `folder-key`.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -488,3 +524,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 8. Item names in Slovak, Hungarian and English (search across languages, owner corrections); AI search on the main page | ✅ built — set up Part J |
 | 9. Paid plan per shop with Stripe (Checkout, customer portal, webhook, VAT invoices, `shop_has_plan`) | ✅ built (test mode) — set up Part K |
 | 10. AI assistant on the shop page (paid plan): questions, shopping lists, photos of parts | ✅ built — set up Part L |
+| 11. Documents and pictures for the assistant (paid plan): PDFs, AI picture descriptions, private folders with access keys | ✅ built — set up Part M |
