@@ -165,7 +165,7 @@ function ResultRow({
         {[row.shop_address, row.shop_city].filter(Boolean).map((part) => ` · ${part}`)}
       </div>
       <div className="flex flex-wrap gap-x-3 text-sm">
-        <StockLine row={row} timeZone={row.shop_timezone} dict={dict} />
+        <StockLine row={row} timeZone={row.shop_timezone} dict={dict} lang={lang} />
         {shop && <OpenStatus hours={shop.opening_hours} timeZone={shop.timezone} lang={lang} dict={dict} />}
       </div>
     </li>

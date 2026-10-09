@@ -3,14 +3,11 @@ import { t } from "@/i18n/dictionaries";
 import { formatTime, localDay } from "./format";
 import type { NameI18n } from "./names";
 
-/** Label keys computed by the database (public.availability_label). */
-export type AvailabilityKey =
-  | "in_stock_count"
-  | "in_stock"
-  | "low_stock"
-  | "out_of_stock"
-  | "available"
-  | "not_available";
+/**
+ * Label keys computed by the database (public.availability_label): one rule for every shop,
+ * the quantity exactly as in the shop's file ("12 ks na sklade"), sold out at 0 or less.
+ */
+export type AvailabilityKey = "in_stock_count" | "out_of_stock";
 
 export type FreshnessState = "current" | "recent" | "stale";
 
@@ -45,14 +42,23 @@ export interface StockRow {
   item_name_i18n: NameI18n | null;
 }
 
+/** The quantity as in the file, written the page language's way (12,5 / 12.5). */
+export function formatQuantity(quantity: number | null, locale?: string): string {
+  if (quantity === null || quantity === undefined) return "";
+  const value = Number(quantity);
+  if (!locale) return String(value);
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value);
+}
+
 /** Availability text. Null when stale: the page shows the stale text instead. */
 export function availabilityText(
   dict: Dictionary,
   key: AvailabilityKey | null,
   quantity: number | null,
+  locale?: string,
 ): string | null {
   if (!key) return null;
-  return t(dict.stock[key], { n: quantity ?? "" });
+  return t(dict.stock[key], { n: formatQuantity(quantity, locale) });
 }
 
 /** "Updated 8 min ago", "Last confirmed today at 14:05" (shop's local time), or the stale text. */

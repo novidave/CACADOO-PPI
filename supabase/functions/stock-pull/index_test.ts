@@ -2,8 +2,9 @@
 import * as XLSX from "npm:@e965/xlsx@0.20.3";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
-  applyMapping, batches, currencyForCountry, decodeText, detectFormat, guessMapping, parseFile, parseNumber, readTranslations,
-  receiveUpload, type Mapping, type NameTranslation, type Translator,
+  applyMapping, approvalSample, batches, columnSamples, currencyForCountry, decodeText, detectFormat, guessMapping,
+  importReport, isPrivateColumn, mappedColumns, onlyColumns, parseFile, parseNumber, readTranslations, receiveUpload,
+  type Mapping, type NameTranslation, type Translator,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -118,7 +119,7 @@ const SHOP = "00000000-0000-4000-8000-000000000001";
 const CSV = "Kod;Nazov;Mnozstvo;Cena\nC1;Farba fas. biela 5L;4;24,90\nC2;Valcek 25 cm;3;6,90\n";
 
 /** Just enough of the Supabase client for one upload; records every database call. */
-function fakeSupabase() {
+function fakeSupabase(override: Partial<{ field_mapping: Mapping | null; mapping_status: string }> = {}) {
   const rpc: { name: string; args: Record<string, unknown> }[] = [];
   const updates: Record<string, unknown>[] = [];
   const source = {
@@ -128,6 +129,7 @@ function fakeSupabase() {
     mapping_status: "confirmed",
     latest_file_time: null,
     shops: { slug: "test", name: "Test", country: "SK" },
+    ...override,
   };
   const db = {
     rpc(name: string, args: Record<string, unknown>) {
@@ -156,23 +158,26 @@ function fakeSupabase() {
   return { db: db as unknown as SupabaseClient, asCaller: asCaller as unknown as SupabaseClient, rpc, updates };
 }
 
-async function upload(translate: Translator) {
-  const { db, asCaller, rpc, updates } = fakeSupabase();
+async function upload(translate: Translator, csv = CSV, override: Parameters<typeof fakeSupabase>[0] = {}) {
+  const { db, asCaller, rpc, updates } = fakeSupabase(override);
   const tasks: Promise<unknown>[] = [];
   const url = new URL(`http://localhost/stock-pull?shop_id=${SHOP}&file_time=2026-10-08T10:15:00Z&file_name=stock.csv`);
-  const response = await receiveUpload(new Request(url, { method: "POST", body: CSV }), url.searchParams, asCaller, db, {
+  const response = await receiveUpload(new Request(url, { method: "POST", body: csv }), url.searchParams, asCaller, db, {
     translate,
     background: (task) => tasks.push(task),
   });
   const body = await response.json();
   const background = await Promise.all(tasks);
-  return { body, background, calls: rpc.map((c) => c.name), rpc, lastError: updates.map((u) => u.last_error).filter(Boolean).at(-1) };
+  return {
+    body, background, calls: rpc.map((c) => c.name), rpc, updates,
+    lastError: updates.map((u) => u.last_error).filter(Boolean).at(-1),
+  };
 }
 
 Deno.test("a failed translation leaves the stock applied", async () => {
   const { body, background, calls, lastError } = await upload(() => Promise.reject(new Error("Claude is unavailable")));
   eq(body.result, { status: "updated", items: 2, zeroed: 0, skipped: 0 }, "stock applied");
-  eq(calls, ["apply_stock_file", "items_to_translate"], "translations not saved");
+  eq(calls, ["apply_stock_file", "record_stock_import", "items_to_translate"], "translations not saved");
   eq(background, [{ saved: 0, failed: 1 }], "failure caught in the background");
   eq(lastError, "Item names could not be translated (the stock is fine): Claude is unavailable", "the owner sees why");
 });
@@ -182,7 +187,81 @@ Deno.test("translations are saved after the stock, in the background", async () 
     Promise.resolve(batch.map((b) => ({ item_id: b.item_id, source: b.name, lang: "sk", sk: "Fasádna farba biela 5 l", hu: "Homlokzatfesték fehér 5 l", en: "White facade paint 5 l" }))),
   );
   eq(body.result.status, "updated", "stock applied");
-  eq(calls, ["apply_stock_file", "items_to_translate", "apply_item_translations"], "order of database calls");
-  eq((rpc[2].args.p_items as NameTranslation[])[0].en, "White facade paint 5 l", "saved translation");
+  eq(calls, ["apply_stock_file", "record_stock_import", "items_to_translate", "apply_item_translations"], "order of database calls");
+  eq((rpc[3].args.p_items as NameTranslation[])[0].en, "White facade paint 5 l", "saved translation");
   eq(background, [{ saved: 1, failed: 0 }], "one item translated");
+});
+
+// ---------------------------------------------------------------- private columns and import reports
+
+Deno.test("columns that point to purchase prices, suppliers, margins or invoices are private", () => {
+  eq(["Nákupná cena", "NC bez DPH", "Dodávateľ", "Marža %", "Číslo faktúry", "Beszerzési ár", "Supplier", "Invoice no", "Zisk"]
+    .map(isPrivateColumn), Array(9).fill(true), "private");
+  eq(["Cena s DPH", "Názov", "Množstvo", "EAN", "Kód", "Popis", "Mena", "Since"].map(isPrivateColumn), Array(8).fill(false), "ordinary");
+});
+
+Deno.test("the AI sees column names and at most 3 values, never values of private columns", () => {
+  const rows = [
+    { Kod: "C1", Nazov: "Farba", "Nákupná cena": "12,00", Dodavatel: "Veľkoobchod" },
+    { Kod: "C2", Nazov: "Farba", "Nákupná cena": "3,00", Dodavatel: "Veľkoobchod" },
+    { Kod: "C3", Nazov: "", "Nákupná cena": "4,00", Dodavatel: "Iný" },
+    { Kod: "C4", Nazov: "Valček", "Nákupná cena": "1,00", Dodavatel: "Iný" },
+    { Kod: "C5", Nazov: "Tmel", "Nákupná cena": "2,00", Dodavatel: "Iný" },
+  ];
+  eq(columnSamples(Object.keys(rows[0]), rows), [
+    { column: "Kod", samples: ["C1", "C2", "C3"] },
+    { column: "Nazov", samples: ["Farba", "Valček", "Tmel"] },
+    { column: "Nákupná cena", samples: [] },
+    { column: "Dodavatel", samples: [] },
+  ], "names for all, values only for ordinary columns");
+  eq(approvalSample(rows, Object.keys(rows[0])), [
+    { Kod: "C1", Nazov: "Farba" }, { Kod: "C2", Nazov: "Farba" }, { Kod: "C3", Nazov: "" },
+  ], "the owner's sample before approval: 3 rows, no private values");
+  const mapping = { source_code: "Kod", name: "Nazov", ean: null, brand: null, quantity: null, price: null, currency: null };
+  eq(mappedColumns(mapping), ["Kod", "Nazov"], "mapped columns");
+  eq(onlyColumns(rows, mappedColumns(mapping), 2), [{ Kod: "C1", Nazov: "Farba" }, { Kod: "C2", Nazov: "Farba" }], "preview");
+});
+
+Deno.test("every received file gets a report; a file already applied does not", () => {
+  eq(importReport({ status: "updated", items: 150, zeroed: 2, skipped: 0, rows: 150 }),
+    { status: "ok", total: 150, imported: 150, zeroed: 2, skipped: 0, error: null }, "ok");
+  eq(importReport({ status: "updated", items: 148, zeroed: 0, skipped: 2, rows: 150 })?.status, "errors", "rows skipped");
+  eq(importReport({ status: "proposed", rows: 10 })?.status, "waiting", "columns wait for approval");
+  eq(importReport({ status: "layout_changed", rows: 10, skipped: 9 }),
+    { status: "errors", total: 10, imported: 0, zeroed: 0, skipped: 9,
+      error: "9 of 10 rows could not be read — the file layout may have changed." }, "layout changed");
+  eq(importReport({ status: "error", error: "The stock file is empty." })?.error, "The stock file is empty.", "failed");
+  eq(importReport({ status: "unchanged" }), null, "nothing new");
+});
+
+const PRIVATE_CSV = "Kod;Nazov;Mnozstvo;Cena;Nákupná cena;Dodávateľ\nC1;Farba biela 5L;4;24,90;12,00;Veľkoobchod\nC2;Valček 25 cm;-1;6,90;3,00;Iný\n";
+
+Deno.test("an applied file: the report and the sample keep only the mapped columns", async () => {
+  const { body, rpc } = await upload(() => Promise.resolve([]), PRIVATE_CSV);
+  eq(body.result, { status: "updated", items: 2, zeroed: 0, skipped: 0 }, "the uploader's answer has no rows");
+  const apply = rpc.find((c) => c.name === "apply_stock_file")!;
+  eq(apply.args.p_sample, [
+    { Kod: "C1", Nazov: "Farba biela 5L", Mnozstvo: "4", Cena: "24,90" },
+    { Kod: "C2", Nazov: "Valček 25 cm", Mnozstvo: "-1", Cena: "6,90" },
+  ], "sample: mapped columns, as written");
+  const report = rpc.find((c) => c.name === "record_stock_import")!.args;
+  eq([report.p_status, report.p_total, report.p_imported, report.p_skipped, report.p_file_name],
+    ["ok", 2, 2, 0, "stock.csv"], "report counts");
+  eq(JSON.stringify(report.p_rows).includes("Veľkoobchod") || JSON.stringify(report.p_rows).includes("12,00"), false,
+    "no private value in the report");
+});
+
+Deno.test("a new layout: proposed columns, a sample without private values, a waiting report", async () => {
+  const { body, rpc, updates } = await upload(() => Promise.resolve([]), PRIVATE_CSV, { field_mapping: null, mapping_status: "proposed" });
+  eq(body.result, { status: "proposed", rows: 2 }, "proposed");
+  const saved = updates.find((u) => u.mapping_status === "proposed")!;
+  eq(saved.file_columns, ["Kod", "Nazov", "Mnozstvo", "Cena", "Nákupná cena", "Dodávateľ"], "every column name is kept");
+  eq(saved.sample_rows, [
+    { Kod: "C1", Nazov: "Farba biela 5L", Mnozstvo: "4", Cena: "24,90" },
+    { Kod: "C2", Nazov: "Valček 25 cm", Mnozstvo: "-1", Cena: "6,90" },
+  ], "no private values before approval");
+  const report = rpc.find((c) => c.name === "record_stock_import")!.args;
+  eq([report.p_status, report.p_imported], ["waiting", 0], "waiting for the owner");
+  eq(report.p_rows, [], "no preview rows before the columns are approved");
+  eq(rpc.some((c) => c.name === "apply_stock_file"), false, "nothing applied before approval");
 });

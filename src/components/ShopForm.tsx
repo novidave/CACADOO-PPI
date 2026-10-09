@@ -73,6 +73,23 @@ export function ShopForm({
       <Field label={dict.dashboard.website}>
         <input name="website" type="url" placeholder="https://" defaultValue={shop?.website ?? ""} className={inputClass} />
       </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={dict.dashboard.email}>
+          <input name="email" type="email" maxLength={254} defaultValue={shop?.email ?? ""} className={inputClass} />
+        </Field>
+        <Field label={dict.dashboard.facebook} hint={dict.dashboard.facebook_hint}>
+          <input
+            name="facebook_url"
+            type="text"
+            inputMode="url"
+            autoComplete="url"
+            maxLength={300}
+            placeholder="https://www.facebook.com/"
+            defaultValue={shop?.facebook_url ?? ""}
+            className={inputClass}
+          />
+        </Field>
+      </div>
 
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 text-sm">{o.location}</legend>

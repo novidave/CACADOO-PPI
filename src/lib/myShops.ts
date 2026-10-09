@@ -17,8 +17,6 @@ export interface MyShop {
   phone: string | null;
   website: string | null;
   opening_hours: OpeningHours | null;
-  visibility_mode: "exact" | "in_stock" | "yes_no";
-  low_stock_threshold: number;
   logo_url: string | null;
   is_active: boolean;
   has_toilet: boolean;
@@ -32,6 +30,12 @@ export interface MyShop {
   freshness_state: FreshnessState;
   folder_seen_at: string | null;
   last_file_name: string | null;
+  email: string | null;
+  facebook_url: string | null;
+  assistant_label: string | null;
+  assistant_welcome: string | null;
+  /** Every column name of the latest file (values only of the mapped columns are kept). */
+  file_columns: string[] | null;
 }
 
 export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency"] as const;

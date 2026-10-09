@@ -11,9 +11,17 @@ Setup steps for humans are in `SETUP.md`.
   Anything that needs it (stock pull, Stripe, inviting owners) is a Supabase Edge Function.
 - Public pages (home, shop, item) load data in **server components** via `@/lib/supabase/server`.
   Never fetch public data in the browser: crawlers and AI assistants read only the first HTML.
-- Freshness, availability labels and quantity hiding live **in the database**
+- Freshness and availability labels live **in the database**
   (`freshness_label`, `availability_label`, `public_stock`, `search_stock`). Never recompute them in React.
   Visitors read stock only through `public_stock` / `search_stock`, never `inventory`.
+- **One display rule, no settings.** Every shop shows the quantity exactly as in its file ("12 ks na sklade",
+  "Vypredané" at 0 or less; nothing for stale shops). PPI never edits, corrects or completes shop data, and "My shop"
+  has no setting that changes the uploaded data or how stock is shown (display modes and hidden items were removed by
+  migration 21 — never bring them back). Translations are not shop data.
+- **Private columns** = every stock-file column not in the approved mapping: only in the private `raw-files` bucket;
+  never in `sample_rows`, `stock_imports`, pages, the API/MCP or the shop assistant. The AI column proposal gets names
+  plus ≤ 3 values per column, and names only for `isPrivateColumn()` / `is_private_column()` columns.
+- Payment never affects search ranking.
 - Every database change is a new file in `supabase/migrations/` (never edit an applied one).
   Add a check to `supabase/tests/database_test.sql` for every rule you add.
 - **Europe-wide, no home town.** Never hard-code a city, country, currency or time zone.
@@ -103,6 +111,23 @@ caller/shop/15 min) → session token in a signed HttpOnly cookie per shop (`@/l
 path `/api/shops/<slug>/`, routes `access` and `files`); the key and token never reach the AI. Private content never in
 pages, JSON-LD, sitemap, llms.txt, public API, MCP or the main-page AI search.
 
+## Shop page and My shop (migration 21)
+
+- Product pages of shops with `shop_has_plan(shop)` show no other shops: no "Also available at" block or "not found
+  elsewhere" text, no other pins, nothing in the JSON-LD (the item page skips `getOtherOffers`). Free shops and the
+  main search keep it. The shop assistant never names other shops.
+- Shop e-mail and Facebook page (`shops.email`, `facebook_url`; validated in `owner_save_shop()` and by checks:
+  facebook.com / fb.com only) next to the website on the shop page (`@/components/ContactLinks`, mailto; Facebook in a
+  new tab, `rel="noopener"`), in the JSON-LD (`email`, `sameAs`) and in the API's shop.
+- Assistant button label (≤ 40) and welcome text (≤ 300), paid plan: `owner_set_assistant_texts()`; the database keeps
+  plain text only (`plain_text()`: no HTML, links or e-mail addresses); empty = NULL = the i18n default (`chat.title`,
+  `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`).
+- Dashboard sections are `@/components/DashboardSection` dropdowns (heading + summary line; phone: only the first open;
+  remembered per device in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). Under "Export folder": files in
+  private folders (`PrivateFiles`, data from `loadShopDocs()`, Open via `/api/owner/files/{kind}/{id}` → `doc-ingest`
+  `open_file`, delete via `deleteDocOrPicture`) and "Recently uploaded files" (`@/components/RecentImports`, the last 10
+  `stock_imports` rows).
+
 ## Stock upload
 
 `supabase/functions/stock-pull/index.ts` (single file, paste-deployable) only receives uploads:
@@ -111,6 +136,10 @@ It downloads nothing and runs on no schedule (cloud links and the cron pull were
 A file not newer than `latest_file_time` is skipped; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping proposals
 (Claude with structured outputs, else `guessMapping`) are never auto-approved; `apply_stock_file()` writes a full file
 in one transaction (missing items → quantity 0). >5 % unreadable rows → keep old stock, propose a new mapping.
+Claude's proposal sees `columnSamples()` (names + ≤ 3 values; private-looking columns by name only); `sample_rows` holds
+3 rows without private-looking columns while proposed, only the approved columns once confirmed (`trim_sample_rows`);
+`file_columns` keeps every column name. Every received file gets an import report (`record_stock_import()`: status
+ok/errors/waiting, counts, error, the first 5 rows of the approved columns; last 10 per shop; owners read it).
 After an `updated` file, in the background (`EdgeRuntime.waitUntil`): `items_to_translate()` → Claude Haiku in batches
 of 200 (structured output: lang, sk, hu, en) → `apply_item_translations()`; never touches stock, never overwrites the
 owner's correction (`owner_set_item_translation()`, `name_i18n_by_owner`); failures are retried with the next file.

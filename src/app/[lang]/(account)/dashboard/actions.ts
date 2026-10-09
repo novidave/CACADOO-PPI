@@ -43,17 +43,6 @@ async function updateShop(
   return null;
 }
 
-export async function saveVisibility(formData: FormData) {
-  const { session, shopId, back } = await start(formData);
-  const mode = String(formData.get("visibility_mode") ?? "");
-  const threshold = Math.round(Number(formData.get("low_stock_threshold")));
-  if (!["exact", "in_stock", "yes_no"].includes(mode) || !(threshold >= 1 && threshold <= 50)) {
-    back({ err: "invalid visibility" });
-  }
-  const error = await updateShop(session.supabase, shopId, { visibility_mode: mode, low_stock_threshold: threshold });
-  back(error ? { err: error } : { ok: "visibility" });
-}
-
 export async function uploadLogo(formData: FormData) {
   const { session, shopId, back } = await start(formData);
   const file = formData.get("logo");
@@ -68,23 +57,6 @@ export async function uploadLogo(formData: FormData) {
   if (uploadError) back({ err: uploadError.message });
   const error = await updateShop(session.supabase, shopId, { logo_url: storage.getPublicUrl(path).data.publicUrl });
   back(error ? { err: error } : { ok: "logo" });
-}
-
-export async function setItemPublic(formData: FormData) {
-  const { session, shopId, back } = await start(formData);
-  const itemId = String(formData.get("item_id") ?? "");
-  const isPublic = formData.get("is_public") === "true";
-  if (!UUID.test(itemId)) back({ err: "invalid item" });
-  // Owners may only change is_public (column grant); RLS limits rows to own shops.
-  const { data, error } = await session.supabase
-    .from("shop_items")
-    .update({ is_public: isPublic })
-    .eq("id", itemId)
-    .eq("shop_id", shopId)
-    .select("id");
-  const q = String(formData.get("q") ?? "");
-  const page = String(formData.get("page") ?? "1");
-  back(error ? { err: error.message } : !data?.length ? { err: "not allowed" } : { ok: "item", ...(q ? { q } : {}), page });
 }
 
 const text = (formData: FormData, key: string, max = 200) => String(formData.get(key) ?? "").trim().slice(0, max);
@@ -164,6 +136,9 @@ export async function saveShop(formData: FormData) {
       lng: text(formData, "lng", 20),
       phone: text(formData, "phone", 40),
       website,
+      // Checked by the database (an e-mail address; a facebook.com or fb.com page).
+      email: text(formData, "email", 254),
+      facebook_url: text(formData, "facebook_url", 300),
       opening_hours: sanitizeHours(formData.get("opening_hours")),
       is_active: formData.get("is_active") === "on",
       has_toilet: formData.get("has_toilet") === "on",
@@ -171,11 +146,35 @@ export async function saveShop(formData: FormData) {
       has_card_terminal: formData.get("has_card_terminal") === "on",
     },
   });
+  // A bad e-mail or Facebook link comes back as the message "email" / "facebook".
   if (error) fail(error.code === "54000" ? "limit" : error.message);
   const { data: saved } = await session.supabase.from("shops").select("slug").eq("id", String(data)).maybeSingle();
   redirect(
     `/${lang}/dashboard?${new URLSearchParams({ shop: saved?.slug ?? "", ok: isNew ? "created" : "details", ...(isNew ? {} : { at: "details" }) })}${isNew ? "" : "#details"}`,
   );
+}
+
+/** "  a \n b " → "a b": how the database writes plain text, to tell whether it removed anything. */
+const plain = (value: string) => value.replace(/\s+/g, " ").trim();
+
+/**
+ * The shop assistant's button label and welcome text (paid plan). The database keeps
+ * plain text only: it removes HTML, links and e-mail addresses. Empty = the default text.
+ */
+export async function saveAssistantTexts(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const label = text(formData, "assistant_label", 400);
+  const welcome = text(formData, "assistant_welcome", 3000);
+  const { data, error } = await session.supabase.rpc("owner_set_assistant_texts", {
+    p_shop_id: shopId,
+    p_label: label,
+    p_welcome: welcome,
+  });
+  if (error) back({ err: error.message === "no_plan" ? "no_plan" : error.message });
+  const saved = (data ?? {}) as { label?: string | null; welcome?: string | null };
+  const cleaned =
+    plain(label).slice(0, 40) !== (saved.label ?? "") || plain(welcome).slice(0, 300) !== (saved.welcome ?? "");
+  back({ ok: cleaned ? "assistant_cleaned" : "assistant" });
 }
 
 /** The owner approves which column of the stock file is which. */

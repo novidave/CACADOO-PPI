@@ -46,6 +46,7 @@ For **each** file below:
 | 18 | `supabase/migrations/20261015000001_subscriptions.sql` | Paid plan per shop (Stripe): subscriptions, `shop_has_plan` |
 | 19 | `supabase/migrations/20261016000001_shop_assistant.sql` | AI assistant on the shop page: message limits |
 | 20 | `supabase/migrations/20261017000001_shop_documents.sql` | Documents and pictures for the assistant: folders, access keys, private file storage |
+| 21 | `supabase/migrations/20261018000001_shop_page_updates.sql` | One display rule for every shop (quantity as in the file), shop e-mail and Facebook page, the assistant's own texts, stock file reports, private columns |
 
 > **Already ran some files earlier?** Run only the newer ones, in order. Re-run the test data (A3) after file 6.
 
@@ -61,7 +62,7 @@ Same way, copy and run **`supabase/seed.sql`**. It creates 4 test shops in two c
 
 | Test shop | Stock file age | What the site must show |
 |-----------|----------------|-------------------------|
-| Potraviny Centrum | 10 min | "Na sklade" / "Málo na sklade" + "Aktualizované pred 10 min" |
+| Potraviny Centrum | 10 min | "14 ks na sklade" / "Vypredané" + "Aktualizované pred 10 min" |
 | Drogéria Kostolné | 3 hours | Exact count, e.g. "5 ks na sklade" + "Naposledy potvrdené dnes o …" |
 | Železiarstvo Východ | 25 hours | **No stock status**, only "Informácia o zásobe momentálne nie je dostupná" |
 | Kisbolt Budapest (HU, forints) | 5 min | Prices like **1890 Ft**, times in Budapest time |
@@ -139,7 +140,7 @@ Open the preview link and check:
 
 - [ ] The address changes to `/sk` and the page is plain white with "PPI" and **SK · HU · EN** at the top.
 - [ ] Below the search box: **"Približná poloha: <your city>"** (or "Poloha neznáma – hľadá sa vo všetkých obchodoch") and a **Použiť … polohu** link.
-- [ ] Search **kava** → 4 results; "Káva mletá 250 g" says **Málo na sklade · Aktualizované pred 10 min**.
+- [ ] Search **kava** → 4 results; "Káva mletá 250 g" says **2 ks na sklade · Aktualizované pred 10 min**.
   The test shops are in Michalovce and Budapest, and the site now searches around **your** location.
   If you are elsewhere, test with this address, which pretends you are in Michalovce:
   `/sk?q=kava&lat=48.755&lng=21.918`
@@ -498,6 +499,40 @@ private folders open only with an access key. Needs Parts J, K and L first.
 
 ---
 
+## Part N — Shop page updates and "Môj obchod" as dropdowns (9 October 2026)
+
+What changes: product pages of Pro shops no longer show other shops; shops get an e-mail and a Facebook link; Pro
+shops can write the assistant's button text and welcome message; "Môj obchod" sections fold open and closed; under
+"Export folder" you see the files of your private folders and the last 10 stock files; and **every shop shows the
+quantity exactly as in its file** ("12 ks na sklade", "Vypredané" at 0) — the "What shoppers see" settings and the
+Hide/Show buttons are gone. No new secrets or variables.
+
+Do steps 1–3 **right after each other** (about 5 minutes): between step 1 and step 3 the old "Môj obchod" page shows a
+database error; the public pages keep working.
+
+1. **Database:** SQL Editor → run file 21 (`supabase/migrations/20261018000001_shop_page_updates.sql`) → "Success. No
+   rows returned" (notices "… does not exist, skipping" are normal). Safe to run again.
+2. **Two Edge Functions, new code** (the same way as before: open the function → Code → select all → paste the whole
+   file → **Deploy**; "Verify JWT" stays **off**):
+   - **`stock-pull`** ← `supabase/functions/stock-pull/index.ts`
+   - **`doc-ingest`** ← `supabase/functions/doc-ingest/index.ts`
+3. **Merge the pull request** on GitHub → Vercel deploys by itself (nothing to set in Vercel).
+4. **Test:**
+   - A product page of a Pro shop whose product other shops also have → no "Dostupné aj v" and no "V iných obchodoch
+     sme tento výrobok nenašli."; the same product in a shop without the plan still shows "Dostupné aj v".
+   - Môj obchod → **Údaje obchodu** → E-mail and Stránka na Facebooku (e.g. `facebook.com/vasobchod`) → Uložiť → the
+     shop page shows both next to "Web"; a link that is not facebook.com / fb.com is refused.
+   - Môj obchod → **Asistent obchodu** (Pro): type a button text and a welcome message → Uložiť → on the shop page the
+     button has your text and the message shows when it opens. Clear both → the default text again.
+   - "Môj obchod" on a phone: only "Priečinok s exportom" is open; open "Tovar", reload → it stays open.
+   - "Upload file" (or wait for the PPI window) → **Posledné nahrané súbory** shows a card: file, time, imported,
+     skipped, status OK; tap it → the full report. Columns you did not approve (e.g. purchase price) never appear.
+   - **Súbory v súkromných priečinkoch:** your private PDFs and pictures with folder and "Prístupový kľúč:
+     zapnutý/vypnutý"; **Otvoriť** opens the file in a new tab.
+5. If something does not work: Supabase → Edge Functions → `stock-pull` or `doc-ingest` → **Logs**; Vercel → Logs.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -525,3 +560,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 9. Paid plan per shop with Stripe (Checkout, customer portal, webhook, VAT invoices, `shop_has_plan`) | ✅ built (test mode) — set up Part K |
 | 10. AI assistant on the shop page (paid plan): questions, shopping lists, photos of parts | ✅ built — set up Part L |
 | 11. Documents and pictures for the assistant (paid plan): PDFs, AI picture descriptions, private folders with access keys | ✅ built — set up Part M |
+| 12. Shop page updates: no other shops on Pro product pages, shop e-mail and Facebook, the assistant's own texts, "Môj obchod" as dropdowns with private files and the last 10 stock files, one display rule (quantity as in the file) | ✅ built — set up Part N |

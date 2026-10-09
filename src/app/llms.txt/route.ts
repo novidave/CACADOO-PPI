@@ -22,10 +22,9 @@ PPI reads stock from each shop's own stock software: the shop's export file arri
 
 - Search matches the item name, brand, EAN barcode, the shop's name, street or town (accents and case ignored; every word must match, in any order).
 - Item names work across languages: each name is also kept in plain Slovak, Hungarian and English, so "white paint", "fehér festék" and "biela farba" find the same item. Results give the name as the shop wrote it (name), the name in the requested language (name_translated) and the original's language (name_lang).
-- Every item has a price, its currency and an availability label (in stock / low stock / out of stock, or available / not available, or an exact quantity when the shop publishes it).
+- Every item has a price, its currency and its quantity exactly as in the shop's own stock file ("12 in stock"; 0 or less = "out of stock").
 - Freshness comes from the time of the shop's latest stock file: "current" (under 30 minutes), "recent" (under 24 hours), "stale" (older or none).
 - For stale shops PPI shows NO availability. Never present a stale shop's item as available.
-- Exact quantities are only published for shops that chose to; otherwise only the label.
 - Shop pages also list opening hours (in the shop's time zone), "open now", and facilities: customer toilet, douchette, card payment.
 - Please cite the page (source_url) and the "updated" time when you use this data.
 

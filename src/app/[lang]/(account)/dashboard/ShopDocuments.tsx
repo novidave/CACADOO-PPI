@@ -17,14 +17,14 @@ import {
   savePicture,
 } from "./docActions";
 
-type Supabase = NonNullable<Awaited<ReturnType<typeof getSession>>>["supabase"];
+export type Supabase = NonNullable<Awaited<ReturnType<typeof getSession>>>["supabase"];
 
-interface Folder {
+export interface Folder {
   id: string;
   name: string;
   is_public: boolean;
 }
-interface Doc {
+export interface Doc {
   id: string;
   folder_id: string;
   name: string;
@@ -37,7 +37,7 @@ interface Doc {
   downloadable: boolean;
   created_at: string;
 }
-interface Picture {
+export interface Picture {
   id: string;
   folder_id: string;
   document_id: string | null;
@@ -50,7 +50,7 @@ interface Picture {
   status: "uploading" | "pending" | "working" | "ready" | "error";
   created_at: string;
 }
-interface Key {
+export interface Key {
   id: string;
   label: string;
   folder_ids: string[];
@@ -76,6 +76,65 @@ function languageName(code: string | null, lang: Locale): string | null {
   }
 }
 
+/** The shop's folders, documents, pictures and access keys, as its owner reads them (RLS). */
+export interface ShopDocsData {
+  folders: Folder[];
+  docs: Doc[];
+  pictures: Picture[];
+  keys: Key[];
+  /** Pictures the AI still has to look at. */
+  waiting: number;
+  termsAccepted: boolean;
+}
+
+/** Loaded once per page for "Documents for the assistant" and the private files under "Export folder". */
+export async function loadShopDocs(supabase: Supabase, shopId: string): Promise<ShopDocsData | null> {
+  const [folderRes, docRes, picRes, scanRes, keyRes, termsRes] = await Promise.all([
+    supabase.from("shop_folders").select("id, name, is_public").eq("shop_id", shopId).order("is_public", { ascending: false }).order("name"),
+    supabase
+      .from("shop_documents")
+      .select("id, folder_id, name, description, pages, lang, status, error, assistant_enabled, downloadable, created_at")
+      .eq("shop_id", shopId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("shop_pictures")
+      .select("id, folder_id, document_id, page, title, caption, description, description_by_owner, show, status, created_at")
+      .eq("shop_id", shopId)
+      .eq("kind", "picture")
+      .neq("status", "uploading")
+      .order("document_id", { nullsFirst: true })
+      .order("page")
+      .order("created_at"),
+    supabase.from("shop_pictures").select("id", { count: "exact", head: true }).eq("shop_id", shopId).in("status", ["pending", "working"]),
+    supabase
+      .from("folder_keys")
+      .select("id, label, folder_ids, expires_at, revoked_at, created_at, last_used_at, use_count")
+      .eq("shop_id", shopId)
+      .order("created_at", { ascending: false }),
+    supabase.from("shops").select("docs_terms_accepted_at").eq("id", shopId).maybeSingle(),
+  ]);
+  // Before database update 20 there is nothing to load.
+  if (folderRes.error || docRes.error || picRes.error || keyRes.error || termsRes.error) return null;
+  return {
+    folders: (folderRes.data ?? []) as Folder[],
+    docs: (docRes.data ?? []) as Doc[],
+    pictures: (picRes.data ?? []) as Picture[],
+    keys: (keyRes.data ?? []) as Key[],
+    waiting: scanRes.count ?? 0,
+    termsAccepted: Boolean(termsRes.data?.docs_terms_accepted_at),
+  };
+}
+
+/** "Open" for the owner: /api/owner/files redirects to a 10-minute signed address (owner only). */
+export function ownerFileUrl(kind: "document" | "picture", id: string): string {
+  return `/api/owner/files/${kind}/${id}`;
+}
+
+/** An access key that still opens folders: not revoked, not expired. */
+export function keyActive(key: Key): boolean {
+  return !key.revoked_at && !isPast(key.expires_at);
+}
+
 /**
  * "Documents for the assistant": PDFs and pictures the shop's assistant uses to answer
  * shoppers (never products: items, prices and stock come only from the stock file),
@@ -83,6 +142,7 @@ function languageName(code: string | null, lang: Locale): string | null {
  */
 export async function ShopDocuments({
   supabase,
+  data,
   shop,
   lang,
   dict,
@@ -90,6 +150,7 @@ export async function ShopDocuments({
   notice,
 }: {
   supabase: Supabase;
+  data: ShopDocsData | null;
   shop: MyShop;
   lang: Locale;
   dict: Dictionary;
@@ -97,40 +158,9 @@ export async function ShopDocuments({
   notice: React.ReactNode;
 }) {
   const d = dict.docs;
-  const [folderRes, docRes, picRes, scanRes, keyRes, termsRes] = await Promise.all([
-    supabase.from("shop_folders").select("id, name, is_public").eq("shop_id", shop.id).order("is_public", { ascending: false }).order("name"),
-    supabase
-      .from("shop_documents")
-      .select("id, folder_id, name, description, pages, lang, status, error, assistant_enabled, downloadable, created_at")
-      .eq("shop_id", shop.id)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("shop_pictures")
-      .select("id, folder_id, document_id, page, title, caption, description, description_by_owner, show, status, created_at")
-      .eq("shop_id", shop.id)
-      .eq("kind", "picture")
-      .neq("status", "uploading")
-      .order("document_id", { nullsFirst: true })
-      .order("page")
-      .order("created_at"),
-    supabase.from("shop_pictures").select("id", { count: "exact", head: true }).eq("shop_id", shop.id).in("status", ["pending", "working"]),
-    supabase
-      .from("folder_keys")
-      .select("id, label, folder_ids, expires_at, revoked_at, created_at, last_used_at, use_count")
-      .eq("shop_id", shop.id)
-      .order("created_at", { ascending: false }),
-    supabase.from("shops").select("docs_terms_accepted_at").eq("id", shop.id).maybeSingle(),
-  ]);
   // Before database update 20 the section only says that it is not available yet.
-  if (folderRes.error || docRes.error || picRes.error || keyRes.error || termsRes.error) {
-    return <p className="text-sm text-muted">{d.unavailable}</p>;
-  }
-  const folders = (folderRes.data ?? []) as Folder[];
-  const docs = (docRes.data ?? []) as Doc[];
-  const pictures = (picRes.data ?? []) as Picture[];
-  const keys = (keyRes.data ?? []) as Key[];
-  const waiting = scanRes.count ?? 0;
-  const termsAccepted = Boolean(termsRes.data?.docs_terms_accepted_at);
+  if (!data) return <p className="text-sm text-muted">{d.unavailable}</p>;
+  const { folders, docs, pictures, keys, waiting, termsAccepted } = data;
 
   // Without the plan and with nothing uploaded: only what the feature is.
   if (!hasPlan && docs.length === 0 && pictures.length === 0 && keys.length === 0) {
@@ -284,6 +314,11 @@ export async function ShopDocuments({
             <p>
               {doc.assistant_enabled ? d.assistant_on : d.assistant_off} · {doc.downloadable ? d.download_on : d.download_off}
             </p>
+            {doc.status !== "uploading" && (
+              <a href={ownerFileUrl("document", doc.id)} target="_blank" rel="noopener" className="self-start underline underline-offset-4">
+                {d.open}
+              </a>
+            )}
             <details>
               <summary className="cursor-pointer underline underline-offset-4">{d.change}</summary>
               <form action={saveDocument} className="mt-2 flex flex-col gap-2">
