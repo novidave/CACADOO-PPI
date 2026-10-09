@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.4 · status 8 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 2.5 · status 9 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -21,6 +21,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | AI search on the main page (Claude Haiku) | Built and tested; switched on by the Anthropic key in Vercel |
 | Paid plan per shop (Stripe: monthly subscription, VAT invoices) | Built and tested against a Stripe stand-in; Stripe **test mode** first (SETUP.md part K) |
 | AI assistant on the shop page (paid plan only, Claude Haiku) | Built and tested against a Claude stand-in; live after migration 19 (SETUP.md part L) |
+| Documents and pictures for the assistant; private folders with access keys (paid plan only) | Built and tested against Claude and Storage stand-ins; live after migration 20 and two new functions (SETUP.md part M) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -143,6 +144,13 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   number — the assistant says what it read, searches the shop and says plainly whether the shop has a match, is not
   sure (and asks), or has none. Every answer shows the items it is about as cards linking to their item pages. The
   rest of the page is server-rendered without it.
+- With the shop's **documents** (6.9) the assistant also answers from the shop's catalogues, manuals, price lists and
+  projects, in the shopper's language, naming the source under the answer ("From: Katalóg 2026, page 4", with "Open
+  PDF" when the owner allows downloads), and shows fitting pictures of the shop ("From: Projekty 2025, page 3"). A price
+  from a document is shown apart from the shop's price ("Price in “Trade price list 2026”, page 2: 18,40 €"). When
+  neither the stock nor the documents answer, it says so and shows "Call the shop" with the phone number.
+- **"I have an access key"** (under the chat, separate from it): opens the shop's private folders named by the key for
+  12 hours on this browser ("Opened: …", "Lock again"). The key is never part of the conversation.
 
 ### 5.3 Item page (`/[lang]/items/{id}`)
 
@@ -191,7 +199,19 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   "Renews on" or "Ends on" with the date in the shop's time zone. **Upgrade** opens the Stripe payment page; **Manage
   subscription** opens the Stripe customer portal (cancel, change card, invoices). After paying, the owner comes back to
   this section with a thank-you note. A hint asks for the company ID in Shop details first, so it is on the first invoice.
-- **Delete shop** (with a confirmation tick). Refused while the shop's paid plan still renews: cancel it first.
+- **Documents for the assistant** (paid plan; see 6.9): before the first upload a tick box ("Public folder: anyone can
+  see it. Private folder: anyone with a key can see it, and keys can be passed on. No personal data, and no photos of
+  people without their consent."); what is used of the shop's limits; **Upload a PDF** (name, short description,
+  folder; read in the browser with progress "Reading page 12 of 80…") and **Add pictures** (JPEG/PNG/WebP, title,
+  description, folder). **Folders:** the Public folder and up to 19 private ones (create, rename, delete when empty).
+  **Documents:** name, description, folder, pages, language, uploaded date, status (Processing / Ready / Error), the two
+  switches "Assistant may use it" and "Shoppers may download it" (off by default), the pictures taken out of the PDF,
+  Delete. **Pictures:** thumbnail, title, description, "Assistant may show it", and what the AI saw in it — the owner
+  may correct that description (then it is theirs). **Access keys:** label, folders, optional expiry date, created,
+  expires, last used, times used, Active / Expired / Revoked, **Revoke**; a new key is shown once, with **Copy**.
+  Without the plan, documents already uploaded can still be deleted.
+- **Delete shop** (with a confirmation tick). Refused while the shop's paid plan still renews (cancel it first) and
+  while the shop has documents or pictures (delete them first).
 - Every form returns to its own section and shows its result there; buttons show "Saving…/Uploading…" while working.
 
 **Rules for the export (shown to owners):** a folder only for this; XML, CSV (UTF-8 or Windows-1250, `;` or `,`) or
@@ -322,9 +342,9 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 
 - A paid feature: shown and answered only while `shop_has_plan(shop)` is true; the database checks it again for every
   message (`shop_chat_hit()`).
-- Claude Haiku (`claude-haiku-5-5`) with two tools bound to this shop on the server: search this shop's items
-  (`shop_stock`) and one item's details (`public_stock` of this shop). It cannot see other shops and never names
-  them. Cards and the shopping list are built only from what those tools returned (anything else is dropped), with
+- Claude (`AI_MODEL`, default Claude Haiku `claude-haiku-5-5`) with tools bound to this shop on the server: search
+  this shop's items (`shop_stock`), one item's details (`public_stock` of this shop) and, when the shop has documents,
+  search them (`search_shop_docs`, 6.9). It cannot see other shops and never names them. Cards and the shopping list are built only from what those tools returned (anything else is dropped), with
   availability, quantities and freshness from the database: a stale shop shows no availability.
 - Photos: shrunk in the browser to at most 1568 px, JPEG, sent once with that message only, never stored by PPI.
   The answer always says what was read; "match found" needs an item from the shop to show, otherwise it becomes
@@ -334,7 +354,40 @@ Open if the current time in the shop's own time zone falls inside today's ranges
   conversation are sent along, each up to 1,500 characters. Over a limit the shopper is told in the chat.
 - A logged-in owner who tests it sees the reason of a failure (for example Claude's error); shoppers see a plain message.
 
-## 7. Data model (after migration 19)
+### 6.9 Documents and pictures for the assistant
+
+- A paid feature: uploads, the assistant's use and shoppers' files all need `shop_has_plan(shop)` (and an active shop).
+- **Never products.** Documents and pictures are information for the assistant, never product listings and never proof
+  of stock: items, prices and availability come only from the stock file. A document price is always labelled with its
+  document and page and shown apart from the shop's price; it is shown only if the excerpt really contains it.
+- **PPI never edits the owner's files and never translates or stores them translated.** The PDF is stored as uploaded;
+  its text is kept as written (only line ends and spaces tidied), page by page, in excerpts of up to about 800 words;
+  the owner's own pictures are only made smaller (at most 1568 px, WebP). The only thing the owner corrects is the
+  AI-written description of a picture.
+- Reading a PDF happens in the owner's browser (pdf.js): the text of each page; the pictures in it (at least 200 px,
+  each picture once; a page whose pictures cannot be taken out is kept as one picture); pages without text (scans) are
+  rendered and the AI writes out their text as written. The AI (`AI_MODEL`, default Claude Haiku) describes each
+  picture once, briefly and factually (what is shown, visible text, model and part numbers).
+- Limits per shop (Supabase secrets): `SHOP_DOCS_MAX_FILES` 30 documents, `SHOP_DOCS_MAX_PAGES` 500 pages,
+  `SHOP_DOCS_MAX_PICTURES` 300 pictures (own and from PDFs); a PDF up to 20 MB, a picture up to 10 MB before shrinking;
+  at most 100 pictures taken from one PDF; 20 folders, 100 active keys.
+- **Folders.** Each shop has one Public folder (anyone may ask about it) and private folders. A private folder is
+  opened only by an access key: random, 20 characters (`XXXX-XXXX-XXXX-XXXX-XXXX`, no look-alike letters), shown once,
+  stored only as a SHA-256 hash, for one or several folders, optionally expiring, revocable at once. A key opens its
+  folders for 12 hours (a session token, stored as a hash, kept in a signed HttpOnly cookie for that one shop);
+  revoking or expiry closes them at once; "Lock again" deletes the session. At most 5 wrong keys per caller per shop in
+  15 minutes.
+- **The database decides who sees what** (`search_shop_docs()`, `shop_file_path()`): the shop's Public folder plus the
+  folders of a valid session of that shop, only documents with "Assistant may use it", only pictures with "Assistant
+  may show it", only files the owner lets shoppers download. Nobody can ask for a folder by its id.
+- Private content never appears in pages, JSON-LD, the sitemap, llms.txt, the public API, MCP or the main-page AI
+  search; documents appear only in the shop assistant.
+- The assistant searches documents in their language and answers in the shopper's; text from documents is treated as
+  information, never as instructions. With a shopper's photo it looks in the stock first and may mention similar
+  pictures of the shop separately.
+- Deleting a document deletes its file, its pictures and all its text; deleting a picture its file and description.
+
+## 7. Data model (after migration 20)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -348,10 +401,17 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 | `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP, AI search (`ai-search`) and shop assistant (`shop-chat`) rate limit log; no IP addresses; older than 30 days removed |
 | `subscriptions` | `shop_id` (key: one row per shop), `stripe_customer_id`, `stripe_subscription_id`, `status` (`none` = customer only, else Stripe's status), `plan`, `current_period_end`, `cancel_at`, `updated_at` | Paid plan; written only by the Stripe functions (service role), read by the shop's owners |
 | `shop_chat_usage` | `shop_id`, `month`, `messages` | Shop assistant messages per shop per calendar month (UTC), for the monthly cap; no client access |
+| `shop_folders` | `id`, `shop_id`, `name`, `is_public` | One Public folder per shop (made automatically) and private folders |
+| `shop_documents` | `id`, `shop_id`, `folder_id`, `name`, `description`, `storage_path`, `bytes`, `pages`, `lang`, `status` (`uploading`/`processing`/`ready`/`error`), `assistant_enabled`, `downloadable`, `extracted` | PDFs; owners read their own, change them through `owner_*` functions |
+| `shop_pictures` | `id`, `shop_id`, `folder_id`, `document_id`, `page`, `kind` (`picture`/`scan`), `title`, `caption`, `description`, `description_by_owner`, `show`, `status` | Own pictures, pictures from PDFs, scanned pages (never shown) |
+| `shop_document_chunks` | `shop_id`, `folder_id`, `document_id`, `picture_id`, `page`, `type` (`text`/`picture`), `text`, `lang`, `search` (full text) | Excerpts as written and picture descriptions; trigram and full-text indexes; read only through `search_shop_docs()` |
+| `folder_keys` | `id`, `shop_id`, `label`, `key_hash`, `folder_ids`, `expires_at`, `revoked_at`, `last_used_at`, `use_count` | Access keys (hash only; owners never read the hash) |
+| `folder_sessions` | `token_hash`, `shop_id`, `key_id`, `folder_ids`, `expires_at` | Opened folders, 12 hours; no client access |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
-Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-files` (private, last raw files kept
-7 days for troubleshooting).
+Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop), `raw-files` (private, last raw files kept
+7 days for troubleshooting) and `shop-docs` (private, 20 MB, PDF/WebP/JPEG/PNG, folder per shop: the shop's owners
+may only add files they registered; only the service role reads or deletes).
 
 ## 8. Security and privacy
 
@@ -363,6 +423,8 @@ Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-
 | Stock source (`sync_sources`) | none | own shop through `my_shops()`, `owner_set_mapping()`, `upload_check_in()` | read and write |
 | Accounts (`profiles`) | none | own profile | — |
 | Paid plan (`subscriptions`) | none (only yes/no through `shop_has_plan()`) | own shops' row (read) | the Stripe functions write it: stripe-checkout links the customer, stripe-webhook the subscription |
+| Documents, pictures, folders | only through the assistant: excerpts of the Public folder and of folders opened by a valid key (`search_shop_docs()`), files through shop-files | own: read; change through `owner_*` functions; upload through doc-ingest | doc-ingest writes (service role); shop-files signs 10-minute file addresses |
+| Access keys and sessions | open with a key (`unlock_shop_folders()`), lock again | own keys (never the hash): create, revoke | — |
 
 - Owners never write stock themselves; the function does, after checking the uploader is that shop's owner.
 - The function downloads nothing: it only receives files uploaded with the shop owner's login.
@@ -372,6 +434,10 @@ Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop) and `raw-
 - The API, the AI search and the shop assistant store no IP addresses: only a hash with a salt that changes daily.
 - The shop assistant stores no conversations and no photos; the browser keeps the conversation until the page is
   closed and sends at most the last 8 messages along.
+- Access keys and session tokens are stored only as hashes; the key goes only to the database, never to the AI or into
+  the conversation; the session token stays in an HttpOnly cookie signed with `SESSION_COOKIE_SECRET` and sent only to
+  that shop's `/api/shops/<slug>/` addresses. Shop files are only reachable through 10-minute signed addresses that the
+  shop-files function issues after the database said yes.
 - The Anthropic key is a server setting (Supabase function secret, Vercel variable), never in the browser; the AI
   search endpoint answers only the PPI website (no CORS).
 - Legacy: the `is_admin` flag and the `admin_*` database functions from the old admin area still exist in the database
@@ -421,6 +487,16 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   Supabase would close this.
 - **The assistant can be wrong.** It reads photos and writes answers by machine; the cards, prices and availability
   come from the database, and it says when it is not sure, but a shopper should check the item page.
+- **Documents: machine reading.** Scanned pages are read by AI and can contain reading mistakes; picture descriptions
+  are AI-written (the owner can correct them); a PDF whose text is stored as outlines (no text layer, no images) gives
+  the assistant nothing. Answers in other languages are the AI's translation of the shop's documents. Tested so far
+  only against a Claude stand-in: try it with real documents before telling shops about it.
+- **Keys can be passed on.** Whoever has a key can open its folders until it expires or is revoked; the owner sees how
+  often and when each key was last used.
+- **Reading PDFs needs the owner's browser to stay on the page** until the upload and the AI's look at the pictures
+  are done; anything left over continues the next time the owner opens the dashboard, and an upload left unfinished
+  for an hour shows as an error to delete and upload again.
+- The wrong-key counter is kept like the other limits (the website calls it with the public key).
 
 ## 12. Launch checklist
 
@@ -435,6 +511,8 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
       and the three Stripe secrets replaced with live values (SETUP.md part K5)
 - [ ] Price, terms and what Pro includes published for shop owners
 - [ ] `CHAT_MONTHLY_LIMIT_PER_SHOP` chosen in Vercel (default 1,000 assistant messages per shop a month)
+- [ ] `SESSION_COOKIE_SECRET` set in Vercel (access keys for private folders); shop limits chosen in Supabase
+      (`SHOP_DOCS_MAX_FILES`, `SHOP_DOCS_MAX_PAGES`, `SHOP_DOCS_MAX_PICTURES`)
 - [ ] Privacy page and terms (shop data, cookies, e-mail)
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
@@ -454,3 +532,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-08 | Item names in Slovak, Hungarian and English with search across languages; AI search on the main page |
 | 2026-10-08 | Paid plan per shop with Stripe (test mode): Checkout, customer portal, webhook, VAT invoices, `shop_has_plan()` |
 | 2026-10-08 | AI assistant on the shop page for shops with the paid plan: questions, shopping lists, photos of parts |
+| 2026-10-09 | Documents and pictures for the assistant: PDFs read in the owner's browser, AI picture descriptions, Public and private folders with access keys, sources and document prices in answers |

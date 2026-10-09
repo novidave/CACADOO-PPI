@@ -77,12 +77,31 @@ plan still renews cannot be deleted (`owner_delete_shop`).
 
 Shop page only, only when `shop_has_plan(shop)` is true and `ANTHROPIC_API_KEY` is set: `@/components/ShopChat`
 (collapsed box; the page stays server-rendered without it) → `POST /api/shops/[slug]/chat` → `@/lib/shopChat` (Claude
-Haiku `claude-haiku-5-5`; two strict tools bound to that shop on the server: `search_items` → `shop_stock`, `get_item`
-→ `public_stock` filtered by the shop; never other shops; structured answer: answer, item_refs, shopping_list, photo
-read/match). Cards and the list only from tool results; availability from the database. Every message passes
+`AI_MODEL`, default Haiku `claude-haiku-5-5`; strict tools bound to that shop on the server: `search_items` →
+`shop_stock`, `get_item` → `public_stock` filtered by the shop, and `search_shop_docs` when the shop has documents;
+never other shops; structured answer: answer, item_refs, shopping_list, photo read/match, sources, pictures,
+document_prices, call_shop). Cards, the list, sources and pictures only from tool results; a document price only if
+the excerpt contains it; availability from the database. Every message passes
 `shop_chat_hit()` (plan, 20/hour per caller in `api_usage`, `CHAT_MONTHLY_LIMIT_PER_SHOP` per shop and month in
 `shop_chat_usage`). Photos: shrunk in the browser (≤1568 px JPEG), sent once, never stored or logged; "found" without
 an item becomes "unsure". History: last 8 messages, text only.
+
+## Documents for the assistant (paid)
+
+Owners upload PDFs and pictures (dashboard `ShopDocuments` → `@/components/DocUpload`): **never products** (items,
+prices, stock only from the stock file) and **never edited or translated** by PPI (text as written; the only thing the
+owner corrects is the AI's picture description, `description_by_owner`). PDFs are read **in the owner's browser**
+(`@/lib/pdfRead`, pdf.js legacy build, assets from `scripts/copy-pdfjs-assets.mjs`) because Edge Functions have 2 s
+CPU; `supabase/functions/doc-ingest` (owner's JWT, actions register_document / document_uploaded / text /
+register_pictures / pictures_uploaded / document_done / work / links / delete) stores excerpts (`chunkPages`, one page
+apart, ≤ ~800 words, `detectLang`) and lets Claude (`AI_MODEL`) describe pictures and write out scanned pages. Limits:
+`SHOP_DOCS_MAX_FILES`/`_PAGES`/`_PICTURES` (Supabase secrets). Private bucket `shop-docs` (owners only insert
+registered files; service role reads/deletes). Visibility is decided only in SQL: `search_shop_docs(slug, q, token)`
+(Public folder + folders of a valid session; never accepts folder ids), `shop_file_path()` for `shop-files` (10-minute
+signed URLs). Access keys: `owner_create_folder_key()` (shown once, SHA-256 only), `unlock_shop_folders()` (5 wrong per
+caller/shop/15 min) → session token in a signed HttpOnly cookie per shop (`@/lib/docsAccess`, `SESSION_COOKIE_SECRET`,
+path `/api/shops/<slug>/`, routes `access` and `files`); the key and token never reach the AI. Private content never in
+pages, JSON-LD, sitemap, llms.txt, public API, MCP or the main-page AI search.
 
 ## Stock upload
 

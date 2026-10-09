@@ -23,6 +23,7 @@ import {
   setItemPublic,
   uploadLogo,
 } from "./actions";
+import { ShopDocuments } from "./ShopDocuments";
 
 const PAGE_SIZE = 50;
 
@@ -66,6 +67,11 @@ const ERRORS = ["name", "limit", "columns", "website", "logo", "translation", "p
 
 function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
+  if (err.startsWith("docs:")) return t(dict.docs.error_failed, { message: err.slice("docs:".length) });
+  if (err.startsWith("docs_")) {
+    const text = (dict.docs as Record<string, string>)[`error_${err.slice("docs_".length)}`];
+    if (text) return text;
+  }
   if (err.startsWith("stripe:")) return t(dict.plan.failed, { message: err.slice("stripe:".length) });
   const key = ERRORS.find((e) => e === err);
   if (key && key !== "logo") return key === "website" ? t(dict.account.error, { message: err }) : dict.owner[`error_${key}`];
@@ -157,6 +163,9 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     columns: o.columns_saved,
     translation: dict.dashboard.translation_saved,
     translation_auto: dict.dashboard.translation_auto_done,
+    docs_terms: dict.docs.ok_terms,
+    docs_deleted: dict.docs.ok_deleted,
+    docs_revoked: dict.docs.ok_revoked,
   };
   const okText = (ok && okTexts[ok]) || dict.account.saved;
   // The message of a form is shown inside that form's section (the page jumps there).
@@ -443,6 +452,17 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
         ) : (
           <p className="text-sm text-muted">{dict.plan.unavailable}</p>
         )}
+      </Section>
+
+      <Section title={dict.docs.title} id="docs">
+        <ShopDocuments
+          supabase={supabase}
+          shop={shop}
+          lang={lang}
+          dict={dict}
+          hasPlan={plan?.active === true}
+          notice={notice("docs")}
+        />
       </Section>
 
       <Section title={o.delete_title} id="delete">

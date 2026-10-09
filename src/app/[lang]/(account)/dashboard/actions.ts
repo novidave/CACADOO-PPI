@@ -191,7 +191,7 @@ export async function deleteShop(formData: FormData) {
   const { session, shopId, back } = await start(formData);
   if (formData.get("confirm") !== "on") back({ err: "confirm" });
   const { error } = await session.supabase.rpc("owner_delete_shop", { p_shop_id: shopId });
-  if (error) back({ err: error.code === "55000" ? "plan_active" : error.message });
+  if (error) back({ err: error.code === "55000" ? "plan_active" : error.code === "55006" ? "docs_present" : error.message });
   const langValue = String(formData.get("lang") ?? "");
   redirect(`/${isLocale(langValue) ? langValue : "en"}/dashboard?ok=deleted`);
 }
