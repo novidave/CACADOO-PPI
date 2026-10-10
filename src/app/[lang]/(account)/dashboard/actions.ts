@@ -51,10 +51,18 @@ export async function uploadLogo(formData: FormData) {
     return;
   }
   // Folder = shop id: the storage policy only lets members of that shop write there.
-  const path = `${shopId}/logo-${Date.now()}.${LOGO_TYPES[file.type]}`;
+  const base = `${shopId}/logo-${Date.now()}`;
+  const path = `${base}.${LOGO_TYPES[file.type]}`;
   const storage = session.supabase.storage.from("logos");
   const { error: uploadError } = await storage.upload(path, file, { contentType: file.type, upsert: false });
   if (uploadError) back({ err: uploadError.message });
+  // A PNG copy next to a WebP logo, for the assistant's conversation PDFs (they cannot show
+  // WebP); without it the PDFs simply have no logo.
+  const twin = formData.get("logo_png");
+  const twinOk = twin instanceof File && twin.type === "image/png" && twin.size > 0 && twin.size <= MAX_LOGO_BYTES;
+  if (LOGO_TYPES[file.type] === "webp" && twinOk) {
+    await storage.upload(`${base}.png`, twin, { contentType: "image/png", upsert: false });
+  }
   const error = await updateShop(session.supabase, shopId, { logo_url: storage.getPublicUrl(path).data.publicUrl });
   back(error ? { err: error } : { ok: "logo" });
 }

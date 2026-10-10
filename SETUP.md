@@ -533,6 +533,69 @@ database error; the public pages keep working.
 
 ---
 
+## Part O — Assistant conversations: archive, files and a PDF per conversation (10 October 2026)
+
+A paid feature (Part K) for shops with the assistant (Part L): every conversation is kept for the shop's owners with
+its times, the item cards shown and the files the shopper sent (GPS removed), and becomes one PDF when it ends. Owners
+read them in **Môj obchod → Konverzácie asistenta**. Do the steps in this order.
+
+1. **Extensions:** Supabase → Database → **Extensions** → make sure **pg_cron** and **pg_net** are switched on (they
+   probably are from Part G).
+2. **Your project address in Vault** (once; safe to repeat): SQL Editor → paste, put your own address (the same as
+   `NEXT_PUBLIC_SUPABASE_URL` in Vercel, e.g. `https://abcdefgh.supabase.co`) in both places → Run:
+
+   ```sql
+   do $$ begin
+     if exists (select 1 from vault.secrets where name = 'ppi_project_url') then
+       perform vault.update_secret((select id from vault.secrets where name = 'ppi_project_url'),
+                                   'https://YOUR-PROJECT-ID.supabase.co');
+     else
+       perform vault.create_secret('https://YOUR-PROJECT-ID.supabase.co', 'ppi_project_url');
+     end if;
+   end $$;
+   ```
+
+3. **Database:** SQL Editor → paste the whole file `supabase/sql/22_assistant_archive.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal; a notice about pg_cron or `ppi_project_url` means step
+   1 or 2 is missing — fix it and run the file again). Safe to run again. Check:
+   `select jobname, schedule from cron.job where jobname like 'ppi-assistant%';` → 2 rows, and Storage shows the
+   private bucket **shop-assistant-uploads**.
+4. **New Edge Function `assistant-archive`:** Edge Functions → **Deploy a new function** → **Via Editor** → name
+   `assistant-archive` → delete the example code → paste the whole file `supabase/functions/assistant-archive/index.ts`
+   → **Deploy** → open the function → switch **off** "Verify JWT" → Save.
+5. **One new secret, the same value in two places:** let your password manager make 40 random letters and digits
+   (keep it there; never paste it into a chat).
+   - Supabase → Edge Functions → **Secrets** → `ASSISTANT_ARCHIVE_SECRET` = that value.
+   - Vercel → Settings → Environment Variables → `ASSISTANT_ARCHIVE_SECRET` = the same value, Production, tick
+     **Sensitive**.
+6. **Merge the pull request** on GitHub → Vercel deploys with the new variable (if you set it after the deployment:
+   Deployments → … → **Redeploy**).
+7. **Logo for the PDFs:** Môj obchod → **Logo** → upload the logo once more (from now on a PNG copy is saved next to it;
+   PDFs cannot show WebP).
+8. **Test** on the Cacadoo Paint shop (Pro), the shop page in a private window:
+   - Open the assistant → under the welcome text: "Konverzácia a nahrané súbory sa ukladajú pre obchod … Viac"
+     ("Viac" opens the privacy page, a draft text).
+   - **Pridať fotku alebo PDF** → a phone photo and a PDF → wait until "Pripravuje sa…" disappears → ask a question.
+     Then write one question in Hungarian or English.
+   - Close the box (−). Môj obchod → **Konverzácie asistenta** → the conversation is listed (date, language, number of
+     messages, paperclip, first question) → **Otvoriť**: times, "Po slovensky: …" under the foreign messages, the cards
+     table, the photo (click → full size), "Zobraziť" for the PDF.
+   - Supabase → Storage → shop-assistant-uploads → (shop) → (conversation) → the PDF `2026-…_…_xxxxxxxx.pdf` →
+     download: Slovak letters, the logo, the photo thumbnail, "Vytvorené Cacadoo PPI · konverzácia … · strana 1/1".
+     In `files/` download the photo → its properties show no location.
+   - Open the assistant again, ask something, click **Vymazať moju konverzáciu** → OK → it is not in the list.
+   - **Uchovávať konverzácie** → 30 / 90 / 365 dní → Uložiť. Open a conversation → **Vymazať** (tick) → gone.
+   - After 10 minutes: `select status, return_message, start_time from cron.job_run_details order by start_time desc
+     limit 5;` → `succeeded`.
+9. If something does not work: Supabase → Edge Functions → `assistant-archive` → **Logs** (lines start with
+   `assistant-archive:`); Vercel → Logs → search `assistant-archive` or `shop-chat`. Nothing of a conversation, file or
+   key is ever written to the logs.
+
+Later (cloud export, Phase B — not needed now): `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET`, `DROPBOX_APP_KEY`,
+`DROPBOX_APP_SECRET`, `EXPORT_TOKEN_ENCRYPTION_KEY`.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -561,3 +624,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 10. AI assistant on the shop page (paid plan): questions, shopping lists, photos of parts | ✅ built — set up Part L |
 | 11. Documents and pictures for the assistant (paid plan): PDFs, AI picture descriptions, private folders with access keys | ✅ built — set up Part M |
 | 12. Shop page updates: no other shops on Pro product pages, shop e-mail and Facebook, the assistant's own texts, "Môj obchod" as dropdowns with private files and the last 10 stock files, one display rule (quantity as in the file) | ✅ built — set up Part N |
+| 13. Assistant conversations (paid plan): archive with files (GPS removed), a PDF per conversation, "Konverzácie asistenta", keep time 30/90/365 days | ✅ built — set up Part O |

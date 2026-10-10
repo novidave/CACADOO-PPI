@@ -22,7 +22,9 @@ Setup steps for humans are in `SETUP.md`.
   never in `sample_rows`, `stock_imports`, pages, the API/MCP or the shop assistant. The AI column proposal gets names
   plus ≤ 3 values per column, and names only for `isPrivateColumn()` / `is_private_column()` columns.
 - Payment never affects search ranking.
-- Every database change is a new file in `supabase/migrations/` (never edit an applied one).
+- Every database change is a new SQL file (never edit an applied one): updates 1–21 in `supabase/migrations/`; from
+  update 22 on, **one file per phase in `supabase/sql/`** that the owner pastes into the SQL Editor (never run
+  migrations, never ask for the database password). `npm run test:db` applies both.
   Add a check to `supabase/tests/database_test.sql` for every rule you add.
 - **Europe-wide, no home town.** Never hard-code a city, country, currency or time zone.
   **No location services**: the website never asks for or guesses the visitor's location (no device location,
@@ -91,8 +93,11 @@ never other shops; structured answer: answer, item_refs, shopping_list, photo re
 document_prices, call_shop). Cards, the list, sources and pictures only from tool results; a document price only if
 the excerpt contains it; availability from the database. Every message passes
 `shop_chat_hit()` (plan, 20/hour per caller in `api_usage`, `CHAT_MONTHLY_LIMIT_PER_SHOP` per shop and month in
-`shop_chat_usage`). Photos: shrunk in the browser (≤1568 px JPEG), sent once, never stored or logged; "found" without
-an item becomes "unsure". History: last 8 messages, text only.
+`shop_chat_usage`). Files (≤ 4 per message): the AI gets photos shrunk in the browser (≤1568 px JPEG) and PDFs as the
+text of their first 5 pages (read in the browser), once; the files themselves are stored only through the archive
+(below), never logged; "found" without an item becomes "unsure". Every answer also returns `language`, `message_sk`,
+`answer_sk` for the archive. Access keys pasted into the chat become "[•••]" (`hideAccessKeys`). History: last 8
+messages, text only.
 
 ## Documents for the assistant (paid)
 
@@ -110,6 +115,25 @@ signed URLs). Access keys: `owner_create_folder_key()` (shown once, SHA-256 only
 caller/shop/15 min) → session token in a signed HttpOnly cookie per shop (`@/lib/docsAccess`, `SESSION_COOKIE_SECRET`,
 path `/api/shops/<slug>/`, routes `access` and `files`); the key and token never reach the AI. Private content never in
 pages, JSON-LD, sitemap, llms.txt, public API, MCP or the main-page AI search.
+
+## Assistant archive (paid, update 22)
+
+`supabase/sql/22_assistant_archive.sql` + `supabase/functions/assistant-archive` (one file, Verify JWT off) +
+`@/lib/assistantArchive`. Every conversation is kept for the shop's owners: `assistant_conversations` / `_messages`
+(`body_owner` = Slovak version, `cards` as seen: name, price, Slovak availability, `data_time`) / `_attachments` /
+`shop_assistant_settings` (RLS: members read; only the service role writes). Only the function writes: the website with
+`ASSISTANT_ARCHIVE_SECRET` (Vercel Sensitive + Supabase secret; never `NEXT_PUBLIC`) — start, record (only into that
+shop's open conversation), end, delete, discard; the shopper's browser uploads straight to the function with the
+conversation's token (kept as SHA-256): real type by content (JPEG/PNG/WebP/HEIC/PDF), 10 MB, 10 per conversation,
+**GPS and place data removed before storing**, private bucket `shop-assistant-uploads/<shop>/<conversation>/`; owners
+(their JWT + RLS) get 10-minute links and delete. Ends after 30 minutes idle (pg_cron tick every 5 minutes, Vault
+`ppi_project_url` + `ppi_assistant_cron`) or when the shopper closes the box / starts a new one / leaves the page;
+then one PDF (pdf-lib + DejaVu Sans subset in the file: `<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`, footer "Vytvorené
+Cacadoo PPI · konverzácia <id> · strana X/Y"). Keep time 30/90/365 days (default 90), daily job. "Konverzácie asistenta"
+(dashboard `Conversations.tsx`, page `dashboard/conversations/[id]`) is view only: no download buttons. Logos get a PNG
+twin (`logo-<time>.png`) for the PDFs. Never put purchase prices, suppliers, margins, invoice numbers, access keys or
+other shops' data into conversations, PDFs or exports. No local/PC folder sync or polling for exports: the cloud
+export (Phase B) is a push from our server when a conversation ends.
 
 ## Shop page and My shop (migration 21)
 

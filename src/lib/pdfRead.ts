@@ -1,9 +1,9 @@
 /**
- * Reads a PDF in the owner's browser with pdf.js (the dashboard only): the text of each
- * page as written, the pictures in it (at least 200 px, each picture once) and scanned
- * pages (pages without text) as images for the AI to read. Nothing is changed in the
- * PDF; it is uploaded as it is. Done here because Supabase Edge Functions get only 2
- * seconds of CPU per request.
+ * Reads a PDF in the owner's browser with pdf.js (the dashboard): the text of each page as
+ * written, the pictures in it (at least 200 px, each picture once) and scanned pages
+ * (pages without text) as images for the AI to read. Nothing is changed in the PDF; it is
+ * uploaded as it is. Done here because Supabase Edge Functions get only 2 seconds of CPU
+ * per request. The shop assistant also reads only the text of a shopper's PDF here.
  */
 
 /** Longest side of a stored picture or scanned page (what Claude reads best). */
@@ -170,19 +170,8 @@ async function renderPage(doc: Doc, pageNumber: number): Promise<Blob> {
   return canvasBlob(canvas, true);
 }
 
-/**
- * One page: its text as written (lines kept), its pictures (each picture of the PDF only
- * once: `seen` holds what earlier pages had) or, without text, the page as a scan.
- * `wantPictures` false: text only (the shop's picture limit is reached).
- */
-export async function readPage(
-  lib: PdfJs,
-  doc: Doc,
-  pageNumber: number,
-  seen: Set<string>,
-  wantPictures: boolean,
-): Promise<PdfPage> {
-  const page = await doc.getPage(pageNumber);
+/** The page's text as written: lines kept, a space only where the page has a gap. */
+async function pageText(page: Awaited<ReturnType<Doc["getPage"]>>): Promise<string> {
   const content = await page.getTextContent();
   // pdf.js gives the text in pieces; a space or a line break goes between two pieces only
   // where the page has a gap or a new line (a word split in two pieces stays one word).
@@ -205,7 +194,28 @@ export async function readPage(
       lastY = y;
     }
   }
-  text = text.replace(/[ \t]+\n/g, "\n").trim();
+  return text.replace(/[ \t]+\n/g, "\n").trim();
+}
+
+/** Only the text of one page (no pictures, nothing drawn): for the shopper's PDFs in the assistant. */
+export async function readText(doc: Doc, pageNumber: number): Promise<string> {
+  return pageText(await doc.getPage(pageNumber));
+}
+
+/**
+ * One page: its text as written (lines kept), its pictures (each picture of the PDF only
+ * once: `seen` holds what earlier pages had) or, without text, the page as a scan.
+ * `wantPictures` false: text only (the shop's picture limit is reached).
+ */
+export async function readPage(
+  lib: PdfJs,
+  doc: Doc,
+  pageNumber: number,
+  seen: Set<string>,
+  wantPictures: boolean,
+): Promise<PdfPage> {
+  const page = await doc.getPage(pageNumber);
+  const text = await pageText(page);
 
   const ops = await page.getOperatorList();
   const imageOps: { id?: string; inline?: ImageObject }[] = [];

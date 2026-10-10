@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { isLocale, locales, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { getShop, getShopItems, shopHasPlan, type PublicShop } from "@/lib/data";
+import { archiveEnabled } from "@/lib/assistantArchive";
 import { docsKeysEnabled } from "@/lib/docsAccess";
 import { addressLine, directionsUrl, formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
@@ -114,6 +115,7 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
           labels={dict.chat}
           buttonLabel={shop.assistant_label}
           welcome={shop.assistant_welcome}
+          archive={archiveEnabled()}
         />
       )}
 
