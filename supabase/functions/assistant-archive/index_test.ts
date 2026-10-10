@@ -511,6 +511,7 @@ interface World {
   removeError?: string;
   attachments?: { id: string; kind: string; storage_path: string; preview_path: string | null }[];
   websiteSecret?: string | null;
+  pushFails?: boolean;
 }
 
 /** Fake service-role and caller clients; every call is logged in order. */
@@ -575,6 +576,10 @@ function fakes(world: World = {}) {
     asCaller: () => caller as unknown as SupabaseClient,
     websiteSecret: world.websiteSecret === undefined ? SECRET : world.websiteSecret,
     background: (task) => tasks.push(task),
+    pushToCloud: (id) => {
+      log.push(`push ${id}`);
+      return world.pushFails ? Promise.reject(new Error("cloud-export is down")) : Promise.resolve();
+    },
   };
   return { deps, log, files, tasks };
 }
@@ -688,6 +693,25 @@ Deno.test("Ending a conversation makes its PDF after the reply, named by the sta
   assert(log.includes(`download logos/${SHOP}/logo.png`), "the PNG twin of the WebP logo");
   assert(log.includes(`upload shop-assistant-uploads/${path} application/pdf upsert`), "stored");
   assert(log.includes(`rpc assistant_pdf_done {"p_id":"${CONV}","p_path":"${path}","p_name":"2026-10-10_14-05_3f2a9c1b.pdf","p_error":null}`), "noted");
+  assert(!log.some((l) => l.startsWith("push")), "the shop has no cloud folder: nothing pushed");
+});
+
+Deno.test("A PDF queued for the shop's cloud folder is pushed to cloud-export at once; its failure does not matter", async () => {
+  for (const pushFails of [false, true]) {
+    const world = archiveWorld({ pushFails });
+    world.rpc = { ...world.rpc, assistant_pdf_done: () => ok(true) };
+    const { deps, log, tasks } = fakes(world);
+    eq(await call(deps, { action: "end", id: CONV, token: TOKEN }), [200, { ended: true }], "ended");
+    eq(await Promise.all(tasks), [undefined], "the background work finishes");
+    const done = log.findIndex((l) => l.startsWith("rpc assistant_pdf_done"));
+    eq(log.indexOf(`push ${CONV}`) > done, true, `pushed after the PDF was noted (${pushFails ? "push fails" : "push works"})`);
+  }
+  const world = archiveWorld({ uploadError: "storage down" });
+  world.rpc = { ...world.rpc, assistant_pdf_done: () => ok(false) };
+  const { deps, log, tasks } = fakes(world);
+  await call(deps, { action: "end", id: CONV, token: TOKEN });
+  await Promise.all(tasks);
+  assert(!log.some((l) => l.startsWith("push")), "no PDF, no push");
 });
 
 Deno.test("Ending: the wrong token is refused; a conversation already ended makes no new PDF", async () => {
@@ -719,16 +743,19 @@ Deno.test("The shopper's 'Vymazať moju konverzáciu': files and rows deleted; a
     const { deps, log, files } = fakes(archiveWorld());
     eq(await call(deps, { action: "delete", id: CONV, token: TOKEN }), [200, { deleted: true }], "deleted");
     eq(files.has(`shop-assistant-uploads/${SHOP}/${CONV}/files/${IMG}.preview.jpg`), false, "preview gone");
-    assert(log.some((l) => l.startsWith("rpc assistant_forget")), "rows gone");
+    const removed = log.findIndex((l) => l.startsWith("remove shop-assistant-uploads"));
+    const forgotten = log.findIndex((l) => l === `rpc assistant_shopper_forget {"p_id":"${CONV}"}`);
+    assert(removed >= 0 && forgotten > removed, "files first, then the rows (a line stays for the owner when already in the cloud)");
+    assert(!log.some((l) => l.startsWith("rpc assistant_forget")), "the shopper's own deletion, not the owner's");
   }
   {
     const { deps, log } = fakes(archiveWorld({ removeError: "storage down" }));
     eq(await call(deps, { action: "delete", id: CONV, token: TOKEN }), [502, { error: "storage" }], "storage error");
-    assert(!log.some((l) => l.startsWith("rpc assistant_forget")), "rows kept to try again");
+    assert(!log.some((l) => l.startsWith("rpc assistant_shopper_forget")), "rows kept to try again");
   }
   const { deps, log } = fakes(archiveWorld());
   eq(await call(deps, { action: "delete", id: CONV, token: "b".repeat(64) }), [404, { error: "not_found" }], "wrong token");
-  assert(!log.some((l) => l.startsWith("remove") || l.startsWith("rpc assistant_forget")), "nothing deleted");
+  assert(!log.some((l) => l.startsWith("remove") || l.includes("forget")), "nothing deleted");
 });
 
 Deno.test("A file taken back before sending: its stored files, then its row; never someone else's", async () => {
