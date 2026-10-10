@@ -24,6 +24,7 @@ import {
   saveTranslation,
   uploadLogo,
 } from "./actions";
+import { CloudFolder, cloudSummary, loadCloud } from "./CloudFolder";
 import { conversationFilter, Conversations, conversationsSummary, loadConversations } from "./Conversations";
 import { PrivateFiles, privateFiles } from "./PrivateFiles";
 import { loadShopDocs, ShopDocuments } from "./ShopDocuments";
@@ -103,6 +104,12 @@ function errorText(dict: Dictionary, err: string): string {
     if (text) return text;
   }
   if (err.startsWith("stripe:")) return t(dict.plan.failed, { message: err.slice("stripe:".length) });
+  if (err.startsWith("cloud_")) {
+    const code = err.slice("cloud_".length);
+    if (code === "share_link") return dict.cloud.share_link;
+    if (code.startsWith("other:")) return t(dict.cloud.error_other, { message: code.slice("other:".length) });
+    return (dict.cloud as Record<string, string>)[`error_${code}`] ?? dict.cloud.error_failed;
+  }
   const key = ERRORS.find((e) => e === err);
   if (key && key !== "logo") return key === "website" ? t(dict.account.error, { message: err }) : dict.owner[`error_${key}`];
   return t(dict.account.error, { message: err });
@@ -159,7 +166,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
   const q = (first(sp.q) ?? "").trim();
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  const [{ data: itemRows, error: e3 }, planRow, hasPlan, itemCount, importRows, docsData, conversations] = await Promise.all([
+  const [{ data: itemRows, error: e3 }, planRow, hasPlan, itemCount, importRows, docsData, conversations, cloud] = await Promise.all([
     supabase.rpc("owner_items", { p_shop_id: shop.id, q: q || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE }),
     supabase
       .from("subscriptions")
@@ -179,6 +186,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     loadShopDocs(supabase, shop.id),
     // The assistant's conversations (database update 22): owners only.
     loadConversations(supabase, shop.id, conversationFilter(sp)),
+    // The shop's cloud folder (database update 23): owners only, never the tokens.
+    loadCloud(supabase, shop.id),
   ]);
   // The database decides whether the shop has the paid plan; before database update 18
   // the Plan section only says that paid plans are not available yet.
@@ -229,6 +238,11 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     assistant_cleaned: d.assistant_cleaned,
     retention: t(dict.conversations.retention_saved, { n: conversations?.retention ?? 90 }),
     conversation_deleted: dict.conversations.deleted,
+    cloud_connected: dict.cloud.ok_connected,
+    cloud_disconnected: dict.cloud.ok_disconnected,
+    cloud_folder: dict.cloud.ok_folder,
+    cloud_backfill: t(dict.cloud.ok_backfill, { n: Math.max(0, Math.floor(Number(first(sp.n)) || 0)) }),
+    cloud_retry: dict.cloud.ok_retry,
   };
   const okText = (ok && okTexts[ok]) || dict.account.saved;
   // The message of a form is shown inside that form's section (the page jumps there and opens it).
@@ -266,6 +280,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
       ? t(d.summary_docs, { documents: docsData.docs.length, pictures: docsData.pictures.length })
       : dict.docs.unavailable,
     conversations: conversationsSummary(conversations, dict, lang),
+    cloud: cloudSummary(cloud, dict),
   };
   const imports: ImportView[] | null =
     importList?.map((row) => ({
@@ -528,8 +543,23 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
               lang={lang}
               dict={dict}
               hasPlan={plan?.active === true}
+              cloudConnected={Boolean(cloud?.connection)}
               hidden={hidden}
               notice={notice("conversations")}
+            />
+          </DashboardSection>
+        )}
+
+        {cloud && (plan?.active || cloud.connection) && (
+          <DashboardSection {...section("cloud")} title={dict.cloud.title} summary={summaries.cloud}>
+            <CloudFolder
+              cloud={cloud}
+              shop={shop}
+              lang={lang}
+              dict={dict}
+              hasPlan={plan?.active === true}
+              hidden={hidden}
+              notice={notice("cloud")}
             />
           </DashboardSection>
         )}

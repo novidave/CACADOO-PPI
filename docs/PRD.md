@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.7 · status 10 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 2.8 · status 10 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -24,6 +24,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | AI assistant on the shop page (paid plan only, Claude Haiku) | Built and tested against a Claude stand-in; live after migration 19 (SETUP.md part L) |
 | Documents and pictures for the assistant; private folders with access keys (paid plan only) | Built and tested against Claude and Storage stand-ins; live after migration 20 and two new functions (SETUP.md part M) |
 | Conversation archive of the shop assistant (paid plan only): every conversation kept with its files (GPS removed) and made into a PDF; "Konverzácie asistenta" in My shop | Built and tested against Claude and Storage stand-ins; live after database update 22, the assistant-archive function and one secret (SETUP.md part O) |
+| Cloud folder for the archive (paid plan only): each finished conversation's PDF and files copied into the shop's own OneDrive or Dropbox; "Cloudový priečinok" in My shop | Built and tested against OneDrive, Dropbox and Brevo stand-ins; live after database update 23, the cloud-export function, the Microsoft and Dropbox app registrations and the secrets (SETUP.md part P) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -74,6 +75,8 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   shopping lists to copy or print, and photos of a device, part or model plate matched against the shop's stock
 - Conversation archive for the assistant (paid plan): every conversation kept for the shop's owners with its times,
   the cards shown and the shopper's files (GPS removed), one PDF per conversation, read in "Konverzácie asistenta"
+- Cloud folder (paid plan): every finished conversation (PDF + the shopper's files) copied into the shop's own OneDrive
+  or Dropbox folder, connected once with the provider's own login (OAuth)
 - AI and machine access: JSON-LD, robots.txt, sitemap, llms.txt, public REST API with OpenAPI, MCP server
 - Slovak, Hungarian and English; mobile-first; installable PPI app for the shop PC
 
@@ -466,17 +469,59 @@ Open if the current time in the shop's own time zone falls inside today's ranges
   Slovak version, each answer's cards as a table (Tovar, Cena, Dostupnosť, Údaje k), photos as thumbnails with their
   names, other files listed, and on every page "Vytvorené Cacadoo PPI · konverzácia <id> · strana X/Y". The font
   (DejaVu Sans) covers every Central European letter, Greek and Cyrillic; anything else (emoji) shows as "?". Kept in
-  the same private folder; the owner's way to take it home is the cloud export (Phase B).
+  the same private folder; the owner's way to take it home is the cloud folder (6.11).
 - **Who sees it:** only the shop's owners (RLS), in "Konverzácie asistenta"; never shoppers, other shops, pages, the
   API, MCP or the AI search. Conversation tokens are kept as hashes; access keys never reach a conversation.
 - **Keep time:** 30, 90 or 365 days after the last message (the owner chooses; default 90); a daily job deletes older
-  conversations with their files and PDF. The owner can delete one at any time.
+  conversations with their files and PDF. The owner can delete one at any time. Copies already in the shop's cloud
+  folder (6.11) stay there: PPI never deletes anything in it.
 - **The shopper's right to delete:** "Vymazať moju konverzáciu" while the box is open deletes the conversation, its
-  files and PDF at once (never exported). Later the shopper asks the shop.
+  files and PDF at once. If it was already copied to the shop's cloud folder, only a line without any content stays in
+  the owner's list ("Zákazník požiadal o vymazanie" + the cloud folder) so the owner can delete it there; "Odstrániť
+  zo zoznamu" removes the line. Later the shopper asks the shop.
 - **Jobs:** pg_cron calls the assistant-archive function every 5 minutes (end idle conversations, make missing PDFs,
   forget empty ones) and once a day at 03:17 UTC (keep time), with a Vault secret.
 
-## 7. Data model (after database update 22)
+### 6.11 Cloud folder for the archive (paid plan, database update 23)
+
+- **Where:** Môj obchod → "Cloudový priečinok" (paid plan; shown to a shop without the plan only while a cloud is still
+  connected, so it can be disconnected). One cloud per shop: **Microsoft OneDrive** (Microsoft Graph) or **Dropbox**,
+  behind one export adapter (connect, list and make folders, upload without replacing, renew tokens, revoke). Google
+  Drive is not offered.
+- **Connecting:** "Pripojiť OneDrive" / "Pripojiť Dropbox" opens the provider's own consent page (OAuth 2.0 with PKCE,
+  a single-use state for 10 minutes). Permissions: OneDrive `Files.ReadWrite` + `offline_access` (Microsoft has no
+  narrower permission that can create a folder of the owner's choice; app-folder access would force `/Apps/…`); Dropbox
+  `files.content.write`, `files.metadata.read` (to see what is already there) and `account_info.read`, offline access.
+  The page says so before connecting. The tokens are encrypted (AES-GCM, key from `EXPORT_TOKEN_ENCRYPTION_KEY`), kept
+  only in the database, read only by the cloud-export function, renewed automatically; "Odpojiť" deletes them (Dropbox's
+  token is also revoked; for Microsoft the page says where to remove the app).
+- **Target folder:** default `/Cacadoo/<shop name>`; the owner types another path or browses the cloud's folders and
+  makes a new one ("Prehľadávať priečinky", "Nový priečinok", "Ukladať sem"). A missing folder is made. A pasted share
+  link (1drv.ms, onedrive.live.com, SharePoint, dropbox.com/scl…) is refused with an explanation that share links
+  usually cannot be written to, and the OAuth buttons are offered instead.
+- **What is saved, and when:** when a conversation has ended and its PDF is ready, the archive asks cloud-export to copy
+  it at once (a job every 5 minutes catches anything missed): `<target>/<YYYY-MM>/<YYYY-MM-DD_HH-MM_id>/konverzacia.pdf`
+  and `…/subory/<the shopper's files>` (the stored files: GPS already removed; names made safe for both clouds). Month,
+  day and time in the shop's time zone, the first 8 characters of the conversation id.
+- **Never duplicate, never overwrite, never delete:** every copied file is noted, so a retry continues where it
+  stopped; a file of the same name that is already there with the same size and content is not sent again; a different
+  one gets " (2)", " (3)"… Uploads use OneDrive's `conflictBehavior=fail` and Dropbox's `mode: add` without autorename;
+  PPI sends no delete, move or replace to a cloud.
+- **Status per conversation** in "Konverzácie asistenta" (list and detail): "Cloud: čaká", "Uložené v cloude" (with the
+  folder) or "Cloud: chyba – <reason>", with "Uložiť znova" (checks the cloud again: files still there are not sent
+  twice, missing ones are sent again, into the folder chosen now). Failed copies are tried again after 5 minutes,
+  doubling up to every 6 hours, 20 times; a busy cloud's Retry-After is respected.
+- **"Uložiť staršie konverzácie":** one-time copy of the archive's conversations of a chosen period (days in the shop's
+  time zone) that are not in the cloud yet; the page says how many will be copied.
+- **Expired connection** (password changed, app removed, refresh token too old): the connection is marked expired,
+  copies wait (nothing is lost; they stay in the archive) and the page shows "Pripojenie k cloudu vypršalo – pripojte
+  ho znova" with "Pripojiť znova", which keeps the folder and copies everything that waited. When copies have failed
+  for 24 hours, the shop's owners get one e-mail (Brevo) with that subject and a link back to the page; the next
+  e-mail only after a new failure following a success.
+- **Never in the cloud:** purchase prices, suppliers, margins, invoice numbers, access keys or other shops' data (the
+  PDF and the files are exactly the archive's).
+
+## 7. Data model (after database update 23)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -497,10 +542,13 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 | `shop_document_chunks` | `shop_id`, `folder_id`, `document_id`, `picture_id`, `page`, `type` (`text`/`picture`), `text`, `lang`, `search` (full text) | Excerpts as written and picture descriptions; trigram and full-text indexes; read only through `search_shop_docs()` |
 | `folder_keys` | `id`, `shop_id`, `label`, `key_hash`, `folder_ids`, `expires_at`, `revoked_at`, `last_used_at`, `use_count` | Access keys (hash only; owners never read the hash) |
 | `folder_sessions` | `token_hash`, `shop_id`, `key_id`, `folder_ids`, `expires_at` | Opened folders, 12 hours; no client access |
-| `assistant_conversations` | `id`, `shop_id`, `token_hash`, `page_lang`, `shopper_lang`, `started_at`, `last_message_at`, `ended_at`, `end_reason` (`closed`/`idle`/`new`), `message_count`, `attachment_count` (≤ 10), `first_question`, `pdf_status` (`none`/`ready`/`failed`), `pdf_path`, `pdf_name`, `pdf_error`, `pdf_attempts`, `pdf_next_try` | One per conversation (update 22); written only by assistant-archive; owners read (never the token hash or paths) |
+| `assistant_conversations` | `id`, `shop_id`, `token_hash`, `page_lang`, `shopper_lang`, `started_at`, `last_message_at`, `ended_at`, `end_reason` (`closed`/`idle`/`new`), `message_count`, `attachment_count` (≤ 10), `first_question`, `pdf_status` (`none`/`ready`/`failed`), `pdf_path`, `pdf_name`, `pdf_error`, `pdf_attempts`, `pdf_next_try`; update 23: `export_status` (`none`/`pending`/`running`/`done`/`failed`), `export_error`, `export_attempts`, `export_next_try`, `export_started_at`, `exported_at`, `export_path`, `export_provider`, `shopper_deleted_at` | One per conversation (update 22); written only by assistant-archive and cloud-export; owners read (never the token hash or paths). `shopper_deleted_at`: a line without content left after the shopper deleted a copied conversation |
 | `assistant_messages` | `conversation_id`, `shop_id`, `role` (`shopper`/`assistant`), `body`, `body_owner` (Slovak version), `lang`, `cards` (jsonb: name, price, availability, data_time, quantity, note), `attachment_ids`, `created_at` | Every message; owners read |
 | `assistant_attachments` | `id`, `conversation_id`, `shop_id`, `name`, `kind` (`jpeg`/`png`/`webp`/`heic`/`pdf`), `bytes`, `storage_path`, `preview_path` | The shopper's files; owners read name, kind and size only |
 | `shop_assistant_settings` | `shop_id`, `retention_days` (30/90/365, default 90) | Keep time; owners set it through `owner_set_assistant_retention()` |
+| `cloud_connections` | `shop_id` (key: one per shop), `provider` (`onedrive`/`dropbox`), `account_name`, `account_email`, `folder_path`, `access_token_enc`, `refresh_token_enc`, `access_expires_at`, `scope`, `site_url`, `status` (`ok`/`expired`/`error`), `last_error`, `connected_by`, `connected_at`, `last_success_at`, `failing_since`, `alert_sent_at` | The shop's cloud (update 23); written only by cloud-export; owners read everything except the tokens |
+| `cloud_oauth_states` | `state_hash`, `shop_id`, `provider`, `user_id`, `verifier`, `folder_path`, `return_url`, `expires_at` | One OAuth round trip (SHA-256 of the state, 10 minutes, single use); no client access |
+| `cloud_export_items` | `conversation_id`, `shop_id`, `item_key` (`pdf` or the attachment id), `remote_path`, `remote_id`, `bytes`, `uploaded_at` | What was copied (unique per conversation and item); owners read |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
 Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop), `raw-files` (private, last raw files kept
@@ -523,6 +571,7 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
 | Documents, pictures, folders | only through the assistant: excerpts of the Public folder and of folders opened by a valid key (`search_shop_docs()`), files through shop-files | own: read; change through `owner_*` functions; upload through doc-ingest | doc-ingest writes (service role); shop-files signs 10-minute file addresses |
 | Access keys and sessions | open with a key (`unlock_shop_folders()`), lock again | own keys (never the hash): create, revoke | — |
 | Assistant conversations, files, PDFs | their own open conversation only through its token (website → assistant-archive): add files, delete it | own shops: read (RLS), keep time, delete; files through 10-minute links | assistant-archive writes everything (service role); the jobs prove themselves with a Vault secret |
+| Cloud connection and copies | none | own shops: read the connection (never the tokens) and the copies; connect, choose the folder, retry, copy older ones, disconnect only through cloud-export with their own login (membership and plan checked there and in `owner_cloud_retry()` / `owner_cloud_backfill()`) | cloud-export writes (service role); the tokens are encrypted before they reach the database |
 
 - Owners never write stock themselves; the function does, after checking the uploader is that shop's owner.
 - The function downloads nothing: it only receives files uploaded with the shop owner's login.
@@ -534,6 +583,10 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
   function (the website proves itself with `ASSISTANT_ARCHIVE_SECRET`, the shopper's browser with the conversation's
   token, kept as a hash), read only by the shop's owners, deleted after the shop's keep time. GPS and place data are
   removed from photos before storing. Nothing of a conversation, a file, a token or a key is logged.
+- Cloud folder (6.11): OAuth with PKCE and a single-use state (kept as a hash); the cloud tokens are encrypted with
+  AES-GCM (`EXPORT_TOKEN_ENCRYPTION_KEY`, bound to the shop and the token's use) before they are stored, never shown to
+  owners, never logged; "Odpojiť" deletes them. The archive asks cloud-export to copy with the service role key; the
+  job proves itself with the Vault secret. PPI never deletes, moves or replaces anything in a shop's cloud.
 - Access keys and session tokens are stored only as hashes; the key goes only to the database, never to the AI or into
   the conversation; the session token stays in an HttpOnly cookie signed with `SESSION_COOKIE_SECRET` and sent only to
   that shop's `/api/shops/<slug>/` addresses. Shop files are only reachable through 10-minute signed addresses that the
@@ -591,8 +644,15 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - **Conversation archive:** WebP logos uploaded before 10 October 2026 have no PNG copy: their PDFs show no logo until
   the logo is uploaded again. Chrome and Edge cannot read HEIC photos: they are stored but have no preview and the AI
   does not see them (Safari makes a preview). The owner reads conversations on the website; the PDF itself reaches the
-  owner with the cloud export (Phase B). A shopper can delete a conversation only while the chat box is open. The
+  owner through the cloud folder (6.11). A shopper can delete a conversation only while the chat box is open. The
   privacy page (`/sukromie-asistent`) has a draft text. Tested so far only against Claude and Storage stand-ins.
+- **Cloud folder:** tested so far only against OneDrive, Dropbox and Brevo stand-ins. OneDrive asks for access to all of
+  the owner's files (Microsoft has no narrower permission for a folder of the owner's choice); PPI works only in the
+  chosen folder. The Microsoft app's client secret expires (at most after 24 months): it must be renewed in Azure and
+  in Supabase before then, or every OneDrive copy fails. Files up to 150 MB (Dropbox) and 250 MB (OneDrive) are sent in
+  one piece; the archive's files are at most 10 MB. The failure e-mail needs `BREVO_API_KEY` and `ALERT_EMAIL_FROM`;
+  without them copies still work and the page shows the problem. Disconnecting OneDrive deletes PPI's tokens but
+  Microsoft keeps the app's permission until the owner removes it in their Microsoft account.
 - **The assistant can be wrong.** It reads photos and writes answers by machine; the cards, prices and availability
   come from the database, and it says when it is not sure, but a shopper should check the item page.
 - **Documents: machine reading.** Scanned pages are read by AI and can contain reading mistakes; picture descriptions
@@ -624,6 +684,9 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] Privacy page and terms (shop data, cookies, e-mail); final text of `/sukromie-asistent` (the assistant archive)
 - [ ] `ASSISTANT_ARCHIVE_SECRET` set in Vercel and Supabase; pg_cron jobs `ppi-assistant-tick` and
       `ppi-assistant-retention` succeed (SETUP.md part O)
+- [ ] Cloud folder: Microsoft and Dropbox apps registered (Dropbox app in production status for more than 50 users),
+      their secrets, `EXPORT_TOKEN_ENCRYPTION_KEY`, `BREVO_API_KEY`, `ALERT_EMAIL_FROM` set in Supabase; job
+      `ppi-cloud-export-tick` succeeds; a reminder for the Microsoft client secret's expiry date (SETUP.md part P)
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
 - [x] Stale shops show no stock on every page, in the API and in MCP
@@ -645,3 +708,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-09 | Documents and pictures for the assistant: PDFs read in the owner's browser, AI picture descriptions, Public and private folders with access keys, sources and document prices in answers |
 | 2026-10-09 | Shop page updates: no other shops on Pro product pages, shop e-mail and Facebook, the assistant's own texts, "My shop" as dropdowns, one display rule |
 | 2026-10-10 | Conversation archive of the shop assistant: conversations, files (GPS removed) and a PDF per conversation; "Konverzácie asistenta" for owners; keep time 30/90/365 days |
+| 2026-10-10 | Cloud folder: each finished conversation (PDF + files) copied into the shop's OneDrive or Dropbox; status per conversation, "Uložiť znova", older conversations, e-mail after 24 hours of failures |

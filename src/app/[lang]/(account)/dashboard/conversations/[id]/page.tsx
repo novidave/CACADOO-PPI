@@ -9,7 +9,7 @@ import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteConversation } from "../../conversationActions";
-import { countText, languageName } from "../../Conversations";
+import { countText, ExportState, languageName, type ExportStatus } from "../../Conversations";
 
 export const metadata: Metadata = { robots: { index: false } };
 
@@ -61,7 +61,9 @@ export default async function ConversationPage({ params, searchParams }: PagePro
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
   const { supabase } = session;
   const c = dict.conversations;
-  const err = (await searchParams).err;
+  const sp = await searchParams;
+  const err = Array.isArray(sp.err) ? sp.err[0] : sp.err;
+  const ok = Array.isArray(sp.ok) ? sp.ok[0] : sp.ok;
 
   const { data: conv, error } = await supabase
     .from("assistant_conversations")
@@ -81,7 +83,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     );
   }
 
-  const [shopsRes, messagesRes, attachmentsRes, linksRes] = await Promise.all([
+  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase
       .from("assistant_messages")
@@ -94,6 +96,9 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     conv.attachment_count > 0
       ? supabase.functions.invoke<{ files?: Links }>("assistant-archive", { body: { action: "owner_links", conversation_id: id } })
       : Promise.resolve({ data: { files: {} as Links }, error: null }),
+    // The copy in the shop's cloud folder (database update 23; left out before it).
+    supabase.from("assistant_conversations").select("export_status, export_error, export_path").eq("id", id).maybeSingle(),
+    supabase.from("cloud_connections").select("provider").eq("shop_id", conv.shop_id).maybeSingle(),
   ]);
   if (messagesRes.error) return <DbError message={messagesRes.error.message} dict={dict} />;
   const shop = ((shopsRes.data ?? []) as MyShop[]).find((s) => s.id === conv.shop_id);
@@ -112,6 +117,12 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     return localDay(date, tz) === localDay(started, tz) ? formatTime(date, tz) : formatDateTime(date, lang, tz);
   };
   const pdfText = conv.pdf_status === "ready" ? c.pdf_ready : conv.pdf_status === "failed" ? c.pdf_failed : c.pdf_waiting;
+  const exported = exportRes.error
+    ? null
+    : (exportRes.data as { export_status: ExportStatus; export_error: string | null; export_path: string | null } | null);
+  const cloudConnected = !cloudRes.error && Boolean(cloudRes.data);
+  const { data: hasPlan } = cloudConnected ? await supabase.rpc("shop_has_plan", { p_shop_id: shop.id }) : { data: false };
+  const cloudErr = err?.startsWith("cloud_") ? err.slice("cloud_".length) : null;
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -132,6 +143,29 @@ export default async function ConversationPage({ params, searchParams }: PagePro
           <dd>{languageName(conv.page_lang, lang, c.unknown)}</dd>
           <dt className="text-muted">{dict.conversations.pdf}</dt>
           <dd>{pdfText}</dd>
+          {exported && exported.export_status !== "none" && (
+            <>
+              <dt className="text-muted">{c.export}</dt>
+              <dd>
+                <ExportState
+                  status={exported.export_status}
+                  error={exported.export_error}
+                  path={exported.export_path}
+                  canRetry={cloudConnected && hasPlan === true}
+                  hidden={
+                    <>
+                      <input type="hidden" name="lang" value={lang} />
+                      <input type="hidden" name="shop_id" value={shop.id} />
+                      <input type="hidden" name="shop_slug" value={shop.slug} />
+                      <input type="hidden" name="conversation_id" value={conv.id} />
+                      <input type="hidden" name="from" value="detail" />
+                    </>
+                  }
+                  dict={dict}
+                />
+              </dd>
+            </>
+          )}
         </dl>
         <p className="text-sm text-muted">
           {countText(c, "messages", conv.message_count, lang)}
@@ -139,7 +173,18 @@ export default async function ConversationPage({ params, searchParams }: PagePro
         </p>
       </header>
 
-      {err && <p className="border border-line p-3">{err === "delete" ? c.delete_failed : c.delete_confirm}</p>}
+      {ok === "cloud_retry" && (
+        <p role="status" className="border border-foreground p-3 font-medium">
+          {dict.cloud.ok_retry}
+        </p>
+      )}
+      {cloudErr ? (
+        <p className="border border-line p-3">
+          {(dict.cloud as Record<string, string>)[`error_${cloudErr}`] ?? t(dict.cloud.error_other, { message: cloudErr.replace(/^other:/, "") })}
+        </p>
+      ) : (
+        err && <p className="border border-line p-3">{err === "delete" ? c.delete_failed : c.delete_confirm}</p>
+      )}
       {conv.attachment_count > 0 && !links && <p className="border border-line p-3 text-sm">{c.links_failed}</p>}
 
       <ol className="flex flex-col border-t border-line" data-messages>
