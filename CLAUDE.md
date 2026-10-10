@@ -133,7 +133,26 @@ Cacadoo PPI · konverzácia <id> · strana X/Y"). Keep time 30/90/365 days (defa
 (dashboard `Conversations.tsx`, page `dashboard/conversations/[id]`) is view only: no download buttons. Logos get a PNG
 twin (`logo-<time>.png`) for the PDFs. Never put purchase prices, suppliers, margins, invoice numbers, access keys or
 other shops' data into conversations, PDFs or exports. No local/PC folder sync or polling for exports: the cloud
-export (Phase B) is a push from our server when a conversation ends.
+folder (below) is a push from our server when a conversation ends.
+
+## Cloud folder (paid, update 23)
+
+`supabase/sql/23_cloud_export.sql` + `supabase/functions/cloud-export` (one file, Verify JWT off) + dashboard
+`CloudFolder.tsx` / `cloudActions.ts` / `@/components/CloudFolderPicker`. One export **adapter** (OneDrive via Microsoft
+Graph, Dropbox; no Google Drive): OAuth code + PKCE, state SHA-256 single use 10 min, redirect
+`…/functions/v1/cloud-export/oauth/<provider>`; scopes OneDrive `offline_access Files.ReadWrite`, Dropbox
+`files.metadata.read files.content.write account_info.read` offline. Tokens **only encrypted** (AES-GCM,
+`EXPORT_TOKEN_ENCRYPTION_KEY`, bound to shop/provider/kind) in `cloud_connections` (owners have no grant on the token
+columns), renewed automatically; "Odpojiť" deletes them. Default target `/Cacadoo/<shop name>`; share links refused
+with an explanation. After `assistant_pdf_done` queues it, assistant-archive calls `export` (service role key) →
+`<target>/<YYYY-MM>/<YYYY-MM-DD_HH-MM_id>/konverzacia.pdf` + `…/subory/`; job `ppi-cloud-export-tick` every 5 min.
+**Never overwrite or delete in the shop's cloud** (OneDrive `conflictBehavior=fail`, Dropbox `mode: add`; same file →
+not sent again, different → " (2)"); `cloud_export_items` notes what was copied. Status per conversation (Čaká /
+Uložené v cloude / Chyba + reason, "Uložiť znova" = `owner_cloud_retry`, checks the cloud again), "Uložiť staršie
+konverzácie" = `owner_cloud_backfill`; back-off 5 min · 2ⁿ ≤ 6 h, Retry-After, 20 tries; expired connection → one
+e-mail after 24 h (Brevo API: `BREVO_API_KEY`, `ALERT_EMAIL_FROM`) "Pripojenie k cloudu vypršalo – pripojte ho znova".
+A shopper's deletion of a copied conversation leaves a line without content ("zákazník požiadal o vymazanie" + cloud
+folder; `assistant_shopper_forget`); keep time never touches the cloud.
 
 ## Shop page and My shop (migration 21)
 

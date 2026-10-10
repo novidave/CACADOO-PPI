@@ -35,6 +35,9 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
    **`assistant-archive`**: the shopper's files go straight to it (GPS removed before storing), the website records each
    exchange, and when a conversation ends (closed, or 30 minutes idle — a pg_cron job every 5 minutes) it makes one PDF;
    the owners read conversations in "Konverzácie asistenta"; a daily job deletes them after the shop's keep time.
+   When a PDF is ready, the Edge Function **`cloud-export`** copies it with the shopper's files into the shop's own
+   **OneDrive or Dropbox** folder (connected once by the owner with the provider's login; tokens kept encrypted); it
+   never replaces or deletes anything there, retries failures and e-mails the owners after 24 hours of failures.
 
 ```text
 SHOP
@@ -55,6 +58,9 @@ SUPABASE -----------------------------------------------------------------------
   Edge Function assistant-archive (website secret: start/record/end/delete | shopper's token: upload, GPS removed
                | owner's login: file links, delete | pg_cron + Vault secret: tick every 5 min, keep time daily)
                -> PDF per conversation (pdf-lib, DejaVu Sans) | Storage shop-assistant-uploads (private)
+               -> (PDF ready, service key) Edge Function cloud-export (owner's login: connect, folders, retry, older,
+                  disconnect | provider's redirect: code -> encrypted tokens | pg_cron + Vault secret: tick every 5 min)
+                  +--> MICROSOFT GRAPH (OneDrive) / DROPBOX API: new folders and files only | BREVO API: failure e-mail
         ^ ^
         | +--> STRIPE: Checkout, customer portal, Stripe Tax, invoices (keys only in function secrets)
                                    |
@@ -437,6 +443,69 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 - **Jobs:** `ppi-assistant-tick` (`*/5 * * * *`) and `ppi-assistant-retention` (`17 3 * * *`) call
   `<Vault ppi_project_url>/functions/v1/assistant-archive` with `net.http_post` and the Vault secret
   `ppi_assistant_cron`.
+- **Update 23:** a ready PDF is queued for the shop's cloud (`assistant_pdf_done` returns whether it was) and the
+  function then calls cloud-export's `export` at once (2.12); the shopper's delete goes through
+  `assistant_shopper_forget` (a conversation already copied keeps a line without content for the owner).
+
+### 2.12 Cloud folder (database update 23, `supabase/sql/23_cloud_export.sql`, `supabase/functions/cloud-export`)
+
+- **Tables** (RLS on; members read; only the service role writes): `cloud_connections` (one per shop: provider,
+  account name/e-mail, target folder, `access_token_enc` / `refresh_token_enc` — owners have no column grant on them —,
+  expiry, scope, the website it was connected from, `status` ok/expired/error, `last_error`, `last_success_at`,
+  `failing_since`, `alert_sent_at`), `cloud_oauth_states` (SHA-256 of the state, PKCE verifier, folder, return address,
+  10 minutes, taken once; no client access), `cloud_export_items` (what was copied: conversation + `pdf` or attachment
+  id → remote path, unique). `assistant_conversations` gets `export_status` (none/pending/running/done/failed),
+  `export_error`, `export_attempts`, `export_next_try`, `export_started_at`, `exported_at`, `export_path`,
+  `export_provider`, `shopper_deleted_at`. Service-role functions: `cloud_state_save` / `cloud_state_take`,
+  `cloud_connection_save` (upsert; failed copies wait again), `cloud_connection_tokens`, `cloud_connection_result`
+  (success clears `failing_since`; an expired connection stops claims), `cloud_set_folder`, `cloud_disconnect`
+  (waiting copies → none), `cloud_export_enqueue`, `cloud_export_claim(limit, id)` (due, PDF ready, not deleted, cloud
+  not expired; `for update skip locked`; a copy stuck "running" for 15 minutes is taken again), `cloud_export_data`,
+  `cloud_export_item_done`, `cloud_export_finish(id, path, error, retry, retry_after)` (5 min · 2ⁿ up to 6 hours, never
+  before the cloud's Retry-After, 20 tries), `cloud_alerts_due` / `cloud_alert_sent` (failing ≥ 24 hours, one e-mail
+  per failure period, the members' e-mails from `auth.users`), `assistant_shopper_forget`. For owners (their login):
+  `owner_cloud_retry` (clears the copied-items list so the cloud is checked again) and `owner_cloud_backfill(shop,
+  from, to)` (days in the shop's time zone), and `owner_assistant_conversations` with the export columns and the lines
+  left after a shopper's deletion.
+- **The function** (`cloud-export`, one file, Verify JWT off) checks every caller itself:
+  - the shop's owners (their login; `is_shop_member`, and `shop_has_plan` for connecting): `connect` (shop, provider,
+    folder or default `/Cacadoo/<shop name>`, return address `…/<lang>/dashboard?…`; a share link → `share_link`) →
+    the provider's consent URL with a random state and a PKCE S256 challenge; `folders`, `create_folder`, `set_folder`
+    (made when missing), `disconnect` (Dropbox: `token/revoke`), `retry`, `backfill`;
+  - the provider's redirect `GET …/cloud-export/oauth/<onedrive|dropbox>?code&state`: state taken once → code
+    exchanged with the verifier → refresh token required → both tokens encrypted (AES-256-GCM, key by HKDF-SHA-256
+    from `EXPORT_TOKEN_ENCRYPTION_KEY`, the shop, provider and token kind bound as additional data) → account name →
+    target folder made → `cloud_connection_save` → 302 back to Môj obchod (`ok=cloud_connected` or
+    `err=cloud_denied|cloud_failed|cloud_folder`, `#cloud`);
+  - the archive (`Authorization: Bearer <service role key>`, compared in constant time): `export {conversation_id}` →
+    202, the copy runs after the reply (`EdgeRuntime.waitUntil`);
+  - the job (`x-ppi-cron` = Vault `ppi_assistant_cron`): `tick` → due copies (5 at a time, for at most 90 s), then the
+    24-hour e-mails through the Brevo API (`BREVO_API_KEY`, sender `ALERT_EMAIL_FROM`; without them nothing is marked
+    sent and the log says why).
+- **Adapter** (one interface, two implementations): `authorizeUrl`, `exchange`, `refresh`, `account`, `stat`,
+  `listFolders`, `createFolder` (exists → fine; a file in the way → `not_folder`), `upload` (never replaces: Graph
+  `PUT …:/content?@microsoft.graph.conflictBehavior=fail`, Dropbox `files/upload` with `mode: add`, `autorename: false`,
+  `strict_conflict: true`, the argument header ASCII-escaped), `hash` (OneDrive QuickXorHash, Dropbox content hash),
+  `revoke`. OneDrive: `login.microsoftonline.com/common` (work, school and personal accounts), scope
+  `offline_access Files.ReadWrite`, `prompt=select_account`, refresh tokens rotate. Dropbox: `token_access_type=offline`,
+  scopes `files.metadata.read files.content.write account_info.read`. Errors become kinds: `expired` (the refresh
+  token is refused: `invalid_grant`) → the connection is marked expired; `throttled` (429/503 with Retry-After);
+  `quota`; `not_folder`; others (a wrong app ID or secret is not the owner's expired connection). An access token is
+  renewed 5 minutes before it expires and once on a 401; renewed tokens are stored encrypted again (a rotated refresh
+  token replaces the old one).
+- **One conversation:** `<target>/<YYYY-MM>/<YYYY-MM-DD_HH-MM_<first 8 of the id>>/konverzacia.pdf` and `…/subory/`
+  (time in the shop's time zone). Items already noted are skipped; for each other one: download from
+  `shop-assistant-uploads` → is the name there? same size and hash → noted, not sent; different → " (2)", " (3)"…
+  (up to 50) → upload → `cloud_export_item_done`. Before every file it checks the conversation still exists and was
+  not deleted by the shopper. Then `cloud_export_finish` and `cloud_connection_result`.
+- **Website:** dashboard section `CloudFolder.tsx` (`loadCloud` via RLS; not connected: folder field, the share-link
+  note, "Pripojiť OneDrive" / "Pripojiť Dropbox", what is allowed; connected: provider, account, folder, status, last
+  copy, "Pripojiť znova" when expired, `@/components/CloudFolderPicker` (client: browse, new folder, "Ukladať sem", or a
+  typed path), "Uložiť staršie konverzácie", "Odpojiť" with a tick); `cloudActions.ts` (server actions → cloud-export
+  with the owner's login; only the providers' consent hosts are followed); `ExportState` in the conversations list and
+  page ("Cloud: čaká" / "Uložené v cloude" + folder / "Cloud: chyba – …", "Uložiť znova"); lines left after a
+  shopper's deletion with "Odstrániť zo zoznamu".
+- **Job:** `ppi-cloud-export-tick` (`2-59/5 * * * *`) calls `<Vault ppi_project_url>/functions/v1/cloud-export`.
 
 ## 3. Main flows step by step
 
@@ -495,6 +564,16 @@ asistenta" and reads it.
 **30 minutes without a message:** pg_cron `ppi-assistant-tick` → `assistant-archive` `tick` → `assistant_end_idle(30)`
 → the PDF is made; once a day `ppi-assistant-retention` deletes conversations past the shop's keep time with their files.
 
+**An owner connects OneDrive and a conversation lands there:** Môj obchod → Cloudový priečinok → "Pripojiť OneDrive"
+→ `connectCloud` → cloud-export `connect` (owner, plan) → Microsoft's consent page → `…/cloud-export/oauth/onedrive`
+→ tokens encrypted, `/Cacadoo/<shop>` made → back to Môj obchod "Cloud je pripojený". A shopper closes the chat →
+`assistant-archive` makes the PDF → `assistant_pdf_done` queues it → `export` → `cloud_export_claim` →
+`/Cacadoo/<shop>/2026-10/2026-10-10_14-05_3f2a9c1b/konverzacia.pdf` + `subory/…` → "Uložené v cloude" in the list.
+
+**The connection expires:** a copy gets `invalid_grant` → the conversation shows "Cloud: chyba – Pripojenie k cloudu
+vypršalo – pripojte ho znova", the connection is expired and claims stop → 24 hours later the job e-mails the owners
+once → "Pripojiť znova" → the tokens are replaced, the folder kept, everything that waited is copied.
+
 **An AI assistant asks "who has paint in Budince?":** MCP `search_stock(query="paint", near="Budince")` →
 `town_center` → `search_stock` with a radius → items with price, availability, freshness and `source_url`. (A search
 for the town name alone also works: `query="Budince"`.)
@@ -537,6 +616,11 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | The two secrets differ | the assistant answers; nothing is kept | Vercel log `assistant-archive: start failed (secret)` |
 | pg_cron / pg_net off or `ppi_project_url` missing | — | idle conversations stay "prebieha" and get no PDF until closed; nothing is deleted after the keep time (`cron.job_run_details` shows the error) |
 | A PDF cannot be made (storage, bad data) | — | tried 3 times, 10 and 20 minutes apart; then "PDF: nepodarilo sa vytvoriť" on the conversation; log `assistant-archive: pdf …` |
+| `cloud-export` not deployed or `EXPORT_TOKEN_ENCRYPTION_KEY` / the app's ID or secret missing | — | "Pripojenie cloudu ešte nie je nastavené" when connecting; nothing is copied (conversations stay in the archive) |
+| Cloud connection expired (password changed, app removed, refresh token too old) | — | "Cloud: chyba – Pripojenie k cloudu vypršalo – pripojte ho znova" on each waiting conversation, the same on the section; one e-mail after 24 hours; "Pripojiť znova" copies what waited |
+| Microsoft app secret expired or wrong | — | every OneDrive copy fails with "the app's ID or secret in Supabase is not valid"; e-mail after 24 hours; renew the secret in Azure and Supabase (SETUP.md part P) |
+| Cloud busy (429/503), full, or a file in the folder's place | — | "Cloud: chyba – Cloud je preťažený, skúsime to znova" / "V cloude nie je miesto" / a folder message; retried 5 min · 2ⁿ up to 6 h (never before Retry-After), 20 times; "Uložiť znova" any time |
+| Brevo key or sender missing | — | copies work; no failure e-mail (log `cloud-export: alert e-mail not sent`) |
 | Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
 
 Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown as available.
@@ -559,6 +643,13 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
   files, only the shop's owners read (RLS) and their file links last 10 minutes; GPS and place data are removed before
   storing; uploads are checked by content; tokens are kept as SHA-256; the jobs need the Vault secret; nothing of a
   conversation, file, token or key is logged (errors are logged without content).
+- Cloud folder: OAuth 2.0 authorization code with PKCE (S256) and a random single-use state kept as SHA-256 for 10
+  minutes; the redirect goes only to the function's own address and back only to a `…/<lang>/dashboard?` address saved
+  with the state; the website follows only `login.microsoftonline.com` / `www.dropbox.com` consent addresses. Tokens are
+  encrypted with AES-256-GCM (key derived from `EXPORT_TOKEN_ENCRYPTION_KEY`, the shop/provider/kind as additional data,
+  so a token copied to another row does not open), owners have no column grant on them, they are never logged, and
+  "Odpojiť" deletes them (Dropbox's is revoked). The archive calls `export` with the service role key; the job with the
+  Vault secret. Uploads never replace and PPI sends no delete, move or overwrite to a cloud.
 - Documents: the bucket `shop-docs` is private; owners can only add files they registered (no reading, replacing or
   deleting); everything else goes through `doc-ingest` (owner's login checked; "Open" for the owner too) and
   `shop-files` (database decides), both with the service role inside Supabase.
@@ -591,7 +682,11 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (server only, Sensitive) **and** Supabase function secret | `ASSISTANT_ARCHIVE_SECRET` | the same 32+ random characters in both: the website proves itself to `assistant-archive`; without it the archive is off |
 | Supabase Vault | `ppi_project_url` (`https://<project>.supabase.co`, set by the owner), `ppi_assistant_cron` (made by update 22) | the archive's pg_cron jobs call the function with them |
 | Supabase extensions | `pg_cron`, `pg_net` | the archive's two jobs |
-| Later (Phase B, cloud export) | `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET`, `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `EXPORT_TOKEN_ENCRYPTION_KEY` | not used yet |
+| Supabase function secrets (cloud folder) | `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET` (Azure app registration; the secret expires — note the date) | OneDrive; without them "Pripojiť OneDrive" says it is not set up |
+| Supabase function secrets (cloud folder) | `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` | Dropbox (scoped app, Full Dropbox) |
+| Supabase function secret (cloud folder) | `EXPORT_TOKEN_ENCRYPTION_KEY` | at least 32 random characters: encrypts the cloud tokens; changing it means every shop connects again |
+| Supabase function secrets (cloud folder, e-mail) | `BREVO_API_KEY`, `ALERT_EMAIL_FROM` (a sender verified in Brevo) | the e-mail after 24 hours of failed copies; without them no e-mail |
+| Microsoft Entra / Dropbox App Console | redirect URIs `https://<project>.supabase.co/functions/v1/cloud-export/oauth/onedrive` and `…/oauth/dropbox` | SETUP.md part P |
 | Vercel env and Supabase function secret (optional) | `AI_MODEL` | Claude model for the shop assistant (Vercel) and for describing pictures and reading scans (doc-ingest); default `claude-haiku-5-5` |
 | Supabase function secrets (optional) | `SHOP_DOCS_MAX_FILES`, `SHOP_DOCS_MAX_PAGES`, `SHOP_DOCS_MAX_PICTURES` | documents per shop (defaults 30 files, 500 pages, 300 pictures) |
 | Supabase function secret (optional) | `ANTHROPIC_API_KEY` | item-name translations, Claude column proposals, picture descriptions and scanned pages (else no translations, a rule-based column guess and pictures waiting) |
@@ -614,7 +709,8 @@ src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh
 supabase/migrations/       updates 1–21 (section 9)
 supabase/sql/              from update 22 on: one SQL file per phase, pasted by the owner (section 9)
-supabase/functions/        stock-pull, stripe-checkout, stripe-webhook, doc-ingest, shop-files, assistant-archive
+supabase/functions/        stock-pull, stripe-checkout, stripe-webhook, doc-ingest, shop-files, assistant-archive,
+                           cloud-export
                            (each index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
@@ -651,6 +747,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 20 | `20261017000001_shop_documents.sql` | documents for the assistant: folders (Public made for every shop), documents, pictures, excerpts with full-text and trigram indexes, access keys and sessions, the `owner_*` and `docs_*` functions, `search_shop_docs`, `shop_docs_list`, `shop_file_path`, `unlock_shop_folders` / `lock_shop_folders` / `shop_folder_session`, bucket `shop-docs` and its upload policy; `owner_delete_shop` also refuses a shop with documents |
 | 21 | `20261018000001_shop_page_updates.sql` | one display rule for every shop: `availability_label(quantity, freshness)`, `public_stock` without display modes or hidden items; drops `shops.visibility_mode`, `shops.low_stock_threshold`, `shop_items.is_public`, the owner's item update policy, `availability_preview`, `admin_shops`, `admin_save_shop`; `shops.email`, `facebook_url`, `assistant_label`, `assistant_welcome` (checks, `plain_text`, `clean_contact`, `guard_shop_assistant_texts`, `owner_set_assistant_texts`), `owner_save_shop` and `my_shops` and `public_shops` with them; private columns (`is_private_column`, `mapped_columns`, `keep_columns`, `trim_sample_rows`, `sync_sources.file_columns`); `stock_imports` + `record_stock_import` (last 10 per shop, owners read). Safe to run twice |
 | 22 | `supabase/sql/22_assistant_archive.sql` | conversation archive: `assistant_conversations`, `assistant_messages`, `assistant_attachments`, `shop_assistant_settings` (RLS: members read), the `assistant_*` functions (service role), `owner_set_assistant_retention`, `owner_assistant_conversations`, `assistant_cron_ok`, Vault secret `ppi_assistant_cron`, private bucket `shop-assistant-uploads`, pg_cron jobs `ppi-assistant-tick` and `ppi-assistant-retention` (a notice if pg_cron is off or `ppi_project_url` missing). Safe to run twice |
+| 23 | `supabase/sql/23_cloud_export.sql` | cloud folder: `cloud_connections`, `cloud_oauth_states`, `cloud_export_items` (RLS: members read, never the tokens), export columns and `shopper_deleted_at` on `assistant_conversations`, the `cloud_*` functions (service role), `owner_cloud_retry`, `owner_cloud_backfill`, `assistant_shopper_forget`; `assistant_pdf_done` (queues the copy, returns whether it did), `assistant_empty_ended` and `owner_assistant_conversations` replaced; pg_cron job `ppi-cloud-export-tick`. Safe to run twice |
 
 ## 10. Testing and releasing
 
@@ -687,7 +784,27 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   tries and back-off; owners A/B and visitors: only members read, never the token hash or storage paths, no one else
   writes; the owner list's search (also in the Slovak versions) and dates; keep time 30/90/365 only for the shop's
   owners, expired conversations, forgetting removes everything.
-- `npm run test:functions`: 70 Deno tests — 27 of `assistant-archive` (real types incl. AVIF/GIF/SVG/ZIP refused; GPS
+- `npm run test:db` also checks (update 23): an OAuth state works once and expires; one connection per shop, clean
+  folder paths; a ready PDF is queued only when the shop has a cloud; claims (due, not deleted, cloud not expired, stuck
+  copies taken again); each copied file noted once; back-off 5/10 minutes … 6 hours, Retry-After, 20 tries; done;
+  an expired connection stops copies; the 24-hour e-mail once per failure period and again only after a success; new
+  tokens keep the refresh token when none is given; reconnecting requeues failed copies; the shopper's deletion: gone
+  when not copied, a line without content when copied (also while it is being copied again); owners read the connection
+  but never the tokens and write nothing directly; "Uložiť znova" (also on a copied conversation: its items are checked
+  again) and older conversations only for the shop's owners; visitors nothing; "Odpojiť" deletes the tokens and stops
+  waiting copies.
+- `npm run test:functions`: 90 Deno tests — 19 of `cloud-export` (tokens encrypted, bound to shop and use, refused when
+  changed or with another key; PKCE against RFC 7636; QuickXorHash and the Dropbox content hash against reference
+  implementations, also over 1 MB / 9 MB; names and paths safe for both clouds, share links and `..` refused, month
+  rollover in another time zone; for OneDrive and Dropbox against in-memory stand-ins that refuse any delete or replace:
+  consent URLs, code exchange, refresh (rotation), wrong app secret ≠ expired, folders, never replaced, the folder per
+  conversation with `subory/`, the same file not sent twice, a different one " (2)", an expired access token renewed and
+  stored encrypted, an invalid refresh token → "connect again", a busy cloud retried after its Retry-After, a
+  conversation deleted midway stops at once; nothing copied for a deleted conversation or a shop without a cloud;
+  connect only for owners with the plan, share link explained, state hashed; the redirect: tokens encrypted, folder
+  made, back to Môj obchod, a state works once, refusals; folder actions, Dropbox revoke, retry and older ones; the
+  archive's push needs the service key, the job the Vault secret, the e-mail sent once with its subject and link),
+  28 of `assistant-archive` (a queued PDF is pushed to cloud-export at once and its failure does not matter; real types incl. AVIF/GIF/SVG/ZIP refused; GPS
   emptied and XMP/IPTC removed from JPEG, PNG (with a correct CRC), WebP (flags and size) and HEIC (through iinf/iloc,
   same size, and by scanning); an unreadable EXIF block dropped; file names in the shop's time zone; the logo's PNG twin;
   the PDF read back through its fonts: Slovak, Hungarian, Ukrainian and Greek letters exact, emoji as "?", times,
@@ -734,7 +851,16 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   "Vytvorené Cacadoo PPI · konverzácia … · strana 1/1"; "Vymazať moju konverzáciu"; leaving the page ends it; the
   owner's list, search, dates, keep time, the conversation with photos shown and files opened inline, no download
   buttons; another user sees nothing and gets no links; the owner's delete removes rows, files and PDF; the idle and
-  keep-time jobs; a pasted access key hidden from the AI and the archive; the logo's PNG copy in the PDF);
+  keep-time jobs; a pasted access key hidden from the AI and the archive; the logo's PNG copy in the PDF); the cloud
+  folder (76 checks against OneDrive, Dropbox and Brevo stand-ins with the consent pages intercepted: section texts and
+  default folder, a share link explained, consent refused, OneDrive consent (scope, PKCE, redirect), tokens only
+  encrypted and not readable by the owner, the folder picker (up, new folder, use it, typed path); a shopper's
+  conversation from the chat box with a photo and a PDF copied at once into `<target>/<YYYY-MM>/<…>/konverzacia.pdf`
+  and `subory/`, "Uložené v cloude" in the list and page; "Uložiť znova" sends nothing twice, and only the PDF the owner
+  deleted in the cloud; an expired connection → "Chyba" with the reason, the section's "Pripojiť znova", one e-mail
+  after 24 hours with the link, reconnect copies what waited; older conversations once; the shopper's deletion before
+  and after a copy, the line for the owner and "Odstrániť zo zoznamu"; "Odpojiť" (with a tick), nothing waits without a
+  cloud; Dropbox consent and a copy there; Dropbox token revoked; no delete ever sent; Hungarian and phone width);
   those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
@@ -749,7 +875,8 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | GitHub | code and history | free |
 | Vercel | website, API, MCP, previews | free to start; paid plan for commercial use |
 | Supabase | database, Auth, Storage (incl. the conversation archive's files and PDFs), Edge Functions, pg_cron | free to start; Pro about $25/month when live |
-| Brevo | SMTP for account e-mails | free (300 e-mails/day) |
+| Brevo | SMTP for account e-mails; API for the cloud folder's failure e-mail | free (300 e-mails/day) |
+| Microsoft Entra ID (app registration), Dropbox App Console | the cloud folder's OAuth apps | free |
 | Anthropic API | column proposals, item-name translations, picture descriptions and scanned pages (Supabase), AI search and the shop assistant (Vercel) — optional | pay per use; with Claude Haiku roughly a few cents per 1,000 names translated (once per name) and well under one cent per AI search or assistant message (a photo adds about 1,600 input tokens); capped by `AI_DAILY_LIMIT` and `CHAT_MONTHLY_LIMIT_PER_SHOP` |
 | Stripe | paid plan: payment page, subscriptions, customer portal, Stripe Tax, invoices | no monthly fee; a fee per payment plus Billing and Tax fees (stripe.com/pricing); test mode is free |
 | OpenFreeMap | map tiles | free, no key |

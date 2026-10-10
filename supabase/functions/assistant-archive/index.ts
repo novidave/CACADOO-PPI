@@ -793,6 +793,11 @@ export interface Deps {
   websiteSecret: string | null;
   /** Work that may finish after the reply (EdgeRuntime.waitUntil in Supabase). */
   background: (task: Promise<unknown>) => void;
+  /**
+   * Asks the cloud-export function to copy a conversation to the shop's cloud folder now
+   * (update 23). A failure does not matter: its job copies what waits every 5 minutes.
+   */
+  pushToCloud: (id: string) => Promise<void>;
 }
 
 type Json = Record<string, unknown>;
@@ -851,6 +856,17 @@ async function forget(deps: Deps, id: string): Promise<boolean> {
   return !error;
 }
 
+/**
+ * The shopper's "Vymazať moju konverzáciu": files first, then the rows. When something was
+ * already copied to the shop's cloud folder, the database keeps a line without any content
+ * ("zákazník požiadal o vymazanie" + the cloud folder) so the owner can delete it there.
+ */
+async function forgetForShopper(deps: Deps, id: string): Promise<boolean> {
+  if (!(await removeFiles(deps, id))) return false;
+  const { error } = await deps.db.rpc("assistant_shopper_forget", { p_id: id });
+  return !error;
+}
+
 async function download(deps: Deps, bucket: string, path: string): Promise<Uint8Array | null> {
   const { data, error } = await deps.db.storage.from(bucket).download(path);
   if (error || !data) return null;
@@ -892,7 +908,8 @@ export async function makePdf(deps: Deps, id: string): Promise<boolean> {
       upsert: true,
     });
     if (uploadError) throw new Error(`storing the PDF failed: ${uploadError.message}`);
-    await deps.db.rpc("assistant_pdf_done", { p_id: id, p_path: path, p_name: name, p_error: null });
+    const { data: queued } = await deps.db.rpc("assistant_pdf_done", { p_id: id, p_path: path, p_name: name, p_error: null });
+    if (queued === true) await deps.pushToCloud(id).catch(() => {});
     return true;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -952,7 +969,7 @@ async function shopperDelete(body: Json, deps: Deps) {
   const id = String(body.id ?? "");
   const { data: conv } = await deps.db.rpc("assistant_conversation", { p_id: id, p_token: String(body.token ?? "") });
   if (!conv) return reply(404, { error: "not_found" });
-  return (await forget(deps, id)) ? reply(200, { deleted: true }) : reply(502, { error: "storage" });
+  return (await forgetForShopper(deps, id)) ? reply(200, { deleted: true }) : reply(502, { error: "storage" });
 }
 
 /** A file the shopper took back before sending: stored files first, then the row. */
@@ -1136,6 +1153,16 @@ export async function handler(req: Request): Promise<Response> {
     asCaller: (authorization) => createClient(url, anonKey, { ...options, global: { headers: { Authorization: authorization } } }),
     websiteSecret: Deno.env.get("ASSISTANT_ARCHIVE_SECRET")?.trim() || null,
     background: (task) => (runtime ? runtime.waitUntil(task) : void task),
+    pushToCloud: async (id) => {
+      const response = await fetch(`${url}/functions/v1/cloud-export`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "export", conversation_id: id }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      await response.body?.cancel();
+      if (!response.ok) console.error("assistant-archive: cloud push", id, response.status);
+    },
   });
 }
 

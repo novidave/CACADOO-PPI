@@ -591,8 +591,88 @@ read them in **Môj obchod → Konverzácie asistenta**. Do the steps in this or
    `assistant-archive:`); Vercel → Logs → search `assistant-archive` or `shop-chat`. Nothing of a conversation, file or
    key is ever written to the logs.
 
-Later (cloud export, Phase B — not needed now): `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET`, `DROPBOX_APP_KEY`,
-`DROPBOX_APP_SECRET`, `EXPORT_TOKEN_ENCRYPTION_KEY`.
+The cloud folder (OneDrive / Dropbox) is Part P.
+
+---
+
+## Part P — Cloud folder: conversations into the shop's OneDrive or Dropbox (10 October 2026)
+
+A paid feature on top of Part O: when a conversation ends and its PDF is ready, PPI copies the PDF and the shopper's
+files into the shop's own OneDrive or Dropbox folder: `<folder>/<YYYY-MM>/<YYYY-MM-DD_HH-MM_id>/konverzacia.pdf` and
+`…/subory/`. The owner connects the cloud once in **Môj obchod → Cloudový priečinok**. PPI never overwrites or deletes
+anything there. Part O must be done first. Do the steps in this order; replace `YOUR-PROJECT-ID` with your project's
+id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/23_cloud_export.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal; a notice about pg_cron means Part O step 1 is missing).
+   Safe to run again. Check: `select jobname, schedule from cron.job where jobname = 'ppi-cloud-export-tick';` → 1 row.
+2. **New Edge Function `cloud-export`:** Edge Functions → **Deploy a new function** → **Via Editor** → name
+   `cloud-export` → delete the example code → paste the whole file `supabase/functions/cloud-export/index.ts` →
+   **Deploy** → open the function → switch **off** "Verify JWT" → Save.
+3. **Update `assistant-archive`:** Edge Functions → `assistant-archive` → **Code** → replace everything with the new
+   file `supabase/functions/assistant-archive/index.ts` → **Deploy** ("Verify JWT" stays off).
+4. **Microsoft app (for OneDrive):** <https://entra.microsoft.com> (or portal.azure.com → Microsoft Entra ID) →
+   **App registrations** → **New registration**:
+   - Name `Cacadoo PPI`; Supported account types: **Accounts in any organizational directory and personal Microsoft
+     accounts**; Redirect URI: **Web** →
+     `https://YOUR-PROJECT-ID.supabase.co/functions/v1/cloud-export/oauth/onedrive` → **Register**.
+   - **API permissions** → Add a permission → Microsoft Graph → **Delegated** → tick `Files.ReadWrite` and
+     `offline_access` → Add (the default `User.Read` can stay). No admin consent is needed.
+   - **Certificates & secrets** → New client secret → description `PPI`, expiry **24 months** → Add → copy the
+     **Value** at once (it is shown only now; not the "Secret ID").
+   - **Overview** → copy the **Application (client) ID**.
+   - Put the secret's **expiry date in your calendar**: before it, make a new secret here and replace
+     `ONEDRIVE_CLIENT_SECRET` in Supabase, or every OneDrive copy stops.
+   - Personal Microsoft accounts can connect at once. A shop with a **work or school** account may see "unverified"
+     or need its IT admin's approval until the app has publisher verification (Branding & properties → Publisher
+     verification, needs a Microsoft partner ID).
+5. **Dropbox app:** <https://www.dropbox.com/developers/apps> → **Create app** → **Scoped access** → **Full Dropbox**
+   → a name such as `Cacadoo PPI` → Create.
+   - **Permissions** tab first: tick `files.metadata.read` and `files.content.write` (`account_info.read` is already
+     on) → **Submit**.
+   - **Settings** tab: OAuth 2 → Redirect URIs → add
+     `https://YOUR-PROJECT-ID.supabase.co/functions/v1/cloud-export/oauth/dropbox` → Add. Copy the **App key** and
+     the **App secret** (Show).
+   - The app starts in "Development" status: up to 500 shops can connect; when 50 have connected, Dropbox gives two
+     weeks to **Apply for production** on the same page.
+6. **Supabase → Edge Functions → Secrets** → add (values from steps 4 and 5 and your password manager; never paste
+   them into a chat):
+   - `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET`
+   - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`
+   - `EXPORT_TOKEN_ENCRYPTION_KEY` = 48 random letters and digits from your password manager. It encrypts the shops'
+     cloud tokens: keep it; changing it later means every shop must connect again.
+   - `BREVO_API_KEY` = Brevo → **SMTP & API** → **API keys** → Generate a new API key (an API key `xkeysib-…`, not the
+     SMTP key from Part E).
+   - `ALERT_EMAIL_FROM` = a sender address verified in Brevo (Senders, domains), e.g. the one used for Part E.
+   Nothing new is needed in Vercel.
+7. **Merge the pull request** on GitHub → Vercel deploys.
+8. **Test** on the Cacadoo Paint shop (Pro):
+   - Môj obchod → **Cloudový priečinok** → the folder is `/Cacadoo/Cacadoo Paint shop` → paste a OneDrive share link
+     into the folder field → **Pripojiť OneDrive** → the page explains that share links cannot be written to. Put the
+     path back.
+   - **Pripojiť OneDrive** → sign in with Microsoft → Accept → back in Môj obchod: "Cloud je pripojený", your account,
+     the folder, "Pripojené". In OneDrive on the web the folder `Cacadoo/Cacadoo Paint shop` exists.
+   - **Prehľadávať priečinky** → **↑ O úroveň vyššie** → **Nový priečinok** `Test` → **Vytvoriť** → **Ukladať sem** →
+     "Priečinok je uložený" (you can switch back the same way).
+   - The shop page in a private window → the assistant → **Pridať fotku alebo PDF** → a photo → a question → close the
+     box (−). Within a minute OneDrive shows `…/2026-10/2026-10-10_HH-MM_xxxxxxxx/konverzacia.pdf` and `subory/` with
+     the photo. Môj obchod → **Konverzácie asistenta**: "Uložené v cloude" and the folder.
+   - **Uložiť znova** on it → nothing new appears in OneDrive (no copies). Delete `konverzacia.pdf` in OneDrive →
+     **Uložiť znova** → it is there again.
+   - **Uložiť staršie konverzácie** → from a day before Part O was set up to today → "Na uloženie do cloudu čaká
+     konverzácií: N" → they appear in OneDrive.
+   - **Odpojiť** (tick) → "Cloud je odpojený" → **Pripojiť Dropbox** → sign in → Allow → one more conversation →
+     it appears in Dropbox under `Cacadoo/Cacadoo Paint shop/…`.
+   - Optional, the failure e-mail: in your Microsoft account → **Privacy → Apps and services** (or
+     <https://account.live.com/consent/Manage>) → remove "Cacadoo PPI" → the next conversation shows "Cloud: chyba –
+     Pripojenie k cloudu vypršalo – pripojte ho znova" and the section shows **Pripojiť znova**; after 24 hours the
+     shop's owners get one e-mail with that subject. **Pripojiť znova** copies what waited.
+   - After 10 minutes: `select status, return_message, start_time from cron.job_run_details order by start_time desc
+     limit 5;` → `succeeded`.
+9. If something does not work: Supabase → Edge Functions → `cloud-export` → **Logs** (lines start with
+   `cloud-export:`; tokens, keys and file contents are never logged). "Pripojenie cloudu ešte nie je nastavené" means
+   a secret from step 6 is missing; Microsoft's "redirect URI mismatch" (AADSTS50011) or Dropbox's "Invalid
+   redirect_uri" means the address in step 4 or 5 differs from your project's.
 
 ---
 
@@ -625,3 +705,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 11. Documents and pictures for the assistant (paid plan): PDFs, AI picture descriptions, private folders with access keys | ✅ built — set up Part M |
 | 12. Shop page updates: no other shops on Pro product pages, shop e-mail and Facebook, the assistant's own texts, "Môj obchod" as dropdowns with private files and the last 10 stock files, one display rule (quantity as in the file) | ✅ built — set up Part N |
 | 13. Assistant conversations (paid plan): archive with files (GPS removed), a PDF per conversation, "Konverzácie asistenta", keep time 30/90/365 days | ✅ built — set up Part O |
+| 14. Cloud folder (paid plan): each finished conversation (PDF + files) copied into the shop's OneDrive or Dropbox; status per conversation, "Uložiť znova", older conversations, e-mail after 24 hours of failures | ✅ built — set up Part P |

@@ -2179,4 +2179,352 @@ end $$;
 reset role;
 drop table archive_test;
 
+\echo '--- cloud export: connections, OAuth states, copies, retries, deletions, owners only'
+do $$ begin
+  assert (select schedule from cron.job where jobname = 'ppi-cloud-export-tick') = '2-59/5 * * * *', 'the 5-minute job';
+  assert (select command from cron.job where jobname = 'ppi-cloud-export-tick') like '%/functions/v1/cloud-export%'
+     and (select command from cron.job where jobname = 'ppi-cloud-export-tick') like '%x-ppi-cron%', 'calls the function with the secret';
+end $$;
+
+create temporary table cloud_test (k text primary key, v text);
+grant all on cloud_test to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_owner uuid := '00000000-0000-0000-0000-00000000000a';
+  v_take jsonb;
+  v_open jsonb;
+  v_id uuid;
+  v_token text;
+  v_att jsonb;
+  v_second uuid;
+  v_third uuid;
+begin
+  -- OAuth round trips: once, for 10 minutes
+  perform public.cloud_state_save('state-1', v_a, 'onedrive', v_owner, 'verifier-1', '/Cacadoo/Potraviny Centrum',
+                                   'https://ppi.example/sk/dashboard?shop=potraviny-centrum&at=cloud');
+  v_take := public.cloud_state_take('state-1');
+  assert v_take ->> 'shop_id' = v_a::text and v_take ->> 'provider' = 'onedrive' and v_take ->> 'verifier' = 'verifier-1'
+     and v_take ->> 'folder_path' = '/Cacadoo/Potraviny Centrum' and v_take ->> 'user_id' = v_owner::text, 'the state';
+  assert public.cloud_state_take('state-1') is null, 'a state works only once';
+  perform public.cloud_state_save('state-2', v_a, 'dropbox', v_owner, 'v', '/Cacadoo/A', 'https://ppi.example/');
+  update public.cloud_oauth_states set expires_at = now() - interval '1 second' where state_hash = 'state-2';
+  assert public.cloud_state_take('state-2') is null, 'an expired state is refused';
+  assert public.cloud_state_take('made-up') is null;
+  begin
+    perform public.cloud_state_save('state-3', v_a, 'gdrive', v_owner, 'v', '/x', 'https://ppi.example/');
+    raise exception 'Google Drive was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    perform public.cloud_state_save('state-4', v_a, 'dropbox', v_owner, 'v', '/x', 'javascript:alert(1)');
+    raise exception 'a return address that is not a web page was accepted';
+  exception when check_violation then null;
+  end;
+
+  -- a conversation whose PDF is ready before the shop has a cloud: nothing waits
+  v_open := public.assistant_open(v_a, 'sk', repeat('f', 32));
+  v_id := (v_open ->> 'id')::uuid;
+  v_token := v_open ->> 'token';
+  v_att := public.assistant_add_attachment(v_id, v_token, 'štítok.jpg', 'jpeg', 1000, true);
+  perform public.assistant_add_turn(v_id, v_token, v_a,
+    jsonb_build_object('body', 'Máte farbu na plot?', 'lang', 'sk', 'attachments', jsonb_build_array(v_att ->> 'id')),
+    '{"body": "Áno, máme."}');
+  perform public.assistant_end(v_id, v_token, 'closed');
+  assert not public.assistant_pdf_done(v_id, v_a || '/' || v_id || '/x.pdf', 'x.pdf', null), 'no cloud: not queued';
+  assert (select export_status from public.assistant_conversations where id = v_id) = 'none', 'no cloud: nothing waits';
+  assert not public.cloud_export_enqueue(v_id);
+
+  -- connecting (one per shop)
+  perform public.cloud_connection_save(v_a, 'onedrive', 'Ján Novák', 'jan@example.invalid', '/Cacadoo/Potraviny Centrum',
+    'enc:access', 'enc:refresh', now() + interval '1 hour', 'Files.ReadWrite offline_access', 'https://ppi.example', v_owner);
+  begin
+    perform public.cloud_connection_save(v_b, 'onedrive', null, null, 'Cacadoo/B', 'a', 'r', null, null, null, v_owner);
+    raise exception 'a folder without a leading / was accepted';
+  exception when check_violation then null;
+  end;
+  assert public.cloud_export_enqueue(v_id), 'with a cloud the conversation is queued';
+  assert (select export_status from public.assistant_conversations where id = v_id) = 'pending';
+
+  -- taking copies: running, not twice; stuck for 15 minutes → taken again
+  assert (select array_agg(x) from public.cloud_export_claim(5) x) = array[v_id], 'the due copy';
+  assert (select export_status from public.assistant_conversations where id = v_id) = 'running';
+  assert not exists (select 1 from public.cloud_export_claim(5)), 'never taken twice';
+  update public.assistant_conversations set export_started_at = now() - interval '16 minutes' where id = v_id;
+  assert (select array_agg(x) from public.cloud_export_claim(5, v_id) x) = array[v_id], 'a stuck copy is taken again';
+  assert (select public.cloud_export_data(v_id) -> 'connection' ->> 'access_token_enc') = 'enc:access';
+  assert jsonb_array_length(public.cloud_export_data(v_id) -> 'attachments') = 1
+     and public.cloud_export_data(v_id) -> 'attachments' -> 0 ->> 'name' = 'štítok.jpg', 'the shopper''s files';
+
+  -- what is copied is kept once
+  perform public.cloud_export_item_done(v_id, 'pdf', '/Cacadoo/Potraviny Centrum/2026-10/2026-10-10_14-05_abcd1234/konverzacia.pdf', 'r1', 1234);
+  perform public.cloud_export_item_done(v_id, 'pdf', '/elsewhere/konverzacia.pdf', 'r2', 1234);
+  assert (select count(*) from public.cloud_export_items where conversation_id = v_id) = 1
+     and (select remote_path from public.cloud_export_items where conversation_id = v_id) like '/Cacadoo/%', 'never twice';
+  assert public.cloud_export_data(v_id) -> 'done' ->> 'pdf' like '%/konverzacia.pdf';
+
+  -- failures: again after 5, 10 … minutes, at most every 6 hours, 20 times
+  perform public.cloud_export_finish(v_id, null, 'The cloud did not answer');
+  assert (select export_status = 'failed' and export_attempts = 1 and export_error = 'The cloud did not answer'
+                 and export_next_try between now() + interval '4 minutes' and now() + interval '6 minutes'
+          from public.assistant_conversations where id = v_id), 'first retry after 5 minutes';
+  perform public.cloud_export_finish(v_id, null, 'again');
+  assert (select export_next_try between now() + interval '9 minutes' and now() + interval '11 minutes'
+          from public.assistant_conversations where id = v_id), 'then after 10 minutes';
+  update public.assistant_conversations set export_attempts = 12 where id = v_id;
+  perform public.cloud_export_finish(v_id, null, 'again');
+  assert (select export_next_try between now() + interval '359 minutes' and now() + interval '361 minutes'
+          from public.assistant_conversations where id = v_id), 'at most every 6 hours';
+  update public.assistant_conversations set export_attempts = 19 where id = v_id;
+  perform public.cloud_export_finish(v_id, null, 'again');
+  assert (select export_attempts = 20 and export_next_try is null from public.assistant_conversations where id = v_id), '20 times';
+  assert not exists (select 1 from public.cloud_export_claim(5)), 'no more tries by itself';
+  update public.assistant_conversations set export_attempts = 0 where id = v_id;
+  perform public.cloud_export_finish(v_id, null, 'busy', true, 1800);
+  assert (select export_next_try between now() + interval '29 minutes' and now() + interval '31 minutes'
+          from public.assistant_conversations where id = v_id), 'a busy cloud: not before its Retry-After';
+  perform public.cloud_export_finish(v_id, null, 'a broken file', false);
+  assert (select export_next_try is null from public.assistant_conversations where id = v_id), 'not again when it cannot work';
+
+  -- done
+  update public.assistant_conversations set export_status = 'running' where id = v_id;
+  perform public.cloud_export_finish(v_id, '/Cacadoo/Potraviny Centrum/2026-10/2026-10-10_14-05_abcd1234', null);
+  assert (select export_status = 'done' and exported_at is not null and export_error is null and export_provider = 'onedrive'
+                 and export_path like '%_abcd1234' from public.assistant_conversations where id = v_id);
+  assert not public.cloud_export_enqueue(v_id), 'a copied conversation is not copied again by itself';
+
+  -- a second conversation, waiting; a third one only started
+  v_open := public.assistant_open(v_a, 'hu', repeat('g', 32));
+  v_second := (v_open ->> 'id')::uuid;
+  perform public.assistant_add_turn(v_second, v_open ->> 'token', v_a, '{"body": "Van festék?", "lang": "hu"}', '{"body": "Igen."}');
+  perform public.assistant_end(v_second, v_open ->> 'token', 'closed');
+  assert public.assistant_pdf_done(v_second, 'x/y.pdf', 'y.pdf', null), 'queued: the archive pushes it';
+  assert (select export_status = 'pending' and export_next_try <= now() from public.assistant_conversations where id = v_second),
+    'a ready PDF is queued for the cloud at once';
+  v_third := (public.assistant_open(v_a, 'sk', repeat('h', 32)) ->> 'id')::uuid;
+
+  -- the connection's health: an expired one stops the copies; 24 hours of failures → one e-mail
+  perform public.cloud_connection_result(v_a, 'invalid_grant: the refresh token has expired', true);
+  assert (select status = 'expired' and failing_since is not null and last_error like 'invalid_grant%'
+          from public.cloud_connections where shop_id = v_a);
+  assert not exists (select 1 from public.cloud_export_claim(5)), 'no copies while the connection has expired';
+  assert not exists (select 1 from public.cloud_alerts_due()), 'not before 24 hours';
+  update public.cloud_connections set failing_since = now() - interval '25 hours' where shop_id = v_a;
+  assert (select emails from public.cloud_alerts_due() where shop_id = v_a) = array['owner-a@example.invalid'],
+    'the shop''s owners are told';
+  assert (select shop_name = 'Potraviny Centrum' and site_url = 'https://ppi.example' from public.cloud_alerts_due());
+  perform public.cloud_alert_sent(v_a);
+  assert not exists (select 1 from public.cloud_alerts_due()), 'only once';
+  perform public.cloud_connection_result(v_a, 'still failing', false);
+  assert (select failing_since < now() - interval '24 hours' from public.cloud_connections where shop_id = v_a),
+    'the failures keep their first time';
+  perform public.cloud_connection_result(v_a, null, false);
+  assert (select status = 'ok' and failing_since is null and alert_sent_at is null and last_success_at is not null
+          and last_error is null from public.cloud_connections where shop_id = v_a), 'a success clears it';
+  perform public.cloud_connection_tokens(v_a, 'enc:access-2', null, now() + interval '1 hour');
+  assert (select access_token_enc = 'enc:access-2' and refresh_token_enc = 'enc:refresh' from public.cloud_connections
+          where shop_id = v_a), 'a refresh keeps the refresh token when none comes back';
+
+  -- connecting again retries the failed copies at once
+  update public.assistant_conversations set export_status = 'failed', export_next_try = null, export_attempts = 20
+  where id = v_second;
+  perform public.cloud_connection_save(v_a, 'dropbox', 'Ján', null, '/Cacadoo/Potraviny Centrum', 'enc:a3', 'enc:r3',
+                                       null, null, null, v_owner);
+  assert (select export_status = 'pending' and export_attempts = 0 and export_next_try <= now()
+          from public.assistant_conversations where id = v_second), 'failed copies are tried again';
+  assert (select provider from public.cloud_connections where shop_id = v_a) = 'dropbox', 'one cloud per shop';
+  assert v_third is not null;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_done uuid := (select id from public.assistant_conversations where shop_id = v_a and export_status = 'done' limit 1);
+  v_waiting uuid := (select id from public.assistant_conversations where shop_id = v_a and export_status = 'pending' limit 1);
+  v_b_conv uuid := gen_random_uuid();
+  v_ready uuid;
+  v_again uuid;
+begin
+  -- the shopper deletes: not copied yet → gone, never copied; copied → a stub for the owners, without content
+  assert v_done is not null and v_waiting is not null;
+  assert public.assistant_shopper_forget(v_waiting) = 'deleted', 'not copied yet: deleted, never copied';
+  assert not exists (select 1 from public.assistant_conversations where id = v_waiting);
+  assert public.assistant_shopper_forget(v_done) = 'kept_for_owner', 'copied already: a stub stays';
+  assert (select shopper_deleted_at is not null and first_question is null and message_count = 0 and pdf_path is null
+                 and export_status = 'done' and export_path like '%_abcd1234'
+          from public.assistant_conversations where id = v_done), 'the stub keeps only where it is in the cloud';
+  assert not exists (select 1 from public.assistant_messages where conversation_id = v_done)
+     and not exists (select 1 from public.assistant_attachments where conversation_id = v_done), 'no content left';
+  assert not exists (select 1 from public.assistant_empty_ended(50) x where x = v_done), 'the stub is not forgotten as empty';
+  assert not public.cloud_export_enqueue(v_done) and not exists (select 1 from public.cloud_export_claim(5, v_done)),
+    'a deleted conversation is never copied';
+
+  -- two finished conversations not copied yet, and one of shop B, for the owner checks
+  insert into public.assistant_conversations (id, shop_id, token_hash, message_count, ended_at, pdf_status)
+  values (v_b_conv, v_b, 'x', 2, now(), 'ready');
+  insert into public.assistant_conversations (shop_id, token_hash, message_count, ended_at, pdf_status)
+  values (v_a, 'x', 2, now(), 'ready') returning id into v_ready;
+  insert into public.assistant_conversations (shop_id, token_hash, message_count, ended_at, pdf_status)
+  values (v_a, 'x', 2, now(), 'ready');
+  -- one copied before (its files noted), for "Uložiť znova" on a copied conversation
+  insert into public.assistant_conversations (shop_id, token_hash, message_count, ended_at, pdf_status, export_status,
+                                              exported_at, export_path)
+  values (v_a, 'x', 2, now() - interval '40 days', 'ready', 'done', now() - interval '40 days', '/C/2026-08/2026-08-31_10-00_aaaaaaaa')
+  returning id into v_again;
+  perform public.cloud_export_item_done(v_again, 'pdf', '/C/2026-08/2026-08-31_10-00_aaaaaaaa/konverzacia.pdf', 'r1', 100);
+  insert into cloud_test values ('done', v_done), ('b_conv', v_b_conv), ('ready1', v_ready), ('again', v_again);
+end $$;
+reset role;
+
+-- owners: read their own connection and copies, never the tokens; retry and older conversations
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_done uuid := (select v::uuid from cloud_test where k = 'done');
+  v_today date := (now() at time zone 'Europe/Bratislava')::date;
+  v_ready uuid;
+begin
+  assert (select provider = 'dropbox' and folder_path = '/Cacadoo/Potraviny Centrum' and status = 'ok'
+          from public.cloud_connections where shop_id = v_a), 'owner A sees the connection';
+  begin
+    perform access_token_enc from public.cloud_connections;
+    raise exception 'an owner read a token';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform refresh_token_enc from public.cloud_connections;
+    raise exception 'an owner read a refresh token';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform count(*) from public.cloud_oauth_states;
+    raise exception 'an owner read OAuth states';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.cloud_connections set folder_path = '/x' where shop_id = v_a;
+    raise exception 'an owner changed the connection directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.cloud_connection_save(v_a, 'dropbox', null, null, '/x', 'a', 'r', null, null, null, null);
+    raise exception 'an owner called a function of the copies';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.cloud_disconnect(v_a);
+    raise exception 'an owner disconnected directly';
+  exception when insufficient_privilege then null;
+  end;
+  assert (select count(*) from public.cloud_export_items where shop_id = v_a) = 2, 'the copied files';
+  -- the list shows copies and the shopper's deletions
+  assert (select shopper_deleted_at is not null and export_status = 'done' and export_path like '%_abcd1234'
+          from public.owner_assistant_conversations(v_a) where id = v_done), 'the stub is listed with its cloud folder';
+  -- "Uložiť znova" and older conversations
+  v_ready := (select v::uuid from cloud_test where k = 'ready1');
+  assert public.owner_cloud_retry(v_ready), 'Uložiť znova';
+  assert (select export_status from public.assistant_conversations where id = v_ready) = 'pending';
+  assert not public.owner_cloud_retry(v_done), 'a deleted conversation is not copied again';
+  v_ready := (select v::uuid from cloud_test where k = 'again');
+  assert (select count(*) from public.cloud_export_items where conversation_id = v_ready) = 1;
+  assert public.owner_cloud_retry(v_ready), 'Uložiť znova on a copied conversation';
+  assert (select export_status = 'pending' and export_path like '%_aaaaaaaa' from public.assistant_conversations where id = v_ready),
+    'waits again; where it was copied stays known';
+  assert (select count(*) from public.cloud_export_items where conversation_id = v_ready) = 0,
+    'its files are checked again in the cloud (same ones are not sent twice there)';
+  assert public.owner_cloud_backfill(v_a, v_today, v_today) = 1, 'the other finished one of today';
+  assert public.owner_cloud_backfill(v_a, v_today, v_today) = 0, 'nothing twice';
+  assert public.owner_cloud_backfill(v_a, v_today - 30, v_today - 1) = 0, 'nothing in an earlier period';
+  begin
+    perform public.owner_cloud_backfill(v_a, v_today, v_today - 1);
+    raise exception 'a period ending before it starts was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_cloud_retry((select v::uuid from cloud_test where k = 'b_conv'));
+    raise exception 'owner A retried shop B''s conversation';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_cloud_backfill(v_b, v_today, v_today);
+    raise exception 'owner A copied shop B''s conversations';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  assert (select count(*) from public.cloud_connections) = 0, 'owner B sees no other shop''s cloud';
+  assert (select count(*) from public.cloud_export_items) = 0;
+  begin
+    perform public.owner_cloud_retry((select v::uuid from cloud_test where k = 'done'));
+    raise exception 'owner B retried shop A''s conversation';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_cloud_backfill(v_b, current_date, current_date);
+    raise exception 'a shop without a cloud copied';
+  exception when raise_exception then
+    if sqlerrm <> 'no_cloud' then raise; end if;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  begin
+    perform count(*) from public.cloud_connections;
+    raise exception 'a visitor read a cloud connection';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.cloud_state_take('x');
+    raise exception 'a visitor took an OAuth state';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- "Odpojiť": tokens gone, waiting copies are not made
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  -- copied before, then waiting again ("Uložiť znova") with no files noted: the shopper's deletion still leaves the line
+  assert public.assistant_shopper_forget((select v::uuid from cloud_test where k = 'again')) = 'kept_for_owner',
+    'copied before: a stub stays even while it is copied again';
+  assert (select export_status = 'none' and export_path like '%_aaaaaaaa' and shopper_deleted_at is not null
+          from public.assistant_conversations where id = (select v::uuid from cloud_test where k = 'again'));
+  update public.assistant_conversations set export_status = 'pending', export_next_try = now()
+  where shop_id = v_a and shopper_deleted_at is null and pdf_status = 'ready';
+  assert public.cloud_disconnect(v_a);
+  assert not exists (select 1 from public.cloud_connections where shop_id = v_a), 'the tokens are deleted';
+  assert not exists (select 1 from public.assistant_conversations where shop_id = v_a and export_status in ('pending', 'running', 'failed')),
+    'nothing waits any more';
+  assert (select export_status from public.assistant_conversations where id = (select v::uuid from cloud_test where k = 'done')) = 'done',
+    'copies made stay marked';
+  assert not public.cloud_disconnect(v_a), 'only once';
+  delete from public.assistant_conversations where shop_id in (v_a, (select id from public.shops where slug = 'drogeria-kostolne'));
+end $$;
+reset role;
+drop table cloud_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'
