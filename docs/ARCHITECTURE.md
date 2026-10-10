@@ -1,6 +1,6 @@
 # Architecture (as built)
 
-Status 9 October 2026. How PPI works from the shop's stock file to a shopper's screen and an AI assistant's answer:
+Status 10 October 2026. How PPI works from the shop's stock file to a shopper's screen and an AI assistant's answer:
 the parts, how data flows between them, where every rule lives, how it is configured and tested, and what happens when
 something breaks. What PPI does for its users is in `docs/PRD.md`.
 
@@ -31,7 +31,10 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
    also answer from the shop's own **documents and pictures**: the owner's browser reads each PDF (pdf.js), the Edge
    Function **`doc-ingest`** stores it and its text as written and lets Claude describe its pictures; private folders
    open only with an access key, and the Edge Function **`shop-files`** hands out 10-minute file addresses only for
-   what the database allows.
+   what the database allows. Every conversation is kept for the shop's owners by the Edge Function
+   **`assistant-archive`**: the shopper's files go straight to it (GPS removed before storing), the website records each
+   exchange, and when a conversation ends (closed, or 30 minutes idle — a pg_cron job every 5 minutes) it makes one PDF;
+   the owners read conversations in "Konverzácie asistenta"; a daily job deletes them after the shop's keep time.
 
 ```text
 SHOP
@@ -49,6 +52,9 @@ SUPABASE -----------------------------------------------------------------------
   Edge Functions stripe-checkout (owner's login -> Stripe page) | stripe-webhook (signed event -> subscriptions)
   Edge Functions doc-ingest (owner's login: register, text -> excerpts, Claude looks at pictures, delete)
                | shop-files (database says yes -> 10-minute signed file address)
+  Edge Function assistant-archive (website secret: start/record/end/delete | shopper's token: upload, GPS removed
+               | owner's login: file links, delete | pg_cron + Vault secret: tick every 5 min, keep time daily)
+               -> PDF per conversation (pdf-lib, DejaVu Sans) | Storage shop-assistant-uploads (private)
         ^ ^
         | +--> STRIPE: Checkout, customer portal, Stripe Tax, invoices (keys only in function secrets)
                                    |
@@ -57,6 +63,7 @@ WEBSITE (Next.js 16 on Vercel)     v
   public API /api/v1 + OpenAPI    | MCP server /mcp | /api/ai-search (Claude Haiku + search_stock)
   /api/shops/[slug]/chat (shop assistant, paid plan: Claude Haiku + this shop's stock and allowed documents)
   /api/shops/[slug]/access (access key -> HttpOnly session cookie) | /api/shops/[slug]/files/... (-> shop-files)
+  /api/shops/[slug]/conversation (start / end / delete / discard -> assistant-archive) | dashboard/conversations/[id]
                                    |
 READERS                            v
   shoppers | shop owners | search engines and AI crawlers | AI assistants (MCP) | tools (API)
@@ -299,9 +306,9 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 
 - The shop page renders `ShopChat` (a collapsed box, client component) only when `ANTHROPIC_API_KEY` is set and
   `shop_has_plan(shop)` is true; everything else on the page stays server-rendered. The browser keeps the
-  conversation and sends `{lang, history (last 8, text only), message, photo?}`; a photo is shrunk to at most
-  1568 px, JPEG quality 0.85, base64, and sent with that one message only (later messages carry "[photo]" and what
-  was read from it).
+  conversation and sends `{lang, history (last 8, text only), message, attachments?, conversation?}`; a photo is
+  shrunk to at most 1568 px, JPEG quality 0.85, base64, and sent with that one message only (later messages carry
+  "[files: …]" and what was read from it).
 - The route takes the shop from the address (`public_shops`, active shops only), checks the photo (JPEG, at most about
   2 MB), then `shop_chat_hit()` (plan, 20 an hour per caller, `CHAT_MONTHLY_LIMIT_PER_SHOP`, default 1,000), then runs
   Claude Haiku (`claude-haiku-5-5`, effort low — medium with a photo, 4,096 tokens per turn, prompt caching) with a
@@ -315,6 +322,14 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `shop_limit` 429, `bad_photo` 400, `failed` 502 — with the reason for a logged-in owner, logged as `shop-chat: …`).
 - "Copy list" puts the list as text on the clipboard; "Print list" marks the list and prints with a print style that
   leaves out everything else (`globals.css`).
+
+- With the archive on (2.11) the request also carries `conversation {id, token}` and `attachments` (up to 4: `{id, name,
+  kind, image?, text?}` — a picture as a ≤ 1568 px JPEG made in the browser, a PDF as the text of its first 5 pages
+  read in the browser with pdf.js; 3.9 MB of pictures at most, under Vercel's 4.5 MB). The pictures go to Claude as
+  image blocks, the rest as one text block listing the files with each PDF's text in `<file_text>` (information only,
+  never instructions). The structured answer also has `language` (ISO 639-1 of the shopper's message), `message_sk`
+  and `answer_sk` (the Slovak versions for the archive, "" when already Slovak). Access keys pasted into the chat
+  (`XXXX-XXXX-XXXX-XXXX-XXXX`) are replaced by "[•••]" in the message, the history and PDF text (`hideAccessKeys`).
 
 ### 2.10 Documents for the assistant (migration 20, `supabase/functions/doc-ingest`, `supabase/functions/shop-files`)
 
@@ -369,6 +384,60 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   files with the service role first, then the row; pictures and excerpts go with it (foreign keys). A shop with
   documents cannot be deleted until they are.
 
+### 2.11 Conversation archive (database update 22, `supabase/sql/22_assistant_archive.sql`, `supabase/functions/assistant-archive`)
+
+- **Tables** (RLS on, members of the shop read; only the service role writes): `assistant_conversations` (token hash,
+  languages, times, end reason, counts, first question, PDF state with up to 3 tries 10/20 minutes apart),
+  `assistant_messages` (role, body, `body_owner` = Slovak version, `lang`, `cards`, `attachment_ids`),
+  `assistant_attachments` (name, real kind, bytes, storage and preview paths — owners get name, kind and size only),
+  `shop_assistant_settings` (`retention_days` 30/90/365). Database functions for the service role only:
+  `assistant_open` (paid plan, active shop, 30 new conversations an hour per caller hash and shop in `api_usage`,
+  returns `{id, token}`; the token is 64 hex characters, kept as SHA-256), `assistant_conversation`,
+  `assistant_add_attachment` (open conversation, ≤ 10, the five kinds, ≤ 10 MB, path `<shop>/<conv>/files/<id>.<ext>`,
+  preview `….preview.jpg`), `assistant_discardable` + `assistant_drop_attachment`, `assistant_card` (keeps only name,
+  price, availability, data_time, quantity, note), `assistant_add_turn(id, token, shop_id, shopper, assistant)` (only
+  into that shop's open conversation; links only its own files not yet linked; the shopper's time within 3 minutes),
+  `assistant_end`, `assistant_end_idle(30)` (ended at the last message), `assistant_empty_ended`, `assistant_pdf_todo`,
+  `assistant_pdf_data`, `assistant_pdf_done`, `assistant_expired` (keep time after the last message), `assistant_files`,
+  `assistant_forget`, `assistant_cron_ok(secret)` (compares with the Vault secret `ppi_assistant_cron`, made by the
+  file). For owners: `owner_set_assistant_retention`, `owner_assistant_conversations(shop, q, from, to, limit, offset)`
+  (search over every message and its Slovak version with `matches_all_words(search_text(…))`, days in the shop's time
+  zone, only conversations with messages).
+- **The function** (`assistant-archive`, one file, Verify JWT off) checks every caller itself:
+  - the website (header `x-ppi-archive` = `ASSISTANT_ARCHIVE_SECRET`, compared in constant time): `start`, `record`,
+    `end` (the PDF is made after the reply with `EdgeRuntime.waitUntil`; a conversation without messages is forgotten),
+    `delete` (files first, then the rows) and `discard` (one file taken back);
+  - the shopper's browser (multipart, the conversation's id and token): `upload` — the real type from the first bytes
+    (JPEG `FFD8FF`, PNG, RIFF/WEBP, ISO-BMFF `ftyp` with a HEIC brand, `%PDF-`; AVIF, GIF, SVG, ZIP… refused), 10 MB,
+    then **GPS and place data removed** before storing: JPEG — the EXIF GPS directory emptied in place (values zeroed,
+    0 entries; orientation and the rest kept; an unreadable EXIF block dropped), XMP and Photoshop/IPTC segments
+    dropped; PNG — `eXIf` emptied the same way with a new CRC, XMP and raw-profile text chunks dropped; WebP — `EXIF`
+    emptied, `XMP ` dropped, the VP8X flags and RIFF size fixed; HEIC — the Exif and XMP items found through
+    `meta/iinf/iloc` and blanked in place (same size, offsets stay valid), else a scan of the file for EXIF and XMP
+    blocks. The browser's preview (800 px JPEG) is checked and cleaned too. Stored with the service role, never
+    overwritten (`upsert: false`); if storing fails the row is dropped again;
+  - the shop's owners (their login; RLS decides): `owner_links` (10-minute signed addresses of the originals and
+    previews, opened inline in the browser) and `owner_delete`;
+  - the jobs (header `x-ppi-cron` = the Vault secret, checked by `assistant_cron_ok`): `tick` (end idle conversations,
+    forget empty ones, make up to 3 missing PDFs) and `retention` (delete what is past the keep time).
+- **PDF** (pdf-lib 1.17.1 + fontkit; DejaVu Sans and Bold subset to Latin, Latin Extended-A, Greek, Cyrillic and
+  punctuation, embedded as base64 with the Bitstream Vera license): A4, the logo (PNG twin of the shop's WebP logo, or a
+  PNG/JPEG logo) and the shop's name, start and end, the shopper's and page language (`Intl.DisplayNames` in Slovak),
+  each message with its time and role, the Slovak version smaller and grey, the cards as a table, picture previews as
+  110 pt thumbnails four to a row with their names, other files listed, unlinked files under "Ďalšie súbory", the
+  footer centred on every page. About 0.1–0.2 s of CPU for a long conversation. Stored as
+  `<shop>/<conversation>/<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`.
+- **Website:** `lib/assistantArchive.ts` (server only: `archiveEnabled()`, calls with the secret, `uploadUrl()` =
+  `<SUPABASE_URL>/functions/v1/assistant-archive`), `/api/shops/[slug]/conversation` (start/end/delete/discard; 60 a
+  minute per caller), the chat route (opens a conversation when none is given, records each exchange; a conversation
+  that ended meanwhile is followed by a new one, which the reply names), `ShopChat` (files chosen → previews and AI
+  copies made in the browser → upload straight to the function → send; close, "New conversation", unmount and
+  `pagehide` end it with `sendBeacon`), the dashboard section `Conversations.tsx` and the page
+  `dashboard/conversations/[id]` (RLS reads + `owner_links`; no download buttons).
+- **Jobs:** `ppi-assistant-tick` (`*/5 * * * *`) and `ppi-assistant-retention` (`17 3 * * *`) call
+  `<Vault ppi_project_url>/functions/v1/assistant-archive` with `net.http_post` and the Vault secret
+  `ppi_assistant_cron`.
+
 ## 3. Main flows step by step
 
 **A shopper searches "farba":** browser → Vercel → `/[lang]?q=farba` server component → `search_stock('farba')` with
@@ -416,6 +485,16 @@ types it under the shop's chat → `unlock_shop_folders()` → cookie → the ne
 trade price appears as "Price in “Trade price list 2026”, page 2: 18,40 €" next to the shop's own price → "Lock again"
 or 12 hours later it is closed.
 
+**A shopper sends a photo and a PDF to a paid shop's assistant:** "Add photo or PDF" → the browser makes a 1568 px
+JPEG for the AI and an 800 px preview, reads the PDF's text → `/api/shops/{slug}/conversation` `start` → the files go
+straight to `assistant-archive` (`upload`: type checked, GPS removed, stored) → "Send" → the chat route runs Claude with
+the photo and the PDF text, then `record` stores the message, the answer, the Slovak versions and the cards → the
+shopper closes the box → `end` (sendBeacon) → the PDF is made in the background → the owner opens "Konverzácie
+asistenta" and reads it.
+
+**30 minutes without a message:** pg_cron `ppi-assistant-tick` → `assistant-archive` `tick` → `assistant_end_idle(30)`
+→ the PDF is made; once a day `ppi-assistant-retention` deletes conversations past the shop's keep time with their files.
+
 **An AI assistant asks "who has paint in Budince?":** MCP `search_stock(query="paint", near="Budince")` →
 `town_center` → `search_stock` with a radius → items with price, availability, freshness and `source_url`. (A search
 for the town name alone also works: `query="Budince"`.)
@@ -454,6 +533,10 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | The owner leaves during an upload | — | the document shows "Processing", after an hour "Error – upload interrupted: delete it and upload it again" |
 | `SESSION_COOKIE_SECRET` missing | no "I have an access key" field; Public documents still used | — |
 | `shop-files` not deployed | pictures and "Open PDF" links do not open (404) | — |
+| `ASSISTANT_ARCHIVE_SECRET` missing (Vercel) or `assistant-archive` not deployed | the assistant works as before: no privacy line, files only read for the answer, nothing kept | "Konverzácie asistenta" stays empty; Vercel log `assistant-archive: … failed` |
+| The two secrets differ | the assistant answers; nothing is kept | Vercel log `assistant-archive: start failed (secret)` |
+| pg_cron / pg_net off or `ppi_project_url` missing | — | idle conversations stay "prebieha" and get no PDF until closed; nothing is deleted after the keep time (`cron.job_run_details` shows the error) |
+| A PDF cannot be made (storage, bad data) | — | tried 3 times, 10 and 20 minutes apart; then "PDF: nepodarilo sa vytvoriť" on the conversation; log `assistant-archive: pdf …` |
 | Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
 
 Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown as available.
@@ -471,6 +554,11 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 - Shop assistant: its tools are bound to one shop on the server (the model only ever sees that shop's items and
   refs); every message passes `shop_chat_hit()` (plan + limits); photos are checked to be JPEG, never stored or logged;
   no CORS. The limit functions are callable with the public key, so someone could use up a limit directly (no cost).
+- Conversation archive: the bucket `shop-assistant-uploads` is private with no policies (only the service role inside
+  `assistant-archive`); only the website (secret) writes messages, only the conversation's token adds or deletes its
+  files, only the shop's owners read (RLS) and their file links last 10 minutes; GPS and place data are removed before
+  storing; uploads are checked by content; tokens are kept as SHA-256; the jobs need the Vault secret; nothing of a
+  conversation, file, token or key is logged (errors are logged without content).
 - Documents: the bucket `shop-docs` is private; owners can only add files they registered (no reading, replacing or
   deleting); everything else goes through `doc-ingest` (owner's login checked; "Open" for the owner too) and
   `shop-files` (database decides), both with the service role inside Supabase.
@@ -500,6 +588,10 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (optional) | `AI_DAILY_LIMIT` | AI searches per day for the whole site (default 500) |
 | Vercel env (optional) | `CHAT_MONTHLY_LIMIT_PER_SHOP` | shop assistant messages per shop per calendar month (default 1,000; 0 = assistants off) |
 | Vercel env (server only) | `SESSION_COOKIE_SECRET` | at least 32 random characters: signs the access-key session cookie; without it "I have an access key" is off |
+| Vercel env (server only, Sensitive) **and** Supabase function secret | `ASSISTANT_ARCHIVE_SECRET` | the same 32+ random characters in both: the website proves itself to `assistant-archive`; without it the archive is off |
+| Supabase Vault | `ppi_project_url` (`https://<project>.supabase.co`, set by the owner), `ppi_assistant_cron` (made by update 22) | the archive's pg_cron jobs call the function with them |
+| Supabase extensions | `pg_cron`, `pg_net` | the archive's two jobs |
+| Later (Phase B, cloud export) | `ONEDRIVE_CLIENT_ID`, `ONEDRIVE_CLIENT_SECRET`, `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `EXPORT_TOKEN_ENCRYPTION_KEY` | not used yet |
 | Vercel env and Supabase function secret (optional) | `AI_MODEL` | Claude model for the shop assistant (Vercel) and for describing pictures and reading scans (doc-ingest); default `claude-haiku-5-5` |
 | Supabase function secrets (optional) | `SHOP_DOCS_MAX_FILES`, `SHOP_DOCS_MAX_PAGES`, `SHOP_DOCS_MAX_PICTURES` | documents per shop (defaults 30 files, 500 pages, 300 pictures) |
 | Supabase function secret (optional) | `ANTHROPIC_API_KEY` | item-name translations, Claude column proposals, picture descriptions and scanned pages (else no translations, a rule-based column guess and pictures waiting) |
@@ -517,11 +609,13 @@ src/app/api, mcp, auth     REST API + OpenAPI, MCP server, e-mail link landing /
 src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
 src/components/            ShopMap, FolderSync, AiSearch, ShopChat, DocUpload, FolderKeyForm, ShopForm, LogoInput,
                            DashboardSection, RecentImports, ContactLinks, …
-src/lib/                   data, publicApi, aiSearch, shopChat, docsAccess, pdfRead, names, apiHttp, auth, format, …
+src/lib/                   data, publicApi, aiSearch, shopChat, assistantArchive, docsAccess, pdfRead, names, apiHttp, …
 src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh
-supabase/migrations/       20 numbered SQL files (section 9)
-supabase/functions/        stock-pull, stripe-checkout, stripe-webhook, doc-ingest, shop-files (each index.ts + tests), deno.json
+supabase/migrations/       updates 1–21 (section 9)
+supabase/sql/              from update 22 on: one SQL file per phase, pasted by the owner (section 9)
+supabase/functions/        stock-pull, stripe-checkout, stripe-webhook, doc-ingest, shop-files, assistant-archive
+                           (each index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
 public/                    logo, app icons, sample stock files; MapLibre worker and pdf.js files copied at build
@@ -529,6 +623,9 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 ```
 
 ## 9. Migrations (all applied by copy-paste in the Supabase SQL Editor)
+
+Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has one file in `supabase/sql/`
+(`npm run test:db` applies both, in this order).
 
 | # | File | Adds |
 | --- | --- | --- |
@@ -553,6 +650,7 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | 19 | `20261016000001_shop_assistant.sql` | shop assistant: `shop_chat_usage`, `shop_chat_hit` (paid plan, 20 an hour per caller, monthly cap per shop) |
 | 20 | `20261017000001_shop_documents.sql` | documents for the assistant: folders (Public made for every shop), documents, pictures, excerpts with full-text and trigram indexes, access keys and sessions, the `owner_*` and `docs_*` functions, `search_shop_docs`, `shop_docs_list`, `shop_file_path`, `unlock_shop_folders` / `lock_shop_folders` / `shop_folder_session`, bucket `shop-docs` and its upload policy; `owner_delete_shop` also refuses a shop with documents |
 | 21 | `20261018000001_shop_page_updates.sql` | one display rule for every shop: `availability_label(quantity, freshness)`, `public_stock` without display modes or hidden items; drops `shops.visibility_mode`, `shops.low_stock_threshold`, `shop_items.is_public`, the owner's item update policy, `availability_preview`, `admin_shops`, `admin_save_shop`; `shops.email`, `facebook_url`, `assistant_label`, `assistant_welcome` (checks, `plain_text`, `clean_contact`, `guard_shop_assistant_texts`, `owner_set_assistant_texts`), `owner_save_shop` and `my_shops` and `public_shops` with them; private columns (`is_private_column`, `mapped_columns`, `keep_columns`, `trim_sample_rows`, `sync_sources.file_columns`); `stock_imports` + `record_stock_import` (last 10 per shop, owners read). Safe to run twice |
+| 22 | `supabase/sql/22_assistant_archive.sql` | conversation archive: `assistant_conversations`, `assistant_messages`, `assistant_attachments`, `shop_assistant_settings` (RLS: members read), the `assistant_*` functions (service role), `owner_set_assistant_retention`, `owner_assistant_conversations`, `assistant_cron_ok`, Vault secret `ppi_assistant_cron`, private bucket `shop-assistant-uploads`, pg_cron jobs `ppi-assistant-tick` and `ppi-assistant-retention` (a notice if pg_cron is off or `ppi_project_url` missing). Safe to run twice |
 
 ## 10. Testing and releasing
 
@@ -580,7 +678,24 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
   plan and the shop's owner; sample rows keep no private columns (before and after approval); import reports keep only
   the approved columns (nothing before approval), the last 10 per shop, owners read only their own, nobody else reads
   or writes them.
-- `npm run test:functions`: 43 Deno tests — 13 of `doc-ingest` (text kept as written, pages kept apart, long pages
+- `npm run test:db` also checks (update 22): the two jobs and the Vault secret exist and only the right secret passes;
+  no plan / inactive shop → no conversation; 30 new conversations an hour per caller and shop; file names cleaned of
+  paths and reserved characters, only the five kinds, 10 MB, 10 per conversation, a failed upload forgotten; a file taken
+  back only with the right token and only before it is sent; a turn only into its own shop's open conversation, only
+  its own files linked once, cards keep only their fields, a future time refused, an empty answer refused; ended
+  conversations take nothing more; 30 minutes idle ends at the last message; empty ones are listed for forgetting; PDF
+  tries and back-off; owners A/B and visitors: only members read, never the token hash or storage paths, no one else
+  writes; the owner list's search (also in the Slovak versions) and dates; keep time 30/90/365 only for the shop's
+  owners, expired conversations, forgetting removes everything.
+- `npm run test:functions`: 70 Deno tests — 27 of `assistant-archive` (real types incl. AVIF/GIF/SVG/ZIP refused; GPS
+  emptied and XMP/IPTC removed from JPEG, PNG (with a correct CRC), WebP (flags and size) and HEIC (through iinf/iloc,
+  same size, and by scanning); an unreadable EXIF block dropped; file names in the shop's time zone; the logo's PNG twin;
+  the PDF read back through its fonts: Slovak, Hungarian, Ukrainian and Greek letters exact, emoji as "?", times,
+  Slovak versions, the cards table, files, the footer on every page of a long conversation, thumbnails embedded; only
+  the website's secret starts/records/ends/deletes; database refusals; ending makes the PDF after the reply, an empty
+  conversation is forgotten; delete and take-back remove files before rows; uploads by content, GPS removed, never
+  overwritten, refused types and sizes, storage failure rolled back; owners need their login and membership; jobs need
+  the Vault secret; a PDF failure is noted for a retry), 13 of `doc-ingest` (text kept as written, pages kept apart, long pages
   split without losing a word, language found for six languages, limits from the secrets, no login / another shop's
   owner never reaches the service role, limits and refusals when registering, the PDF must be in storage, text and
   pictures checks, the AI's description and scan text saved and failures kept for a retry, no AI without the plan or
@@ -611,7 +726,15 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
   private files with folder, date and key on/off, Open (302 to a signed address, 401 without login) and Delete; a file
   with purchase price and supplier columns uploaded before and after approving the columns: no private value stored
   anywhere, every column name in the drop-downs; 10 report cards, errors card, arrows, the full report; on a phone
-  only the first section open, choices remembered, cards swiped, no sideways page scroll);
+  only the first section open, choices remembered, cards swiped, no sideways page scroll); the conversation archive
+  (73 checks: privacy line and link; a photo with GPS, a HEIC and a PDF stored by content under shop/conversation with
+  GPS and places gone and the picture unchanged; the AI gets the photo once, the PDF text and the HEIC note; turns,
+  cards with Slovak availability and data time, Hungarian messages with their Slovak versions; a file taken back is
+  deleted; closing ends the conversation and the PDF (read with pdftotext) has the shop, both languages, file names and
+  "Vytvorené Cacadoo PPI · konverzácia … · strana 1/1"; "Vymazať moju konverzáciu"; leaving the page ends it; the
+  owner's list, search, dates, keep time, the conversation with photos shown and files opened inline, no download
+  buttons; another user sees nothing and gets no links; the owner's delete removes rows, files and PDF; the idle and
+  keep-time jobs; a pasted access key hidden from the AI and the archive; the logo's PNG copy in the PDF);
   those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
@@ -625,7 +748,7 @@ docs/                      PRD, ARCHITECTURE, SHOP_PC_SETUP · SETUP.md and CLAU
 | Edge or Chrome | PPI app window on the shop PC | free |
 | GitHub | code and history | free |
 | Vercel | website, API, MCP, previews | free to start; paid plan for commercial use |
-| Supabase | database, Auth, Storage, Edge Function | free to start; Pro about $25/month when live |
+| Supabase | database, Auth, Storage (incl. the conversation archive's files and PDFs), Edge Functions, pg_cron | free to start; Pro about $25/month when live |
 | Brevo | SMTP for account e-mails | free (300 e-mails/day) |
 | Anthropic API | column proposals, item-name translations, picture descriptions and scanned pages (Supabase), AI search and the shop assistant (Vercel) — optional | pay per use; with Claude Haiku roughly a few cents per 1,000 names translated (once per name) and well under one cent per AI search or assistant message (a photo adds about 1,600 input tokens); capped by `AI_DAILY_LIMIT` and `CHAT_MONTHLY_LIMIT_PER_SHOP` |
 | Stripe | paid plan: payment page, subscriptions, customer portal, Stripe Tax, invoices | no monthly fee; a fee per payment plus Billing and Tax fees (stripe.com/pricing); test mode is free |

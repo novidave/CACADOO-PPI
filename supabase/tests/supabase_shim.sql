@@ -81,6 +81,19 @@ create or replace function cron.unschedule(job_id bigint)
 returns boolean language sql as $$
   with gone as (delete from cron.job where jobid = job_id returning 1) select exists (select 1 from gone)
 $$;
+-- cron.schedule(name, schedule, command): a job with the same name is replaced, as in pg_cron.
+create or replace function cron.schedule(p_job_name text, p_schedule text, p_command text)
+returns bigint language plpgsql as $$
+declare
+  v_id bigint;
+begin
+  update cron.job set schedule = p_schedule, command = p_command where jobname = p_job_name returning jobid into v_id;
+  if v_id is null then
+    insert into cron.job (jobname, schedule, command) values (p_job_name, p_schedule, p_command) returning jobid into v_id;
+  end if;
+  return v_id;
+end;
+$$;
 insert into cron.job (jobname, schedule, command) values
   ('ppi-stock-pull', '*/15 * * * *', 'select 1'),
   ('some-other-job', '0 3 * * *', 'select 1');

@@ -24,6 +24,7 @@ import {
   saveTranslation,
   uploadLogo,
 } from "./actions";
+import { conversationFilter, Conversations, conversationsSummary, loadConversations } from "./Conversations";
 import { PrivateFiles, privateFiles } from "./PrivateFiles";
 import { loadShopDocs, ShopDocuments } from "./ShopDocuments";
 
@@ -158,7 +159,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
   const q = (first(sp.q) ?? "").trim();
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  const [{ data: itemRows, error: e3 }, planRow, hasPlan, itemCount, importRows, docsData] = await Promise.all([
+  const [{ data: itemRows, error: e3 }, planRow, hasPlan, itemCount, importRows, docsData, conversations] = await Promise.all([
     supabase.rpc("owner_items", { p_shop_id: shop.id, q: q || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE }),
     supabase
       .from("subscriptions")
@@ -176,6 +177,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
       .order("id", { ascending: false })
       .limit(10),
     loadShopDocs(supabase, shop.id),
+    // The assistant's conversations (database update 22): owners only.
+    loadConversations(supabase, shop.id, conversationFilter(sp)),
   ]);
   // The database decides whether the shop has the paid plan; before database update 18
   // the Plan section only says that paid plans are not available yet.
@@ -224,6 +227,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     docs_deleted: dict.docs.ok_deleted,
     docs_revoked: dict.docs.ok_revoked,
     assistant_cleaned: d.assistant_cleaned,
+    retention: t(dict.conversations.retention_saved, { n: conversations?.retention ?? 90 }),
+    conversation_deleted: dict.conversations.deleted,
   };
   const okText = (ok && okTexts[ok]) || dict.account.saved;
   // The message of a form is shown inside that form's section (the page jumps there and opens it).
@@ -260,6 +265,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     docs: docsData
       ? t(d.summary_docs, { documents: docsData.docs.length, pictures: docsData.pictures.length })
       : dict.docs.unavailable,
+    conversations: conversationsSummary(conversations, dict, lang),
   };
   const imports: ImportView[] | null =
     importList?.map((row) => ({
@@ -513,6 +519,20 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
             <p className="border border-line p-3 text-sm">{d.assistant_needs_plan}</p>
           )}
         </DashboardSection>
+
+        {(plan?.active || (conversations?.all ?? 0) > 0) && (
+          <DashboardSection {...section("conversations")} title={dict.conversations.title} summary={summaries.conversations}>
+            <Conversations
+              data={conversations}
+              shop={shop}
+              lang={lang}
+              dict={dict}
+              hasPlan={plan?.active === true}
+              hidden={hidden}
+              notice={notice("conversations")}
+            />
+          </DashboardSection>
+        )}
 
         <DashboardSection {...section("plan")} title={dict.plan.title} summary={summaries.plan}>
           {notice("plan")}

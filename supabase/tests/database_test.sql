@@ -1878,4 +1878,305 @@ do $$ begin
 end $$;
 reset role;
 
+\echo '--- shop assistant archive: conversations, files, PDFs, keep time, owners only'
+do $$ begin
+  assert (select schedule from cron.job where jobname = 'ppi-assistant-tick') = '*/5 * * * *', 'the 5-minute job';
+  assert (select schedule from cron.job where jobname = 'ppi-assistant-retention') = '17 3 * * *', 'the daily job';
+  assert (select command from cron.job where jobname = 'ppi-assistant-tick') like '%/functions/v1/assistant-archive%'
+     and (select command from cron.job where jobname = 'ppi-assistant-tick') like '%''action'', ''tick''%', 'calls the function';
+  assert (select command from cron.job where jobname = 'ppi-assistant-retention') like '%''action'', ''retention''%';
+  assert (select length(secret) from vault.secrets where name = 'ppi_assistant_cron') = 64, 'a random secret in Vault';
+end $$;
+
+create temporary table archive_test (k text primary key, v text);
+grant all on archive_test to public;
+insert into archive_test select 'secret', decrypted_secret from vault.decrypted_secrets where name = 'ppi_assistant_cron';
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_secret text := (select v from archive_test where k = 'secret');
+  v_open jsonb;
+  v_id uuid;
+  v_token text;
+  v_att jsonb;
+  v_files uuid[] := '{}';
+  v_other jsonb;
+  i int;
+begin
+  assert public.assistant_cron_ok(v_secret), 'the job''s secret is accepted';
+  assert not public.assistant_cron_ok(v_secret || 'x') and not public.assistant_cron_ok('short')
+     and not public.assistant_cron_ok(null), 'any other secret is refused';
+
+  -- only active shops with the paid plan get conversations
+  begin
+    perform public.assistant_open(v_b, 'sk', repeat('b', 32));
+    raise exception 'a shop without the plan got a conversation';
+  exception when raise_exception then
+    if sqlerrm <> 'no_plan' then raise; end if;
+  end;
+  begin
+    perform public.assistant_open(gen_random_uuid(), 'sk', repeat('b', 32));
+    raise exception 'an unknown shop got a conversation';
+  exception when no_data_found then null;
+  end;
+  v_open := public.assistant_open(v_a, 'it', repeat('a', 32));
+  v_id := (v_open ->> 'id')::uuid;
+  v_token := v_open ->> 'token';
+  assert length(v_token) = 64, 'a long random token';
+  assert (select page_lang from public.assistant_conversations where id = v_id) = 'sk', 'unknown page language → sk';
+  assert (select token_hash from public.assistant_conversations where id = v_id) = public.assistant_token_hash(v_token)
+     and (select token_hash from public.assistant_conversations where id = v_id) <> v_token, 'only the token''s hash is kept';
+  assert (public.assistant_conversation(v_id, v_token) ->> 'open')::boolean, 'the token opens it';
+  assert public.assistant_conversation(v_id, v_token || '0') is null, 'a wrong token gets nothing';
+
+  -- at most 30 new conversations per shopper and shop an hour
+  for i in 1..29 loop
+    perform public.assistant_open(v_a, 'sk', repeat('c', 32));
+  end loop;
+  perform public.assistant_open(v_a, 'sk', repeat('c', 32));
+  begin
+    perform public.assistant_open(v_a, 'sk', repeat('c', 32));
+    raise exception 'the 31st conversation an hour was opened';
+  exception when program_limit_exceeded then null;
+  end;
+  delete from public.assistant_conversations where id <> v_id;
+  delete from public.api_usage where endpoint like 'assistant-open:%';
+
+  -- files: names cleaned, only the five types, 10 MB, 10 per conversation
+  v_att := public.assistant_add_attachment(v_id, v_token, '../../tmp/Štítok č.1 <nový>.HEIC', 'heic', 2048, true);
+  assert v_att ->> 'name' = 'Štítok č.1 _nový_.HEIC', 'path and reserved characters go, letters stay';
+  assert v_att ->> 'path' = v_a || '/' || v_id || '/files/' || (v_att ->> 'id') || '.heic', 'stored under shop/conversation';
+  assert v_att ->> 'preview_path' like '%.preview.jpg', 'a picture gets a preview path';
+  v_files := v_files || (v_att ->> 'id')::uuid;
+  v_att := public.assistant_add_attachment(v_id, v_token, '  ', 'pdf', 4096, true);
+  assert v_att ->> 'name' = 'subor.pdf' and v_att -> 'preview_path' = 'null'::jsonb, 'a PDF has no preview; an empty name gets one';
+  v_files := v_files || (v_att ->> 'id')::uuid;
+  begin
+    perform public.assistant_add_attachment(v_id, v_token, 'a.gif', 'gif', 10, false);
+    raise exception 'a GIF was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.assistant_add_attachment(v_id, v_token, 'big.jpg', 'jpeg', 10485761, false);
+    raise exception 'a file over 10 MB was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.assistant_add_attachment(v_id, 'wrong', 'a.jpg', 'jpeg', 10, false);
+    raise exception 'a wrong token added a file';
+  exception when no_data_found then null;
+  end;
+  for i in 3..10 loop
+    perform public.assistant_add_attachment(v_id, v_token, 'f' || i || '.jpg', 'jpeg', 100, false);
+  end loop;
+  begin
+    perform public.assistant_add_attachment(v_id, v_token, 'f11.jpg', 'jpeg', 100, false);
+    raise exception 'an 11th file was accepted';
+  exception when program_limit_exceeded then null;
+  end;
+  assert (select attachment_count from public.assistant_conversations where id = v_id) = 10;
+  perform public.assistant_drop_attachment((select id from public.assistant_attachments where name = 'f10.jpg'));
+  assert (select attachment_count from public.assistant_conversations where id = v_id) = 9, 'a failed upload is forgotten';
+
+  -- a second conversation, to check that files never move between conversations
+  v_other := public.assistant_open(v_a, 'hu', repeat('d', 32));
+  v_att := public.assistant_add_attachment((v_other ->> 'id')::uuid, v_other ->> 'token', 'cudzi.png', 'png', 10, false);
+
+  -- a file taken back before sending: its paths, only with the right token and only while no message has it
+  assert public.assistant_discardable(v_id, v_token, (select id from public.assistant_attachments where name = 'f9.jpg'))
+         = array[(select storage_path from public.assistant_attachments where name = 'f9.jpg')], 'paths of a file taken back';
+  assert public.assistant_discardable(v_id, 'wrong', (select id from public.assistant_attachments where name = 'f9.jpg')) is null,
+    'not with a wrong token';
+  assert public.assistant_discardable(v_id, v_token, (v_att ->> 'id')::uuid) is null, 'not another conversation''s file';
+
+  -- only into a conversation of the same shop
+  begin
+    perform public.assistant_add_turn(v_id, v_token, v_b, '{"body":"x"}', '{"body":"y"}');
+    raise exception 'a turn went into another shop''s conversation';
+  exception when no_data_found then null;
+  end;
+
+  -- one exchange: the shopper's message with its files, the answer with its cards
+  perform public.assistant_add_turn(v_id, v_token, v_a,
+    jsonb_build_object('body', E'Máte štetec č. 5 na  túto\nfarbu?', 'body_owner', null, 'lang', 'sk',
+                       'at', to_jsonb(now() + interval '1 hour'),
+                       'attachments', to_jsonb(v_files || (v_att ->> 'id')::uuid)),
+    jsonb_build_object('body', 'Áno, máme ho.', 'lang', 'sk', 'cards', jsonb_build_array(
+      jsonb_build_object('name', 'Štetec plochý 5 cm', 'price', '2,50 €', 'availability', '12 ks na sklade',
+                         'data_time', '2026-10-10T12:05:00+00:00', 'secret', 'x', 'quantity', 2),
+      'not a card')));
+  assert (select message_count from public.assistant_conversations where id = v_id) = 2;
+  assert (select first_question from public.assistant_conversations where id = v_id) = 'Máte štetec č. 5 na túto farbu?',
+    'the first question, on one line';
+  assert (select shopper_lang from public.assistant_conversations where id = v_id) = 'sk';
+  assert (select attachment_ids from public.assistant_messages where conversation_id = v_id and role = 'shopper') = v_files,
+    'only this conversation''s files are linked';
+  assert (select created_at <= now() from public.assistant_messages where conversation_id = v_id and role = 'shopper'),
+    'a time in the future is not taken';
+  assert (select cards from public.assistant_messages where conversation_id = v_id and role = 'assistant')
+         = '[{"name": "Štetec plochý 5 cm", "price": "2,50 €", "quantity": 2, "data_time": "2026-10-10T12:05:00+00:00", "availability": "12 ks na sklade"}]'::jsonb,
+    'cards keep only their fields';
+  assert public.assistant_discardable(v_id, v_token, v_files[1]) is null, 'a file sent with a message stays';
+  -- the same files again: not linked twice
+  perform public.assistant_add_turn(v_id, v_token, v_a,
+    jsonb_build_object('body', 'Ešte raz', 'lang', 'sk', 'attachments', to_jsonb(v_files)),
+    jsonb_build_object('body', 'Dobre.', 'lang', 'sk'));
+  assert (select attachment_ids from public.assistant_messages where conversation_id = v_id and body = 'Ešte raz') = '{}';
+  begin
+    perform public.assistant_add_turn(v_id, v_token, v_a, '{"body":"x"}', '{"body":""}');
+    raise exception 'an empty answer was stored';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- ending: closed by the shopper, nothing more after that
+  assert public.assistant_end(v_id, v_token, 'closed') and not public.assistant_end(v_id, v_token, 'closed');
+  begin
+    perform public.assistant_add_turn(v_id, v_token, v_a, '{"body":"x"}', '{"body":"y"}');
+    raise exception 'a message went into an ended conversation';
+  exception when object_not_in_prerequisite_state then null;
+  end;
+  begin
+    perform public.assistant_add_attachment(v_id, v_token, 'late.jpg', 'jpeg', 10, false);
+    raise exception 'a file went into an ended conversation';
+  exception when object_not_in_prerequisite_state then null;
+  end;
+
+  -- 30 minutes without a message: ended at the last message
+  update public.assistant_conversations set last_message_at = now() - interval '31 minutes' where id = (v_other ->> 'id')::uuid;
+  assert (select array_agg(x) from public.assistant_end_idle(30) x) = array[(v_other ->> 'id')::uuid], 'the idle one ends';
+  assert (select ended_at = last_message_at and end_reason = 'idle' from public.assistant_conversations
+          where id = (v_other ->> 'id')::uuid);
+  assert not exists (select 1 from public.assistant_end_idle(30)), 'nothing else';
+  assert (select array_agg(x) from public.assistant_empty_ended(50) x) = array[(v_other ->> 'id')::uuid],
+    'an ended conversation without a message is forgotten, not made into a PDF';
+  assert (select array_agg(x) from public.assistant_pdf_todo(5) x) = array[v_id], 'the ended one needs its PDF';
+
+  -- the PDF's data, and three failed tries at most
+  assert (select public.assistant_pdf_data(v_id) #>> '{shop,name}') = 'Potraviny Centrum';
+  assert (select jsonb_array_length(public.assistant_pdf_data(v_id) -> 'messages')) = 4
+     and (select public.assistant_pdf_data(v_id) #>> '{messages,0,role}') = 'shopper'
+     and (select jsonb_array_length(public.assistant_pdf_data(v_id) -> 'attachments')) = 9;
+  perform public.assistant_pdf_done(v_id, null, null, 'font missing');
+  assert not exists (select 1 from public.assistant_pdf_todo(5)), 'tried again only after a pause';
+  update public.assistant_conversations set pdf_next_try = now() - interval '1 second' where id = v_id;
+  perform public.assistant_pdf_done(v_id, null, null, 'again');
+  perform public.assistant_pdf_done(v_id, null, null, 'and again');
+  assert (select pdf_status = 'failed' and pdf_attempts = 3 from public.assistant_conversations where id = v_id);
+  perform public.assistant_pdf_done(v_id, v_a || '/' || v_id || '/x.pdf', 'x.pdf', null);
+  assert (select pdf_status = 'ready' and pdf_error is null from public.assistant_conversations where id = v_id);
+  assert cardinality(public.assistant_files(v_id)) = 9 + 1 + 1, 'files, the HEIC preview and the PDF';
+
+  insert into archive_test values ('id', v_id), ('token', v_token), ('other', v_other ->> 'id');
+end $$;
+reset role;
+
+-- owners: read their own, never tokens or storage paths, never write
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_id uuid := (select v::uuid from archive_test where k = 'id');
+begin
+  assert (select count(*) from public.assistant_messages where conversation_id = v_id) = 4, 'owner A reads the messages';
+  assert (select first_question from public.assistant_conversations where id = v_id) like 'Máte štetec%';
+  begin
+    perform token_hash from public.assistant_conversations;
+    raise exception 'an owner read a token hash';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform storage_path from public.assistant_attachments;
+    raise exception 'an owner read a storage path';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.assistant_messages set body = 'changed' where conversation_id = v_id;
+    raise exception 'an owner changed a message';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.assistant_open(v_a, 'sk', repeat('e', 32));
+    raise exception 'an owner called a function of the archive';
+  exception when insufficient_privilege then null;
+  end;
+  -- the list: words in any message (accents and case ignored), days in the shop's time zone
+  assert (select count(*) from public.owner_assistant_conversations(v_a)) = 1, 'conversations without a message are not listed';
+  assert (select count(*) from public.owner_assistant_conversations(v_a, 'stetec FARBU')) = 1;
+  assert (select count(*) from public.owner_assistant_conversations(v_a, 'stetec valec')) = 0, 'every word must appear';
+  assert (select count(*) from public.owner_assistant_conversations(v_a, null,
+            (now() at time zone 'Europe/Bratislava')::date, (now() at time zone 'Europe/Bratislava')::date)) = 1;
+  assert (select count(*) from public.owner_assistant_conversations(v_a, null,
+            (now() at time zone 'Europe/Bratislava')::date + 1, null)) = 0;
+  assert (select message_count = 4 and attachment_count = 9 and pdf_status = 'ready' and total_count = 1
+          from public.owner_assistant_conversations(v_a));
+  -- keep time
+  assert public.owner_set_assistant_retention(v_a, 30) = 30;
+  assert (select retention_days from public.shop_assistant_settings where shop_id = v_a) = 30;
+  begin
+    perform public.owner_set_assistant_retention(v_a, 45);
+    raise exception '45 days was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_set_assistant_retention((select id from public.shops where slug = 'drogeria-kostolne'), 365);
+    raise exception 'owner A set another shop''s keep time';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert (select count(*) from public.assistant_conversations) = 0, 'owner B sees none of shop A''s conversations';
+  assert (select count(*) from public.assistant_messages) = 0 and (select count(*) from public.assistant_attachments) = 0;
+  assert (select count(*) from public.owner_assistant_conversations((select id from public.shops where slug = 'potraviny-centrum'))) = 0;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  begin
+    perform count(*) from public.assistant_messages;
+    raise exception 'a visitor read conversations';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.assistant_conversation((select v::uuid from archive_test where k = 'id'), 'x');
+    raise exception 'a visitor called the archive';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- keep time: past it, the daily job deletes the conversation
+set role service_role;
+do $$
+declare
+  v_id uuid := (select v::uuid from archive_test where k = 'id');
+begin
+  update public.assistant_conversations set last_message_at = now() - interval '29 days' where id = v_id;
+  assert not exists (select 1 from public.assistant_expired(10)), 'kept for 30 days';
+  update public.assistant_conversations set last_message_at = now() - interval '31 days' where id = v_id;
+  assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], 'deleted after 30 days';
+  update public.shop_assistant_settings set retention_days = 90;
+  assert not exists (select 1 from public.assistant_expired(10)), 'a longer keep time keeps it';
+  delete from public.shop_assistant_settings;
+  update public.assistant_conversations set last_message_at = now() - interval '91 days' where id = v_id;
+  assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], '90 days when nothing is set';
+  -- forgetting removes the messages and files with it
+  assert public.assistant_forget(v_id);
+  assert not exists (select 1 from public.assistant_messages where conversation_id = v_id)
+     and not exists (select 1 from public.assistant_attachments where conversation_id = v_id);
+  perform public.assistant_forget((select v::uuid from archive_test where k = 'other'));
+end $$;
+reset role;
+drop table archive_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'

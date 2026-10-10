@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.6 · status 9 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 2.7 · status 10 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -23,6 +23,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Paid plan per shop (Stripe: monthly subscription, VAT invoices) | Built and tested against a Stripe stand-in; Stripe **test mode** first (SETUP.md part K) |
 | AI assistant on the shop page (paid plan only, Claude Haiku) | Built and tested against a Claude stand-in; live after migration 19 (SETUP.md part L) |
 | Documents and pictures for the assistant; private folders with access keys (paid plan only) | Built and tested against Claude and Storage stand-ins; live after migration 20 and two new functions (SETUP.md part M) |
+| Conversation archive of the shop assistant (paid plan only): every conversation kept with its files (GPS removed) and made into a PDF; "Konverzácie asistenta" in My shop | Built and tested against Claude and Storage stand-ins; live after database update 22, the assistant-archive function and one secret (SETUP.md part O) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -71,6 +72,8 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   cancel or change the card), invoices with VAT; one database function says whether a shop has it
 - AI assistant on the shop page (the first paid feature): questions about the shop's items, prices and availability,
   shopping lists to copy or print, and photos of a device, part or model plate matched against the shop's stock
+- Conversation archive for the assistant (paid plan): every conversation kept for the shop's owners with its times,
+  the cards shown and the shopper's files (GPS removed), one PDF per conversation, read in "Konverzácie asistenta"
 - AI and machine access: JSON-LD, robots.txt, sitemap, llms.txt, public REST API with OpenAPI, MCP server
 - Slovak, Hungarian and English; mobile-first; installable PPI app for the shop PC
 
@@ -94,7 +97,8 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 ## 4. Principles and constraints
 
 - **Stack:** Next.js 16 (App Router, TypeScript) on Vercel; Supabase (Postgres + PostGIS, Auth, Storage, Vault, Edge
-  Functions, pg_cron). Code in GitHub; every database change is a numbered migration in `supabase/migrations/`.
+  Functions, pg_cron). Code in GitHub; every database change is a numbered SQL file: updates 1–21 in
+  `supabase/migrations/`, from update 22 on one file per phase in `supabase/sql/`, pasted by the owner.
 - **Rules live in the database.** Freshness and the availability label (the quantity exactly as in the shop's file)
   are SQL functions and views, so the website, the API and the MCP server always say the same thing.
 - **PPI never edits, corrects or completes shop data.** What shoppers see of the stock comes only from the shop's own
@@ -164,6 +168,10 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   neither the stock nor the documents answer, it says so and shows "Call the shop" with the phone number.
 - **"I have an access key"** (under the chat, separate from it): opens the shop's private folders named by the key for
   12 hours on this browser ("Opened: …", "Lock again"). The key is never part of the conversation.
+- **Files and the archive** (6.10): "Add photo or PDF" takes up to 4 files per message and 10 per conversation (JPG,
+  PNG, WebP, HEIC, PDF, 10 MB each). One line under the welcome text says "Konverzácia a nahrané súbory sa ukladajú pre
+  obchod <name>. Viac" (→ `/[lang]/sukromie-asistent`, a draft text for now). While the box is open the shopper can
+  **"Vymazať moju konverzáciu"**; closing the box, "New conversation" or leaving the page ends the conversation.
 
 ### 5.3 Item page (`/[lang]/items/{id}`)
 
@@ -220,13 +228,22 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   the approved columns). Code, name, quantity and price are required. **Approve columns** → from then on every new
   file is applied automatically. A note says that the columns not chosen stay private.
 - **Shop details:** everything from "Add your shop", editable.
-- **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once.
+- **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once,
+  with a small PNG copy (256 px) for the conversation PDFs.
 - **Items:** name (and its translation), code, price, quantity, what shoppers see ("12 in stock" / "Out of stock",
   exactly as in the file); search, 50 per page. **Correct the translation** per item (Slovak, Hungarian, English): a corrected item is never translated by
   machine again ("Translate automatically" hands it back); a note appears when the shop renames a corrected item.
 - **Shop assistant** (paid plan): the button label (up to 40 characters) and the welcome message shown when the
   assistant opens (up to 300). Plain text only: HTML, links and e-mail addresses are removed (the owner is told);
   empty = the default texts in the page language. Without the plan the section only says it is part of the plan.
+- **Konverzácie asistenta** (paid plan; owners only, view only; see 6.10): how long conversations are kept (30, 90 or
+  365 days, default 90); search words (any message or its Slovak version) and a date range (in the shop's time zone);
+  the list, newest first: date and time, the shopper's language, number of messages, a paperclip with the number of
+  files, the first question; 20 per page. **Open** shows the whole conversation: every message with its time and
+  "Zákazník"/"Asistent", the Slovak version in grey under a foreign message, the item cards as the shopper saw them
+  (name, price, availability, "Údaje k <time>"), the shopper's photos (shown in the browser, larger in a new tab) and
+  files ("Zobraziť", a 10-minute link); no download buttons. **Delete** (with a confirmation tick) removes the
+  conversation, its files and its PDF.
 - **Plan:** current plan (Free or Pro), the subscription's state (Active, Trial, Payment failed, Cancelled, …) and
   "Renews on" or "Ends on" with the date in the shop's time zone. **Upgrade** opens the Stripe payment page; **Manage
   subscription** opens the Stripe customer portal (cancel, change card, invoices). After paying, the owner comes back to
@@ -383,9 +400,13 @@ Open if the current time in the shop's own time zone falls inside today's ranges
   this shop's items (`shop_stock`), one item's details (`public_stock` of this shop) and, when the shop has documents,
   search them (`search_shop_docs`, 6.9). It cannot see other shops and never names them. Cards and the shopping list are built only from what those tools returned (anything else is dropped), with
   availability, quantities and freshness from the database: a stale shop shows no availability.
-- Photos: shrunk in the browser to at most 1568 px, JPEG, sent once with that message only, never stored by PPI.
-  The answer always says what was read; "match found" needs an item from the shop to show, otherwise it becomes
-  "not sure" and the assistant asks.
+- Photos and PDFs: the AI gets each photo shrunk in the browser to at most 1568 px (JPEG) and each PDF's text (its
+  first 5 pages, read in the browser), once, with that message only. The files themselves are kept only in the shop's
+  conversation archive (6.10). The answer always says what was read; "match found" needs an item from the shop to show,
+  otherwise it becomes "not sure" and the assistant asks. A HEIC photo the browser cannot read is stored, and the AI is
+  told it could not see it.
+- Every answer also gives the shopper's language and, for the archive, the message and the answer in Slovak.
+- An access key pasted into the chat is replaced by "[•••]" before the AI or the archive sees it.
 - Limits: 20 messages an hour per shopper (hashed IP, logged in `api_usage` as `shop-chat`), and a monthly cap per shop
   (`CHAT_MONTHLY_LIMIT_PER_SHOP`, default 1,000; 0 switches the assistants off). Only the last 8 messages of a
   conversation are sent along, each up to 1,500 characters. Over a limit the shopper is told in the chat.
@@ -424,7 +445,38 @@ Open if the current time in the shop's own time zone falls inside today's ranges
   pictures of the shop separately.
 - Deleting a document deletes its file, its pictures and all its text; deleting a picture its file and description.
 
-## 7. Data model (after migration 21)
+### 6.10 Conversation archive (paid plan)
+
+- **What is kept:** every conversation with a shop's assistant while the archive is on: the shop, the conversation's
+  id, start and end, the page language and the shopper's language, every message (who, text, time), the Slovak
+  version of each message in another language, the item cards with each answer as they were at that moment (name,
+  price, availability text in Slovak, the time of the shop's stock data, quantity and note for shopping lists) and the
+  files the shopper sent.
+- **Files:** JPG, PNG, WebP, HEIC and PDF, by their real content (not their name), 10 MB each, 10 per conversation,
+  stored in the private bucket `shop-assistant-uploads/<shop>/<conversation>/files/`. GPS and other place data are
+  removed before storing (EXIF GPS emptied, XMP places blanked or dropped, IPTC dropped); the picture itself is not
+  changed. Pictures also get a small preview (800 px JPEG, made in the browser) for the owner and the PDF. A file
+  taken back before sending is deleted at once.
+- **End:** 30 minutes without a message (ended at the last message), or the shopper closes the box, starts a new
+  conversation or leaves the page. A message after the end starts a new conversation. Conversations without any
+  message are forgotten with their files.
+- **PDF per conversation**, made on the server when it ends (tried 3 times): `<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`
+  (start time in the shop's time zone, first 8 characters of the id) with the shop's logo and name, date and times,
+  the shopper's language, every message with its time and "Zákazník"/"Asistent", foreign messages with a smaller grey
+  Slovak version, each answer's cards as a table (Tovar, Cena, Dostupnosť, Údaje k), photos as thumbnails with their
+  names, other files listed, and on every page "Vytvorené Cacadoo PPI · konverzácia <id> · strana X/Y". The font
+  (DejaVu Sans) covers every Central European letter, Greek and Cyrillic; anything else (emoji) shows as "?". Kept in
+  the same private folder; the owner's way to take it home is the cloud export (Phase B).
+- **Who sees it:** only the shop's owners (RLS), in "Konverzácie asistenta"; never shoppers, other shops, pages, the
+  API, MCP or the AI search. Conversation tokens are kept as hashes; access keys never reach a conversation.
+- **Keep time:** 30, 90 or 365 days after the last message (the owner chooses; default 90); a daily job deletes older
+  conversations with their files and PDF. The owner can delete one at any time.
+- **The shopper's right to delete:** "Vymazať moju konverzáciu" while the box is open deletes the conversation, its
+  files and PDF at once (never exported). Later the shopper asks the shop.
+- **Jobs:** pg_cron calls the assistant-archive function every 5 minutes (end idle conversations, make missing PDFs,
+  forget empty ones) and once a day at 03:17 UTC (keep time), with a Vault secret.
+
+## 7. Data model (after database update 22)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -445,11 +497,17 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 | `shop_document_chunks` | `shop_id`, `folder_id`, `document_id`, `picture_id`, `page`, `type` (`text`/`picture`), `text`, `lang`, `search` (full text) | Excerpts as written and picture descriptions; trigram and full-text indexes; read only through `search_shop_docs()` |
 | `folder_keys` | `id`, `shop_id`, `label`, `key_hash`, `folder_ids`, `expires_at`, `revoked_at`, `last_used_at`, `use_count` | Access keys (hash only; owners never read the hash) |
 | `folder_sessions` | `token_hash`, `shop_id`, `key_id`, `folder_ids`, `expires_at` | Opened folders, 12 hours; no client access |
+| `assistant_conversations` | `id`, `shop_id`, `token_hash`, `page_lang`, `shopper_lang`, `started_at`, `last_message_at`, `ended_at`, `end_reason` (`closed`/`idle`/`new`), `message_count`, `attachment_count` (≤ 10), `first_question`, `pdf_status` (`none`/`ready`/`failed`), `pdf_path`, `pdf_name`, `pdf_error`, `pdf_attempts`, `pdf_next_try` | One per conversation (update 22); written only by assistant-archive; owners read (never the token hash or paths) |
+| `assistant_messages` | `conversation_id`, `shop_id`, `role` (`shopper`/`assistant`), `body`, `body_owner` (Slovak version), `lang`, `cards` (jsonb: name, price, availability, data_time, quantity, note), `attachment_ids`, `created_at` | Every message; owners read |
+| `assistant_attachments` | `id`, `conversation_id`, `shop_id`, `name`, `kind` (`jpeg`/`png`/`webp`/`heic`/`pdf`), `bytes`, `storage_path`, `preview_path` | The shopper's files; owners read name, kind and size only |
+| `shop_assistant_settings` | `shop_id`, `retention_days` (30/90/365, default 90) | Keep time; owners set it through `owner_set_assistant_retention()` |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
 Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop), `raw-files` (private, last raw files kept
 7 days for troubleshooting) and `shop-docs` (private, 20 MB, PDF/WebP/JPEG/PNG, folder per shop: the shop's owners
-may only add files they registered; only the service role reads or deletes).
+may only add files they registered; only the service role reads or deletes) and `shop-assistant-uploads` (private,
+10 MB, JPEG/PNG/WebP/HEIC/PDF, `<shop>/<conversation>/`: no policies, only the assistant-archive function).
+A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation PDFs.
 
 ## 8. Security and privacy
 
@@ -464,6 +522,7 @@ may only add files they registered; only the service role reads or deletes).
 | Paid plan (`subscriptions`) | none (only yes/no through `shop_has_plan()`) | own shops' row (read) | the Stripe functions write it: stripe-checkout links the customer, stripe-webhook the subscription |
 | Documents, pictures, folders | only through the assistant: excerpts of the Public folder and of folders opened by a valid key (`search_shop_docs()`), files through shop-files | own: read; change through `owner_*` functions; upload through doc-ingest | doc-ingest writes (service role); shop-files signs 10-minute file addresses |
 | Access keys and sessions | open with a key (`unlock_shop_folders()`), lock again | own keys (never the hash): create, revoke | — |
+| Assistant conversations, files, PDFs | their own open conversation only through its token (website → assistant-archive): add files, delete it | own shops: read (RLS), keep time, delete; files through 10-minute links | assistant-archive writes everything (service role); the jobs prove themselves with a Vault secret |
 
 - Owners never write stock themselves; the function does, after checking the uploader is that shop's owner.
 - The function downloads nothing: it only receives files uploaded with the shop owner's login.
@@ -471,8 +530,10 @@ may only add files they registered; only the service role reads or deletes).
   the stripe-webhook function accepts only events signed with the endpoint's secret and at most 5 minutes old, and
   fetches the subscription from Stripe itself rather than trusting the event's copy. Card details never touch PPI.
 - The API, the AI search and the shop assistant store no IP addresses: only a hash with a salt that changes daily.
-- The shop assistant stores no conversations and no photos; the browser keeps the conversation until the page is
-  closed and sends at most the last 8 messages along.
+- The shop assistant's conversations are kept only in the shop's archive (6.10): written only by the assistant-archive
+  function (the website proves itself with `ASSISTANT_ARCHIVE_SECRET`, the shopper's browser with the conversation's
+  token, kept as a hash), read only by the shop's owners, deleted after the shop's keep time. GPS and place data are
+  removed from photos before storing. Nothing of a conversation, a file, a token or a key is logged.
 - Access keys and session tokens are stored only as hashes; the key goes only to the database, never to the AI or into
   the conversation; the session token stays in an HttpOnly cookie signed with `SESSION_COOKIE_SECRET` and sent only to
   that shop's `/api/shops/<slug>/` addresses. Shop files are only reachable through 10-minute signed addresses that the
@@ -501,6 +562,8 @@ may only add files they registered; only the service role reads or deletes).
 | out\_of\_stock | Vypredané | Elfogyott | Out of stock |
 | chat.title (default button) | Opýtajte sa asistenta obchodu | Kérdezze az üzlet asszisztensét | Ask the shop's assistant |
 | imports.title | Posledné nahrané súbory | Legutóbb feltöltött fájlok | Recently uploaded files |
+| chat.privacy\_notice | Konverzácia a nahrané súbory sa ukladajú pre obchod {shop}. | A beszélgetést és a feltöltött fájlokat a(z) {shop} üzlet számára tároljuk. | The conversation and uploaded files are stored for the shop {shop}. |
+| conversations.title | Konverzácie asistenta | Az asszisztens beszélgetései | Assistant conversations |
 | stale | Informácia o zásobe momentálne nie je dostupná | A készletinformáció jelenleg nem elérhető | Stock information not currently available |
 
 All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should check Slovak and Hungarian before launch.
@@ -525,6 +588,11 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   by database functions that the website calls with the public key; someone calling them directly could use up a
   limit (it costs nothing, the feature just pauses until the next day or month). A secret shared by Vercel and
   Supabase would close this.
+- **Conversation archive:** WebP logos uploaded before 10 October 2026 have no PNG copy: their PDFs show no logo until
+  the logo is uploaded again. Chrome and Edge cannot read HEIC photos: they are stored but have no preview and the AI
+  does not see them (Safari makes a preview). The owner reads conversations on the website; the PDF itself reaches the
+  owner with the cloud export (Phase B). A shopper can delete a conversation only while the chat box is open. The
+  privacy page (`/sukromie-asistent`) has a draft text. Tested so far only against Claude and Storage stand-ins.
 - **The assistant can be wrong.** It reads photos and writes answers by machine; the cards, prices and availability
   come from the database, and it says when it is not sure, but a shopper should check the item page.
 - **Documents: machine reading.** Scanned pages are read by AI and can contain reading mistakes; picture descriptions
@@ -553,7 +621,9 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] `CHAT_MONTHLY_LIMIT_PER_SHOP` chosen in Vercel (default 1,000 assistant messages per shop a month)
 - [ ] `SESSION_COOKIE_SECRET` set in Vercel (access keys for private folders); shop limits chosen in Supabase
       (`SHOP_DOCS_MAX_FILES`, `SHOP_DOCS_MAX_PAGES`, `SHOP_DOCS_MAX_PICTURES`)
-- [ ] Privacy page and terms (shop data, cookies, e-mail)
+- [ ] Privacy page and terms (shop data, cookies, e-mail); final text of `/sukromie-asistent` (the assistant archive)
+- [ ] `ASSISTANT_ARCHIVE_SECRET` set in Vercel and Supabase; pg_cron jobs `ppi-assistant-tick` and
+      `ppi-assistant-retention` succeed (SETUP.md part O)
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
 - [x] Stale shops show no stock on every page, in the API and in MCP
@@ -573,3 +643,5 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-08 | Paid plan per shop with Stripe (test mode): Checkout, customer portal, webhook, VAT invoices, `shop_has_plan()` |
 | 2026-10-08 | AI assistant on the shop page for shops with the paid plan: questions, shopping lists, photos of parts |
 | 2026-10-09 | Documents and pictures for the assistant: PDFs read in the owner's browser, AI picture descriptions, Public and private folders with access keys, sources and document prices in answers |
+| 2026-10-09 | Shop page updates: no other shops on Pro product pages, shop e-mail and Facebook, the assistant's own texts, "My shop" as dropdowns, one display rule |
+| 2026-10-10 | Conversation archive of the shop assistant: conversations, files (GPS removed) and a PDF per conversation; "Konverzácie asistenta" for owners; keep time 30/90/365 days |
