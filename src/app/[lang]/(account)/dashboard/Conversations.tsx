@@ -5,7 +5,7 @@ import { formatDateTime } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { PendingButton } from "@/components/PendingButton";
 import { retryCloudExport } from "./cloudActions";
-import { deleteConversation, saveAssistantRetention } from "./conversationActions";
+import { deleteConversation, saveAssistantRetention, saveShopperPdf } from "./conversationActions";
 import type { Supabase } from "./ShopDocuments";
 
 /** How long a shop keeps its assistant's conversations (shop_assistant_settings). */
@@ -49,6 +49,8 @@ export interface ConversationsData {
   /** All the shop's conversations. */
   all: number;
   retention: number;
+  /** "Zákazníci si môžu stiahnuť svoju konverzáciu (PDF)"; null before database update 24. */
+  shopperPdf: boolean | null;
   filter: ConversationFilter;
 }
 
@@ -74,7 +76,7 @@ export async function loadConversations(
   shopId: string,
   filter: ConversationFilter,
 ): Promise<ConversationsData | null> {
-  const [list, count, settings] = await Promise.all([
+  const [list, count, settings, pdfSetting] = await Promise.all([
     supabase.rpc("owner_assistant_conversations", {
       p_shop_id: shopId,
       p_q: filter.q || null,
@@ -85,6 +87,7 @@ export async function loadConversations(
     }),
     supabase.from("assistant_conversations").select("id", { count: "exact", head: true }).eq("shop_id", shopId).gt("message_count", 0),
     supabase.from("shop_assistant_settings").select("retention_days").eq("shop_id", shopId).maybeSingle(),
+    supabase.from("shop_assistant_settings").select("shopper_pdf").eq("shop_id", shopId).maybeSingle(),
   ]);
   if (list.error || count.error || settings.error) return null;
   const rows = (list.data ?? []) as ConversationRow[];
@@ -93,6 +96,7 @@ export async function loadConversations(
     total: Number(rows[0]?.total_count ?? 0),
     all: count.count ?? 0,
     retention: Number(settings.data?.retention_days ?? 90),
+    shopperPdf: pdfSetting.error ? null : (pdfSetting.data?.shopper_pdf ?? true),
     filter,
   };
 }
@@ -218,6 +222,18 @@ export function Conversations({
           </label>
           <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
           <p className="w-full text-xs text-muted">{c.retention_hint}</p>
+        </form>
+      )}
+
+      {hasPlan && data.shopperPdf !== null && (
+        <form action={saveShopperPdf} className="flex flex-col gap-2" data-shopper-pdf-setting>
+          {hidden({ at: "conversations" })}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="shopper_pdf" defaultChecked={data.shopperPdf} />
+            {c.shopper_pdf}
+          </label>
+          <p className="text-xs text-muted">{c.shopper_pdf_hint}</p>
+          <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
         </form>
       )}
 

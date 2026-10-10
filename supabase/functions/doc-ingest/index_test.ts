@@ -24,6 +24,8 @@ interface Setup {
   files?: Record<string, number>;
   look?: Deps["look"];
   removeError?: string;
+  /** shop_document_pages rows (update 24). */
+  pages?: { page: number; storage_path: string; uploaded: boolean }[];
 }
 
 /** Fakes for the caller's client and the service-role client; every call is logged in order. */
@@ -70,11 +72,32 @@ function fakes(setup: Setup = {}) {
           return Promise.resolve(ok(null));
         },
       }),
+      // shop_document_pages: .select().eq("document_id").eq("uploaded", false).in("page", [...])
+      select: () => {
+        const where: Record<string, unknown> = {};
+        const chain = {
+          eq: (column: string, value: unknown) => {
+            where[column] = value;
+            return chain;
+          },
+          in: (column: string, values: unknown[]) => {
+            log.push(`service read ${table} ${JSON.stringify(values)}`);
+            const rows = (setup.pages ?? []).filter((r) => r.uploaded === where.uploaded && values.includes(r[column as "page"]));
+            return Promise.resolve(ok(rows));
+          },
+        };
+        return chain;
+      },
     }),
     storage: {
       from: (bucket: string) => ({
-        list: (dir: string, o: { search: string }) => {
+        list: (dir: string, o: { search?: string }) => {
           log.push(`storage list ${bucket} ${dir}`);
+          if (o.search === undefined) {
+            // the whole folder (page pictures)
+            return Promise.resolve(ok(Object.entries(files).filter(([p]) => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes("/"))
+              .map(([p, size]) => ({ name: p.slice(dir.length + 1), metadata: { size } }))));
+          }
           const path = `${dir}/${o.search}`;
           return Promise.resolve(ok(path in files ? [{ name: o.search, metadata: { size: files[path] } }] : []));
         },
@@ -317,4 +340,56 @@ Deno.test("Open: only the owner's own PDF or picture, signed for 10 minutes", as
   eq((await call(other.deps, { action: "open_file", kind: "document", id: DOC }))[0], 403, "another shop's PDF");
   eq((await call(other.deps, { action: "open_file", kind: "picture", id: PIC }))[0], 403, "another shop's picture");
   eq(other.log.some((l) => l.startsWith("storage")), false, "nothing signed");
+});
+
+// ---------------------------------------------------------------- update 24: the viewer's page pictures
+
+Deno.test("Page pictures: only the owner's own PDF, its page numbers, WebP or JPEG up to 5 MB; a half-finished one is replaced", async () => {
+  {
+    const { deps, log } = fakes({ member: false });
+    eq((await call(deps, { action: "register_pages", document_id: DOC, pages: [{ page: 1, bytes: 10, type: "image/webp" }] }))[0], 403, "not the owner");
+    eq(log.some((l) => l.startsWith("service")), false, "nothing written");
+  }
+  const bad = fakes();
+  for (const [page, code] of [
+    [{ page: 11, bytes: 10, type: "image/webp" }, 400],
+    [{ page: 1, bytes: 10, type: "image/png" }, 400],
+    [{ page: 1, bytes: 6 * 1024 * 1024, type: "image/jpeg" }, 413],
+    [{ page: "1; drop", bytes: 10, type: "image/webp" }, 400],
+  ] as const) {
+    eq((await call(bad.deps, { action: "register_pages", document_id: DOC, pages: [page] }))[0], code, JSON.stringify(page));
+  }
+  eq(bad.log.some((l) => l.startsWith("service docs_register_pages")), false, "refused before the database");
+
+  const stale = `${SHOP}/${DOC}/pages/1-old.webp`;
+  const { deps, log } = fakes({
+    pages: [{ page: 1, storage_path: stale, uploaded: false }, { page: 2, storage_path: `${SHOP}/${DOC}/pages/2-x.webp`, uploaded: true }],
+    service: (name) => ({ data: name === "docs_register_pages" ? [{ page: 1, storage_path: `${SHOP}/${DOC}/pages/1-new.webp` }] : null, error: null }),
+  });
+  eq(await call(deps, { action: "register_pages", document_id: DOC, pages: [{ page: 1, bytes: 1000, type: "image/webp", width: 1100, height: 99999 }] }), [200, {
+    pages: [{ page: 1, path: `${SHOP}/${DOC}/pages/1-new.webp` }],
+    bucket: "shop-docs",
+  }], "registered");
+  eq(log.includes(`storage remove ${stale}`), true, "the half-finished picture is removed first");
+  eq(log.find((l) => l.startsWith("service docs_register_pages")),
+    `service docs_register_pages {"p_document_id":"${DOC}","p_pages":[{"page":1,"bytes":1000,"type":"image/webp","width":1100,"height":10000}]}`, "sizes kept in range");
+});
+
+Deno.test("Pages uploaded: only pictures really in storage and at most 5 MB count; a bigger one is removed", async () => {
+  const dir = `${SHOP}/${DOC}/pages`;
+  const { deps, log } = fakes({
+    pages: [
+      { page: 1, storage_path: `${dir}/1-a.webp`, uploaded: false },
+      { page: 2, storage_path: `${dir}/2-b.webp`, uploaded: false },
+      { page: 3, storage_path: `${dir}/3-c.webp`, uploaded: false },
+    ],
+    files: { [`${dir}/1-a.webp`]: 120_000, [`${dir}/3-c.webp`]: 6 * 1024 * 1024 },
+    service: (name) => ({ data: name === "docs_pages_uploaded" ? 1 : null, error: null }),
+  });
+  eq(await call(deps, { action: "pages_uploaded", document_id: DOC, pages: [1, 2, 3, 99] }), [200, { count: 1, missing: 2 }], "one ready");
+  eq(log.includes(`storage list shop-docs ${dir}`), true, "one listing for all pages");
+  eq(log.includes(`storage remove ${dir}/3-c.webp`), true, "too big: removed");
+  eq(log.find((l) => l.startsWith("service docs_pages_uploaded")), `service docs_pages_uploaded {"p_document_id":"${DOC}","p_pages":[1]}`, "only page 1");
+  const other = fakes({ member: false });
+  eq((await call(other.deps, { action: "pages_uploaded", document_id: DOC, pages: [1] }))[0], 403, "not the owner");
 });

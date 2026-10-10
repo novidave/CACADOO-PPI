@@ -235,6 +235,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     docs_terms: dict.docs.ok_terms,
     docs_deleted: dict.docs.ok_deleted,
     docs_revoked: dict.docs.ok_revoked,
+    docs_access: dict.docs.ok_access,
+    shopper_pdf: dict.conversations.shopper_pdf_saved,
     assistant_cleaned: d.assistant_cleaned,
     retention: t(dict.conversations.retention_saved, { n: conversations?.retention ?? 90 }),
     conversation_deleted: dict.conversations.deleted,

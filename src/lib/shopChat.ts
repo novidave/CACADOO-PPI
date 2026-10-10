@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
 import { callerHash } from "./apiHttp";
+import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
 import { formatPrice } from "./format";
 import { translatedName } from "./names";
@@ -99,11 +100,15 @@ export interface ChatCard {
   docPrices: ChatDocPrice[];
 }
 
-/** "From: Katalóg 2026, page 4", with a link when the owner lets shoppers download it. */
+/**
+ * "From: Katalóg 2026, page 4", with a link when the owner lets shoppers download it (Public
+ * folder), or "Otvoriť" in the viewer for a document of a private folder the shopper opened.
+ */
 export interface ChatSource {
   name: string;
   page: number | null;
   href: string | null;
+  view?: { kind: "document"; id: string } | null;
 }
 
 /** One of the shop's pictures (thumbnail from shop-files, through this website). */
@@ -274,6 +279,7 @@ export interface ChatDocument {
   pages: number;
   lang: string | null;
   is_public: boolean;
+  folder: string;
 }
 
 function languageName(code: string | null): string {
@@ -311,6 +317,10 @@ function systemPrompt(shop: ChatShop, lang: Locale, docs: ChatDocument[]): strin
       "read, several items could fit, or you would have to guess. When unsure, say what you read and ask the shopper " +
       "to confirm or to send a sharper photo. Never present a guess as a match.",
   ];
+  // Folders the shopper opened with an access key (checked by the shop's system, never by you).
+  for (const folder of [...new Set(docs.filter((d) => !d.is_public && d.folder).map((d) => d.folder))]) {
+    lines.push(`This customer has verified access to the folder ${folder}; you may use its documents in your answers.`);
+  }
   if (docs.length) {
     lines.push(
       "",
@@ -494,6 +504,7 @@ interface Excerpt {
   lang: string | null;
   text: string;
   downloadable: boolean;
+  is_public: boolean;
 }
 
 /** The documents this shopper may ask about; none when the database has no documents part yet. */
@@ -676,7 +687,7 @@ export async function runShopChat(
 
     const text = response.content.find((block) => block.type === "text");
     if (!text || text.type !== "text") throw new Error("the assistant gave no answer");
-    return toReply(JSON.parse(text.text) as Answer, found, excerpts, photo, shop, lang);
+    return toReply(JSON.parse(text.text) as Answer, found, excerpts, photo, shop, lang, docsToken);
   }
 }
 
@@ -725,6 +736,7 @@ async function toReply(
   hadPhoto: boolean,
   shop: ChatShop,
   lang: Locale,
+  docsToken: string | null = null,
 ): Promise<ChatResult> {
   const [dict, ownerDict] = await Promise.all([getDictionary(lang), getDictionary(OWNER_LANG)]);
   const docPrices = new Map<string, ChatDocPrice[]>(); // item id ("" = no item) → prices
@@ -801,13 +813,16 @@ async function toReply(
     const excerpt = excerpts.get(ref);
     if (!excerpt || excerpt.type !== "text") continue;
     if (sources.some((s) => s.name === excerpt.source && s.page === excerpt.page)) continue;
+    const privateDoc = !excerpt.is_public && Boolean(excerpt.document_id);
     sources.push({
       name: excerpt.source,
       page: excerpt.page,
-      // Only when the owner lets shoppers download it; shop-files checks again.
-      href: excerpt.downloadable && excerpt.document_id
+      // Public folder: only when the owner lets shoppers download it; shop-files checks again.
+      href: !privateDoc && excerpt.downloadable && excerpt.document_id
         ? `/api/shops/${shop.slug}/files/document/${excerpt.document_id}${excerpt.page ? `#page=${excerpt.page}` : ""}`
         : null,
+      // A private folder's document opens in the viewer (pages with the watermark).
+      view: privateDoc ? { kind: "document", id: excerpt.document_id! } : null,
     });
     if (sources.length >= MAX_SOURCES) break;
   }
@@ -816,12 +831,15 @@ async function toReply(
     .map((ref) => excerpts.get(ref))
     .filter((e): e is Excerpt => Boolean(e && e.type === "picture" && e.picture_id))
     .slice(0, MAX_PICTURES)
-    .map((e) => ({
-      src: `/api/shops/${shop.slug}/files/picture/${e.picture_id}`,
-      name: e.source,
-      page: e.page,
-      alt: e.text.replace(/\s+/g, " ").slice(0, 200),
-    }));
+    .flatMap((e) => {
+      // A private folder's picture only through the viewer's watermarked page (signed for this session).
+      const src = e.is_public
+        ? `/api/shops/${shop.slug}/files/picture/${e.picture_id}`
+        : docsToken
+          ? signedPageUrl(shop.slug, "picture", e.picture_id!, 1, docsToken, lang)
+          : null;
+      return src ? [{ src, name: e.source, page: e.page, alt: e.text.replace(/\s+/g, " ").slice(0, 200) }] : [];
+    });
 
   let photo: ChatReply["photo"] = null;
   if (hadPhoto) {

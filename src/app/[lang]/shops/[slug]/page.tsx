@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isLocale, locales, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
-import { getShop, getShopItems, shopHasPlan, type PublicShop } from "@/lib/data";
+import { getShop, getShopItems, shopHasPlan, shopperPdfAllowed, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
 import { docsKeysEnabled } from "@/lib/docsAccess";
 import { addressLine, directionsUrl, formatPrice } from "@/lib/format";
@@ -47,9 +47,11 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
   const q = (first(sp.q) ?? "").trim();
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // The AI assistant is a paid feature: shown only when the database says the shop has the plan.
-  const [{ items, total }, assistant] = await Promise.all([
+  const [{ items, total }, assistant, shopperPdf] = await Promise.all([
     getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
     shopChatEnabled() ? shopHasPlan(shop.id) : Promise.resolve(false),
+    // "Stiahnuť túto konverzáciu (PDF)" (database update 24): only with the archive on.
+    archiveEnabled() ? shopperPdfAllowed(shop.slug).catch(() => false) : Promise.resolve(false),
   ]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(requestedPage, pages);
@@ -116,6 +118,7 @@ export default async function ShopPage({ params, searchParams }: PageProps<"/[la
           buttonLabel={shop.assistant_label}
           welcome={shop.assistant_welcome}
           archive={archiveEnabled()}
+          shopperPdf={shopperPdf}
         />
       )}
 

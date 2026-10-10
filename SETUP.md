@@ -676,6 +676,52 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
 
 ---
 
+## Part Q — Access keys: shoppers view or download a private folder (10 October 2026)
+
+A paid feature on top of Part M (and Part O for the shopper's own PDF): a shopper who has a folder's access key opens
+the folder in the shop assistant, reads its PDFs and pictures in a built-in viewer (pages as pictures with the light
+watermark "<shop> · VIP · <date>") and, only where the owner allows it, downloads them. The owner sets per folder
+"Režim prístupu" (Len zobraziť / Zobraziť a stiahnuť), per file an override, the folder's key, and sees counts of
+unlocks, views and downloads. Parts M and O must be done first. Do the steps in this order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/24_access_key_access.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again. Check:
+   `select count(*) from public.shop_document_pages;` → 0 (the table exists).
+2. **Update three Edge Functions**, each: Edge Functions → the function → **Code** → replace everything with the new
+   file → **Deploy** ("Verify JWT" stays off):
+   - **`shop-files`** ← `supabase/functions/shop-files/index.ts` (viewer pages, downloads, ZIP)
+   - **`doc-ingest`** ← `supabase/functions/doc-ingest/index.ts` (stores the page pictures for the viewer)
+   - **`assistant-archive`** ← `supabase/functions/assistant-archive/index.ts` (the shopper's own PDF)
+3. **Vercel:** nothing new. `SESSION_COOKIE_SECRET` (Part M step 4) must be set: without it there is no "Mám prístupový
+   kľúč" and no viewer. `ASSISTANT_ARCHIVE_SECRET` (Part O) stays as it is.
+4. **Merge the pull request** on GitHub → Vercel deploys.
+5. **Older private PDFs** (uploaded before this update) have no page pictures yet: Môj obchod → **Dokumenty pre
+   asistenta** → each such PDF shows "Zobrazenie pre zákazníkov: chýba" → **Pripraviť na zobrazenie** (Edge or Chrome;
+   keep the page open until it says "pripravené"). New uploads do this by themselves.
+6. **Test** on the Cacadoo Paint shop (Pro), logged in, Edge or Chrome:
+   - Môj obchod → **Dokumenty pre asistenta** → the private folder (e.g. "Veľkoobchod") → **Nastaviť kľúč** → the key
+     is shown once → copy it. Under it: "Odomknutia: 0 · Zobrazenia: 0 · Stiahnutia: 0".
+   - **Režim prístupu** → **Len zobraziť** → **Uložiť prístup** (the note says that view-only cannot stop screenshots).
+   - The shop page in a private window → the assistant → **Mám prístupový kľúč** → type a wrong key → "Nesprávny
+     kľúč." (after 5 wrong keys in 15 minutes it waits a while).
+   - Paste the right key (or send it as a message) → "Prístup k priečinku Veľkoobchod odomknutý" and the folder's files
+     with **Otvoriť** and no "Stiahnuť". **Otvoriť** a PDF → its pages as pictures with "Cacadoo Paint shop · VIP ·
+     <date>" → **Zavrieť**. Ask about the price list → the answer uses it.
+   - Back in Môj obchod → **Zobraziť a stiahnuť** → **Uložiť prístup**. Set one file to **Len zobraziť** (its own
+     "Prístup s kľúčom") → **Uložiť prístup**. In the shop window close and open the assistant, enter the key again →
+     now **Stiahnuť** next to the other files, none next to that one, and **Stiahnuť celý priečinok (ZIP)** → the ZIP
+     has only the downloadable files. "Zostáva stiahnutí: …" counts down from 20.
+   - Close the box (−) → open it again → the folder is locked (the key is needed again).
+   - **Zmeniť kľúč** → OK → the old key says "Nesprávny kľúč.", the new one works. The counts went up.
+   - **Stiahnuť túto konverzáciu (PDF)** in the assistant (after a question) → a PDF with only this conversation. Môj
+     obchod → **Konverzácie asistenta** → untick "Zákazníci si môžu stiahnuť svoju konverzáciu (PDF)" → Uložiť →
+     reload the shop page → the button is gone.
+7. If something does not work: Vercel → Logs → search `folder` or `shop-chat`; Supabase → Edge Functions →
+   `shop-files` / `doc-ingest` → **Logs**. "pripravuje sa na zobrazenie" next to a file means step 5 is missing for it.
+   Keys and files are never written to the logs.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -706,3 +752,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 12. Shop page updates: no other shops on Pro product pages, shop e-mail and Facebook, the assistant's own texts, "Môj obchod" as dropdowns with private files and the last 10 stock files, one display rule (quantity as in the file) | ✅ built — set up Part N |
 | 13. Assistant conversations (paid plan): archive with files (GPS removed), a PDF per conversation, "Konverzácie asistenta", keep time 30/90/365 days | ✅ built — set up Part O |
 | 14. Cloud folder (paid plan): each finished conversation (PDF + files) copied into the shop's OneDrive or Dropbox; status per conversation, "Uložiť znova", older conversations, e-mail after 24 hours of failures | ✅ built — set up Part P |
+| 15. Access keys for shoppers (paid plan): "Mám prístupový kľúč" in the assistant, folder files in a watermarked viewer, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, ZIP, folder key and counts, the shopper's own conversation PDF | ✅ built — set up Part Q |

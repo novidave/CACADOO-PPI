@@ -1241,6 +1241,8 @@ begin
   perform public.owner_update_picture(current_setting('ppi.pic_hidden')::uuid, 'Skrytý obrázok', null, null, null, false);
   perform public.owner_update_document(current_setting('ppi.doc_w')::uuid, 'Veľkoobchodný cenník 2026', 'Len pre partnerov',
                                        current_setting('ppi.folder_w')::uuid, true, true);
+  -- update 24: a private folder's file is downloadable by its own access setting (or its folder's mode)
+  perform public.owner_set_file_access('document', current_setting('ppi.doc_w')::uuid, 'download');
   -- the upload check: only a registered file of the owner's own shop that is not uploaded yet
   assert public.shop_docs_upload_allowed((select storage_path from public.shop_documents where id = current_setting('ppi.doc_up')::uuid)) = false,
     'an upload marked as failed cannot be finished';
@@ -1317,7 +1319,7 @@ begin
 end $$;
 reset role;
 
--- keys: each opens only its folders, for 12 hours, until revoked or expired
+-- keys: each opens only its folders, for 24 hours (update 24), until revoked or expired
 set role anon;
 do $$
 declare
@@ -1328,7 +1330,8 @@ begin
   v_r := public.unlock_shop_folders(v_slug, lower(current_setting('ppi.key_w')), repeat('m', 64));
   assert v_r ->> 'status' = 'ok', format('key for Veľkoobchod (typed in small letters): %s', v_r);
   assert v_r -> 'folders' = '["Veľkoobchod"]'::jsonb;
-  assert (v_r ->> 'expires_at')::timestamptz between now() + interval '11 hours 59 minutes' and now() + interval '12 hours 1 minute';
+  assert (v_r ->> 'expires_at')::timestamptz between now() + interval '23 hours 59 minutes' and now() + interval '24 hours 1 minute',
+    'a session lasts 24 hours (update 24)';
   t := v_r ->> 'token';
   assert length(t) >= 32;
   perform set_config('ppi.t_w', t, false);
@@ -1452,7 +1455,8 @@ begin
     'never a scan page';
   assert public.shop_file_path(v_slug, 'picture', current_setting('ppi.pic_s')::uuid, v_t) is null,
     'a key for Veľkoobchod opens no picture in Servis';
-  assert public.shop_file_path(v_slug, 'picture', current_setting('ppi.pic_s')::uuid, v_all) is not null;
+  assert public.shop_file_path(v_slug, 'picture', current_setting('ppi.pic_s')::uuid, v_all) is null,
+    'update 24: a private picture in a view-only folder is shown only through the viewer (with the watermark)';
   assert public.shop_file_path(v_slug, 'document', current_setting('ppi.doc_off')::uuid, null) is not null,
     'downloadable even when the assistant may not use it';
 end $$;
@@ -2526,5 +2530,329 @@ begin
 end $$;
 reset role;
 drop table cloud_test;
+
+\echo '--- access keys: shoppers view or download a private folder (update 24)'
+create temporary table vip_test (k text primary key, v text);
+grant all on vip_test to public;
+
+-- a private folder "VIP" with a 3-page PDF (page pictures), an own picture and a second PDF
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_folder uuid;
+  v_doc uuid;
+  v_doc2 uuid;
+  v_pic uuid := gen_random_uuid();
+  v_paths text[];
+begin
+  insert into public.shop_folders (shop_id, name) values (v_a, 'VIP') returning id into v_folder;
+  assert (select access_mode from public.shop_folders where id = v_folder) = 'view', 'a new folder is "Len zobraziť"';
+  select document_id into v_doc from public.docs_register_document(v_a, v_folder, 'Cenník VIP', null, 3, 3000, 30, 500);
+  perform public.docs_document_uploaded(v_doc);
+  select document_id into v_doc2 from public.docs_register_document(v_a, v_folder, 'Návod', null, 1, 2000, 30, 500);
+  perform public.docs_document_uploaded(v_doc2);
+  insert into public.shop_pictures (id, shop_id, folder_id, title, storage_path, bytes, status)
+  values (v_pic, v_a, v_folder, 'Vzorkovník', v_a || '/pictures/' || v_pic || '.webp', 5000, 'ready');
+
+  -- page pictures: registered (page numbers the PDF has, WebP or JPEG, at most 5 MB), then marked uploaded
+  begin
+    perform public.docs_register_pages(v_doc, '[{"page": 4, "bytes": 100, "type": "image/webp"}]');
+    raise exception 'a page the PDF does not have was registered';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.docs_register_pages(v_doc, '[{"page": 1, "bytes": 100, "type": "application/pdf"}]');
+    raise exception 'a page picture of another type was registered';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.docs_register_pages(v_doc, '[{"page": 1, "bytes": 6000000, "type": "image/webp"}]');
+    raise exception 'a page picture over 5 MB was registered';
+  exception when invalid_parameter_value then null;
+  end;
+  select array_agg(storage_path order by page) into v_paths
+  from public.docs_register_pages(v_doc, '[{"page": 1, "bytes": 1000, "type": "image/webp", "width": 1100, "height": 1568},
+                                            {"page": 2, "bytes": 1000, "type": "image/webp"},
+                                            {"page": 3, "bytes": 1000, "type": "image/jpeg"}]');
+  assert cardinality(v_paths) = 3 and v_paths[1] like v_a || '/' || v_doc || '/pages/1-%.webp' and v_paths[3] like '%/pages/3-%.jpg',
+    format('page paths: %s', v_paths);
+  assert public.docs_pages_uploaded(v_doc, array[1, 2]) = 2;
+  perform set_config('ppi.vip_page3', v_paths[3], false);
+  perform public.docs_register_pages(v_doc2, '[{"page": 1, "bytes": 1000, "type": "image/webp"}]');
+  perform public.docs_pages_uploaded(v_doc2, array[1]);
+  insert into vip_test values ('folder', v_folder), ('doc', v_doc), ('doc2', v_doc2), ('pic', v_pic);
+end $$;
+reset role;
+
+-- owners: the folder's own key (shown once, replaced on change), the access mode, a file's own setting
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_folder uuid := (select v::uuid from vip_test where k = 'folder');
+  v_first text;
+  v_key text;
+begin
+  assert public.shop_docs_upload_allowed(current_setting('ppi.vip_page3')), 'the owner may upload a registered page picture';
+  assert not public.shop_docs_upload_allowed(replace(current_setting('ppi.vip_page3'), '/pages/3-', '/pages/1-')),
+    'never a page picture that is not registered or already uploaded';
+  assert (select count(*) from public.shop_document_pages where document_id = (select v::uuid from vip_test where k = 'doc')) = 3,
+    'owners see whether the viewer is ready';
+  assert cardinality(public.owner_docs_files('document', (select v::uuid from vip_test where k = 'doc'))) = 4,
+    'deleting a document also deletes its page pictures';
+  v_first := public.owner_set_folder_key(v_folder);
+  v_key := public.owner_set_folder_key(v_folder);
+  assert v_key ~ '^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){4}$' and v_key <> v_first, 'a new folder key, shown once';
+  assert (select count(*) from public.folder_keys where folder_key and folder_ids = array[v_folder] and revoked_at is null) = 1,
+    'one key per folder: the previous one stopped';
+  perform set_config('ppi.vip_old_key', v_first, false);
+  perform set_config('ppi.vip_key', v_key, false);
+  begin
+    perform public.owner_set_folder_key((select id from public.shop_folders where shop_id = (select shop_id from public.shop_folders where id = v_folder) and is_public));
+    raise exception 'a key for the Public folder';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_set_folder_access(v_folder, 'everything');
+    raise exception 'an unknown access mode';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_set_file_access('document', (select v::uuid from vip_test where k = 'doc'), 'always');
+    raise exception 'an unknown file access';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    update public.shop_folders set access_mode = 'download' where id = v_folder;
+    raise exception 'an owner changed the mode directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform 1 from public.folder_zip_tickets;
+    raise exception 'an owner read ZIP tickets';
+  exception when insufficient_privilege then null;
+  end;
+  assert (select unlocks + views + downloads from public.shop_folders where id = v_folder) = 0, 'counts start at 0';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_folder uuid := (select v::uuid from vip_test where k = 'folder');
+begin
+  assert not exists (select 1 from public.shop_document_pages), 'owner B sees no page of shop A';
+  assert not public.shop_docs_upload_allowed(current_setting('ppi.vip_page3')), 'owner B may not upload shop A''s page';
+  begin
+    perform public.owner_set_folder_key(v_folder);
+    raise exception 'owner B set a key for shop A';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_folder_access(v_folder, 'download');
+    raise exception 'owner B changed shop A''s access mode';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_file_access('document', (select v::uuid from vip_test where k = 'doc'), 'download');
+    raise exception 'owner B changed shop A''s file';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_shopper_pdf((select id from public.shops where slug = 'potraviny-centrum'), false);
+    raise exception 'owner B changed shop A''s setting';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- shoppers: the right key opens only that folder, for 24 hours; a replaced key opens nothing
+set role anon;
+do $$
+declare
+  v_slug text := 'potraviny-centrum';
+  v_r jsonb;
+  v_t text;
+  v_folder uuid := (select v::uuid from vip_test where k = 'folder');
+begin
+  assert public.unlock_shop_folders(v_slug, current_setting('ppi.vip_old_key'), repeat('v', 64)) ->> 'status' = 'wrong',
+    'the folder''s previous key stopped when it was changed';
+  v_r := public.unlock_shop_folders(v_slug, current_setting('ppi.vip_key'), repeat('v', 64));
+  assert v_r ->> 'status' = 'ok' and v_r -> 'folders' = '["VIP"]'::jsonb, format('the folder key opens VIP: %s', v_r);
+  assert (v_r ->> 'expires_at')::timestamptz > now() + interval '23 hours 59 minutes', '24 hours';
+  v_t := v_r ->> 'token';
+  perform set_config('ppi.vip_t', v_t, false);
+  assert (select count(*) from public.shop_folder_files(v_slug, v_t)) = 3, 'two PDFs and the picture';
+  assert (select bool_and(folder = 'VIP' and not can_download) from public.shop_folder_files(v_slug, v_t)),
+    '"Len zobraziť": nothing downloadable';
+  assert (select viewable from public.shop_folder_files(v_slug, v_t) where id = (select v::uuid from vip_test where k = 'doc')) = false,
+    'a PDF whose pages are not all uploaded is not viewable yet';
+  assert (select viewable from public.shop_folder_files(v_slug, v_t) where id = (select v::uuid from vip_test where k = 'doc2')),
+    'a PDF with all its pages is viewable';
+  assert not exists (select 1 from public.shop_folder_files(v_slug, null)), 'no files without a key';
+  assert not exists (select 1 from public.shop_folder_files(v_slug, repeat('A', 40))), 'nor with a made-up token';
+  assert not exists (select 1 from public.shop_folder_files('drogeria-kostolne', v_t)), 'never through another shop';
+  assert not exists (select 1 from public.shop_folder_files(v_slug, current_setting('ppi.t_w')) where folder = 'VIP'),
+    'a key for Veľkoobchod does not open VIP';
+  assert (public.shop_folder_session(v_slug, v_t) ->> 'downloads_left')::int = 20, '20 downloads per unlocked session';
+  begin
+    perform 1 from public.shop_document_pages;
+    raise exception 'a visitor read page pictures';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.shop_view_file(v_slug, 'document', (select v::uuid from vip_test where k = 'doc2'), v_t, true);
+    raise exception 'a visitor called the viewer function directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.shop_download_file(v_slug, 'document', (select v::uuid from vip_test where k = 'doc2'), v_t);
+    raise exception 'a visitor called the download function directly';
+  exception when insufficient_privilege then null;
+  end;
+  assert public.shopper_pdf_allowed(v_slug), 'the shopper''s own conversation PDF is on by default';
+  assert not public.shopper_pdf_allowed('drogeria-kostolne'), 'not for a shop without the paid plan';
+end $$;
+reset role;
+
+-- viewing, downloading, the ZIP (shop-files, service role)
+set role service_role;
+do $$
+declare
+  v_slug text := 'potraviny-centrum';
+  v_t text := current_setting('ppi.vip_t');
+  v_folder uuid := (select v::uuid from vip_test where k = 'folder');
+  v_doc uuid := (select v::uuid from vip_test where k = 'doc');
+  v_doc2 uuid := (select v::uuid from vip_test where k = 'doc2');
+  v_pic uuid := (select v::uuid from vip_test where k = 'pic');
+  v_view jsonb;
+  v_r jsonb;
+  v_zip jsonb;
+begin
+  assert public.shop_view_file(v_slug, 'document', v_doc, v_t, true) is null, 'not viewable before all pages are uploaded';
+  perform public.docs_pages_uploaded(v_doc, array[3]);
+  v_view := public.shop_view_file(v_slug, 'document', v_doc, v_t, true);
+  assert v_view ->> 'name' = 'Cenník VIP' and jsonb_array_length(v_view -> 'pages') = 3
+         and (v_view -> 'pages' -> 0 ->> 'page')::int = 1 and (v_view -> 'pages' -> 0 ->> 'width')::int = 1100
+         and v_view -> 'shop' ->> 'name' = 'Potraviny Centrum' and not (v_view ->> 'can_download')::boolean,
+    format('the viewer gets the page pictures in order: %s', v_view);
+  assert jsonb_array_length(public.shop_view_file(v_slug, 'picture', v_pic, v_t, false) -> 'pages') = 1, 'a picture is one page';
+  assert public.shop_view_file(v_slug, 'document', v_doc, null, true) is null, 'no viewer without a key';
+  assert public.shop_view_file(v_slug, 'document', v_doc, current_setting('ppi.t_w'), true) is null, 'nor with another folder''s key';
+  assert public.shop_view_file('drogeria-kostolne', 'document', v_doc, v_t, true) is null, 'nor through another shop';
+  assert (select views from public.shop_folders where id = v_folder) = 1, 'one "Otvoriť" counted (not the refresh)';
+
+  -- "Len zobraziť": no download, no original file, no ZIP
+  assert public.shop_download_file(v_slug, 'document', v_doc, v_t) ->> 'status' = 'not_found', 'view only: no download';
+  assert public.shop_file_path(v_slug, 'document', v_doc, v_t) is null, 'view only: never the original PDF';
+  assert public.shop_zip_ticket(v_slug, v_folder, v_t) ->> 'status' = 'empty', 'view only: no ZIP';
+
+  -- the folder "Zobraziť a stiahnuť", one file overridden to "len zobraziť"
+  update public.shop_folders set access_mode = 'download' where id = v_folder;
+  update public.shop_documents set access = 'view' where id = v_doc2;
+  assert (select array_agg(name order by name) from public.shop_folder_files(v_slug, v_t) where can_download)
+         = array['Cenník VIP', 'Vzorkovník'], 'the per-file override wins over the folder';
+  v_r := public.shop_download_file(v_slug, 'document', v_doc, v_t);
+  assert v_r ->> 'status' = 'ok' and v_r ->> 'name' = 'Cenník VIP.pdf' and v_r ->> 'path' like '%/docs/%.pdf', format('download: %s', v_r);
+  assert public.shop_download_file(v_slug, 'document', v_doc2, v_t) ->> 'status' = 'not_found', 'the overridden file: view only';
+  assert public.shop_download_file(v_slug, 'picture', v_pic, v_t) ->> 'name' = 'Vzorkovník.webp';
+  assert public.shop_download_file(v_slug, 'document', v_doc, null) ->> 'status' = 'not_found', 'no download without a key';
+  assert public.shop_file_path(v_slug, 'document', v_doc, v_t) is not null, 'downloadable: the original PDF';
+  assert (select downloads from public.folder_sessions where token_hash = public.docs_hash(v_t)) = 2
+     and (select downloads from public.shop_folders where id = v_folder) = 2, 'downloads counted for the session and the folder';
+
+  -- the ZIP: a single-use ticket with only the downloadable files
+  v_zip := public.shop_zip_ticket(v_slug, v_folder, v_t);
+  assert v_zip ->> 'status' = 'ok' and length(v_zip ->> 'ticket') >= 32, format('ZIP ticket: %s', v_zip);
+  assert not exists (select 1 from public.folder_zip_tickets where ticket_hash = v_zip ->> 'ticket'), 'tickets kept only as a hash';
+  v_r := public.shop_zip_take(v_zip ->> 'ticket');
+  assert v_r ->> 'folder' = 'VIP'
+         and (select array_agg(x ->> 'name' order by x ->> 'name') from jsonb_array_elements(v_r -> 'files') x)
+             = array['Cenník VIP.pdf', 'Vzorkovník.webp'],
+    format('the ZIP holds only the downloadable files: %s', v_r);
+  assert public.shop_zip_take(v_zip ->> 'ticket') is null, 'a ticket works once';
+  v_zip := public.shop_zip_ticket(v_slug, v_folder, v_t);
+  update public.folder_zip_tickets set expires_at = now() - interval '1 second' where ticket_hash = public.docs_hash(v_zip ->> 'ticket');
+  assert public.shop_zip_take(v_zip ->> 'ticket') is null, 'a ticket expires after 10 minutes';
+  assert public.shop_zip_ticket(v_slug, v_folder, current_setting('ppi.t_w')) ->> 'status' = 'not_found', 'another folder''s key: no ZIP';
+  assert public.shop_zip_ticket('drogeria-kostolne', v_folder, v_t) ->> 'status' = 'not_found', 'never through another shop';
+
+  -- at most 100 MB in a ZIP
+  insert into public.shop_documents (shop_id, folder_id, name, storage_path, bytes, pages, status, access)
+  select (select shop_id from public.shop_folders where id = v_folder), v_folder, 'Veľký ' || i, 'big/' || i || '.pdf', 20971520, 1,
+         'ready', 'download'
+  from generate_series(1, 5) i;
+  assert public.shop_zip_ticket(v_slug, v_folder, v_t) ->> 'status' = 'too_big', 'more than 100 MB: no ZIP';
+  delete from public.shop_documents where storage_path like 'big/%';
+
+  -- 20 downloads per session (a ZIP counts as one)
+  update public.folder_sessions set downloads = 19 where token_hash = public.docs_hash(v_t);
+  assert public.shop_download_file(v_slug, 'document', v_doc, v_t) ->> 'status' = 'ok', 'the 20th download';
+  assert public.shop_download_file(v_slug, 'document', v_doc, v_t) ->> 'status' = 'limit', 'the 21st is refused';
+  assert public.shop_zip_ticket(v_slug, v_folder, v_t) ->> 'status' = 'limit', 'no ZIP after 20 downloads';
+
+  -- a changed folder key closes the folder for whoever opened it with the old one
+  update public.folder_keys set revoked_at = now() where folder_key and folder_ids = array[v_folder];
+  assert not exists (select 1 from public.shop_folder_files(v_slug, v_t)), 'a revoked key: the session sees nothing';
+  assert public.shop_view_file(v_slug, 'document', v_doc, v_t, false) is null;
+  update public.folder_keys set revoked_at = null where folder_key and folder_ids = array[v_folder];
+  -- the chat closes: "Znova zamknúť"
+  assert public.lock_shop_folders(v_slug, v_t);
+  assert not exists (select 1 from public.shop_folder_files(v_slug, v_t)), 'a locked session sees nothing';
+  assert (select unlocks from public.shop_folders where id = v_folder) = 1, 'one unlock counted';
+end $$;
+reset role;
+
+-- the shopper's own conversation PDF: only with its token, only when the shop allows it
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb := public.assistant_open(v_a, 'hu', repeat('w', 32));
+  v_id uuid := (v_open ->> 'id')::uuid;
+  v_token text := v_open ->> 'token';
+begin
+  assert public.assistant_shopper_pdf_data(v_id, v_token) is null, 'nothing before the first message';
+  perform public.assistant_add_turn(v_id, v_token, v_a, '{"body": "Van festék?", "lang": "hu"}', '{"body": "Igen."}');
+  assert public.assistant_shopper_pdf_data(v_id, v_token) -> 'conversation' ->> 'id' = v_id::text, 'the shopper''s own chat';
+  assert jsonb_array_length(public.assistant_shopper_pdf_data(v_id, v_token) -> 'messages') = 2, 'only this conversation''s messages';
+  assert public.assistant_shopper_pdf_data(v_id, repeat('0', 64)) is null, 'never with another token';
+  insert into vip_test values ('conv', v_id), ('conv_token', v_token);
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  perform public.owner_set_shopper_pdf((select id from public.shops where slug = 'potraviny-centrum'), false);
+  assert (select shopper_pdf from public.shop_assistant_settings
+          where shop_id = (select id from public.shops where slug = 'potraviny-centrum')) = false, 'the owner turned it off';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role service_role;
+do $$
+declare
+  v_id uuid := (select v::uuid from vip_test where k = 'conv');
+begin
+  assert not public.shopper_pdf_allowed('potraviny-centrum');
+  assert public.assistant_shopper_pdf_data(v_id, (select v from vip_test where k = 'conv_token')) is null, 'turned off: no PDF';
+  update public.shop_assistant_settings set shopper_pdf = true where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+  delete from public.assistant_conversations where id = v_id;
+  delete from public.shop_pictures where id = (select v::uuid from vip_test where k = 'pic');
+  delete from public.shop_documents where folder_id = (select v::uuid from vip_test where k = 'folder');
+end $$;
+reset role;
+set role authenticated;
+do $$ begin
+  begin
+    perform public.assistant_shopper_pdf_data(gen_random_uuid(), 'x');
+    raise exception 'a logged-in user called the archive''s function';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+drop table vip_test;
 
 \echo 'ALL DATABASE CHECKS PASSED'

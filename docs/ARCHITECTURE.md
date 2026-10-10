@@ -54,7 +54,8 @@ SUPABASE -----------------------------------------------------------------------
   Auth (e-mail + password, SMTP via Brevo) | Storage (logos, raw files, shop-docs: private PDFs and pictures)
   Edge Functions stripe-checkout (owner's login -> Stripe page) | stripe-webhook (signed event -> subscriptions)
   Edge Functions doc-ingest (owner's login: register, text -> excerpts, Claude looks at pictures, delete)
-               | shop-files (database says yes -> 10-minute signed file address)
+               | shop-files (database says yes -> 10-minute signed file address; update 24: viewer pages,
+                 downloads, single-use ZIP of a folder's downloadable files, streamed)
   Edge Function assistant-archive (website secret: start/record/end/delete | shopper's token: upload, GPS removed
                | owner's login: file links, delete | pg_cron + Vault secret: tick every 5 min, keep time daily)
                -> PDF per conversation (pdf-lib, DejaVu Sans) | Storage shop-assistant-uploads (private)
@@ -69,6 +70,7 @@ WEBSITE (Next.js 16 on Vercel)     v
   public API /api/v1 + OpenAPI    | MCP server /mcp | /api/ai-search (Claude Haiku + search_stock)
   /api/shops/[slug]/chat (shop assistant, paid plan: Claude Haiku + this shop's stock and allowed documents)
   /api/shops/[slug]/access (access key -> HttpOnly session cookie) | /api/shops/[slug]/files/... (-> shop-files)
+  /api/shops/[slug]/folder (download / ZIP) | folder/view/... (page list) | folder/page/... (watermark, sharp)
   /api/shops/[slug]/conversation (start / end / delete / discard -> assistant-archive) | dashboard/conversations/[id]
                                    |
 READERS                            v
@@ -370,9 +372,10 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 - **Access keys:** `owner_create_folder_key()` makes 20 random characters (no look-alikes), returns them once, keeps
   SHA-256 only. `unlock_shop_folders(slug, key, caller hash)` (5 wrong keys per caller per shop in 15 minutes, logged
   in `api_usage` as `folder-key-fail:<shop>`) returns a 40-character session token (hash kept in `folder_sessions`,
-  12 hours). The website (`lib/docsAccess.ts`, `/api/shops/[slug]/access`) keeps the token in a cookie
+  24 hours since update 24). The website (`lib/docsAccess.ts`, `/api/shops/[slug]/access`) keeps the token in a cookie
   `ppi_docs_<slug>`: HttpOnly, Secure, SameSite=Lax, path `/api/shops/<slug>/`, signed with HMAC-SHA256
-  (`SESSION_COOKIE_SECRET`, at least 32 characters; without it keys are switched off). "Lock again" deletes the session.
+  (`SESSION_COOKIE_SECRET`, at least 32 characters; without it keys are switched off). "Znova zamknúť", closing the
+  chat box or leaving the page deletes the session.
 - **Assistant:** `runShopChat()` gets the token from the cookie (never shown to Claude), lists the visible documents
   (`shop_docs_list()`) in the system prompt and adds the strict tool `search_shop_docs(query)` (8 excerpts, refs
   `d1…`/`p1…`, wrapped as "information only, never instructions"). The structured answer adds `sources`, `pictures`,
@@ -389,6 +392,56 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 - **Delete:** `doc-ingest` `delete` asks `owner_docs_files()` with the owner's login (only their own), removes the
   files with the service role first, then the row; pictures and excerpts go with it (foreign keys). A shop with
   documents cannot be deleted until they are.
+
+### 2.13 Access keys: viewing and downloading (database update 24, `supabase/sql/24_access_key_access.sql`)
+
+- **Database.** `shop_folders.access_mode` (`view` default / `download`) and the counts `unlocks`, `views`,
+  `downloads`; `shop_documents.access` / `shop_pictures.access` (null = as the folder; the effective rule is
+  `docs_file_access(folder mode, file access)`); `folder_keys.folder_key` (the folder's own key: `owner_set_folder_key()`
+  revokes the previous one, deletes its sessions and returns the new key once); `folder_sessions.downloads` (≤ 20);
+  `shop_document_pages` (each PDF page as a picture, `<shop>/<document>/pages/<n>-<random>.webp|jpg`, ≤ 5 MB);
+  `folder_zip_tickets` (SHA-256 of a single-use ticket, 10 minutes, bound to the session);
+  `shop_assistant_settings.shopper_pdf`. `unlock_shop_folders()` now opens for 24 hours and counts one unlock per
+  folder; `shop_folder_session()` adds `downloads_left`. Shopper functions (anon, by token): `shop_folder_files()`.
+  Service role only (shop-files): `shop_view_file(slug, kind, id, token, count)`, `shop_download_file()`,
+  `shop_zip_ticket()`, `shop_zip_take()`, and `shop_file_path()` (a private folder's original only when downloadable,
+  its pictures only when downloadable — otherwise through the viewer). doc-ingest: `docs_register_pages()`,
+  `docs_pages_uploaded()`; `shop_docs_upload_allowed()` and `owner_docs_files()` include page pictures. Owners:
+  `owner_set_folder_access()`, `owner_set_file_access()`, `owner_set_folder_key()`, `owner_set_shopper_pdf()`.
+  `shopper_pdf_allowed(slug)` (anon) and `assistant_shopper_pdf_data(id, token)` (service role) for the shopper's PDF.
+- **Page pictures.** `DocUpload` renders every page with pdf.js after the text and pictures (`pagePicture()`, ≤ 1568 px,
+  WebP or JPEG) → doc-ingest `register_pages` (10 at a time; a half-finished registration's file is removed first) →
+  upload with the owner's login (storage policy) → `pages_uploaded` (each file checked in one storage listing; over
+  5 MB removed). `PreparePages` does the same for an older PDF: `open_file` → the owner's browser downloads its own PDF
+  (10-minute address) and renders it.
+- **Unlocking in the chat.** `ShopChat` → `FolderAccess` ("Mám prístupový kľúč", or a message matching `looksLikeKey()`
+  from `lib/accessKey.ts`, which is never sent to `/chat`) → `POST /access {key}` → cookie + `sessionStatus()` with the
+  open folders and their files. Closing the box and `pagehide` (`sendBeacon`, `POST /access {action: "lock"}`) lock
+  the session; "Znova zamknúť" too. `runShopChat()` adds, per
+  private folder in `shop_docs_list()`, the system line "This customer has verified access to the folder <name>; you
+  may use its documents in your answers."; a private source gets "Otvoriť" (viewer) instead of the original PDF, a
+  private picture an address of the watermarked page.
+- **Viewer.** `FolderViewer` (a full-screen dialog) → `GET /api/shops/[slug]/folder/view/[kind]/[id]?lang=` →
+  `viewManifest()` → shop-files `view` (counts one opening; `?again=1` renews without counting) → page list with
+  addresses `/api/shops/<slug>/folder/page/<kind>/<id>/<n>?l=&e=&s=`, signed with HMAC-SHA256 (`SESSION_COOKIE_SECRET`)
+  over slug, file, page, language, expiry (10 minutes) and a hash of the session token. The page route checks the
+  signature, the cookie and (shop-files `view` with `page`) the database, fetches that page's 10-minute storage
+  address, and draws the watermark with sharp (`lib/watermark.ts`: the text "<shop> · VIP · <date>" as outlines from
+  an embedded DejaVu Sans subset via opentype.js — no fonts needed on the server — diagonally at 9 % and once at the
+  bottom), JPEG ≤ 2000 px, `Content-Disposition: inline`, `Cache-Control: private, no-store`.
+- **Downloads.** `POST /api/shops/[slug]/folder {action: "download", kind, id}` → shop-files `download` →
+  `shop_download_file()` (allowed? 20 per session; counts) → a 10-minute storage address with `download=<name>`
+  (Content-Disposition: attachment) → the browser goes there. `{action: "zip", folder_id}` → shop-files `zip` →
+  `shop_zip_ticket()` (open folder, downloadable files, ≤ 100 MB, one download) → `…/functions/v1/shop-files?zip=<ticket>`:
+  `shop_zip_take()` (once, 10 minutes, session and folder still open) → a stored ZIP (CRC-32, UTF-8 names, unique,
+  safe) streamed file by file from storage, so only one file is in memory at a time.
+- **The shopper's own PDF.** The chat route returns the archive's address with the conversation; "Stiahnuť túto
+  konverzáciu (PDF)" posts `{action: "shopper_pdf", id, token}` straight to assistant-archive →
+  `assistant_shopper_pdf_data()` → `buildPdf(…, {shopper: true})` (labels in the page's language, no Slovak owner lines)
+  → returned as an attachment, never stored.
+- **Owners.** `ShopDocuments`: per private folder `FolderAccessBlock` (counts, Režim prístupu, the folder key via
+  `FolderKeySetter`, shown once), per private document / own picture `FileAccess` (as the folder / view / download) and
+  the viewer's readiness; "Konverzácie asistenta": the shopper-PDF switch.
 
 ### 2.11 Conversation archive (database update 22, `supabase/sql/22_assistant_archive.sql`, `supabase/functions/assistant-archive`)
 
@@ -549,10 +602,12 @@ the scan → "Ready". A shopper asks "Come si collega il tubo Flexi?" → Claude
 zapojenie")` (Slovak, the catalogue's language) → excerpts of the Public folder → answer in Italian with
 `sources: [d1]` → "From: Katalóg 2026, page 4 · Open PDF" under the answer.
 
-**A partner opens a private price list:** the owner creates a key for folder "Veľkoobchod" and sends it → the partner
-types it under the shop's chat → `unlock_shop_folders()` → cookie → the next questions also search that folder; the
-trade price appears as "Price in “Trade price list 2026”, page 2: 18,40 €" next to the shop's own price → "Lock again"
-or 12 hours later it is closed.
+**A partner opens a private price list:** the owner sets the key of folder "Veľkoobchod" and sends it → the partner
+types it in the shop's chat → `unlock_shop_folders()` → cookie → "Prístup k priečinku Veľkoobchod odomknutý" and the
+folder's files with "Otvoriť" → the viewer shows the price list's pages with "<shop> · VIP · <date>" drawn in → the next
+questions also search that folder; the trade price appears as "Price in “Trade price list 2026”, page 2: 18,40 €" next
+to the shop's own price → with "Zobraziť a stiahnuť" also "Stiahnuť" and the ZIP → closing the chat, "Znova zamknúť"
+or 24 hours later it is closed.
 
 **A shopper sends a photo and a PDF to a paid shop's assistant:** "Add photo or PDF" → the browser makes a 1568 px
 JPEG for the AI and an 800 px preview, reads the PDF's text → `/api/shops/{slug}/conversation` `start` → the files go
@@ -610,8 +665,12 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | `doc-ingest` not deployed | — | "Uploading is not set up yet" in Documents for the assistant |
 | Claude unavailable while pictures wait | answers use text excerpts; pictures without a description are found by their title | "AI is looking at pictures: N left" or "Pictures are waiting: AI is not set up"; retried next time (3 attempts) |
 | The owner leaves during an upload | — | the document shows "Processing", after an hour "Error – upload interrupted: delete it and upload it again" |
-| `SESSION_COOKIE_SECRET` missing | no "I have an access key" field; Public documents still used | — |
+| `SESSION_COOKIE_SECRET` missing | no "Mám prístupový kľúč" field, no viewer pages; Public documents still used | — |
 | `shop-files` not deployed | pictures and "Open PDF" links do not open (404) | — |
+| Update 24 missing, or shop-files / doc-ingest / assistant-archive not updated | the key still opens folders for the assistant; no file list, viewer, downloads or own PDF ("Súbor sa teraz nedá zobraziť") | no "Režim prístupu", folder key or counts in Documents; uploads fail at "register_pages" until doc-ingest is updated |
+| A PDF uploaded before update 24 | listed as "pripravuje sa na zobrazenie", no "Otvoriť" | "Zobrazenie pre zákazníkov: chýba" with "Pripraviť na zobrazenie" |
+| A viewer page after 10 minutes | the viewer renews the addresses once; a closed or locked session gets 410 | — |
+| 20 downloads used / ZIP over 100 MB | "Dosiahli ste limit 20 stiahnutí…" / "Priečinok je na ZIP príliš veľký…" | — |
 | `ASSISTANT_ARCHIVE_SECRET` missing (Vercel) or `assistant-archive` not deployed | the assistant works as before: no privacy line, files only read for the answer, nothing kept | "Konverzácie asistenta" stays empty; Vercel log `assistant-archive: … failed` |
 | The two secrets differ | the assistant answers; nothing is kept | Vercel log `assistant-archive: start failed (secret)` |
 | pg_cron / pg_net off or `ppi_project_url` missing | — | idle conversations stay "prebieha" and get no PDF until closed; nothing is deleted after the keep time (`cron.job_run_details` shows the error) |
@@ -650,6 +709,13 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
   so a token copied to another row does not open), owners have no column grant on them, they are never logged, and
   "Odpojiť" deletes them (Dropbox's is revoked). The archive calls `export` with the service role key; the job with the
   Vault secret. Uploads never replace and PPI sends no delete, move or overwrite to a cloud.
+- Access keys for shoppers (update 24): the key only reaches the database (also when typed as a chat message, which is
+  then never sent to the AI or kept); keys and session tokens only as SHA-256; a session is bound to one shop and
+  browser (HttpOnly cookie), lasts 24 hours and is locked when the chat closes; every view, page, download and ZIP is
+  decided again in the database for that shop and session; viewer pages need a 10-minute HMAC signature bound to the
+  session token's hash as well as the cookie, and carry the watermark drawn on the server; originals only for
+  downloadable files, as attachments from 10-minute addresses; ZIP tickets are single-use and hashed; counts hold no
+  shopper data; logs hold only error codes.
 - Documents: the bucket `shop-docs` is private; owners can only add files they registered (no reading, replacing or
   deleting); everything else goes through `doc-ingest` (owner's login checked; "Open" for the owner too) and
   `shop-files` (database decides), both with the service role inside Supabase.
@@ -678,7 +744,7 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (optional, server only) | `ANTHROPIC_API_KEY` | switches on the AI search on the main page |
 | Vercel env (optional) | `AI_DAILY_LIMIT` | AI searches per day for the whole site (default 500) |
 | Vercel env (optional) | `CHAT_MONTHLY_LIMIT_PER_SHOP` | shop assistant messages per shop per calendar month (default 1,000; 0 = assistants off) |
-| Vercel env (server only) | `SESSION_COOKIE_SECRET` | at least 32 random characters: signs the access-key session cookie; without it "I have an access key" is off |
+| Vercel env (server only) | `SESSION_COOKIE_SECRET` | at least 32 random characters: signs the access-key session cookie and the viewer's page addresses; without it "Mám prístupový kľúč" is off |
 | Vercel env (server only, Sensitive) **and** Supabase function secret | `ASSISTANT_ARCHIVE_SECRET` | the same 32+ random characters in both: the website proves itself to `assistant-archive`; without it the archive is off |
 | Supabase Vault | `ppi_project_url` (`https://<project>.supabase.co`, set by the owner), `ppi_assistant_cron` (made by update 22) | the archive's pg_cron jobs call the function with them |
 | Supabase extensions | `pg_cron`, `pg_net` | the archive's two jobs |
@@ -702,9 +768,11 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 src/app/[lang]/            public pages, accounts, (account)/dashboard|sync|password
 src/app/api, mcp, auth     REST API + OpenAPI, MCP server, e-mail link landing / sign out
 src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
-src/components/            ShopMap, FolderSync, AiSearch, ShopChat, DocUpload, FolderKeyForm, ShopForm, LogoInput,
-                           DashboardSection, RecentImports, ContactLinks, …
-src/lib/                   data, publicApi, aiSearch, shopChat, assistantArchive, docsAccess, pdfRead, names, apiHttp, …
+src/components/            ShopMap, FolderSync, AiSearch, ShopChat, FolderAccess, DocUpload, FolderKeyForm,
+                           FolderKeySetter, ShopForm, LogoInput, DashboardSection, RecentImports, ContactLinks, …
+src/lib/                   data, publicApi, aiSearch, shopChat, assistantArchive, docsAccess, accessKey, watermark,
+                           pdfRead, names, apiHttp, …
+src/types/                 type declarations for packages without their own (opentype.js)
 src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh
 supabase/migrations/       updates 1–21 (section 9)
@@ -747,6 +815,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 20 | `20261017000001_shop_documents.sql` | documents for the assistant: folders (Public made for every shop), documents, pictures, excerpts with full-text and trigram indexes, access keys and sessions, the `owner_*` and `docs_*` functions, `search_shop_docs`, `shop_docs_list`, `shop_file_path`, `unlock_shop_folders` / `lock_shop_folders` / `shop_folder_session`, bucket `shop-docs` and its upload policy; `owner_delete_shop` also refuses a shop with documents |
 | 21 | `20261018000001_shop_page_updates.sql` | one display rule for every shop: `availability_label(quantity, freshness)`, `public_stock` without display modes or hidden items; drops `shops.visibility_mode`, `shops.low_stock_threshold`, `shop_items.is_public`, the owner's item update policy, `availability_preview`, `admin_shops`, `admin_save_shop`; `shops.email`, `facebook_url`, `assistant_label`, `assistant_welcome` (checks, `plain_text`, `clean_contact`, `guard_shop_assistant_texts`, `owner_set_assistant_texts`), `owner_save_shop` and `my_shops` and `public_shops` with them; private columns (`is_private_column`, `mapped_columns`, `keep_columns`, `trim_sample_rows`, `sync_sources.file_columns`); `stock_imports` + `record_stock_import` (last 10 per shop, owners read). Safe to run twice |
 | 22 | `supabase/sql/22_assistant_archive.sql` | conversation archive: `assistant_conversations`, `assistant_messages`, `assistant_attachments`, `shop_assistant_settings` (RLS: members read), the `assistant_*` functions (service role), `owner_set_assistant_retention`, `owner_assistant_conversations`, `assistant_cron_ok`, Vault secret `ppi_assistant_cron`, private bucket `shop-assistant-uploads`, pg_cron jobs `ppi-assistant-tick` and `ppi-assistant-retention` (a notice if pg_cron is off or `ppi_project_url` missing). Safe to run twice |
+| 24 | `supabase/sql/24_access_key_access.sql` | access keys for shoppers: `shop_folders.access_mode` + counts, `access` on documents and pictures (private documents already downloadable keep it), `folder_keys.folder_key`, `folder_sessions.downloads`, `shop_assistant_settings.shopper_pdf`, tables `shop_document_pages` and `folder_zip_tickets` (RLS), `unlock_shop_folders` (24 hours, counts), `shop_folder_session` (+ downloads left), `shop_folder_files`, `shop_view_file`, `shop_download_file`, `shop_zip_ticket`, `shop_zip_take`, `shop_file_path` (private files by the access rule), `docs_register_pages`, `docs_pages_uploaded`, `shop_docs_upload_allowed` and `owner_docs_files` (+ pages), `owner_set_folder_access`, `owner_set_file_access`, `owner_set_folder_key`, `owner_set_shopper_pdf`, `shopper_pdf_allowed`, `assistant_shopper_pdf_data`. Needs 20, 22 and 23; safe to run twice |
 | 23 | `supabase/sql/23_cloud_export.sql` | cloud folder: `cloud_connections`, `cloud_oauth_states`, `cloud_export_items` (RLS: members read, never the tokens), export columns and `shopper_deleted_at` on `assistant_conversations`, the `cloud_*` functions (service role), `owner_cloud_retry`, `owner_cloud_backfill`, `assistant_shopper_forget`; `assistant_pdf_done` (queues the copy, returns whether it did), `assistant_empty_ended` and `owner_assistant_conversations` replaced; pg_cron job `ppi-cloud-export-tick`. Safe to run twice |
 
 ## 10. Testing and releasing
@@ -793,7 +862,19 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   but never the tokens and write nothing directly; "Uložiť znova" (also on a copied conversation: its items are checked
   again) and older conversations only for the shop's owners; visitors nothing; "Odpojiť" deletes the tokens and stops
   waiting copies.
-- `npm run test:functions`: 90 Deno tests — 19 of `cloud-export` (tokens encrypted, bound to shop and use, refused when
+- `npm run test:db` also checks (update 24): a new private folder is "Len zobraziť"; page pictures only for pages the
+  PDF has, WebP/JPEG, ≤ 5 MB, uploadable only by the shop's owner and only once; deleting a document lists its pages; the
+  folder key is shown once, replaced on change (the old key then opens nothing), never for the Public folder; unknown
+  modes refused; owners cannot write the mode directly or read ZIP tickets; owner B can do nothing for shop A; a key
+  opens only its folder for 24 hours; the file list only with a valid token, never for another shop or another
+  folder's key; 20 downloads; visitors cannot call the viewer or download functions or read page pictures; the
+  viewer only when all pages are uploaded, pages in order, one opening counted; "Len zobraziť" gives no download, no
+  original and no ZIP; "Zobraziť a stiahnuť" with a file overridden to view only; download names; ZIP tickets hashed,
+  once, 10 minutes, only downloadable files, not over 100 MB, not with another folder's key or another shop; the 21st
+  download and a ZIP after 20 refused; a revoked key or a locked session sees nothing; one unlock counted; the
+  shopper's own PDF only with its token, only its messages, not when turned off; the 12-hour session check of update
+  20 now expects 24 hours and a private file's download follows the access rule.
+- `npm run test:functions`: 99 Deno tests — 19 of `cloud-export` (tokens encrypted, bound to shop and use, refused when
   changed or with another key; PKCE against RFC 7636; QuickXorHash and the Dropbox content hash against reference
   implementations, also over 1 MB / 9 MB; names and paths safe for both clouds, share links and `..` refused, month
   rollover in another time zone; for OneDrive and Dropbox against in-memory stand-ins that refuse any delete or replace:
@@ -804,7 +885,8 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   connect only for owners with the plan, share link explained, state hashed; the redirect: tokens encrypted, folder
   made, back to Môj obchod, a state works once, refusals; folder actions, Dropbox revoke, retry and older ones; the
   archive's push needs the service key, the job the Vault secret, the e-mail sent once with its subject and link),
-  28 of `assistant-archive` (a queued PDF is pushed to cloud-export at once and its failure does not matter; real types incl. AVIF/GIF/SVG/ZIP refused; GPS
+  29 of `assistant-archive` (the shopper's own PDF only with the conversation's token, in the page's language, without
+  the owner's Slovak lines, never stored; a queued PDF is pushed to cloud-export at once and its failure does not matter; real types incl. AVIF/GIF/SVG/ZIP refused; GPS
   emptied and XMP/IPTC removed from JPEG, PNG (with a correct CRC), WebP (flags and size) and HEIC (through iinf/iloc,
   same size, and by scanning); an unreadable EXIF block dropped; file names in the shop's time zone; the logo's PNG twin;
   the PDF read back through its fonts: Slovak, Hungarian, Ukrainian and Greek letters exact, emoji as "?", times,
@@ -812,13 +894,17 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   the website's secret starts/records/ends/deletes; database refusals; ending makes the PDF after the reply, an empty
   conversation is forgotten; delete and take-back remove files before rows; uploads by content, GPS removed, never
   overwritten, refused types and sizes, storage failure rolled back; owners need their login and membership; jobs need
-  the Vault secret; a PDF failure is noted for a retry), 13 of `doc-ingest` (text kept as written, pages kept apart, long pages
+  the Vault secret; a PDF failure is noted for a retry), 15 of `doc-ingest` (page pictures: only the owner's PDF, its
+  page numbers, WebP/JPEG ≤ 5 MB, a half-finished one replaced, only pictures really in storage counted; text kept as written, pages kept apart, long pages
   split without losing a word, language found for six languages, limits from the secrets, no login / another shop's
   owner never reaches the service role, limits and refusals when registering, the PDF must be in storage, text and
   pictures checks, the AI's description and scan text saved and failures kept for a retry, no AI without the plan or
   key, files deleted before the row and nothing deleted for another shop, owner thumbnails, "Open" only for the owner's
-  own PDF or picture and never a scan), 3 of `shop-files` (signed only when the database says yes, bad requests never
-  reach it), 14 of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row counting, translation batches,
+  own PDF or picture and never a scan), 9 of `shop-files` (signed only when the database says yes, bad requests never
+  reach it; the viewer's page list counts one opening and signs one page at a time, never the original; downloads only
+  when allowed, as attachments with a safe name, 429 after 20; ZIP links for a ticket, empty / too big / limit refused;
+  CRC-32 check value; ZIP read back by an independent reader: only the ticket's files, unchanged, UTF-8 names, a used
+  ticket gets nothing, 30 files streamed one at a time), 14 of `stock-pull` (number formats, Windows-1250 CSV, XML, XLSX, bad-row counting, translation batches,
   checking Claude's translations, a failed translation leaves the stock applied, translations saved after the stock,
   private column names, what the AI sees for a proposal, import report statuses, an applied file's report and sample
   without private values, a new layout's waiting report without rows), 6 of `stripe-checkout` (the payment page's exact Stripe fields, one customer
@@ -861,6 +947,14 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   after 24 hours with the link, reconnect copies what waited; older conversations once; the shopper's deletion before
   and after a copy, the line for the owner and "Odstrániť zo zoznamu"; "Odpojiť" (with a tick), nothing waits without a
   cloud; Dropbox consent and a copy there; Dropbox token revoked; no delete ever sent; Hungarian and phone width);
+  access keys for shoppers (60 checks: a private folder and a 2-page PDF uploaded through the dashboard with its pages
+  made in the browser; the folder key shown once; the shop page shows nothing private; a wrong key; the key typed as a
+  message unlocks the folder without reaching the AI or the conversation; view-only lists "Otvoriť" only; the viewer's
+  pages are watermarked JPEGs, inline, uncached, signed for 10 minutes and refused when expired, changed, in another
+  browser or for another shop; the AI's system line; folder "Zobraziť a stiahnuť" with the PDF overridden to view only;
+  closing the chat locks; the ZIP holds only the downloadable picture and works once; downloads counted, the 21st
+  refused; the shopper's own PDF with only their chat, never stored, and gone when the owner turns it off;
+  "Pripraviť na zobrazenie"; counts 2/3/2; "Zmeniť kľúč" closes the old session; Hungarian; phone width);
   those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with

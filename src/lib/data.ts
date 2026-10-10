@@ -104,6 +104,15 @@ export async function shopHasPlan(shopId: string): Promise<boolean> {
   return !error && data === true;
 }
 
+/**
+ * Whether shoppers of this shop may download their own conversation as a PDF (paid plan; on
+ * unless the owner turned it off; database update 24 — false before it).
+ */
+export async function shopperPdfAllowed(slug: string): Promise<boolean> {
+  const { data, error } = await (await client()).rpc("shopper_pdf_allowed", { p_slug: slug });
+  return !error && data === true;
+}
+
 /** An item as visitors may see it (public_stock), or null. */
 export const getItem = cache(async (id: string): Promise<StockRow | null> => {
   if (!UUID.test(id)) return null;

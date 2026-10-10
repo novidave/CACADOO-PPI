@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { createClient } from "@/lib/supabase/client";
-import { canvasBlob, fitCanvas, openPdf, readPage, type PdfPicture } from "@/lib/pdfRead";
+import { canvasBlob, fitCanvas, openPdf, pagePicture, readPage, type PdfPicture } from "@/lib/pdfRead";
 
 type Labels = Dictionary["docs"];
 export interface FolderOption {
@@ -21,6 +21,8 @@ const TEXT_CHARS = 300_000;
 const PICTURE_BATCH = 8;
 /** At most this many pictures are taken out of one PDF. */
 const PICTURES_PER_PDF = 100;
+/** The viewer's page pictures are registered and confirmed 10 at a time. */
+const PAGE_BATCH = 10;
 
 type Supabase = ReturnType<typeof createClient>;
 
@@ -52,6 +54,32 @@ function errorText(labels: Labels, e: unknown): string {
   if (name === "PasswordException") return labels.error_password;
   if (name === "InvalidPDFException") return labels.error_not_pdf;
   return labels.error_failed.replace("{message}", e instanceof Error ? e.message : String(e));
+}
+
+type PdfDoc = Awaited<ReturnType<typeof openPdf>>["doc"];
+
+/**
+ * Every page as a picture for shoppers with an access key (the viewer shows pages, never the
+ * PDF itself; database update 24). Made here, uploaded straight to storage, then confirmed.
+ */
+export async function sendPagePictures(supabase: Supabase, documentId: string, doc: PdfDoc, progress: (n: number, total: number) => void) {
+  for (let first = 1; first <= doc.numPages; first += PAGE_BATCH) {
+    const made: { page: number; blob: Blob; width: number; height: number }[] = [];
+    for (let n = first; n < first + PAGE_BATCH && n <= doc.numPages; n++) {
+      progress(n, doc.numPages);
+      made.push({ page: n, ...(await pagePicture(doc, n)) });
+    }
+    const registered = await ingest<{ pages: { page: number; path: string }[] }>(supabase, {
+      action: "register_pages",
+      document_id: documentId,
+      pages: made.map((p) => ({ page: p.page, bytes: p.blob.size, type: p.blob.type, width: p.width, height: p.height })),
+    });
+    for (const { page, path } of registered.pages) {
+      const picture = made.find((p) => p.page === page);
+      if (picture) await upload(supabase, path, picture.blob, picture.blob.type);
+    }
+    await ingest(supabase, { action: "pages_uploaded", document_id: documentId, pages: registered.pages.map((p) => p.page) });
+  }
 }
 
 async function upload(supabase: Supabase, path: string, blob: Blob, type: string) {
@@ -227,6 +255,9 @@ export function DocUpload({
       }
       await flushText();
       await flushPictures();
+      await sendPagePictures(supabase, documentId!, doc, (n, total) =>
+        work.setStatus(labels.preparing_pages.replace("{n}", String(n)).replace("{total}", String(total))),
+      );
       await ingest(supabase, { action: "document_done", document_id: documentId });
       documentId = null;
       formElement.reset();
@@ -385,4 +416,46 @@ export function DocsWork({ shopId, waiting, labels }: { shopId: string; waiting:
       {work.status}
     </p>
   ) : null;
+}
+
+/**
+ * "Pripraviť na zobrazenie" for a PDF uploaded before the viewer existed: this browser opens
+ * the owner's own PDF (a 10-minute address) and makes its page pictures, as at upload.
+ */
+export function PreparePages({ documentId, labels }: { documentId: string; labels: Labels }) {
+  const router = useRouter();
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function prepare() {
+    setBusy(true);
+    const supabase = createClient();
+    let pdf: Awaited<ReturnType<typeof openPdf>> | null = null;
+    try {
+      setStatus(labels.reading_start);
+      const { url } = await ingest<{ url: string }>(supabase, { action: "open_file", kind: "document", id: documentId });
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(String(response.status));
+      pdf = await openPdf(await response.blob());
+      await sendPagePictures(supabase, documentId, pdf.doc, (n, total) =>
+        setStatus(labels.preparing_pages.replace("{n}", String(n)).replace("{total}", String(total))),
+      );
+      setStatus(labels.pages_ready);
+      router.refresh();
+    } catch (e) {
+      setStatus(errorText(labels, e));
+    } finally {
+      await pdf?.close().catch(() => {});
+      setBusy(false);
+    }
+  }
+
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <button type="button" onClick={prepare} disabled={busy} className="underline underline-offset-4 disabled:text-muted" data-prepare-pages>
+        {labels.prepare_pages}
+      </button>
+      {status && <span role="status">{status}</span>}
+    </span>
+  );
 }

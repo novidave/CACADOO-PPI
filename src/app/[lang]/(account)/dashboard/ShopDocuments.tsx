@@ -3,8 +3,9 @@ import { t, type Dictionary } from "@/i18n/dictionaries";
 import type { getSession } from "@/lib/auth";
 import { formatDate, formatDateTime, isPast } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
-import { DocsWork, DocUpload, PictureUpload, type FolderOption } from "@/components/DocUpload";
+import { DocsWork, DocUpload, PictureUpload, PreparePages, type FolderOption } from "@/components/DocUpload";
 import { FolderKeyForm } from "@/components/FolderKeyForm";
+import { FolderKeySetter } from "@/components/FolderKeySetter";
 import { PendingButton } from "@/components/PendingButton";
 import {
   acceptDocsTerms,
@@ -15,6 +16,9 @@ import {
   saveDocument,
   saveFolder,
   savePicture,
+  setFileAccess,
+  setFolderAccess,
+  setFolderKey,
 } from "./docActions";
 
 export type Supabase = NonNullable<Awaited<ReturnType<typeof getSession>>>["supabase"];
@@ -76,6 +80,17 @@ function languageName(code: string | null, lang: Locale): string | null {
   }
 }
 
+/** Database update 24: what shoppers with a key may do, and how often they did it. */
+export interface AccessData {
+  folders: Map<string, { mode: "view" | "download"; unlocks: number; views: number; downloads: number }>;
+  /** A file's own setting (documents and own pictures): view, download, or as its folder (absent). */
+  files: Map<string, "view" | "download">;
+  /** Page pictures uploaded per document (the viewer needs all of them). */
+  pagesReady: Map<string, number>;
+  /** The folders' own keys ("Kľúč priečinka"). */
+  folderKeys: Set<string>;
+}
+
 /** The shop's folders, documents, pictures and access keys, as its owner reads them (RLS). */
 export interface ShopDocsData {
   folders: Folder[];
@@ -85,11 +100,42 @@ export interface ShopDocsData {
   /** Pictures the AI still has to look at. */
   waiting: number;
   termsAccepted: boolean;
+  /** Null before database update 24. */
+  access: AccessData | null;
+}
+
+async function loadAccess(supabase: Supabase, shopId: string): Promise<AccessData | null> {
+  const [folderRes, docRes, picRes, pageRes, keyRes] = await Promise.all([
+    supabase.from("shop_folders").select("id, access_mode, unlocks, views, downloads").eq("shop_id", shopId),
+    supabase.from("shop_documents").select("id, access").eq("shop_id", shopId).not("access", "is", null),
+    supabase.from("shop_pictures").select("id, access").eq("shop_id", shopId).not("access", "is", null),
+    supabase.from("shop_document_pages").select("document_id").eq("shop_id", shopId).eq("uploaded", true).limit(10000),
+    supabase.from("folder_keys").select("id, folder_key").eq("shop_id", shopId).eq("folder_key", true),
+  ]);
+  if (folderRes.error || docRes.error || picRes.error || pageRes.error || keyRes.error) return null;
+  const pagesReady = new Map<string, number>();
+  for (const row of (pageRes.data ?? []) as { document_id: string }[]) {
+    pagesReady.set(row.document_id, (pagesReady.get(row.document_id) ?? 0) + 1);
+  }
+  return {
+    folders: new Map(
+      ((folderRes.data ?? []) as { id: string; access_mode: "view" | "download"; unlocks: number; views: number; downloads: number }[]).map(
+        (f) => [f.id, { mode: f.access_mode, unlocks: f.unlocks, views: f.views, downloads: f.downloads }],
+      ),
+    ),
+    files: new Map(
+      [...((docRes.data ?? []) as { id: string; access: "view" | "download" }[]), ...((picRes.data ?? []) as { id: string; access: "view" | "download" }[])].map(
+        (r) => [r.id, r.access],
+      ),
+    ),
+    pagesReady,
+    folderKeys: new Set(((keyRes.data ?? []) as { id: string }[]).map((k) => k.id)),
+  };
 }
 
 /** Loaded once per page for "Documents for the assistant" and the private files under "Export folder". */
 export async function loadShopDocs(supabase: Supabase, shopId: string): Promise<ShopDocsData | null> {
-  const [folderRes, docRes, picRes, scanRes, keyRes, termsRes] = await Promise.all([
+  const [folderRes, docRes, picRes, scanRes, keyRes, termsRes, access] = await Promise.all([
     supabase.from("shop_folders").select("id, name, is_public").eq("shop_id", shopId).order("is_public", { ascending: false }).order("name"),
     supabase
       .from("shop_documents")
@@ -112,6 +158,7 @@ export async function loadShopDocs(supabase: Supabase, shopId: string): Promise<
       .eq("shop_id", shopId)
       .order("created_at", { ascending: false }),
     supabase.from("shops").select("docs_terms_accepted_at").eq("id", shopId).maybeSingle(),
+    loadAccess(supabase, shopId),
   ]);
   // Before database update 20 there is nothing to load.
   if (folderRes.error || docRes.error || picRes.error || keyRes.error || termsRes.error) return null;
@@ -122,6 +169,7 @@ export async function loadShopDocs(supabase: Supabase, shopId: string): Promise<
     keys: (keyRes.data ?? []) as Key[],
     waiting: scanRes.count ?? 0,
     termsAccepted: Boolean(termsRes.data?.docs_terms_accepted_at),
+    access,
   };
 }
 
@@ -160,7 +208,7 @@ export async function ShopDocuments({
   const d = dict.docs;
   // Before database update 20 the section only says that it is not available yet.
   if (!data) return <p className="text-sm text-muted">{d.unavailable}</p>;
-  const { folders, docs, pictures, keys, waiting, termsAccepted } = data;
+  const { folders, docs, pictures, keys, waiting, termsAccepted, access } = data;
 
   // Without the plan and with nothing uploaded: only what the feature is.
   if (!hasPlan && docs.length === 0 && pictures.length === 0 && keys.length === 0) {
@@ -205,6 +253,7 @@ export async function ShopDocuments({
     </>
   );
   const canUpload = hasPlan && termsAccepted && Boolean(limits);
+  const isPublic = (folderId: string) => folders.find((f) => f.id === folderId)?.is_public ?? true;
 
   return (
     <>
@@ -259,6 +308,19 @@ export async function ShopDocuments({
                 <span className="font-medium">{f.is_public ? d.public_folder : f.name}</span>
                 <span className="text-muted"> · {f.is_public ? d.public_note : d.private_note} · {t(d.folder_count, { n: count })}</span>
               </span>
+              {!f.is_public && access && (
+                <FolderAccessBlock
+                  folder={f}
+                  stats={access.folders.get(f.id) ?? { mode: "view", unlocks: 0, views: 0, downloads: 0 }}
+                  hasKey={keys.some((k) => access.folderKeys.has(k.id) && keyActive(k) && k.folder_ids.includes(f.id))}
+                  keyDate={keys.find((k) => access.folderKeys.has(k.id) && keyActive(k) && k.folder_ids.includes(f.id))?.created_at ?? null}
+                  hasPlan={hasPlan}
+                  date={date}
+                  d={d}
+                  dict={dict}
+                  hidden={hidden}
+                />
+              )}
               {!f.is_public && (
                 <div className="flex flex-wrap items-end gap-2">
                   <form action={saveFolder} className="flex gap-2">
@@ -312,8 +374,29 @@ export async function ShopDocuments({
               {doc.status === "error" && doc.error ? ` – ${doc.error}` : ""}
             </p>
             <p>
-              {doc.assistant_enabled ? d.assistant_on : d.assistant_off} · {doc.downloadable ? d.download_on : d.download_off}
+              {doc.assistant_enabled ? d.assistant_on : d.assistant_off}
+              {isPublic(doc.folder_id) || !access ? ` · ${doc.downloadable ? d.download_on : d.download_off}` : ""}
             </p>
+            {!isPublic(doc.folder_id) && access && (
+              <FileAccess
+                kind="document"
+                id={doc.id}
+                value={access.files.get(doc.id) ?? null}
+                folderMode={access.folders.get(doc.folder_id)?.mode ?? "view"}
+                d={d}
+                hidden={hidden}
+              >
+                <span data-pages-ready={(access.pagesReady.get(doc.id) ?? 0) >= doc.pages ? "yes" : "no"}>
+                  {(access.pagesReady.get(doc.id) ?? 0) >= doc.pages ? (
+                    d.pages_ready
+                  ) : (
+                    <>
+                      {d.pages_missing} {hasPlan && doc.status !== "uploading" && <PreparePages documentId={doc.id} labels={d} />}
+                    </>
+                  )}
+                </span>
+              </FileAccess>
+            )}
             {doc.status !== "uploading" && (
               <a href={ownerFileUrl("document", doc.id)} target="_blank" rel="noopener" className="self-start underline underline-offset-4">
                 {d.open}
@@ -369,7 +452,28 @@ export async function ShopDocuments({
       {ownPictures.length === 0 && <p className="text-sm text-muted">{d.no_pictures}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
         {ownPictures.map((p) => (
-          <PictureCard key={p.id} picture={p} url={links?.pictures[p.id]} source={folderName(p.folder_id)} options={options} d={d} dict={dict} hidden={hidden} />
+          <PictureCard
+            key={p.id}
+            picture={p}
+            url={links?.pictures[p.id]}
+            source={folderName(p.folder_id)}
+            options={options}
+            d={d}
+            dict={dict}
+            hidden={hidden}
+            extra={
+              !isPublic(p.folder_id) && access ? (
+                <FileAccess
+                  kind="picture"
+                  id={p.id}
+                  value={access.files.get(p.id) ?? null}
+                  folderMode={access.folders.get(p.folder_id)?.mode ?? "view"}
+                  d={d}
+                  hidden={hidden}
+                />
+              ) : null
+            }
+          />
         ))}
       </div>
 
@@ -383,7 +487,9 @@ export async function ShopDocuments({
             return (
               <li key={k.id} className="flex flex-col gap-1 border-b border-line pb-2">
                 <span>
-                  <span className="font-medium">{k.label}</span> · <span className="font-semibold">{state}</span>
+                  <span className="font-medium">{k.label}</span>
+                  {access?.folderKeys.has(k.id) && <span className="text-muted"> · {d.folder_key}</span>} ·{" "}
+                  <span className="font-semibold">{state}</span>
                 </span>
                 <span className="text-muted">
                   {t(d.key_opens, { folders: k.folder_ids.map(folderName).join(", ") })}
@@ -448,6 +554,7 @@ function PictureCard({
   d,
   dict,
   hidden,
+  extra = null,
 }: {
   picture: Picture;
   url: string | undefined;
@@ -457,6 +564,8 @@ function PictureCard({
   d: Dictionary["docs"];
   dict: Dictionary;
   hidden: (extra?: Record<string, string>) => React.ReactNode;
+  /** In a private folder: what shoppers with the key may do with it (update 24). */
+  extra?: React.ReactNode;
 }) {
   const waiting = picture.status === "pending" || picture.status === "working";
   return (
@@ -505,12 +614,103 @@ function PictureCard({
           <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
         </form>
       </details>
+      {extra}
       {options && (
         <form action={deleteDocOrPicture}>
           {hidden({ kind: "picture", id: picture.id })}
           <button type="submit" className="underline underline-offset-4">{d.delete}</button>
         </form>
       )}
+    </div>
+  );
+}
+
+/**
+ * A private folder for shoppers with its key: "Režim prístupu" (Len zobraziť / Zobraziť a
+ * stiahnuť), the folder's own key (set or change, shown once) and how often it was unlocked,
+ * viewed and downloaded (no shopper data).
+ */
+function FolderAccessBlock({
+  folder,
+  stats,
+  hasKey,
+  keyDate,
+  hasPlan,
+  date,
+  d,
+  dict,
+  hidden,
+}: {
+  folder: Folder;
+  stats: { mode: "view" | "download"; unlocks: number; views: number; downloads: number };
+  hasKey: boolean;
+  keyDate: string | null;
+  hasPlan: boolean;
+  date: (iso: string) => string;
+  d: Dictionary["docs"];
+  dict: Dictionary;
+  hidden: (extra?: Record<string, string>) => React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2 border border-line p-2" data-folder-access={folder.name}>
+      <span data-folder-stats>{t(d.access_counts, { unlocks: stats.unlocks, views: stats.views, downloads: stats.downloads })}</span>
+      {hasPlan && (
+        <form action={setFolderAccess} className="flex flex-wrap items-end gap-2">
+          {hidden({ folder_id: folder.id })}
+          <label className="flex flex-col gap-1">
+            <span>{d.access_mode}</span>
+            <select name="mode" defaultValue={stats.mode} className={`${inputClass} bg-white py-1`}>
+              <option value="view">{d.access_view}</option>
+              <option value="download">{d.access_download}</option>
+            </select>
+          </label>
+          <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
+        </form>
+      )}
+      <p className="text-xs text-muted">{d.access_note}</p>
+      <span>
+        {d.folder_key}: {hasKey && keyDate ? t(d.folder_key_set_on, { date: date(keyDate) }) : d.folder_key_none}
+      </span>
+      {hasPlan && <FolderKeySetter action={setFolderKey} folderId={folder.id} folderName={folder.name} hasKey={hasKey} labels={d} />}
+    </div>
+  );
+}
+
+/** A file's own setting in a private folder: as its folder, "len zobraziť" or "aj stiahnuť". */
+function FileAccess({
+  kind,
+  id,
+  value,
+  folderMode,
+  d,
+  hidden,
+  children,
+}: {
+  kind: "document" | "picture";
+  id: string;
+  value: "view" | "download" | null;
+  folderMode: "view" | "download";
+  d: Dictionary["docs"];
+  hidden: (extra?: Record<string, string>) => React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1" data-file-access={value ?? "folder"}>
+      <form action={setFileAccess} className="flex flex-wrap items-end gap-2">
+        {hidden({ kind, id })}
+        <label className="flex flex-col gap-1">
+          <span>{d.file_access}</span>
+          <select name="access" defaultValue={value ?? ""} className={`${inputClass} bg-white py-1`}>
+            <option value="">{t(d.file_access_folder, { mode: folderMode === "download" ? d.access_download : d.access_view })}</option>
+            <option value="view">{d.file_access_view}</option>
+            <option value="download">{d.file_access_download}</option>
+          </select>
+        </label>
+        <button type="submit" className="rounded border border-line px-3 py-1">
+          {d.save_access}
+        </button>
+      </form>
+      {children}
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import { docsKeysEnabled, lock, sessionStatus, unlock } from "@/lib/docsAccess";
 
 /**
- * "I have an access key" in the shop's assistant (never part of the chat):
- *   GET    → {enabled, open: {folders, expires_at} | null}
- *   POST   {key} → {status: ok | wrong | too_many | unavailable, folders?, expires_at?}
- *   DELETE → "Lock again"
+ * "Mám prístupový kľúč" in the shop's assistant (never part of the chat):
+ *   GET    → {enabled, open: {folders, expires_at, downloads_left, open: [folder with files]} | null}
+ *   POST   {key} → {status: ok | wrong | too_many | unavailable, folders?, expires_at?, open?}
+ *   POST   {action: "lock"} or DELETE → "Znova zamknúť" (also when the chat box closes)
  * The key goes only to the database; the session token stays in an HttpOnly cookie.
  * No CORS headers: only the PPI website itself calls this.
  */
@@ -21,6 +21,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
   let key = "";
   try {
     const body = await request.json();
+    if (body?.action === "lock") {
+      await lock(slug).catch((e) => console.error("folder-key lock:", e instanceof Error ? e.message : e));
+      return reply({ ok: true });
+    }
     key = typeof body?.key === "string" ? body.key.trim() : "";
   } catch {
     return reply({ status: "wrong" }, 400);

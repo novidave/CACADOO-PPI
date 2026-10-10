@@ -491,6 +491,50 @@ const TEXTS = {
   pieces: "ks",
   footer: (id: string, page: number, pages: number) => `Vytvorené Cacadoo PPI · konverzácia ${id} · strana ${page}/${pages}`,
 };
+type Texts = typeof TEXTS;
+const OWNER_TEXTS = TEXTS;
+
+/**
+ * The shopper's own copy ("Stiahnuť túto konverzáciu (PDF)", database update 24) is labelled
+ * in the page's language and has no Slovak versions for the owner.
+ */
+export const SHOPPER_TEXTS: Record<"sk" | "hu" | "en", Texts> = {
+  sk: TEXTS,
+  hu: {
+    ...TEXTS,
+    title: "Beszélgetés az üzlet asszisztensével",
+    shopper: "Ügyfél",
+    assistant: "Asszisztens",
+    started: "Kezdete",
+    ended: "Vége",
+    item: "Termék",
+    price: "Ár",
+    availability: "Elérhetőség",
+    dataAt: "Adatok ideje",
+    file: "Fájl",
+    noPreview: "nincs előnézet",
+    otherFiles: "További fájlok",
+    pieces: "db",
+    footer: (id, page, pages) => `Készítette: Cacadoo PPI · beszélgetés ${id} · ${page}/${pages}. oldal`,
+  },
+  en: {
+    ...TEXTS,
+    title: "Conversation with the shop's assistant",
+    shopper: "You",
+    assistant: "Assistant",
+    started: "Started",
+    ended: "Ended",
+    item: "Item",
+    price: "Price",
+    availability: "Availability",
+    dataAt: "Data from",
+    file: "File",
+    noPreview: "no preview",
+    otherFiles: "Other files",
+    pieces: "pcs",
+    footer: (id, page, pages) => `Made by Cacadoo PPI · conversation ${id} · page ${page}/${pages}`,
+  },
+};
 
 /** The first 8 characters of the conversation's id, in the file name and the footer. */
 export const shortId = (id: string) => id.replace(/-/g, "").slice(0, 8);
@@ -647,9 +691,11 @@ async function embedImage(doc: PDFDocument, bytes: Uint8Array): Promise<PDFImage
 }
 
 /** The conversation as a PDF: shop, times, every message in order with the owner's version, cards and pictures. */
-export async function buildPdf(data: PdfData, assets: PdfAssets): Promise<Uint8Array> {
+export async function buildPdf(data: PdfData, assets: PdfAssets, options: { shopper?: boolean } = {}): Promise<Uint8Array> {
   const tz = safeZone(data.shop.timezone);
   const conv = data.conversation;
+  const shopperLang = conv.page_lang === "sk" || conv.page_lang === "hu" ? conv.page_lang : "en";
+  const TEXTS = options.shopper ? SHOPPER_TEXTS[shopperLang] : OWNER_TEXTS;
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const regular = await doc.embedFont(fontBytes("regular"), { subset: true });
@@ -657,7 +703,7 @@ export async function buildPdf(data: PdfData, assets: PdfAssets): Promise<Uint8A
   doc.setTitle(`${TEXTS.title} ${shortId(conv.id)} – ${data.shop.name}`);
   doc.setCreator("Cacadoo PPI");
   doc.setProducer("Cacadoo PPI");
-  doc.setLanguage(OWNER_LANG);
+  doc.setLanguage(options.shopper ? shopperLang : OWNER_LANG);
   const w = new Writer(doc, regular, bold);
 
   // The shop: logo and name.
@@ -681,10 +727,12 @@ export async function buildPdf(data: PdfData, assets: PdfAssets): Promise<Uint8A
     ? timeText(conv.ended_at, tz)
     : `${dateText(conv.ended_at, tz)} ${timeText(conv.ended_at, tz)}`;
   w.write(`${TEXTS.started}: ${started} · ${TEXTS.ended}: ${ended}`, { size: 9.5, color: GREY });
-  w.write(`${TEXTS.shopperLang}: ${languageName(conv.shopper_lang)} (${TEXTS.page}: ${languageName(conv.page_lang)})`, {
-    size: 9.5,
-    color: GREY,
-  });
+  if (!options.shopper) {
+    w.write(`${TEXTS.shopperLang}: ${languageName(conv.shopper_lang)} (${TEXTS.page}: ${languageName(conv.page_lang)})`, {
+      size: 9.5,
+      color: GREY,
+    });
+  }
   w.rule(10);
 
   const byId = new Map(data.attachments.map((a) => [a.id, a]));
@@ -762,7 +810,7 @@ export async function buildPdf(data: PdfData, assets: PdfAssets): Promise<Uint8A
       gap: 1,
     });
     if (m.body) w.write(m.body, { size: 10.5, gap: 2 });
-    if (m.body_owner) w.write(`${TEXTS.inOwnerLang} ${m.body_owner}`, { size: 8.5, color: GREY, gap: 2 });
+    if (m.body_owner && !options.shopper) w.write(`${TEXTS.inOwnerLang} ${m.body_owner}`, { size: 8.5, color: GREY, gap: 2 });
     if (m.role === "shopper" && m.attachment_ids?.length) files(m.attachment_ids);
     if (m.role === "assistant" && m.cards?.length) table(m.cards);
     w.y -= 8;
@@ -882,6 +930,22 @@ export function logoPaths(logoUrl: string | null): string[] {
   return /\.webp$/i.test(path) ? [path.replace(/\.webp$/i, ".png")] : [path];
 }
 
+/** The pictures' previews and the shop's logo for a PDF. */
+async function pdfAssets(deps: Deps, pdfData: PdfData): Promise<PdfAssets> {
+  const previews = new Map<string, Uint8Array>();
+  for (const a of pdfData.attachments) {
+    if (!a.preview_path) continue;
+    const bytes = await download(deps, BUCKET, a.preview_path);
+    if (bytes && detectKind(bytes) === "jpeg") previews.set(a.id, bytes);
+  }
+  let logo: Uint8Array | null = null;
+  for (const path of logoPaths(pdfData.shop.logo_url)) {
+    logo = await download(deps, LOGO_BUCKET, path);
+    if (logo) break;
+  }
+  return { previews, logo };
+}
+
 /** Makes and stores the PDF of an ended conversation; a failure is noted and tried again later. */
 export async function makePdf(deps: Deps, id: string): Promise<boolean> {
   try {
@@ -889,18 +953,7 @@ export async function makePdf(deps: Deps, id: string): Promise<boolean> {
     if (error) throw new Error(error.message);
     if (!data) return false;
     const pdfData = data as PdfData;
-    const previews = new Map<string, Uint8Array>();
-    for (const a of pdfData.attachments) {
-      if (!a.preview_path) continue;
-      const bytes = await download(deps, BUCKET, a.preview_path);
-      if (bytes && detectKind(bytes) === "jpeg") previews.set(a.id, bytes);
-    }
-    let logo: Uint8Array | null = null;
-    for (const path of logoPaths(pdfData.shop.logo_url)) {
-      logo = await download(deps, LOGO_BUCKET, path);
-      if (logo) break;
-    }
-    const bytes = await buildPdf(pdfData, { previews, logo });
+    const bytes = await buildPdf(pdfData, await pdfAssets(deps, pdfData));
     const name = pdfFileName(pdfData.conversation.started_at, pdfData.shop.timezone, id);
     const path = `${pdfData.conversation.shop_id}/${id}/${name}`;
     const { error: uploadError } = await deps.db.storage.from(BUCKET).upload(path, bytes, {
@@ -970,6 +1023,35 @@ async function shopperDelete(body: Json, deps: Deps) {
   const { data: conv } = await deps.db.rpc("assistant_conversation", { p_id: id, p_token: String(body.token ?? "") });
   if (!conv) return reply(404, { error: "not_found" });
   return (await forgetForShopper(deps, id)) ? reply(200, { deleted: true }) : reply(502, { error: "storage" });
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * "Stiahnuť túto konverzáciu (PDF)" (update 24): the shopper's browser asks with the
+ * conversation's own token; only that conversation, only when the shop allows it. Made
+ * now, never stored, in the page's language and without the owner's Slovak versions.
+ */
+async function shopperPdf(body: Json, deps: Deps) {
+  const id = String(body.id ?? "");
+  const token = String(body.token ?? "");
+  if (!UUID.test(id) || !/^[0-9a-f]{64}$/.test(token)) return reply(404, { error: "not_found" });
+  const { data, error } = await deps.db.rpc("assistant_shopper_pdf_data", { p_id: id, p_token: token });
+  if (error) return refused(error);
+  if (!data) return reply(404, { error: "not_found" });
+  const pdfData = data as PdfData;
+  const bytes = await buildPdf(pdfData, await pdfAssets(deps, pdfData), { shopper: true });
+  const name = pdfFileName(pdfData.conversation.started_at, pdfData.shop.timezone, id);
+  return new Response(bytes as BlobPart, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${name}"`,
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Expose-Headers": "Content-Disposition",
+    },
+  });
 }
 
 /** A file the shopper took back before sending: stored files first, then the row. */
@@ -1119,6 +1201,8 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
       if (action === "retention") return await retention(deps);
       return reply(400, { error: "bad_request" });
     }
+    // The shopper's browser, with the conversation's own token (no website secret).
+    if (action === "shopper_pdf") return await shopperPdf(body, deps);
     if (action === "start" || action === "record" || action === "end" || action === "delete" || action === "discard") {
       if (!sameSecret(req.headers.get("x-ppi-archive"), deps.websiteSecret)) return reply(401, { error: "secret" });
       if (action === "start") return await start(body, deps);

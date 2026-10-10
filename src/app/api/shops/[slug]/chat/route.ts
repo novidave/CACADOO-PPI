@@ -1,6 +1,6 @@
 import { isLocale, type Locale } from "@/i18n/config";
 import { callerHash } from "@/lib/apiHttp";
-import { archiveEnabled, cleanConversation, type Conversation, openConversation, recordTurn } from "@/lib/assistantArchive";
+import { archiveEnabled, cleanConversation, type Conversation, openConversation, recordTurn, uploadUrl } from "@/lib/assistantArchive";
 import { getSession } from "@/lib/auth";
 import { docsToken } from "@/lib/docsAccess";
 import {
@@ -77,7 +77,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
     const kept = conversation
       ? await archive(request, shop.id, lang, conversation, result, { message, receivedAt, attachments })
       : null;
-    return reply({ ...result.reply, conversation: kept });
+    // The archive's address for the shopper's files and their own PDF ("Stiahnuť túto konverzáciu").
+    return reply({ ...result.reply, conversation: kept, upload: kept ? uploadUrl() : undefined });
   } catch (e) {
     return failed("failed", 502, (e instanceof Error ? e.message : String(e)).slice(0, 500));
   }

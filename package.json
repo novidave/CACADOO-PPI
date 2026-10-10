@@ -21,10 +21,12 @@
     "@supabase/supabase-js": "^2.117.2",
     "maplibre-gl": "^6.11.2",
     "next": "16.3.8",
+    "opentype.js": "2.0.0",
     "pdfjs-dist": "6.4.299",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
+    "sharp": "0.35.5",
     "zod": "^4.6.5"
   },
   "devDependencies": {

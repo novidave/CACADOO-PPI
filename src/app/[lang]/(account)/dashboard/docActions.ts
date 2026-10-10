@@ -143,3 +143,38 @@ export async function revokeFolderKey(formData: FormData) {
   const { error } = await session.supabase.rpc("owner_revoke_folder_key", { p_key_id: id(formData, "key_id") });
   back(error ? { err: error.message } : { ok: "docs_revoked" });
 }
+
+// ---------------------------------------------------------------- access keys: view or download (update 24)
+
+/** "Režim prístupu" of a private folder: "Len zobraziť" or "Zobraziť a stiahnuť". */
+export async function setFolderAccess(formData: FormData) {
+  const { session, back } = await start(formData);
+  const mode = formData.get("mode") === "download" ? "download" : "view";
+  const { error } = await session.supabase.rpc("owner_set_folder_access", { p_folder_id: id(formData, "folder_id"), p_mode: mode });
+  back(error ? { err: error.message } : { ok: "docs_access" });
+}
+
+/** A file's own setting in a private folder: as its folder, "len zobraziť" or "aj stiahnuť". */
+export async function setFileAccess(formData: FormData) {
+  const { session, back } = await start(formData);
+  const value = String(formData.get("access") ?? "");
+  const { error } = await session.supabase.rpc("owner_set_file_access", {
+    p_kind: formData.get("kind") === "picture" ? "picture" : "document",
+    p_id: id(formData, "id"),
+    p_access: value === "view" || value === "download" ? value : null,
+  });
+  back(error ? { err: error.message } : { ok: "docs_access" });
+}
+
+/**
+ * "Nastaviť kľúč" / "Zmeniť kľúč" of a private folder: the new key is returned here once (with
+ * "Kopírovať"); the folder's previous key stops at once. Only the hash is stored.
+ */
+export async function setFolderKey(_previous: KeyState, formData: FormData): Promise<KeyState> {
+  const session = await getSession();
+  if (!session) return { error: "login" };
+  const { data, error } = await session.supabase.rpc("owner_set_folder_key", { p_folder_id: id(formData, "folder_id") });
+  if (error) return { error: error.message };
+  refresh(); // the folder shows "Kľúč nastavený"
+  return { key: String(data), label: text(formData, "folder_name", 60) };
+}
