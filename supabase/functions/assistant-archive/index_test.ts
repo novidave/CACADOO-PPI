@@ -893,3 +893,34 @@ Deno.test("A PDF that cannot be stored is noted and tried again later", async ()
     "failure noted",
   );
 });
+
+// ---------------------------------------------------------------- update 24: the shopper's own PDF
+
+Deno.test("'Stiahnuť túto konverzáciu (PDF)': only with the conversation's token, in the page's language, without the owner's Slovak lines", async () => {
+  const data = pdfData({ conversation: { ...pdfData().conversation, page_lang: "hu" } });
+  const { deps, log } = fakes(archiveWorld({ rpc: { assistant_shopper_pdf_data: (args) => ok(args.p_token === TOKEN ? data : null) } }));
+  // the shopper's browser calls it directly: no website secret
+  const response = await handle(
+    new Request("http://localhost/assistant-archive", { method: "POST", body: JSON.stringify({ action: "shopper_pdf", id: CONV, token: TOKEN }) }),
+    deps,
+  );
+  eq([response.status, response.headers.get("content-type")], [200, "application/pdf"], "a PDF");
+  eq(response.headers.get("content-disposition"), 'attachment; filename="2026-10-10_14-05_3f2a9c1b.pdf"', "named like the archive's");
+  eq(response.headers.get("access-control-expose-headers"), "Content-Disposition", "the browser may read its name");
+  const { pages } = await readPdf(new Uint8Array(await response.arrayBuffer()));
+  const all = pages.join("\n");
+  eq([all.includes("Beszélgetés az üzlet asszisztensével"), all.includes("Van zöld festékük?"), all.includes("Ügyfél")], [true, true, true], "Hungarian labels");
+  eq([all.includes("Po slovensky"), all.includes("Máte zelenú farbu?"), all.includes("Jazyk zákazníka")], [false, false, false], "nothing meant only for the owner");
+  eq(all.includes("Készítette: Cacadoo PPI · beszélgetés 3f2a9c1b · 1/"), true, "footer");
+  eq(log.some((l) => l.startsWith("upload")), false, "never stored");
+
+  for (const [body, label] of [
+    [{ action: "shopper_pdf", id: CONV, token: "b".repeat(64) }, "another token"],
+    [{ action: "shopper_pdf", id: CONV, token: "short" }, "a malformed token"],
+    [{ action: "shopper_pdf", id: "x", token: TOKEN }, "a malformed id"],
+  ] as const) {
+    const f = fakes(archiveWorld({ rpc: { assistant_shopper_pdf_data: (args) => ok(args.p_token === TOKEN ? data : null) } }));
+    const r = await handle(new Request("http://localhost/assistant-archive", { method: "POST", body: JSON.stringify(body) }), f.deps);
+    eq(r.status, 404, label);
+  }
+});

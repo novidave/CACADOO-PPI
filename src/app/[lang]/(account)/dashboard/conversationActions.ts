@@ -43,3 +43,11 @@ export async function deleteConversation(formData: FormData) {
   if (error) redirect(`/${lang}/dashboard/conversations/${id}?err=delete`);
   back({ ok: "conversation_deleted" });
 }
+
+/** "Zákazníci si môžu stiahnuť svoju konverzáciu (PDF)": on or off (database update 24). */
+export async function saveShopperPdf(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  if (!UUID.test(shopId)) back({ err: "invalid" });
+  const { error } = await session.supabase.rpc("owner_set_shopper_pdf", { p_shop_id: shopId, p_on: formData.get("shopper_pdf") === "on" });
+  back(error ? { err: error.message } : { ok: "shopper_pdf" });
+}

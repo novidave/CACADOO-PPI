@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.8 · status 10 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 2.9 · status 10 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -25,6 +25,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Documents and pictures for the assistant; private folders with access keys (paid plan only) | Built and tested against Claude and Storage stand-ins; live after migration 20 and two new functions (SETUP.md part M) |
 | Conversation archive of the shop assistant (paid plan only): every conversation kept with its files (GPS removed) and made into a PDF; "Konverzácie asistenta" in My shop | Built and tested against Claude and Storage stand-ins; live after database update 22, the assistant-archive function and one secret (SETUP.md part O) |
 | Cloud folder for the archive (paid plan only): each finished conversation's PDF and files copied into the shop's own OneDrive or Dropbox; "Cloudový priečinok" in My shop | Built and tested against OneDrive, Dropbox and Brevo stand-ins; live after database update 23, the cloud-export function, the Microsoft and Dropbox app registrations and the secrets (SETUP.md part P) |
+| Access keys for shoppers (paid plan only): a valid key opens a private folder in the chat for 24 hours; its files open in a built-in viewer (pages with a watermark) or, when the owner allows, download one by one or as a ZIP; "Režim prístupu" and a key per folder in My shop; shoppers may download their own conversation as a PDF | Built and tested against Storage and Claude stand-ins; live after database update 24, three updated functions and the merge (SETUP.md part Q) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -77,6 +78,9 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   the cards shown and the shopper's files (GPS removed), one PDF per conversation, read in "Konverzácie asistenta"
 - Cloud folder (paid plan): every finished conversation (PDF + the shopper's files) copied into the shop's own OneDrive
   or Dropbox folder, connected once with the provider's own login (OAuth)
+- Access keys for shoppers (paid plan): a key opens a private folder in the chat; its documents are read in a built-in
+  viewer with a watermark ("Len zobraziť") or also downloaded ("Zobraziť a stiahnuť"), as the owner chooses per folder
+  and per file; shoppers may download their own conversation as a PDF
 - AI and machine access: JSON-LD, robots.txt, sitemap, llms.txt, public REST API with OpenAPI, MCP server
 - Slovak, Hungarian and English; mobile-first; installable PPI app for the shop PC
 
@@ -169,8 +173,13 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   PDF" when the owner allows downloads), and shows fitting pictures of the shop ("From: Projekty 2025, page 3"). A price
   from a document is shown apart from the shop's price ("Price in “Trade price list 2026”, page 2: 18,40 €"). When
   neither the stock nor the documents answer, it says so and shows "Call the shop" with the phone number.
-- **"I have an access key"** (under the chat, separate from it): opens the shop's private folders named by the key for
-  12 hours on this browser ("Opened: …", "Lock again"). The key is never part of the conversation.
+- **"Mám prístupový kľúč"** (under the chat, separate from it), or a message that is nothing but a valid key: opens the
+  shop's private folders named by the key for 24 hours on this browser, or until the chat box closes or the page is
+  left ("Prístup k priečinku <name> odomknutý", "Znova zamknúť"). A wrong key says "Nesprávny kľúč". The key is never
+  part of the conversation and never reaches the AI. Then the folder's files are listed with **Otvoriť** (the viewer)
+  and, when the owner allows, **Stiahnuť** and **Stiahnuť celý priečinok (ZIP)** (6.12).
+- **"Stiahnuť túto konverzáciu (PDF)"** (archive on, unless the owner turned it off): the shopper's own conversation
+  so far, labelled in the page's language, without the owner's Slovak versions; made on request, never stored.
 - **Files and the archive** (6.10): "Add photo or PDF" takes up to 4 files per message and 10 per conversation (JPG,
   PNG, WebP, HEIC, PDF, 10 MB each). One line under the welcome text says "Konverzácia a nahrané súbory sa ukladajú pre
   obchod <name>. Viac" (→ `/[lang]/sukromie-asistent`, a draft text for now). While the box is open the shopper can
@@ -261,7 +270,12 @@ uses the Supabase dashboard if something ever needs fixing by hand.
   Delete. **Pictures:** thumbnail, title, description, "Assistant may show it", and what the AI saw in it — the owner
   may correct that description (then it is theirs). **Access keys:** label, folders, optional expiry date, created,
   expires, last used, times used, Active / Expired / Revoked, **Revoke**; a new key is shown once, with **Copy**.
-  Without the plan, documents already uploaded can still be deleted.
+  Without the plan, documents already uploaded can still be deleted. Update 24 (6.12): each private folder shows its
+  counts (unlocks, openings, downloads), **Režim prístupu** (Len zobraziť / Zobraziť a stiahnuť, with the note that
+  view-only cannot stop screenshots) and its own key (**Nastaviť kľúč** / **Zmeniť kľúč**, shown once); each document
+  and picture in a private folder has **Prístup s kľúčom** (Podľa priečinka / Len zobraziť / Aj stiahnuť) and each PDF
+  "Zobrazenie pre zákazníkov: pripravené", or **Pripraviť na zobrazenie** for one uploaded before. "Konverzácie
+  asistenta" has the switch "Zákazníci si môžu stiahnuť svoju konverzáciu (PDF)".
 - **Delete shop** (with a confirmation tick). Refused while the shop's paid plan still renews (cancel it first) and
   while the shop has documents or pictures (delete them first).
 - Every form returns to its own section and shows its result there; buttons show "Saving…/Uploading…" while working.
@@ -447,6 +461,9 @@ Open if the current time in the shop's own time zone falls inside today's ranges
   information, never as instructions. With a shopper's photo it looks in the stock first and may mention similar
   pictures of the shop separately.
 - Deleting a document deletes its file, its pictures and all its text; deleting a picture its file and description.
+- Database update 24 (6.12): a key opens its folders for 24 hours (not 12), and the chat box locks them when it closes;
+  a private folder's files open for shoppers through the viewer and its access mode, not through "Shoppers may
+  download it" (that switch now applies to the Public folder only).
 
 ### 6.10 Conversation archive (paid plan)
 
@@ -521,7 +538,41 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 - **Never in the cloud:** purchase prices, suppliers, margins, invoice numbers, access keys or other shops' data (the
   PDF and the files are exactly the archive's).
 
-## 7. Data model (after database update 23)
+### 6.12 Access keys: viewing and downloading for shoppers (paid plan, database update 24)
+
+- **Key check, on the server only** (the AI never checks keys): "Mám prístupový kľúč" opens a key field; a chat message
+  that is nothing but a key (`XXXX-XXXX-XXXX-XXXX-XXXX`, with or without dashes) is taken as a key too, never sent to
+  the AI and never kept in the conversation. The database finds the key by its SHA-256 (a timing difference could at
+  most tell something about a hash, never the key); 5 wrong keys per caller and shop in 15 minutes, then 15 minutes
+  locked ("Príliš veľa nesprávnych kľúčov…"). Wrong → "Nesprávny kľúč"; nothing of the folder reaches the AI or the
+  browser.
+- **A valid key** unlocks this browser's chat session for that folder (several folders for a key made under
+  "Prístupové kľúče") for 24 hours, or until the chat box closes or the page is left: "Prístup k priečinku <name>
+  odomknutý". For this session only, the assistant may search the folder's documents and gets the system line "This
+  customer has verified access to the folder <name>; you may use its documents in your answers."
+- **Režim prístupu** per private folder (Môj obchod → Dokumenty pre asistenta → Priečinky): "Len zobraziť" (default) or
+  "Zobraziť a stiahnuť"; every document and picture can override it ("Podľa priečinka" / "Len zobraziť" / "Aj
+  stiahnuť"). The setup text says that view-only cannot stop screenshots.
+- **Viewing (both modes):** after unlocking, the folder's files are listed in the chat with "Otvoriť": PDFs and
+  pictures open in a built-in viewer over the page. A PDF is shown page by page as pictures (made in the owner's
+  browser at upload; never the original file), each with a light watermark "<shop name> · VIP · <date>" drawn into
+  the picture on the server (date in the shop's time zone), served inline from a signed address that lasts 10 minutes
+  and works only in that browser session. View-only shows no download button and blocks right-click saving in the
+  viewer. PDFs uploaded before update 24 need "Pripraviť na zobrazenie" once (the owner's browser makes the pages).
+- **Downloading ("Zobraziť a stiahnuť" or a file set to "Aj stiahnuť"):** "Stiahnuť" per downloadable file (the
+  original, from a 10-minute address) and "Stiahnuť celý priečinok (ZIP)" with only the downloadable files (a
+  single-use address for 10 minutes; at most 100 MB, stored without compression). At most 20 downloads per unlocked
+  session (a ZIP counts as one): "Dosiahli ste limit 20 stiahnutí pre toto odomknutie."
+- **The folder's own key:** "Nastaviť kľúč" / "Zmeniť kľúč" per private folder; shown once with "Kopírovať", stored only
+  as a hash; changing it stops the old key at once, also for anyone who opened the folder with it. Keys for partners
+  (several folders, expiry date) stay under "Prístupové kľúče".
+- **Counts per folder** for the owner: unlocks, openings ("Otvoriť") and downloads — no shopper data.
+- **"Stiahnuť túto konverzáciu (PDF)"** for every shopper (no key needed), for their own conversation only: on by default,
+  the owner turns it off in "Konverzácie asistenta".
+- **Never:** keys or private documents in logs, analytics, other sessions, public pages, JSON-LD, the sitemap, search,
+  the API or MCP; files of one shop through another shop's session (every check is per shop in the database).
+
+## 7. Data model (after database update 24)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -536,16 +587,18 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 | `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP, AI search (`ai-search`) and shop assistant (`shop-chat`) rate limit log; no IP addresses; older than 30 days removed |
 | `subscriptions` | `shop_id` (key: one row per shop), `stripe_customer_id`, `stripe_subscription_id`, `status` (`none` = customer only, else Stripe's status), `plan`, `current_period_end`, `cancel_at`, `updated_at` | Paid plan; written only by the Stripe functions (service role), read by the shop's owners |
 | `shop_chat_usage` | `shop_id`, `month`, `messages` | Shop assistant messages per shop per calendar month (UTC), for the monthly cap; no client access |
-| `shop_folders` | `id`, `shop_id`, `name`, `is_public` | One Public folder per shop (made automatically) and private folders |
-| `shop_documents` | `id`, `shop_id`, `folder_id`, `name`, `description`, `storage_path`, `bytes`, `pages`, `lang`, `status` (`uploading`/`processing`/`ready`/`error`), `assistant_enabled`, `downloadable`, `extracted` | PDFs; owners read their own, change them through `owner_*` functions |
+| `shop_folders` | `id`, `shop_id`, `name`, `is_public`; update 24: `access_mode` (`view`/`download`), `unlocks`, `views`, `downloads` | One Public folder per shop (made automatically) and private folders |
+| `shop_documents` | `id`, `shop_id`, `folder_id`, `name`, `description`, `storage_path`, `bytes`, `pages`, `lang`, `status` (`uploading`/`processing`/`ready`/`error`), `assistant_enabled`, `downloadable` (Public folder), `extracted`; update 24: `access` (null = as the folder, `view`, `download`) | PDFs; owners read their own, change them through `owner_*` functions |
 | `shop_pictures` | `id`, `shop_id`, `folder_id`, `document_id`, `page`, `kind` (`picture`/`scan`), `title`, `caption`, `description`, `description_by_owner`, `show`, `status` | Own pictures, pictures from PDFs, scanned pages (never shown) |
 | `shop_document_chunks` | `shop_id`, `folder_id`, `document_id`, `picture_id`, `page`, `type` (`text`/`picture`), `text`, `lang`, `search` (full text) | Excerpts as written and picture descriptions; trigram and full-text indexes; read only through `search_shop_docs()` |
-| `folder_keys` | `id`, `shop_id`, `label`, `key_hash`, `folder_ids`, `expires_at`, `revoked_at`, `last_used_at`, `use_count` | Access keys (hash only; owners never read the hash) |
-| `folder_sessions` | `token_hash`, `shop_id`, `key_id`, `folder_ids`, `expires_at` | Opened folders, 12 hours; no client access |
+| `folder_keys` | `id`, `shop_id`, `label`, `key_hash`, `folder_ids`, `expires_at`, `revoked_at`, `last_used_at`, `use_count`, `folder_key` (update 24: the folder's own key) | Access keys (hash only; owners never read the hash) |
+| `folder_sessions` | `token_hash`, `shop_id`, `key_id`, `folder_ids`, `expires_at`, `downloads` (update 24) | Opened folders, 24 hours (update 24), at most 20 downloads; no client access |
+| `shop_document_pages` | `document_id`, `page`, `shop_id`, `storage_path`, `bytes`, `width`, `height`, `uploaded` | Update 24: each PDF page as a picture for the viewer; owners read whether they are uploaded |
+| `folder_zip_tickets` | `ticket_hash`, `shop_id`, `folder_id`, `session_hash`, `expires_at`, `used_at` | Update 24: single-use ZIP addresses for 10 minutes; no client access |
 | `assistant_conversations` | `id`, `shop_id`, `token_hash`, `page_lang`, `shopper_lang`, `started_at`, `last_message_at`, `ended_at`, `end_reason` (`closed`/`idle`/`new`), `message_count`, `attachment_count` (≤ 10), `first_question`, `pdf_status` (`none`/`ready`/`failed`), `pdf_path`, `pdf_name`, `pdf_error`, `pdf_attempts`, `pdf_next_try`; update 23: `export_status` (`none`/`pending`/`running`/`done`/`failed`), `export_error`, `export_attempts`, `export_next_try`, `export_started_at`, `exported_at`, `export_path`, `export_provider`, `shopper_deleted_at` | One per conversation (update 22); written only by assistant-archive and cloud-export; owners read (never the token hash or paths). `shopper_deleted_at`: a line without content left after the shopper deleted a copied conversation |
 | `assistant_messages` | `conversation_id`, `shop_id`, `role` (`shopper`/`assistant`), `body`, `body_owner` (Slovak version), `lang`, `cards` (jsonb: name, price, availability, data_time, quantity, note), `attachment_ids`, `created_at` | Every message; owners read |
 | `assistant_attachments` | `id`, `conversation_id`, `shop_id`, `name`, `kind` (`jpeg`/`png`/`webp`/`heic`/`pdf`), `bytes`, `storage_path`, `preview_path` | The shopper's files; owners read name, kind and size only |
-| `shop_assistant_settings` | `shop_id`, `retention_days` (30/90/365, default 90) | Keep time; owners set it through `owner_set_assistant_retention()` |
+| `shop_assistant_settings` | `shop_id`, `retention_days` (30/90/365, default 90), `shopper_pdf` (update 24, default on) | Keep time and the shopper's own PDF; owners set them through `owner_set_assistant_retention()` / `owner_set_shopper_pdf()` |
 | `cloud_connections` | `shop_id` (key: one per shop), `provider` (`onedrive`/`dropbox`), `account_name`, `account_email`, `folder_path`, `access_token_enc`, `refresh_token_enc`, `access_expires_at`, `scope`, `site_url`, `status` (`ok`/`expired`/`error`), `last_error`, `connected_by`, `connected_at`, `last_success_at`, `failing_since`, `alert_sent_at` | The shop's cloud (update 23); written only by cloud-export; owners read everything except the tokens |
 | `cloud_oauth_states` | `state_hash`, `shop_id`, `provider`, `user_id`, `verifier`, `folder_path`, `return_url`, `expires_at` | One OAuth round trip (SHA-256 of the state, 10 minutes, single use); no client access |
 | `cloud_export_items` | `conversation_id`, `shop_id`, `item_key` (`pdf` or the attachment id), `remote_path`, `remote_id`, `bytes`, `uploaded_at` | What was copied (unique per conversation and item); owners read |
@@ -569,7 +622,7 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
 | Accounts (`profiles`) | none | own profile | — |
 | Paid plan (`subscriptions`) | none (only yes/no through `shop_has_plan()`) | own shops' row (read) | the Stripe functions write it: stripe-checkout links the customer, stripe-webhook the subscription |
 | Documents, pictures, folders | only through the assistant: excerpts of the Public folder and of folders opened by a valid key (`search_shop_docs()`), files through shop-files | own: read; change through `owner_*` functions; upload through doc-ingest | doc-ingest writes (service role); shop-files signs 10-minute file addresses |
-| Access keys and sessions | open with a key (`unlock_shop_folders()`), lock again | own keys (never the hash): create, revoke | — |
+| Access keys and sessions | open with a key (`unlock_shop_folders()`), lock again; the open folders' file list (`shop_folder_files()`); viewing, downloads and ZIP only through shop-files (`shop_view_file()`, `shop_download_file()`, `shop_zip_ticket()`, service role) | own keys (never the hash): create, revoke, the folder's own key (`owner_set_folder_key()`); access mode and per-file access (`owner_set_folder_access()`, `owner_set_file_access()`); counts | — |
 | Assistant conversations, files, PDFs | their own open conversation only through its token (website → assistant-archive): add files, delete it | own shops: read (RLS), keep time, delete; files through 10-minute links | assistant-archive writes everything (service role); the jobs prove themselves with a Vault secret |
 | Cloud connection and copies | none | own shops: read the connection (never the tokens) and the copies; connect, choose the folder, retry, copy older ones, disconnect only through cloud-export with their own login (membership and plan checked there and in `owner_cloud_retry()` / `owner_cloud_backfill()`) | cloud-export writes (service role); the tokens are encrypted before they reach the database |
 
@@ -591,6 +644,11 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
   the conversation; the session token stays in an HttpOnly cookie signed with `SESSION_COOKIE_SECRET` and sent only to
   that shop's `/api/shops/<slug>/` addresses. Shop files are only reachable through 10-minute signed addresses that the
   shop-files function issues after the database said yes.
+- Viewer pages (update 24) are served by the website with the watermark drawn in, only for a signed address (HMAC with
+  `SESSION_COOKIE_SECRET`, 10 minutes, bound to the session token's hash) together with the session cookie; the
+  database checks the folder again for every page. Downloads are 10-minute storage addresses with
+  Content-Disposition: attachment; the ZIP is a single-use ticket kept as a hash. The ZIP and the counts never hold
+  more than the database allows.
 - The Anthropic key is a server setting (Supabase function secret, Vercel variable), never in the browser; the AI
   search endpoint answers only the PPI website (no CORS).
 - Legacy: the `is_admin` flag and the remaining `admin_*` database functions from the old admin area still exist in
@@ -646,6 +704,11 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   does not see them (Safari makes a preview). The owner reads conversations on the website; the PDF itself reaches the
   owner through the cloud folder (6.11). A shopper can delete a conversation only while the chat box is open. The
   privacy page (`/sukromie-asistent`) has a draft text. Tested so far only against Claude and Storage stand-ins.
+- **Access keys (update 24):** "Len zobraziť" cannot stop screenshots or photos of the screen (the watermark shows
+  where a copy came from). PDFs uploaded before update 24 show "pripravuje sa" for shoppers until the owner clicks
+  "Pripraviť na zobrazenie". A ZIP holds at most 100 MB (bigger folders: file by file). The shopper's own conversation
+  PDF shows the item cards' availability in Slovak (as kept in the archive). Tested so far only against Storage and
+  Claude stand-ins.
 - **Cloud folder:** tested so far only against OneDrive, Dropbox and Brevo stand-ins. OneDrive asks for access to all of
   the owner's files (Microsoft has no narrower permission for a folder of the owner's choice); PPI works only in the
   chosen folder. The Microsoft app's client secret expires (at most after 24 months): it must be renewed in Azure and
@@ -684,6 +747,8 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] Privacy page and terms (shop data, cookies, e-mail); final text of `/sukromie-asistent` (the assistant archive)
 - [ ] `ASSISTANT_ARCHIVE_SECRET` set in Vercel and Supabase; pg_cron jobs `ppi-assistant-tick` and
       `ppi-assistant-retention` succeed (SETUP.md part O)
+- [ ] Access keys: database update 24 and the three updated functions; every older PDF in a private folder prepared
+      for viewing ("Pripraviť na zobrazenie"); `SESSION_COOKIE_SECRET` set (SETUP.md part Q)
 - [ ] Cloud folder: Microsoft and Dropbox apps registered (Dropbox app in production status for more than 50 users),
       their secrets, `EXPORT_TOKEN_ENCRYPTION_KEY`, `BREVO_API_KEY`, `ALERT_EMAIL_FROM` set in Supabase; job
       `ppi-cloud-export-tick` succeeds; a reminder for the Microsoft client secret's expiry date (SETUP.md part P)
@@ -709,3 +774,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-09 | Shop page updates: no other shops on Pro product pages, shop e-mail and Facebook, the assistant's own texts, "My shop" as dropdowns, one display rule |
 | 2026-10-10 | Conversation archive of the shop assistant: conversations, files (GPS removed) and a PDF per conversation; "Konverzácie asistenta" for owners; keep time 30/90/365 days |
 | 2026-10-10 | Cloud folder: each finished conversation (PDF + files) copied into the shop's OneDrive or Dropbox; status per conversation, "Uložiť znova", older conversations, e-mail after 24 hours of failures |
+| 2026-10-10 | Access keys for shoppers: unlock in the chat (also by typing the key), viewer with watermarked pages, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, downloads and ZIP (20 per session), a key per folder, counts; the shopper's own conversation PDF |

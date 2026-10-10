@@ -13,6 +13,10 @@
 //                      caption, bytes, type}]} → [{idx, picture_id, path}] (then uploaded)
 //   pictures_uploaded  {shop_id, picture_ids}
 //   document_done      {document_id}                 everything of the PDF was sent
+//   register_pages     {document_id, pages: [{page, bytes, type, width, height}]} → [{page, path}]
+//                      each page as a picture (WebP/JPEG, at most 5 MB) for the shoppers' viewer
+//                      (database update 24); then uploaded by the browser
+//   pages_uploaded     {document_id, pages: [n]} → {count}  the page pictures are in storage
 //   work               {shop_id} → {remaining}       the AI looks at the next few pictures
 //                      (describes a picture once; writes out a scanned page's text as written)
 //   links              {shop_id, picture_ids} → signed addresses (10 minutes) for the
@@ -42,6 +46,8 @@ const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
 /** Text of at most this many pages / characters per "text" call. */
 const MAX_TEXT_PAGES = 100;
+const MAX_PAGE_BYTES = 5 * 1024 * 1024;
+const PAGE_TYPES = ["image/webp", "image/jpeg"];
 const MAX_TEXT_CHARS = 2_000_000;
 const MAX_ITEMS = 100;
 /** Pictures the AI looks at per "work" call (side by side). */
@@ -495,6 +501,84 @@ async function documentDone(body: Body, deps: Deps) {
   return reply(200, { ok: true, remaining });
 }
 
+/** Sizes of the files in one storage folder (one listing for many files). */
+async function storedSizes(db: SupabaseClient, dir: string): Promise<Map<string, number>> {
+  const { data, error } = await db.storage.from(BUCKET).list(dir, { limit: 1000 });
+  if (error) throw new Error(error.message);
+  return new Map((data ?? []).map((f) => [`${dir}/${f.name}`, Number(f.metadata?.size ?? 0)]));
+}
+
+/**
+ * The viewer's page pictures of a PDF (made in the owner's browser): registered first; a page
+ * registered before but never finished is replaced (its half-uploaded file is removed).
+ */
+async function registerPages(body: Body, deps: Deps) {
+  const doc = await ownDocument(deps, body.document_id);
+  if (!doc) return notMember();
+  const raw = Array.isArray(body.pages) ? (body.pages as Body[]) : [];
+  if (raw.length === 0) return reply(400, { error: "bad_request", message: "pages are required" });
+  if (raw.length > MAX_ITEMS) return reply(413, { error: "too_big", message: "Send at most 100 pages at once" });
+  const pages = [];
+  for (const item of raw) {
+    const page = Number(item?.page);
+    const bytes = Number(item?.bytes);
+    const type = String(item?.type ?? "");
+    if (!Number.isInteger(page) || page < 1 || page > doc.pages || !(bytes > 0) || !PAGE_TYPES.includes(type)) {
+      return reply(400, { error: "bad_request", message: "Each page needs its number, size and type (WebP or JPEG)" });
+    }
+    if (bytes > MAX_PAGE_BYTES) return reply(413, { error: "too_big", message: "A page picture may have at most 5 MB" });
+    const size = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Math.min(Number(v), 10000) : null);
+    pages.push({ page, bytes, type, width: size(item?.width), height: size(item?.height) });
+  }
+  const { data: stale } = await deps.db
+    .from("shop_document_pages")
+    .select("storage_path")
+    .eq("document_id", doc.id)
+    .eq("uploaded", false)
+    .in("page", pages.map((p) => p.page));
+  const old = ((stale ?? []) as { storage_path: string }[]).map((r) => r.storage_path);
+  if (old.length) await deps.db.storage.from(BUCKET).remove(old);
+  const { data, error } = await deps.db.rpc("docs_register_pages", { p_document_id: doc.id, p_pages: pages });
+  if (error) {
+    if (error.code === "P0001") return reply(409, { error: "document", message: "This document takes no page pictures now" });
+    if (error.code === "22023") return reply(400, { error: "bad_request", message: error.message });
+    return reply(500, { error: "database", message: error.message });
+  }
+  const rows = (data ?? []) as { page: number; storage_path: string }[];
+  return reply(200, { pages: rows.map((r) => ({ page: r.page, path: r.storage_path })), bucket: BUCKET });
+}
+
+/** The page pictures are in storage: each one is checked (there, at most 5 MB) before it counts. */
+async function pagesUploaded(body: Body, deps: Deps) {
+  const doc = await ownDocument(deps, body.document_id);
+  if (!doc) return notMember();
+  const numbers = Array.isArray(body.pages)
+    ? [...new Set((body.pages as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= doc.pages))]
+    : [];
+  if (numbers.length === 0) return reply(400, { error: "bad_request", message: "pages are required" });
+  const { data: rows, error } = await deps.db
+    .from("shop_document_pages")
+    .select("page, storage_path")
+    .eq("document_id", doc.id)
+    .eq("uploaded", false)
+    .in("page", numbers.slice(0, MAX_ITEMS));
+  if (error) return reply(500, { error: "database", message: error.message });
+  const list = (rows ?? []) as { page: number; storage_path: string }[];
+  const sizes = await storedSizes(deps.db, `${doc.shop_id}/${doc.id}/pages`);
+  const ok: number[] = [];
+  const tooBig: string[] = [];
+  for (const row of list) {
+    const size = sizes.get(row.storage_path);
+    if (size === undefined) continue;
+    if (size > MAX_PAGE_BYTES) tooBig.push(row.storage_path);
+    else ok.push(row.page);
+  }
+  if (tooBig.length) await deps.db.storage.from(BUCKET).remove(tooBig);
+  const { data: count, error: saveError } = await deps.db.rpc("docs_pages_uploaded", { p_document_id: doc.id, p_pages: ok });
+  if (saveError) return reply(500, { error: "database", message: saveError.message });
+  return reply(200, { count: Number(count ?? 0), missing: numbers.length - ok.length });
+}
+
 interface PictureRow {
   id: string;
   kind: "picture" | "scan";
@@ -611,6 +695,8 @@ const ACTIONS: Record<string, (body: Body, deps: Deps) => Promise<Response>> = {
   register_pictures: registerPictures,
   pictures_uploaded: picturesUploaded,
   document_done: documentDone,
+  register_pages: registerPages,
+  pages_uploaded: pagesUploaded,
   work,
   links,
   open_file: openFile,

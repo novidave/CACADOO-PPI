@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
+import { looksLikeKey } from "@/lib/accessKey";
+import type { FolderFile, OpenFolder, OpenSession } from "@/lib/docsAccess";
 import type { ChatCard, ChatDocPrice, ChatListItem, ChatReply, ChatSource, ChatTurn } from "@/lib/shopChat";
+import { FolderAccess, FolderViewer, type ViewTarget } from "./FolderAccess";
 
 /** Anthropic's recommended longest side for photos; larger ones only cost more. */
 const MAX_SIDE = 1568;
@@ -193,6 +196,7 @@ export function ShopChat({
   buttonLabel,
   welcome,
   archive = false,
+  shopperPdf = false,
 }: {
   slug: string;
   lang: string;
@@ -206,6 +210,8 @@ export function ShopChat({
   welcome?: string | null;
   /** Conversations and files are kept for the shop (the archive is on). */
   archive?: boolean;
+  /** "Stiahnuť túto konverzáciu (PDF)": the shop lets shoppers download their own conversation. */
+  shopperPdf?: boolean;
 }) {
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
@@ -227,6 +233,13 @@ export function ShopChat({
   const nextKey = useRef(1);
   const fileInput = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  // Private folders opened with an access key (database update 24).
+  const [folders, setFolders] = useState<OpenSession | null>(null);
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyProblem, setKeyProblem] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<ViewTarget | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const foldersOpen = useRef(false);
 
   const putFiles = (next: Attachment[]) => {
     filesRef.current = next;
@@ -272,6 +285,145 @@ export function ShopChat({
     if (entries.length || busy) end.current?.scrollIntoView({ block: "nearest" });
   }, [entries, busy]);
 
+  const showFolders = useCallback((next: OpenSession | null) => {
+    foldersOpen.current = Boolean(next);
+    setFolders(next);
+  }, []);
+
+  /** Locks the private folders again: when the chat box closes or the page is left ("Znova zamknúť" too). */
+  const lockFolders = useCallback(
+    (beacon = false) => {
+      if (!foldersOpen.current) return;
+      foldersOpen.current = false;
+      setFolders(null);
+      setViewing(null);
+      const body = JSON.stringify({ action: "lock" });
+      if (beacon && typeof navigator.sendBeacon === "function") {
+        navigator.sendBeacon(`${base}/access`, new Blob([body], { type: "application/json" }));
+      } else {
+        fetch(`${base}/access`, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+      }
+    },
+    [base, setViewing],
+  );
+
+  // The folders opened in this browser (the HttpOnly cookie); leaving the page locks them.
+  useEffect(() => {
+    if (!keys || !open) return;
+    let live = true;
+    fetch(`${base}/access`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => live && showFolders(data?.open ?? null))
+      .catch(() => {});
+    const hide = () => lockFolders(true);
+    window.addEventListener("pagehide", hide);
+    return () => {
+      live = false;
+      window.removeEventListener("pagehide", hide);
+    };
+  }, [keys, open, base, showFolders, lockFolders]);
+
+  /** The key goes only to the shop's system, never to the AI or into the conversation. */
+  async function unlockFolders(key: string): Promise<boolean> {
+    setKeyBusy(true);
+    setKeyProblem(null);
+    try {
+      const response = await fetch(`${base}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      const data = await response.json().catch(() => ({ status: "unavailable" }));
+      if (data.status === "ok") {
+        showFolders(data.open ?? { folders: data.folders ?? [], expires_at: data.expires_at, downloads_left: 20, open: [] });
+        const names: string[] = data.folders ?? [];
+        setEntries((now) => [
+          ...now,
+          {
+            role: "notice",
+            text: (names.length > 1 ? labels.key_unlocked_many : labels.key_unlocked).replace("{name}", names.join(", ")),
+          },
+        ]);
+        return true;
+      }
+      setKeyProblem(data.status === "wrong" ? labels.key_wrong : data.status === "too_many" ? labels.key_too_many : labels.key_unavailable);
+      return false;
+    } catch {
+      setKeyProblem(labels.key_unavailable);
+      return false;
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  async function refreshFolders() {
+    const data = await fetch(`${base}/access`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+    if (data) showFolders(data.open ?? null);
+  }
+
+  /** "Stiahnuť" / "Stiahnuť celý priečinok (ZIP)": a 10-minute address from the shop's system. */
+  async function getFile(body: Record<string, unknown>) {
+    setKeyBusy(true);
+    setKeyProblem(null);
+    try {
+      const response = await fetch(`${base}/folder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({ error: "unavailable" }));
+      if (typeof data.url === "string") {
+        window.location.assign(data.url);
+      } else {
+        setKeyProblem(
+          data.error === "limit"
+            ? labels.download_limit
+            : data.error === "too_big"
+              ? labels.zip_too_big
+              : data.error === "not_found" || data.error === "empty"
+                ? labels.download_not_allowed
+                : labels.download_failed,
+        );
+      }
+    } catch {
+      setKeyProblem(labels.download_failed);
+    } finally {
+      setKeyBusy(false);
+      refreshFolders();
+    }
+  }
+  const downloadFile = (file: { kind: "document" | "picture"; id: string }) => getFile({ action: "download", kind: file.kind, id: file.id });
+  const zipFolder = (folder: OpenFolder) => getFile({ action: "zip", folder_id: folder.id });
+  const openFile = (file: FolderFile) => setViewing({ kind: file.kind, id: file.id, name: file.name });
+
+  /** "Stiahnuť túto konverzáciu (PDF)": made by the archive from this conversation only. */
+  async function downloadConversation() {
+    const current = conv.current;
+    if (!current || !uploadUrl.current || pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const response = await fetch(uploadUrl.current, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "shopper_pdf", id: current.id, token: current.token }),
+      });
+      if (!response.ok || response.headers.get("content-type") !== "application/pdf") throw new Error("no PDF");
+      const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "konverzacia.pdf";
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch {
+      setEntries((now) => [...now, { role: "error", text: labels.conversation_pdf_failed }]);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   const errorText = (code: unknown) => {
     if (code === "caller_limit") return labels.error_caller_limit;
     if (code === "shop_limit") return labels.error_shop_limit;
@@ -294,11 +446,12 @@ export function ShopChat({
   }
 
   function toggle() {
-    // Closing the box ends the conversation: it is kept for the shop as it is.
+    // Closing the box ends the conversation: it is kept for the shop as it is; open folders lock again.
     if (open && archive) {
       finish("closed");
       reset();
     }
+    if (open && keys) lockFolders();
     setOpen(!open);
   }
 
@@ -468,6 +621,14 @@ export function ShopChat({
     const message = text.trim();
     const ready = filesRef.current.filter((f) => f.ready);
     if (busy || filesRef.current.some((f) => !f.ready) || (!message && ready.length === 0)) return;
+    // A message that is nothing but an access key is checked as a key: never sent to the AI or kept.
+    if (keys && ready.length === 0 && looksLikeKey(message)) {
+      setText("");
+      const ok = await unlockFolders(message);
+      if (!ok) setEntries((now) => [...now, { role: "error", text: labels.key_wrong }]);
+      setKeyProblem(null);
+      return;
+    }
     const history = toHistory(entries);
     setEntries((now) => [
       ...now,
@@ -493,6 +654,7 @@ export function ShopChat({
       const data = await response.json().catch(() => ({ error: "failed" }));
       if (response.ok && !data.error) {
         if (archive) remember(isConversation(data.conversation) ? data.conversation : null);
+        if (typeof data.upload === "string") uploadUrl.current = data.upload;
         setEntries((now) => [...now, { role: "assistant", reply: data as ChatReply }]);
       } else {
         setEntries((now) => [...now, { role: "error", text: `${errorText(data.error)}${data.reason ? ` (${data.reason})` : ""}` }]);
@@ -564,7 +726,9 @@ export function ShopChat({
                       {entry.text && <p className="whitespace-pre-line">{entry.text}</p>}
                     </>
                   )}
-                  {entry.role === "assistant" && <Answer reply={entry.reply} labels={labels} shopName={shopName} />}
+                  {entry.role === "assistant" && (
+                    <Answer reply={entry.reply} labels={labels} shopName={shopName} onView={folders ? setViewing : null} />
+                  )}
                   {entry.role === "error" && <p className="border border-line p-2 text-sm">{entry.text}</p>}
                   {entry.role === "notice" && (
                     <p role="status" className="border border-foreground p-2 text-sm font-medium">
@@ -653,13 +817,42 @@ export function ShopChat({
                   {labels.delete_mine}
                 </button>
               )}
+              {archive && shopperPdf && conversation && entries.some((e) => e.role === "assistant") && (
+                <button type="button" onClick={downloadConversation} disabled={pdfBusy} className="text-sm underline underline-offset-4 disabled:text-muted" data-conversation-pdf>
+                  {pdfBusy ? labels.conversation_pdf_busy : labels.conversation_pdf}
+                </button>
+              )}
             </div>
             <p className="text-xs text-muted">
               {archive ? labels.files_note : labels.photo_note} {labels.note}
             </p>
           </form>
-          {keys && <AccessKey slug={slug} lang={lang} timeZone={timeZone} labels={labels} />}
+          {keys && (
+            <FolderAccess
+              session={folders}
+              labels={labels}
+              lang={lang}
+              timeZone={timeZone}
+              busy={keyBusy}
+              problem={keyProblem}
+              onUnlock={unlockFolders}
+              onLock={() => lockFolders()}
+              onOpen={openFile}
+              onDownload={downloadFile}
+              onZip={zipFolder}
+            />
+          )}
         </div>
+      )}
+      {viewing && (
+        <FolderViewer
+          base={base}
+          lang={lang}
+          target={viewing}
+          labels={labels}
+          onClose={() => setViewing(null)}
+          onDownload={() => downloadFile(viewing)}
+        />
       )}
     </section>
   );
@@ -683,106 +876,18 @@ function FileList({ files, labels }: { files: SentFile[]; labels: Labels }) {
   );
 }
 
-/**
- * "I have an access key": separate from the chat. The key goes only to the website and
- * the database, never to the AI, and is not kept in the conversation; the session stays
- * in an HttpOnly cookie for this shop (12 hours, or until "Lock again").
- */
-function AccessKey({ slug, lang, timeZone, labels }: { slug: string; lang: string; timeZone: string; labels: Labels }) {
-  const [open, setOpen] = useState<{ folders: string[]; expires_at: string } | null>(null);
-  const [show, setShow] = useState(false);
-  const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const address = `/api/shops/${encodeURIComponent(slug)}/access`;
-
-  useEffect(() => {
-    let live = true;
-    fetch(address)
-      .then((r) => r.json())
-      .then((data) => live && setOpen(data?.open ?? null))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [address]);
-
-  async function unlock(event: React.FormEvent) {
-    event.preventDefault();
-    if (!key.trim() || busy) return;
-    setBusy(true);
-    setProblem(null);
-    try {
-      const response = await fetch(address, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: key.trim() }),
-      });
-      const data = await response.json().catch(() => ({ status: "unavailable" }));
-      if (data.status === "ok") {
-        setOpen({ folders: data.folders ?? [], expires_at: data.expires_at });
-        setShow(false);
-      } else {
-        setProblem(data.status === "wrong" ? labels.key_wrong : data.status === "too_many" ? labels.key_too_many : labels.key_unavailable);
-      }
-    } catch {
-      setProblem(labels.key_unavailable);
-    } finally {
-      setKey("");
-      setBusy(false);
-    }
-  }
-
-  async function relock() {
-    await fetch(address, { method: "DELETE" }).catch(() => {});
-    setOpen(null);
-  }
-
-  const until = (iso: string) =>
-    new Intl.DateTimeFormat(lang, { timeZone, dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
-
-  if (open) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3 text-sm" role="status">
-        <span>{labels.key_opened.replace("{folders}", open.folders.join(", ")).replace("{time}", until(open.expires_at))}</span>
-        <button type="button" onClick={relock} className="underline underline-offset-4">
-          {labels.key_lock}
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="flex flex-col gap-2 border-t border-line pt-3 text-sm">
-      {!show ? (
-        <button type="button" onClick={() => setShow(true)} className="self-start underline underline-offset-4">
-          {labels.key_have}
-        </button>
-      ) : (
-        <form onSubmit={unlock} className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1">
-            <span>{labels.key_label}</span>
-            <input
-              value={key}
-              onChange={(event) => setKey(event.target.value)}
-              maxLength={100}
-              autoComplete="off"
-              spellCheck={false}
-              autoCapitalize="characters"
-              className="rounded border border-line px-3 py-2 font-mono outline-none focus:border-foreground"
-            />
-          </label>
-          <button type="submit" disabled={busy || !key.trim()} className="self-start rounded border border-foreground px-3 py-1 font-medium disabled:text-muted">
-            {busy ? labels.key_opening : labels.key_open}
-          </button>
-          <p className="text-xs text-muted">{labels.key_note}</p>
-        </form>
-      )}
-      {problem && <p>{problem}</p>}
-    </div>
-  );
-}
-
-function Answer({ reply, labels, shopName }: { reply: ChatReply; labels: Labels; shopName: string }) {
+function Answer({
+  reply,
+  labels,
+  shopName,
+  onView,
+}: {
+  reply: ChatReply;
+  labels: Labels;
+  shopName: string;
+  /** Opens a private folder's document in the viewer (only while folders are open). */
+  onView: ((target: ViewTarget) => void) | null;
+}) {
   const match = reply.photo
     ? { found: labels.match_found, not_found: labels.match_not_found, unsure: labels.match_unsure }[reply.photo.match]
     : null;
@@ -841,6 +946,14 @@ function Answer({ reply, labels, shopName }: { reply: ChatReply; labels: Labels;
                   <a href={source.href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">
                     {labels.open_document}
                   </a>
+                </>
+              )}
+              {!source.href && source.view && onView && (
+                <>
+                  {" · "}
+                  <button type="button" onClick={() => onView({ ...source.view!, name: source.name })} className="underline underline-offset-4">
+                    {labels.file_open}
+                  </button>
                 </>
               )}
             </li>

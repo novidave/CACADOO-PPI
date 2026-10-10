@@ -170,6 +170,29 @@ async function renderPage(doc: Doc, pageNumber: number): Promise<Blob> {
   return canvasBlob(canvas, true);
 }
 
+/**
+ * A page as a picture for the shoppers' viewer (database update 24): the whole page at most
+ * MAX_SIDE px, WebP (JPEG in Safari). The watermark is added on the server when it is viewed.
+ */
+export async function pagePicture(doc: Doc, pageNumber: number): Promise<{ blob: Blob; width: number; height: number }> {
+  const page = await doc.getPage(pageNumber);
+  const base = page.getViewport({ scale: 1 });
+  const scale = Math.min(3, MAX_SIDE / Math.max(base.width, base.height));
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  await page.render({ canvas, viewport }).promise;
+  const blob = await canvasBlob(canvas);
+  page.cleanup();
+  return { blob, width: canvas.width, height: canvas.height };
+}
+
 /** The page's text as written: lines kept, a space only where the page has a gap. */
 async function pageText(page: Awaited<ReturnType<Doc["getPage"]>>): Promise<string> {
   const content = await page.getTextContent();

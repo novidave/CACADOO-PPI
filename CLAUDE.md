@@ -154,6 +154,26 @@ e-mail after 24 h (Brevo API: `BREVO_API_KEY`, `ALERT_EMAIL_FROM`) "Pripojenie k
 A shopper's deletion of a copied conversation leaves a line without content ("zákazník požiadal o vymazanie" + cloud
 folder; `assistant_shopper_forget`); keep time never touches the cloud.
 
+## Access keys for shoppers (paid, update 24)
+
+`supabase/sql/24_access_key_access.sql` + `supabase/functions/shop-files` (view, download, zip) + `doc-ingest`
+(register_pages / pages_uploaded) + `@/components/FolderAccess` + `/api/shops/[slug]/folder/*`. Keys are checked only in
+SQL (`unlock_shop_folders()`: SHA-256, 5 wrong per caller/shop/15 min; the AI never sees or checks a key); a message
+that is exactly a key (`looksLikeKey()`) unlocks instead of being sent. A session lasts 24 h, or until "Znova zamknúť",
+the chat box closes or the page is left (`action: "lock"`); the system prompt then says "This customer has verified
+access to the folder <name>; you may use its documents in your answers." Per folder `access_mode` view|download
+(default view), per file `access` override (NULL = folder); downloadable only where the effective access is download
+(`shop_download_file`, `shop_zip_ticket`, `shop_file_path`); ≤ 20 downloads per session. The viewer shows **page
+pictures** (rendered in the owner's browser at upload or "Pripraviť na zobrazenie", `shop_document_pages`), never the
+original file: `/folder/page/...` checks a 10-minute HMAC address (`SESSION_COOKIE_SECRET`, bound to the session) and
+the cookie, then `@/lib/watermark` (sharp + outline text, no system fonts) adds "<shop> · VIP · <date>"; `inline`.
+Downloads: 10-minute signed URLs (attachment); ZIP: single-use 10-minute ticket, only downloadable files, ≤ 100 MB.
+`owner_set_folder_key()` (shown once; replaces the folder's key and closes its sessions), counts of unlocks / views /
+downloads per folder (no visitor data). "Stiahnuť túto konverzáciu (PDF)": the shopper's browser → assistant-archive
+`shopper_pdf` with the conversation token, only that conversation, in the page language; owner switch
+`owner_set_shopper_pdf()` (default on). Never: keys or private files in logs, analytics, pages, JSON-LD, sitemap,
+search, API/MCP; nothing of one shop reachable with another shop's session.
+
 ## Shop page and My shop (migration 21)
 
 - Product pages of shops with `shop_has_plan(shop)` show no other shops: no "Also available at" block or "not found
