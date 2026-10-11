@@ -26,18 +26,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabase = createPublicClient();
   if (!supabase) return urls;
 
+  // Shops with their own live domain have their own sitemap there (their canonical address).
+  const { data: own } = await supabase.rpc("live_shop_sites");
+  const onOwnDomain = new Set(((own ?? []) as { slug: string }[]).map((s) => s.slug));
   const { data: shops } = await supabase.from("public_shops").select("slug, latest_file_time").order("slug");
-  for (const shop of shops ?? []) urls.push(entry(`/shops/${shop.slug}`, shop.latest_file_time));
+  for (const shop of shops ?? []) if (!onOwnDomain.has(shop.slug)) urls.push(entry(`/shops/${shop.slug}`, shop.latest_file_time));
 
   // Items: lastmod = the shop's latest stock file.
   for (let from = 0; from < MAX_ITEMS; from += PAGE) {
     const { data, error } = await supabase
       .from("public_stock")
-      .select("item_id, latest_file_time")
+      .select("item_id, shop_slug, latest_file_time")
       .order("item_id")
       .range(from, Math.min(from + PAGE, MAX_ITEMS) - 1);
     if (error || !data?.length) break;
-    for (const item of data) urls.push(entry(`/items/${item.item_id}`, item.latest_file_time));
+    for (const item of data) if (!onOwnDomain.has(item.shop_slug)) urls.push(entry(`/items/${item.item_id}`, item.latest_file_time));
     if (data.length < PAGE) break;
   }
   return urls;

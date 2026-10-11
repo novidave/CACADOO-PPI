@@ -69,13 +69,16 @@ export function stripeApi(secretKey: string, fetchImpl: typeof fetch = fetch, ba
 
 // ---------------------------------------------------------------- the request
 
-/** Back only to a PPI dashboard page: https (http only on this computer), path /{lang}/dashboard. */
+/**
+ * Back only to a PPI dashboard page: https (http only on this computer), path /{lang}/dashboard
+ * or "Predplatné a doména" /{lang}/dashboard/plan (database update 25).
+ */
 export function returnUrl(value: unknown): URL | null {
   try {
     const url = new URL(String(value));
     const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
     if (url.protocol !== "https:" && !(local && url.protocol === "http:")) return null;
-    if (url.username || url.password || !/^\/(sk|hu|en)\/dashboard$/.test(url.pathname)) return null;
+    if (url.username || url.password || !/^\/(sk|hu|en)\/dashboard(\/plan)?$/.test(url.pathname)) return null;
     url.hash = "";
     return url;
   } catch {

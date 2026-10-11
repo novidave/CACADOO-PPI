@@ -12,11 +12,13 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
   const { lang } = await params;
   if (!isLocale(lang)) notFound();
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
-  // Shop owners only: no admin area on the website.
+  // Shop owners; the admin also gets "Predplatné a domény" (update 25), its only admin page.
   const links = [
     { href: `/${lang}/dashboard`, label: dict.account.dashboard },
+    { href: `/${lang}/dashboard/plan`, label: dict.account.plan_page },
     { href: `/${lang}/sync`, label: dict.account.sync },
     { href: `/${lang}/password`, label: dict.account.password },
+    ...(session.isAdmin ? [{ href: `/${lang}/admin/domains`, label: dict.admin_domains.nav }] : []),
   ];
 
   return (

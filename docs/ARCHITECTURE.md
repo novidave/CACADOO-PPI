@@ -560,6 +560,75 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   shopper's deletion with "Odstrániť zo zoznamu".
 - **Job:** `ppi-cloud-export-tick` (`2-59/5 * * * *`) calls `<Vault ppi_project_url>/functions/v1/cloud-export`.
 
+### 2.14 Own domains (database update 25, `supabase/sql/25_custom_domains.sql`, `supabase/functions/domains`)
+
+- **Tables** (RLS on): `domain_settings` (one row; admin only; owners get the search address and the same-price switch
+  through `domain_shop_settings()`), `domain_prices` (TLD → price and renewal price in cents, VAT included, active;
+  everyone reads active rows, the admin writes through `admin_save_domain_price` / `admin_delete_domain_price`),
+  `shop_legal` (the registrant's details; members and the admin read; `owner_save_legal(shop, jsonb)` changes only
+  the fields sent, checks e-mail, phone and a 2-letter country; `domain_owner_details(shop)` merges it with the shop's
+  profile and lists what is missing), `domain_orders` (members and the admin read; only the service role writes; one
+  open order per shop, per host and per website host by partial unique indexes; `log` keeps every step).
+- **SQL functions:** `domain_price_for(host)` (longest TLD match, exactly one label before it), `domain_quote` (owner;
+  freezes the table's price on a `quoted` order; `P0002` TLD not sold, `55000` the shop already has a domain),
+  `domain_connect_start` (owner, Pro; `waiting_dns`; `23505` host in use), `domain_payment_received(order, session,
+  invoice, payment, url)` (service role; `recorded` once, then `duplicate`; `orphan` when the order was given up →
+  refund), `domain_renewal_paid`, `domain_shop_emails` (the shop's e-mail, else its owners'), `domain_claim(limit)` and
+  `domain_claim_one(id)` (one worker per order for 3 minutes; PostgREST 12 cannot run an update filtered with `or`, so
+  the claim is SQL), `domain_set_credit` (true once a day while under the limit), `shop_site_lang` (SK → sk, HU → hu,
+  else en), `shop_for_host(host)` (anon: only `live` orders of active shops with `shop_has_plan`; `www.` too),
+  `shop_site(slug)`, `live_shop_sites()`, and for `is_admin()`: `admin_domain_overview(q, status, kind)`,
+  `admin_domain_stats()`, `admin_save_domain_settings`, `admin_resolve_domain`.
+- **The function** (`domains`, one file, Verify JWT off) checks every caller itself: the owner's login (`check`,
+  `pay`, `connect`, `recheck` (30 s), `disconnect`, `auth_code`, `pro_price`; `is_shop_member` through the caller's own
+  client), the admin's login (`admin_retry`, `admin_email`, `admin_auth_code`, `admin_save_auth_code`, `admin_credit`;
+  `is_admin()`), stripe-webhook with the service role key (`run`: the paid order now, in the background), pg_cron with
+  `x-ppi-cron` = Vault `ppi_assistant_cron` (`tick` every 5 minutes, `daily` once a day). Return addresses only to
+  `/(sk|hu|en)/dashboard/plan`.
+- **Registrar adapter** (`Registrar`: `check`, `credit`, `profile`, `findService`, `order(domain, profile, dryRun)`,
+  `pay`, `records`, `addRecord`, `deleteRecord`, `autoRenew`, `authCode`); `websupport()` signs each call like
+  Websupport's REST API: `Authorization: Basic base64(apiKey:hex HMAC-SHA1(secret, "METHOD path unixtime"))` (the query
+  is not signed) and `Date: YYYYMMDDTHHMMSSZ`; v1 for orders, users, services and credit (`POST
+  /v1/order/{market}/validate/domain`, `POST|PUT /v1/user/{id}/domainProfile`, `POST /v1/user/{id}/order?dry_run=0|1`,
+  `PUT …/order/{id}/pay/byCredit`, `GET /v1/user/{id}/service`, `GET /v1/user/self`), v2 for DNS
+  (`/v2/service/{id}/dns/record`). `testRegistrar()` (`REGISTRAR_MODE=test`, the default) makes every order a dry run
+  and never pays, renews or reads an auth code. A second registrar can be added behind the same interface.
+- **Vercel** (`vercelApi`): `POST /v10/projects/{project}/domains` (bare; `www` with `redirect` to the bare host,
+  308; a 409 reads the existing one), `GET /v6/domains/{host}/config?projectIdOrName=` (recommended A and CNAME values,
+  ranked), `POST /v9/…/verify`, `DELETE /v9/…`; `teamId` when `VERCEL_TEAM_ID` is set. The records shown or written are
+  only Vercel's (`websiteRecords` + the `_vercel` TXT challenge); `dnsPlan` replaces only A/AAAA/CNAME/ALIAS records
+  of exactly those names and never touches MX, SPF, DKIM, DMARC or any other record.
+- **Steps of a bought domain:** `paid` → `registering` (check again: taken → refund the domain part (the Pro line
+  stays), e-mail, `taken`; already in our account → never ordered twice; credit (live mode) below the price → wait,
+  admin e-mail; owner details missing → wait for the admin; Websupport profile with the shop's details; order (dry run
+  in test mode); pay by credit; wait until the domain appears among our services) → `configuring` (Vercel, DNS at
+  Websupport, Vercel's verification) → `securing` (HTTPS answers) → `live` + the e-mail once (`live_email_at` set
+  atomically; reset if Brevo failed). Failures back off 5 min · 2ⁿ up to 6 hours; after 12 tries in registration the
+  domain part is refunded and the admin is flagged. More than 48 hours anywhere → one admin e-mail.
+- **Payments:** the domain is a Stripe line with `price_data` (product of `STRIPE_PRICE_DOMAIN`, amount from the frozen
+  order, `tax_behavior` from the table's VAT flag) and metadata `ppi_domain_order`. On Pro with a saved card (the
+  customer's or the subscription's default): invoice + invoice item + finalize + pay → recorded at once (`invoice.paid`
+  then says `duplicate`); 3-D Secure or a declined card → Stripe's hosted invoice page. Else Checkout `payment` with
+  `invoice_creation`, or Checkout `subscription` with Pro + the domain line (company fields as in stripe-checkout).
+  The name is reserved (`checkout`) before Stripe opens; unpaid after 24 hours → `canceled` (invoice voided); paid
+  after being given up → refunded. Idempotency keys per order.
+- **Daily:** abandoned payments, orphan refunds, credit (live mode), plan ended → `endDomain` (Vercel removed, Websupport
+  renewal off, auth code saved and e-mailed), unsent live e-mails, renewals (`renewal()`: 30 days before expiry an
+  off-session invoice for the renewal price; paid (`invoice.paid` with `ppi_domain_renewal` → `domain_renewal_paid`)
+  → Websupport renewal switched on; notices 30/7 days; failed → weekly reminders, at expiry `lapsed`).
+- **Website:** `proxy.ts` — a host that is not PPI's own (`NEXT_PUBLIC_SITE_URL`'s host, `www.` of it, localhost,
+  `*.vercel.app`, `PPI_MAIN_HOSTS`) is looked up with `shop_for_host` (kept 60 s, unknown 20 s): `/` →
+  rewrite to `/{lang}/site/{slug}`, `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml` and `/robots.txt` →
+  `/api/site/{slug}/…`, `www` → 308 bare, the shop's Cacadoo path → 308 to `/`, anything else → 307 to PPI's address,
+  unknown → 404 page. On PPI's own host `/{lang}/site/…` → 308 to the Cacadoo page. `ShopView` / `ItemView` render both
+  (`onSite`: canonical and links on the own domain); the Cacadoo pages put `rel=canonical` on the own domain
+  (`shopSiteHost` → `shop_site`); `sitemap.ts` leaves those shops out; `robots.ts` disallows `/*/site/` and
+  `/*/admin`. Owner page `dashboard/plan` (`PlanDetails`, `DomainWizard`, `DomainStatus` polling
+  `/api/owner/domains/[id]` every 3 s, 15 s while waiting for DNS), server actions in `plan/actions.ts`
+  (`callDomains` with the owner's login); admin page `admin/domains` (`notFound()` unless `profiles.is_admin`).
+- **Jobs:** `ppi-domains-tick` (`4-59/5 * * * *`) and `ppi-domains-daily` (`17 3 * * *`) call
+  `<Vault ppi_project_url>/functions/v1/domains`.
+
 ## 3. Main flows step by step
 
 **A shopper searches "farba":** browser → Vercel → `/[lang]?q=farba` server component → `search_stock('farba')` with
@@ -758,7 +827,13 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Supabase function secret (optional) | `ANTHROPIC_API_KEY` | item-name translations, Claude column proposals, picture descriptions and scanned pages (else no translations, a rule-based column guess and pictures waiting) |
 | Supabase function secrets (paid plan) | `STRIPE_SECRET_KEY` (`sk_test_…` first), `STRIPE_PRICE_PRO` (`price_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`) | the two Stripe functions; without them the Plan section says paid plans are not available yet |
 | Supabase function secret (local tests only) | `STRIPE_API_BASE` | points the Stripe functions at a stand-in for Stripe; never set it in the real project |
-| Stripe (test mode first) | product + monthly price, Stripe Tax (origin address, registrations), invoice details, customer portal, webhook endpoint `…/functions/v1/stripe-webhook` with 6 events | SETUP.md part K |
+| Supabase function secrets (own domains) | `WEBSUPPORT_API_KEY`, `WEBSUPPORT_API_SECRET` (Websupport REST API key), `WEBSUPPORT_USER_ID` (the account's user ID) | the registrar; without them "Kúpa domén ešte nie je spustená" |
+| Supabase function secret (own domains) | `REGISTRAR_MODE` (`test` or `live`; missing = `test`) | test: dry-run orders, the website on the admin's test domain |
+| Supabase function secrets (own domains) | `VERCEL_API_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID` (only for a team project) | adds the shops' domains to the Vercel project |
+| Supabase function secrets (own domains) | `STRIPE_PRICE_DOMAIN` (a one-time price of the "Doména" product; the amount always comes from the price table), `ADMIN_EMAIL` | the domain's Stripe product; the admin's alerts (with `BREVO_API_KEY`, `ALERT_EMAIL_FROM`) |
+| Vercel env (optional) | `PPI_MAIN_HOSTS` | more of PPI's own host names (comma-separated) that must never be treated as a shop's domain |
+| Supabase function secrets (local tests only) | `WEBSUPPORT_API_BASE`, `VERCEL_API_BASE` | point the domains function at stand-ins; never set them in the real project |
+| Stripe (test mode first) | product + monthly price, Stripe Tax (origin address, registrations), invoice details, customer portal, webhook endpoint `…/functions/v1/stripe-webhook` with 7 events (`invoice.paid` since update 25) | SETUP.md parts K and R |
 | Supabase Auth | sign-ups on, confirm e-mail on, min. password 8, custom SMTP (Brevo), Site URL + redirect URLs, e-mail templates | accounts and e-mails |
 | Supabase (automatic) | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | given to the function by Supabase |
 
@@ -771,14 +846,14 @@ src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
 src/components/            ShopMap, FolderSync, AiSearch, ShopChat, FolderAccess, DocUpload, FolderKeyForm,
                            FolderKeySetter, ShopForm, LogoInput, DashboardSection, RecentImports, ContactLinks, …
 src/lib/                   data, publicApi, aiSearch, shopChat, assistantArchive, docsAccess, accessKey, watermark,
-                           pdfRead, names, apiHttp, …
+                           pdfRead, names, apiHttp, domains, domainName, customDomain, functionError, …
 src/types/                 type declarations for packages without their own (opentype.js)
 src/i18n/                  languages and texts (sk, hu, en)
-src/proxy.ts               language redirect + session refresh
+src/proxy.ts               language redirect + session refresh; shops' own domains → their pages (update 25)
 supabase/migrations/       updates 1–21 (section 9)
 supabase/sql/              from update 22 on: one SQL file per phase, pasted by the owner (section 9)
 supabase/functions/        stock-pull, stripe-checkout, stripe-webhook, doc-ingest, shop-files, assistant-archive,
-                           cloud-export
+                           cloud-export, domains
                            (each index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
@@ -817,6 +892,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 22 | `supabase/sql/22_assistant_archive.sql` | conversation archive: `assistant_conversations`, `assistant_messages`, `assistant_attachments`, `shop_assistant_settings` (RLS: members read), the `assistant_*` functions (service role), `owner_set_assistant_retention`, `owner_assistant_conversations`, `assistant_cron_ok`, Vault secret `ppi_assistant_cron`, private bucket `shop-assistant-uploads`, pg_cron jobs `ppi-assistant-tick` and `ppi-assistant-retention` (a notice if pg_cron is off or `ppi_project_url` missing). Safe to run twice |
 | 24 | `supabase/sql/24_access_key_access.sql` | access keys for shoppers: `shop_folders.access_mode` + counts, `access` on documents and pictures (private documents already downloadable keep it), `folder_keys.folder_key`, `folder_sessions.downloads`, `shop_assistant_settings.shopper_pdf`, tables `shop_document_pages` and `folder_zip_tickets` (RLS), `unlock_shop_folders` (24 hours, counts), `shop_folder_session` (+ downloads left), `shop_folder_files`, `shop_view_file`, `shop_download_file`, `shop_zip_ticket`, `shop_zip_take`, `shop_file_path` (private files by the access rule), `docs_register_pages`, `docs_pages_uploaded`, `shop_docs_upload_allowed` and `owner_docs_files` (+ pages), `owner_set_folder_access`, `owner_set_file_access`, `owner_set_folder_key`, `owner_set_shopper_pdf`, `shopper_pdf_allowed`, `assistant_shopper_pdf_data`. Needs 20, 22 and 23; safe to run twice |
 | 23 | `supabase/sql/23_cloud_export.sql` | cloud folder: `cloud_connections`, `cloud_oauth_states`, `cloud_export_items` (RLS: members read, never the tokens), export columns and `shopper_deleted_at` on `assistant_conversations`, the `cloud_*` functions (service role), `owner_cloud_retry`, `owner_cloud_backfill`, `assistant_shopper_forget`; `assistant_pdf_done` (queues the copy, returns whether it did), `assistant_empty_ended` and `owner_assistant_conversations` replaced; pg_cron job `ppi-cloud-export-tick`. Safe to run twice |
+| 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
 
 ## 10. Testing and releasing
 
@@ -911,6 +987,21 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   per shop, live subscription → portal, only owners, return address check, not configured) and 7 of `stripe-webhook`
   (a signature made with openssl is accepted, forged/old/changed events refused, what each event writes, older API
   shape, retries on errors).
+- `npm run test:db` also checks (update 25): the price table (no price → no quote, longest TLD, one label), only the
+  admin writes settings and prices, visitors read only active prices; owner details saved field by field and refused
+  when wrong, other owners and visitors read nothing; a quote freezes the price; one open domain per shop and per
+  host; Pro needed to connect; a payment recorded once (`duplicate`, `orphan`, `not_found`); renewals recorded once;
+  claims hand an order out once; `shop_for_host` only for live domains of active Pro shops (www too), never for others;
+  members and the admin read orders, nobody else writes them; the admin overview and stats only for the admin.
+- `npm run test:functions` also runs 17 tests of `domains`: names cleaned the same way on the website and in the
+  function; Websupport's signature against a known example and the Date header; the registrant is the shop's company
+  profile; test mode buys nothing and puts the website on the test domain (one at a time); DNS never touches MX, SPF,
+  DKIM, DMARC; Vercel bare + www and a team project; check (format, TLD not sold, taken, the table's price); one click
+  with the saved card charges exactly the price shown and is recorded once; 3-D Secure → invoice page, no card →
+  Checkout, no Pro → Pro + domain; low credit waits and e-mails the admin once; "Nastavujem stránku" waits for Vercel,
+  48-hour alert; taken after payment → only the domain refunded; own domain Čaká na DNS → Overené → Beží, reminder,
+  7-day stop, automatic DNS in our account; renewals charged before Websupport renews, lapse; Pro ended → auth code;
+  callers (cron secret, owners, admin).
 - `npm run lint`, `npm run typecheck`, `npm run build` before every push.
 - During development every feature was also run end to end in a real Chromium browser (Playwright) against a local
   stand-in for Supabase (PostgREST + the function in Deno) and, for translations and AI search, a stand-in for the
@@ -955,6 +1046,14 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   closing the chat locks; the ZIP holds only the downloadable picture and works once; downloads counted, the 21st
   refused; the shopper's own PDF with only their chat, never stored, and gone when the owner turns it off;
   "Pripraviť na zobrazenie"; counts 2/3/2; "Zmeniť kľúč" closes the old session; Hungarian; phone width);
+  own domains (86 checks against Websupport, Vercel, Stripe and Brevo stand-ins, Websupport's signature checked by the
+  stand-in: the admin's test domain, price table and credit; step 1 texts and the Websupport tab; "davide",
+  "obsadena.sk", "davide.xyz" and "https://www.Davide.sk/"; owner details; one click "Zaplatiť 12,90 €" charged 1290
+  cents with the saved card and recorded once; dry-run order with the shop's profile; DNS written without touching MX,
+  SPF, DMARC; the steps, the live box, the countdown and the site opened on the test domain; one e-mail; the domain's
+  `/`, www, sitemap, robots, items, unknown host, canonical; an own domain from "Čaká na DNS" with Vercel's exact
+  records to "Beží" and its e-mail; Pro + domain in one Checkout, taken after payment → 12,90 € refunded, Pro kept,
+  e-mail and message; 3-D Secure → Stripe's invoice page; the admin table);
   those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
@@ -972,7 +1071,8 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | Brevo | SMTP for account e-mails; API for the cloud folder's failure e-mail | free (300 e-mails/day) |
 | Microsoft Entra ID (app registration), Dropbox App Console | the cloud folder's OAuth apps | free |
 | Anthropic API | column proposals, item-name translations, picture descriptions and scanned pages (Supabase), AI search and the shop assistant (Vercel) — optional | pay per use; with Claude Haiku roughly a few cents per 1,000 names translated (once per name) and well under one cent per AI search or assistant message (a photo adds about 1,600 input tokens); capped by `AI_DAILY_LIMIT` and `CHAT_MONTHLY_LIMIT_PER_SHOP` |
-| Stripe | paid plan: payment page, subscriptions, customer portal, Stripe Tax, invoices | no monthly fee; a fee per payment plus Billing and Tax fees (stripe.com/pricing); test mode is free |
+| Websupport | registers the shops' own domains (in the shops' names) from PPI's prepaid credit | the domain prices (partner prices); the shop pays PPI's price table |
+| Stripe | paid plan and domains: payment page, subscriptions, invoices, customer portal, Stripe Tax | no monthly fee; a fee per payment plus Billing and Tax fees (stripe.com/pricing); test mode is free |
 | OpenFreeMap | map tiles | free, no key |
 | Claude Code | writes, tests and fixes the code | Claude plan |
 

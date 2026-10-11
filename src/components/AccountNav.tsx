@@ -6,10 +6,14 @@ import { usePathname } from "next/navigation";
 /** Menu of the login-only area; the page you are on is bold and underlined. */
 export function AccountNav({ links }: { links: { href: string; label: string }[] }) {
   const pathname = usePathname() ?? "";
+  // The most specific link wins ("/sk/dashboard/plan" over "/sk/dashboard").
+  const current = links
+    .filter((link) => pathname === link.href || pathname.startsWith(`${link.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
   return (
     <>
       {links.map((link) => {
-        const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+        const active = link.href === current;
         return (
           <Link
             key={link.href}
