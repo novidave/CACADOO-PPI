@@ -190,6 +190,10 @@ export function CloudFolder({
                 cloud: c.error_cloud,
                 no_cloud: c.error_no_cloud,
                 bad_folder: c.error_bad_folder,
+                fn_missing: c.error_fn_missing,
+                fn_jwt: c.error_fn_jwt,
+                fn_boot: c.error_fn_boot,
+                fn_limit: c.error_fn_limit,
               },
             }}
             save={setCloudFolder}

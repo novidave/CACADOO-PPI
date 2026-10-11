@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { endOfLocalDay } from "@/lib/format";
+import { functionFailure } from "@/lib/functionError";
 
 // "Documents for the assistant" on the dashboard. The database functions (owner_*) check
 // that the shop is the owner's; deleting goes through the doc-ingest function, which
@@ -100,9 +101,8 @@ export async function deleteDocOrPicture(formData: FormData) {
     body: { action: "delete", kind, id: id(formData, "id") },
   });
   if (error) {
-    const context = (error as { context?: unknown }).context;
-    const reply = context instanceof Response ? await context.json().catch(() => null) : null;
-    back({ err: `docs:${String(reply?.message ?? error.message).slice(0, 300)}` });
+    const failure = await functionFailure(error);
+    back({ err: `docs:${(failure.error ? (failure.message ?? failure.error) : `doc-ingest ${failure.detail}`).slice(0, 300)}` });
   }
   back({ ok: "docs_deleted" });
 }

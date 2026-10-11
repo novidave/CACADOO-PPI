@@ -673,7 +673,21 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
 9. If something does not work: Supabase → Edge Functions → `cloud-export` → **Logs** (lines start with
    `cloud-export:`; tokens, keys and file contents are never logged). "Pripojenie cloudu ešte nie je nastavené" means
    a secret from step 6 is missing; Microsoft's "redirect URI mismatch" (AADSTS50011) or Dropbox's "Invalid
-   redirect_uri" means the address in step 4 or 5 differs from your project's.
+   redirect_uri" means the address in step 4 or 5 differs from your project's. When Supabase refuses the call before
+   the function runs, Môj obchod says which of these it is: "V Supabase nie je funkcia cloud-export" (step 2: the name
+   must be exactly `cloud-export`), "… až po vypnutí „Verify JWT“" (step 2: switch it off → Save) or "Funkcia
+   cloud-export sa nespustila" (paste the whole file again → Deploy; its Logs say why). "Dropbox odmietol tajný kľúč
+   aplikácie" (or Microsoft) after "Allow": `DROPBOX_APP_SECRET` (or `ONEDRIVE_CLIENT_SECRET`) is not the secret of
+   the same app as the key/ID — paste it again in Supabase → Secrets and connect again (no redeploy needed).
+   "Dropbox aplikácii chýba povolenie": step 5 — Permissions → tick `files.metadata.read` and `files.content.write` →
+   **Submit**, then connect again and Allow (Dropbox grants new permissions only on a new Allow).
+   "Microsoft odmietol prihlásenie: … platformou „Web“" (log: `AADSTS9002327` or `AADSTS700025`): step 4 — the
+   redirect address must be under **Web**, not "Single-page application" or "Mobile and desktop applications"
+   (Authentication → remove it there → Add a platform → Web), and "Allow public client flows" = No.
+   "Microsoft aplikácia nepúšťa tento typ účtu" (`AADSTS50194` / `AADSTS9002331`): step 4 — Supported account types
+   must be "Accounts in any organizational directory and personal Microsoft accounts". Any other failure shows its
+   code on the page ("kód AADSTS…"); the same code is in the `cloud-export` Logs. Vercel → Logs → search
+   `cloud-export: Supabase refused` shows the same with the HTTP status.
 
 ---
 

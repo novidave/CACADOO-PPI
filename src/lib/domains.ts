@@ -45,13 +45,15 @@ export interface DomainOrder {
   renewal_state: "none" | "due" | "paid" | "failed";
   renewal_invoice_url: string | null;
   auth_code: string | null;
+  needs_admin: boolean;
+  last_error: string | null;
   created_at: string;
 }
 
 export const DOMAIN_COLUMNS =
   "id, kind, hostname, site_host, www, status, price_cents, renewal_cents, vat_included, currency, test_mode, quoted_at, " +
   "paid_at, refunded_at, invoice_url, registrar_service_id, dns_records, last_check_at, next_check_at, live_at, " +
-  "live_email_at, expires_at, renewal_state, renewal_invoice_url, auth_code, created_at";
+  "live_email_at, expires_at, renewal_state, renewal_invoice_url, auth_code, needs_admin, last_error, created_at";
 
 export interface DomainPrice {
   tld: string;
@@ -79,6 +81,16 @@ export interface OwnerDetails {
 export const OWNER_FIELDS = [
   "company_name", "contact_name", "street", "city", "zip", "country", "ico", "dic", "ic_dph", "email", "phone",
 ] as const;
+
+/** How the domains function logs details Websupport refused (followed by our field names, e.g. "ico, country"). */
+export const OWNER_REFUSED = "Owner details refused by Websupport: ";
+
+/** The owner's fields Websupport refused for this order, while it waits for the correction. */
+export function refusedFields(o: DomainOrder | null): string[] {
+  if (!o || o.status !== "registering" || !o.needs_admin || !o.last_error?.startsWith(OWNER_REFUSED)) return [];
+  const list = o.last_error.slice(OWNER_REFUSED.length).split(" (")[0];
+  return list.split(",").map((f) => f.trim()).filter((f) => (OWNER_FIELDS as readonly string[]).includes(f));
+}
 
 export interface DomainPageData {
   /** The open domain, else the latest one that ended (for its notice and transfer code). */
@@ -120,12 +132,18 @@ export async function loadDomainPage(supabase: SupabaseClient, shopId: string): 
 export async function callDomains<T>(
   supabase: SupabaseClient,
   body: Record<string, unknown>,
-): Promise<{ data: T | null; error: string | null; status: number | null }> {
+): Promise<{ data: T | null; error: string | null; status: number | null; message: string | null }> {
   const { data, error } = await supabase.functions.invoke<T>("domains", { body });
-  if (!error) return { data: data ?? null, error: null, status: 200 };
+  if (!error) return { data: data ?? null, error: null, status: 200, message: null };
   const failure = await functionFailure(error);
   if (!failure.error) console.error(`domains: ${String(body.action)} failed (${failure.detail})`);
-  return { data: null, error: failure.error ?? (failure.platform ? `fn_${failure.platform}` : "failed"), status: failure.status };
+  return {
+    data: null,
+    error: failure.error ?? (failure.platform ? `fn_${failure.platform}` : "failed"),
+    status: failure.status,
+    // Stripe's or Websupport's own reason (never a key), or Supabase's when it refused the call.
+    message: failure.message,
+  };
 }
 
 /** "19,90 €" in the page language. */

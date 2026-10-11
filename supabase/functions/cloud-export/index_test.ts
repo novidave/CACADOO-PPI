@@ -312,7 +312,7 @@ Deno.test("OneDrive: consent URL with the narrowest scope and PKCE; folders and 
   await rejects(() => od.refresh("old"), (e) => e instanceof CloudError && e.kind === "expired", "a refresh token no longer valid");
   eq((await od.refresh("od-refresh-1")).refresh, "od-refresh-rotated", "Microsoft rotates refresh tokens");
   await rejects(() => oneDrive({ clientId: "od-client", clientSecret: "wrong" }, cloud.fetch).refresh("od-refresh-1"),
-    (e) => e instanceof CloudError && e.kind === "other", "a wrong app secret is not the owner's expired connection");
+    (e) => e instanceof CloudError && e.kind === "app", "a wrong app secret is not the owner's expired connection");
 
   const tk = "od-access-1";
   eq(await od.createFolder(tk, "/Cacadoo"), "created", "mkdir");
@@ -639,6 +639,56 @@ Deno.test("Connect: owners of a Pro shop only; a share link is explained; the st
   eq(url.searchParams.get("redirect_uri"), "https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive", "back to this function");
 });
 
+/** What Dropbox really answers when the app lacks a permission (HTTP 400, plain text). */
+const SCOPE_400 =
+  'Error in call to API function "files/create_folder_v2": Your app (ID: 1234567) is not permitted to access this endpoint ' +
+  "because it does not have the required scope 'files.content.write'. The owner of the app can enable the scope for the app " +
+  "using the Permissions tab on the App Console.";
+
+Deno.test("Dropbox: a missing permission is named (400 text or 401 missing_scope); other 400s keep Dropbox's reason", async () => {
+  const answers: Record<string, Response> = {};
+  const f: typeof fetch = (input) => Promise.resolve(answers[String(input).replace(/^https:\/\/[^/]+/, "")]);
+  const db = dropbox({ appKey: "db-key", appSecret: "db-secret" }, f);
+  answers["/2/files/create_folder_v2"] = new Response(SCOPE_400, { status: 400 });
+  await rejects(() => db.createFolder("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "scope" && /files\.content\.write/.test(e.message),
+    "400: the app lacks files.content.write");
+  answers["/2/files/get_metadata"] = new Response(
+    JSON.stringify({ error_summary: "missing_scope/..", error: { ".tag": "missing_scope", required_scope: "files.metadata.read" } }),
+    { status: 401, headers: { "Content-Type": "application/json" } },
+  );
+  await rejects(() => db.stat("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "scope" && /files\.metadata\.read/.test(e.message),
+    "401 missing_scope: the sign-in did not grant it");
+  answers["/2/files/create_folder_v2"] = new Response('Error in call to API function "files/create_folder_v2": request body: could not decode input as JSON', { status: 400 });
+  await rejects(() => db.createFolder("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "other" && /400: request body: could not decode/.test(e.message),
+    "another 400 keeps Dropbox's reason");
+  answers["/2/files/get_metadata"] = new Response(JSON.stringify({ error_summary: "expired_access_token/" }), { status: 401 });
+  await rejects(() => db.stat("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "auth", "an expired sign-in is still renewed");
+});
+
+Deno.test("Microsoft: the reason number is kept; a redirect address outside the Web platform is named", async () => {
+  let answer = { error: "", error_description: "" };
+  const f: typeof fetch = () => Promise.resolve(new Response(JSON.stringify(answer), { status: 400, headers: { "Content-Type": "application/json" } }));
+  const od = oneDrive({ clientId: "od-client", clientSecret: "od-secret" }, f);
+  answer = {
+    error: "invalid_request",
+    error_description: "AADSTS9002327: Tokens issued for the 'Single-Page Application' client-type may only be redeemed via cross-origin requests. Trace ID: 1",
+  };
+  await rejects(() => od.exchange("code", "verifier", "https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive"),
+    (e) => e instanceof CloudError && e.kind === "platform" && /AADSTS9002327/.test(e.message), "registered as a single-page app");
+  answer = { error: "invalid_client", error_description: "AADSTS700025: Client is public so neither 'client_assertion' nor 'client_secret' should be presented." };
+  await rejects(() => od.exchange("code", "verifier", "x"), (e) => e instanceof CloudError && e.kind === "platform", "registered as a public client");
+  answer = { error: "invalid_client", error_description: "AADSTS7000215: Invalid client secret provided." };
+  await rejects(() => od.exchange("code", "verifier", "x"), (e) => e instanceof CloudError && e.kind === "app" && /AADSTS7000215/.test(e.message),
+    "a wrong secret keeps its number");
+  answer = { error: "invalid_request", error_description: "AADSTS90014: The required field 'scope' is missing." };
+  await rejects(() => od.exchange("code", "verifier", "x"), (e) => e instanceof CloudError && e.kind === "other" && /invalid_request AADSTS90014/.test(e.message),
+    "any other refusal: the code and the number in the log");
+  answer = { error: "invalid_request", error_description: "AADSTS50194: Application is not configured as a multi-tenant application." };
+  await rejects(() => od.exchange("code", "verifier", "x"), (e) => e instanceof CloudError && e.kind === "audience", "a single-tenant app");
+  answer = { error: "invalid_request", error_description: "AADSTS9002331: Application is configured for use by Microsoft Account users only." };
+  await rejects(() => od.exchange("code", "verifier", "x"), (e) => e instanceof CloudError && e.kind === "audience", "an app for personal accounts only");
+});
+
 Deno.test("The provider's answer: tokens encrypted, the folder made, back to Môj obchod; a state works once", async () => {
   for (const provider of ["onedrive", "dropbox"] as Provider[]) {
     const cloud = fakeClouds();
@@ -666,6 +716,66 @@ Deno.test("The provider's answer: tokens encrypted, the folder made, back to Mô
   const state = new URL(body.url).searchParams.get("state")!;
   const denied = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/dropbox?error=access_denied&state=${state}`), deps);
   eq(denied.headers.get("Location"), `${RETURN}&err=cloud_denied#cloud`, "the owner said no");
+  // A wrong app secret in Supabase: Dropbox refuses the code exchange (invalid_client); the owner is told which secret.
+  for (const provider of ["onedrive", "dropbox"] as Provider[]) {
+    const wrong = fakes(cloud, {});
+    wrong.deps.adapters = {
+      onedrive: oneDrive({ clientId: "od-client", clientSecret: "not-the-secret" }, cloud.fetch),
+      dropbox: dropbox({ appKey: "db-key", appSecret: "not-the-secret" }, cloud.fetch),
+    };
+    const [, started] = await call(wrong.deps, { action: "connect", shop_id: SHOP, provider, return_url: RETURN });
+    const st = new URL(started.url).searchParams.get("state")!;
+    const res = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/${provider}?code=${provider}-code&state=${st}`), wrong.deps);
+    eq(res.headers.get("Location"), `${RETURN}&err=cloud_app_${provider}#cloud`, `${provider}: a wrong app secret is named`);
+    assert(!wrong.log.some((l) => l.startsWith("rpc cloud_connection_save")), `${provider}: nothing saved`);
+  }
+  // Microsoft: the redirect address registered as a single-page app → the owner is told to use "Web".
+  {
+    const spa = fakes(cloud, {});
+    const refuse: typeof fetch = (input, init) =>
+      String(input).includes("/oauth2/v2.0/token")
+        ? Promise.resolve(new Response(JSON.stringify({ error: "invalid_request", error_description: "AADSTS9002327: Tokens issued for the 'Single-Page Application' client-type may only be redeemed via cross-origin requests." }), { status: 400 }))
+        : cloud.fetch(input, init);
+    spa.deps.adapters = { ...adaptersFor(cloud.fetch), onedrive: oneDrive({ clientId: "od-client", clientSecret: "od-secret" }, refuse) };
+    const [, started] = await call(spa.deps, { action: "connect", shop_id: SHOP, provider: "onedrive", return_url: RETURN });
+    const st = new URL(started.url).searchParams.get("state")!;
+    const res = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive?code=onedrive-code&state=${st}`), spa.deps);
+    eq(res.headers.get("Location"), `${RETURN}&err=cloud_platform_onedrive#cloud`, "the Web platform is named");
+  }
+  // Any other refusal: its short code comes back to the page; a refused request (not the owner's "No") too.
+  {
+    const other = fakes(cloud, {});
+    const refuse: typeof fetch = (input, init) =>
+      String(input).includes("/oauth2/v2.0/token")
+        ? Promise.resolve(new Response(JSON.stringify({ error: "invalid_request", error_description: "AADSTS90014: The required field is missing." }), { status: 400 }))
+        : cloud.fetch(input, init);
+    other.deps.adapters = { ...adaptersFor(cloud.fetch), onedrive: oneDrive({ clientId: "od-client", clientSecret: "od-secret" }, refuse) };
+    const start = async () => {
+      const [, started] = await call(other.deps, { action: "connect", shop_id: SHOP, provider: "onedrive", return_url: RETURN });
+      return new URL(started.url).searchParams.get("state")!;
+    };
+    const back = (query: string) => handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive?${query}`), other.deps);
+    eq((await back(`code=onedrive-code&state=${await start()}`)).headers.get("Location"), `${RETURN}&err=cloud_failed:AADSTS90014#cloud`,
+      "the reason code is shown");
+    const aud = encodeURIComponent("AADSTS50194: Application is not configured as a multi-tenant application.");
+    eq((await back(`error=invalid_request&error_description=${aud}&state=${await start()}`)).headers.get("Location"),
+      `${RETURN}&err=cloud_audience_onedrive#cloud`, "a refused sign-in names the account types");
+    eq((await back(`error=server_error&error_description=x%3Cb%3E&state=${await start()}`)).headers.get("Location"),
+      `${RETURN}&err=cloud_failed:server_error#cloud`, "an unknown refusal: only its safe code");
+    eq((await back(`error=access_denied&state=${await start()}`)).headers.get("Location"), `${RETURN}&err=cloud_denied#cloud`, "the owner's No stays a No");
+  }
+  // The Dropbox app lacks "files.content.write": Dropbox answers 400 in plain text; the owner is told what to tick.
+  {
+    const noWrite = fakes(cloud, {});
+    const blocked: typeof fetch = (input, init) =>
+      String(input).includes("/2/files/create_folder_v2") ? Promise.resolve(new Response(SCOPE_400, { status: 400 })) : cloud.fetch(input, init);
+    noWrite.deps.adapters = { ...adaptersFor(cloud.fetch), dropbox: dropbox({ appKey: "db-key", appSecret: "db-secret" }, blocked) };
+    const [, started] = await call(noWrite.deps, { action: "connect", shop_id: SHOP, provider: "dropbox", folder: "/Nový priečinok", return_url: RETURN });
+    const st = new URL(started.url).searchParams.get("state")!;
+    const res = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/dropbox?code=dropbox-code&state=${st}`), noWrite.deps);
+    eq(res.headers.get("Location"), `${RETURN}&err=cloud_scope_dropbox#cloud`, "a missing Dropbox permission is named");
+    assert(!noWrite.log.some((l) => l.startsWith("rpc cloud_connection_save")), "nothing saved without the permission");
+  }
   const [, body2] = await call(deps, { action: "connect", shop_id: SHOP, provider: "dropbox", return_url: RETURN });
   const state2 = new URL(body2.url).searchParams.get("state")!;
   eq((await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive?code=x&state=${state2}`), deps)).status, 400,

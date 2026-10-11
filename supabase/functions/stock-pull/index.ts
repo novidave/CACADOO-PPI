@@ -65,7 +65,7 @@ const TRANSLATE_MAX_ITEMS = 1200;
 /** UTF-8 if valid, otherwise Windows-1250 (common in Slovak/Hungarian/Czech shop software). */
 export function decodeText(bytes: Uint8Array): string {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^﻿/, "");
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\ufeff/, "");
   } catch {
     return new TextDecoder("windows-1250").decode(bytes);
   }
@@ -213,7 +213,7 @@ export function parseFile(bytes: Uint8Array, format: FileFormat): Row[] {
 /** "12,90" · "1 234,50 €" · "1.234,5" · "1,234.50" · "12.9" → number; anything else → null. */
 export function parseNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  let s = String(value ?? "").replace(/[\s  ']/g, "").replace(/[^\d.,+-]/g, "");
+  let s = String(value ?? "").replace(/[\s\u00a0\u202f']/g, "").replace(/[^\d.,+-]/g, "");
   if (!s || !/\d/.test(s)) return null;
   const lastComma = s.lastIndexOf(",");
   const lastDot = s.lastIndexOf(".");

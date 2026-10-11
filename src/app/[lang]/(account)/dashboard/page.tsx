@@ -104,6 +104,8 @@ function errorText(dict: Dictionary, err: string): string {
     const code = err.slice("cloud_".length);
     if (code === "share_link") return dict.cloud.share_link;
     if (code.startsWith("other:")) return t(dict.cloud.error_other, { message: code.slice("other:".length) });
+    // The provider's short reason code ("AADSTS90014"), for the owner to pass on.
+    if (code.startsWith("failed:")) return t(dict.cloud.error_failed_why, { why: code.slice("failed:".length).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 40) });
     return (dict.cloud as Record<string, string>)[`error_${code}`] ?? dict.cloud.error_failed;
   }
   const key = ERRORS.find((e) => e === err);

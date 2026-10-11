@@ -580,7 +580,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `shop_site(slug)`, `live_shop_sites()`, and for `is_admin()`: `admin_domain_overview(q, status, kind)`,
   `admin_domain_stats()`, `admin_save_domain_settings`, `admin_resolve_domain`.
 - **The function** (`domains`, one file, Verify JWT off) checks every caller itself: the owner's login (`check`,
-  `pay`, `connect`, `recheck` (30 s), `disconnect`, `auth_code`, `pro_price`; `is_shop_member` through the caller's own
+  `pay`, `cancel_payment`, `connect`, `recheck` (30 s), `disconnect`, `auth_code`, `pro_price`; `is_shop_member` through the caller's own
   client), the admin's login (`admin_retry`, `admin_email`, `admin_auth_code`, `admin_save_auth_code`, `admin_credit`;
   `is_admin()`), stripe-webhook with the service role key (`run`: the paid order now, in the background), pg_cron with
   `x-ppi-cron` = Vault `ppi_assistant_cron` (`tick` every 5 minutes, `daily` once a day). Return addresses only to
@@ -601,7 +601,10 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 - **Steps of a bought domain:** `paid` → `registering` (check again: taken → refund the domain part (the Pro line
   stays), e-mail, `taken`; already in our account → never ordered twice; credit (live mode) below the price → wait,
   admin e-mail; owner details missing → wait for the admin; Websupport profile with the shop's details; order (dry run
-  in test mode); pay by credit; wait until the domain appears among our services) → `configuring` (Vercel, DNS at
+  in test mode; Websupport's field errors (`RegistrarError.fields`, e.g. `identCompanyRegistration`) → `ownerDetailsRefused`:
+  `needs_admin`, log "Owner details refused by Websupport: ico, …", one e-mail, wait for the owner's correction
+  (`saveLegal` with `retry_order` → `recheck`), never counted as a try; a Slovak IČO is checked (mod 11) before paying);
+  pay by credit; wait until the domain appears among our services) → `configuring` (Vercel, DNS at
   Websupport, Vercel's verification) → `securing` (HTTPS answers) → `live` + the e-mail once (`live_email_at` set
   atomically; reset if Brevo failed). Failures back off 5 min · 2ⁿ up to 6 hours; after 12 tries in registration the
   domain part is refunded and the admin is flagged. More than 48 hours anywhere → one admin e-mail.
@@ -611,7 +614,10 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   then says `duplicate`); 3-D Secure or a declined card → Stripe's hosted invoice page. Else Checkout `payment` with
   `invoice_creation`, or Checkout `subscription` with Pro + the domain line (company fields as in stripe-checkout).
   The name is reserved (`checkout`) before Stripe opens; unpaid after 24 hours → `canceled` (invoice voided); paid
-  after being given up → refunded. Idempotency keys per order.
+  after being given up → refunded. Idempotency keys per order and try (`…-{attempts}`): when Stripe refuses,
+  `paymentNotOpened` deletes the draft / voids the finalized invoice, closes an older Checkout page, puts the order
+  back to `quoted` with `attempts + 1` and the page shows Stripe's message. `cancel_payment` (owner) gives an unpaid
+  order up (Checkout expired, invoice voided); the page offers it, with "Pokračovať v platbe", for a `checkout` order.
 - **Daily:** abandoned payments, orphan refunds, credit (live mode), plan ended → `endDomain` (Vercel removed, Websupport
   renewal off, auth code saved and e-mailed), unsent live e-mails, renewals (`renewal()`: 30 days before expiry an
   off-session invoice for the renewal price; paid (`invoice.paid` with `ppi_domain_renewal` → `domain_renewal_paid`)
@@ -744,9 +750,10 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | The two secrets differ | the assistant answers; nothing is kept | Vercel log `assistant-archive: start failed (secret)` |
 | pg_cron / pg_net off or `ppi_project_url` missing | — | idle conversations stay "prebieha" and get no PDF until closed; nothing is deleted after the keep time (`cron.job_run_details` shows the error) |
 | A PDF cannot be made (storage, bad data) | — | tried 3 times, 10 and 20 minutes apart; then "PDF: nepodarilo sa vytvoriť" on the conversation; log `assistant-archive: pdf …` |
-| `cloud-export` not deployed or `EXPORT_TOKEN_ENCRYPTION_KEY` / the app's ID or secret missing | — | "Pripojenie cloudu ešte nie je nastavené" when connecting; nothing is copied (conversations stay in the archive) |
+| `EXPORT_TOKEN_ENCRYPTION_KEY` / the app's ID or secret missing | — | "Pripojenie cloudu ešte nie je nastavené" when connecting; nothing is copied (conversations stay in the archive) |
+| Supabase refuses `cloud-export` before it runs: not deployed under that name (404), "Verify JWT" on (401), the code does not start (503 BOOT_ERROR) | — | Môj obchod names the cause and the fix (`@/lib/functionError` reads Supabase's answer instead of supabase-js's "non-2xx status code"); Vercel log `cloud-export: Supabase refused the call (HTTP …)`; document uploads show "doc-ingest HTTP …" the same way |
 | Cloud connection expired (password changed, app removed, refresh token too old) | — | "Cloud: chyba – Pripojenie k cloudu vypršalo – pripojte ho znova" on each waiting conversation, the same on the section; one e-mail after 24 hours; "Pripojiť znova" copies what waited |
-| Microsoft app secret expired or wrong | — | every OneDrive copy fails with "the app's ID or secret in Supabase is not valid"; e-mail after 24 hours; renew the secret in Azure and Supabase (SETUP.md part P) |
+| Microsoft app secret expired or wrong, or a wrong Dropbox app secret | — | connecting: back with "Dropbox/Microsoft odmietol tajný kľúč aplikácie" naming the secret (`err=cloud_app_<provider>`, error kind `app`); copies: every copy fails with "the app's ID or secret in Supabase is not valid"; e-mail after 24 hours; renew the secret in Azure / Dropbox and Supabase (SETUP.md part P) |
 | Cloud busy (429/503), full, or a file in the folder's place | — | "Cloud: chyba – Cloud je preťažený, skúsime to znova" / "V cloude nie je miesto" / a folder message; retried 5 min · 2ⁿ up to 6 h (never before Retry-After), 20 times; "Uložiť znova" any time |
 | Brevo key or sender missing | — | copies work; no failure e-mail (log `cloud-export: alert e-mail not sent`) |
 | Vercel or Supabase down | site, API and MCP unavailable; data safe | — |
@@ -950,7 +957,9 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   download and a ZIP after 20 refused; a revoked key or a locked session sees nothing; one unlock counted; the
   shopper's own PDF only with its token, only its messages, not when turned off; the 12-hour session check of update
   20 now expects 24 hours and a private file's download follows the access rule.
-- `npm run test:functions`: 99 Deno tests — 19 of `cloud-export` (tokens encrypted, bound to shop and use, refused when
+- `npm run test:functions`: 100 Deno tests — 1 checks that every function can be pasted into the Supabase editor
+  as it is (no invisible or special characters written straight into the code: they can change on the way and stop
+  the function from starting; write them as `\u…` escapes); 19 of `cloud-export` (tokens encrypted, bound to shop and use, refused when
   changed or with another key; PKCE against RFC 7636; QuickXorHash and the Dropbox content hash against reference
   implementations, also over 1 MB / 9 MB; names and paths safe for both clouds, share links and `..` refused, month
   rollover in another time zone; for OneDrive and Dropbox against in-memory stand-ins that refuse any delete or replace:

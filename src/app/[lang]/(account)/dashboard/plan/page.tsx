@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import { callDomains, type DomainOrder, euros, loadDomainPage, OPEN_STATUSES, OWNER_FIELDS } from "@/lib/domains";
+import { callDomains, type DomainOrder, euros, loadDomainPage, OPEN_STATUSES, OWNER_FIELDS, refusedFields } from "@/lib/domains";
 import { formatDate } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
@@ -12,7 +12,7 @@ import { DomainStatus, type DomainView } from "@/components/DomainStatus";
 import { DomainWizard, type WizardCheck } from "@/components/DomainWizard";
 import { PendingButton } from "@/components/PendingButton";
 import { PlanDetails, type PlanRow } from "../PlanDetails";
-import { checkDomain, connectDomain, disconnectDomain, payDomain, requestAuthCode, saveLegal } from "./actions";
+import { cancelDomainPayment, checkDomain, connectDomain, disconnectDomain, payDomain, requestAuthCode, saveLegal } from "./actions";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/plan">): Promise<Metadata> {
   const { lang } = await params;
@@ -99,9 +99,11 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
     disconnected: d.disconnected,
     auth: "",
     auth_requested: d.auth_requested,
+    order_canceled: d.order_canceled,
   };
   const errText: Record<string, string> = {
     legal: d.legal_error,
+    legal_ico: d.legal_ico,
     terms: d.pay_terms_needed,
     owner: d.pay_owner_needed,
     pay: d.pay_failed,
@@ -192,11 +194,73 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
         {first(sp.domain) === "canceled" && <p role="status" className="border border-line p-3">{d.canceled_notice}</p>}
         {ok && okText[ok] && <p role="status" className="border border-foreground p-3 font-medium">{okText[ok]}</p>}
         {err && errText[err] && <p role="alert" className="border border-line p-3">{errText[err]}</p>}
+        {err === "pay_reason" && (
+          <p role="alert" className="border border-line p-3">
+            {t(d.pay_failed_reason, { message: first(sp.reason) ?? "" })}
+          </p>
+        )}
 
         {!domains ? (
           <p className="text-sm text-muted">{d.not_configured}</p>
+        ) : open && open.status === "checkout" && !paidNow ? (
+          // Stripe's page was left, cancelled or failed: continue paying or give the name up (never a dead end).
+          <section className="flex flex-col gap-3 border border-line p-4" data-payment-pending>
+            <p className="font-semibold">{t(d.pay_pending, { domain: open.hostname })}</p>
+            <form action={payDomain} className="flex flex-col gap-3">
+              {hidden}
+              <input type="hidden" name="order_id" value={open.id} />
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="accept_terms" required className="mt-1" />
+                <span>
+                  {d.terms_before}
+                  <a href={`/${lang}/podmienky`} target="_blank" rel="noopener" className="underline underline-offset-4">
+                    {d.terms_link}
+                  </a>
+                  {d.terms_and}
+                  <a href={`/${lang}/podmienky-domeny`} target="_blank" rel="noopener" className="underline underline-offset-4">
+                    {d.domain_terms_link}
+                  </a>
+                </span>
+              </label>
+              <PendingButton pending={d.paying}>{d.pay_continue}</PendingButton>
+            </form>
+            <form action={cancelDomainPayment}>
+              {hidden}
+              <input type="hidden" name="order_id" value={open.id} />
+              <button type="submit" className="text-sm underline underline-offset-4" data-cancel-payment>
+                {d.pay_cancel}
+              </button>
+            </form>
+          </section>
         ) : open ? (
           <>
+            {refusedFields(open).length > 0 && (
+              // Websupport refused some of the owner's details: corrected here, the registration goes on by itself.
+              <section className="flex flex-col gap-3 border border-foreground p-4" data-owner-refused>
+                <p className="font-semibold">{d.owner_refused_title}</p>
+                <p className="text-sm">
+                  {t(d.owner_refused_fields, {
+                    fields: refusedFields(open).map((f) => (d as Record<string, unknown>)[`field_${f}`] as string).join(", "),
+                  })}
+                </p>
+                <form action={saveLegal} className="flex flex-col gap-3">
+                  {hidden}
+                  <input type="hidden" name="retry_order" value={open.id} />
+                  {fields.map((f) => (
+                    <label key={f.name} className="flex flex-col gap-1 text-sm">
+                      <span className={refusedFields(open).includes(f.name) ? "font-semibold" : undefined}>{f.label}</span>
+                      <input
+                        name={f.name}
+                        defaultValue={f.value ?? ""}
+                        maxLength={f.name === "country" ? 2 : 200}
+                        className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+                      />
+                    </label>
+                  ))}
+                  <PendingButton pending={d.checking}>{d.owner_refused_save}</PendingButton>
+                </form>
+              </section>
+            )}
             <DomainStatus
               initial={domainView(open)}
               labels={d as unknown as Parameters<typeof DomainStatus>[0]["labels"]}
