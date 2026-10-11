@@ -54,8 +54,9 @@ Center.
 | Shop owner | Anyone who signs up (e-mail + password) | Create up to 5 shops; edit details, logo, opening hours, facilities; send stock (folder or "Upload file"); approve the stock file's columns; choose what shoppers see; hide items; delete own shops |
 | AI assistant / tool | Any program | Read the same public data through the API, the MCP server and the pages |
 
-**Self-service:** there is no admin area on the website and no approval step by the operator. The operator
-uses the Supabase dashboard if something ever needs fixing by hand.
+**Self-service:** there is no approval step by the operator and no admin area for shops or stock. The only operator page
+is "Predplatné a domény" (`/[lang]/admin/domains`, own domains, update 25; only for accounts with `profiles.is_admin`).
+The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 ## 3. Scope
 
@@ -89,7 +90,8 @@ uses the Supabase dashboard if something ever needs fixing by hand.
 - Location services: the website never asks for the visitor's location and never guesses it from the IP address
   (decided 2026-10-06). Search is by text.
 - Colours: plain black and white design; only exceptions are the Cacadoo PPI logo and the blue "Select picture" link
-- An admin area on the website (removed 2026-10-06)
+- An admin area for shops and stock on the website (removed 2026-10-06; the one operator page since update 25 is
+  "Predplatné a domény" for own domains)
 - Software or tunnels on the shop PC (a Cloudflare tunnel + rclone design was built on 2026-10-04 and replaced by the
   browser app on 2026-10-06)
 - Google Merchant Center (AI readability replaces it)
@@ -572,7 +574,78 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 - **Never:** keys or private documents in logs, analytics, other sessions, public pages, JSON-LD, the sitemap, search,
   the API or MCP; files of one shop through another shop's session (every check is per shop in the database).
 
-## 7. Data model (after database update 24)
+### 6.13 Own domain (Pro, database update 25)
+
+A shop with Pro gets its page on its own domain (e.g. `davide.sk`): bought through PPI (13) or one it already has (14).
+Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the plan, then "Vlastná doména").
+
+- **13 · Buy a domain (search on websupport.sk, paste, one payment).**
+  1. Box "1. Nájdite si doménu": three numbered steps, "Doménu na Websupporte NEKUPUJTE – kúpu za vás urobíme my.",
+     the note "Prečo doménu vkladáte sem?", button "Vyhľadať doménu na Websupport.sk" (new tab, `rel="noopener"`,
+     address from the admin's settings, default `https://www.websupport.sk`), "Doménu registruje Websupport" + a place
+     for Websupport's logo.
+  2. The pasted name is cleaned as typed (`https://www.Davide.sk/` → `davide.sk`, shown as "Overíme: davide.sk");
+     no TLD → "Zadajte celý názov aj s koncovkou, napr. davide.sk"; accents → written without them; a TLD not in the
+     price table → "Túto koncovku zatiaľ nepredávame". Availability from Websupport (`POST /v1/order/sk/validate/domain`):
+     "✅ davide.sk je voľná · 12,90 € / rok (Pro predplatné vrátane domény)" / "❌ Táto doména je už obsadená – vyberte
+     inú na Websupport.sk". The price comes only from the admin's price table (never hard-coded, never Websupport's
+     partner price), is frozen on the order when shown, and **the price shown is the price charged**. "Cena domény je
+     rovnaká ako na Websupport.sk" only while the admin's switch is on.
+  3. The owner's details (the domain is registered **in the shop's name**: company, contact person, address, country,
+     IČO, DIČ/IČ DPH, e-mail, phone; `shop_legal` + the shop's profile): only the missing ones are asked, nothing is
+     invented.
+  4. Summary + one tick for the terms (`/podmienky`, `/podmienky-domeny`: Websupport is the registrar, the shop is the
+     domain's owner). On Pro with a saved card: **"Zaplatiť 12,90 €" with one click** (a Stripe invoice paid with that
+     card; 3-D Secure → Stripe's invoice page). On Pro without a saved card: Stripe Checkout (card, Apple Pay, Google
+     Pay). Without Pro: Pro + the domain in one Checkout ("Pro predplatné + doména dnes spolu: …"). Always a Stripe
+     invoice.
+  5. After the payment (the webhook, or at once for one click): Zaplatené → Registrujem doménu → Nastavujem stránku →
+     Zabezpečujem (HTTPS) → Hotovo on the page. Live: "Vaša stránka beží na davide.sk", a 5-second countdown, then
+     `https://davide.sk` opens in the same tab; buttons "Otvoriť stránku" and "Vložiť do Google profilu". One e-mail
+     "Vaša stránka beží na davide.sk" (link, Google button + 3 steps, the domain's expiry, link to the page, the
+     invoice) — sent once, also when the page was closed. The shop never sees DNS for a bought domain.
+  6. Taken between the check and our order: the domain part is refunded automatically (Pro stays), an e-mail and a
+     message on the page; any other registration failure after 12 tries: refund + the admin is flagged.
+- **14 · Connect a domain the shop already has** (Pro only): "Už mám vlastnú doménu" → the domain (bare + www) is added
+  to the Vercel project → the page shows exactly the records Vercel asks for (A `@`, CNAME `www`, TXT `_vercel` when
+  Vercel needs proof) with "Kopírovať" and "Neodstraňujte existujúce MX záznamy, inak prestane fungovať e-mail." →
+  "Skontrolovať" (at most every 30 seconds) and automatic checks (every 10 minutes for 2 hours, then every 3 hours, for
+  7 days) → Čaká na DNS → Overené → Zabezpečujem → Beží, then the same countdown and e-mail as above. A reminder e-mail
+  with the records after 24 hours; after 7 days without records it stops ("Neoverená do 7 dní", start again any time).
+  A domain that is in PPI's own Websupport account gets its records written automatically. "Odpojiť doménu" (with a
+  tick) removes it.
+- **Registrar (Websupport) in the shop's name.** Every order is placed only after Stripe confirmed the payment, with a
+  Websupport domain profile holding the shop's company details (the shop is the registrant and legal owner; never
+  Cacadoo), paid from PPI's prepaid Websupport credit. Low credit → the order waits ("Registrujem doménu"), the admin
+  gets "Dobite kredit na Websupport", and it continues by itself. DNS: only the website records Vercel asks for are
+  added or replaced; MX, SPF, DKIM, DMARC and every other record are never touched. A repeated Stripe event never
+  orders twice; every step is written to the order's log. `REGISTRAR_MODE=test` (the default): Websupport orders are
+  dry runs, nothing is paid from the credit, and the website goes on the admin's **test domain**.
+- **The shop's own domain serves its Pro page directly** (no redirect): `/` in the shop's language (SK → sk, HU → hu,
+  else en), `/hu`, `/en`, items at `/{lang}/items/{id}`, its own `sitemap.xml` and `robots.txt`; `www` → 308 to the bare
+  domain; anything else (login, other shops) → PPI's own address; an unknown host → "Táto doména zatiaľ nie je
+  pripojená". Canonical = the own domain; the Cacadoo shop and item pages point their canonical there, and the main
+  sitemap leaves them out. JSON-LD stays honest (the shop's own data); Pro product pages show no other shops (6.7).
+- **Renewal and cancellation.** 30 days before expiry the renewal is charged to the saved card (a Stripe invoice); only
+  after it is paid does Websupport renew from PPI's credit. E-mails 30 and 7 days before expiry; a failed renewal: a
+  reminder every week with the payment link, then at expiry the domain lapses and the page is back on its Cacadoo
+  address. Pro cancelled: the domain keeps working until the period ends; then the website goes back, the domain stays
+  the shop's and the **transfer (auth) code** is shown on the page and e-mailed ("Prevod domény k inému
+  registrátorovi") — PPI never holds a domain back. A connected domain is removed from Vercel when Pro ends.
+- **Admin page "Predplatné a domény"** (`/[lang]/admin/domains`, only for `profiles.is_admin`): every shop with plan,
+  status, next payment, domain (bought/connected, test), step, last error, expiry, Stripe (paid/refunded + invoice),
+  Websupport order ID, live e-mail sent yes/no; search and filters; per row "Zopakovať krok", "Skontrolovať DNS",
+  "Znova poslať e-mail", "Vyriešené", "Kód na prevod" (+ "Uložiť kód" by hand); Websupport credit with "Overiť kredit"
+  and the low-credit limit; settings (search address, test domain, switch "Cena domény = cenník Websupport");
+  the price table per TLD (domain price and renewal price in EUR, VAT included yes/no, order, active); counts of
+  domains (bought/connected/live) with the partner levels 30+/50+/100+.
+- **E-mails (Slovak, Brevo API):** to the shop — live, taken/failed (with the refund), DNS reminder after 24 hours,
+  7-day stop, renewal notices 30/7 days, failed renewal, Pro ended (auth code); to `ADMIN_EMAIL` — low credit, failed
+  registration, DNS stuck over 48 hours, an auth code Websupport did not give. Without `BREVO_API_KEY` /
+  `ALERT_EMAIL_FROM` nothing is sent, the log says so, and the flow goes on.
+- Payment never affects search ranking.
+
+## 7. Data model (after database update 25)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -602,6 +675,10 @@ Open if the current time in the shop's own time zone falls inside today's ranges
 | `cloud_connections` | `shop_id` (key: one per shop), `provider` (`onedrive`/`dropbox`), `account_name`, `account_email`, `folder_path`, `access_token_enc`, `refresh_token_enc`, `access_expires_at`, `scope`, `site_url`, `status` (`ok`/`expired`/`error`), `last_error`, `connected_by`, `connected_at`, `last_success_at`, `failing_since`, `alert_sent_at` | The shop's cloud (update 23); written only by cloud-export; owners read everything except the tokens |
 | `cloud_oauth_states` | `state_hash`, `shop_id`, `provider`, `user_id`, `verifier`, `folder_path`, `return_url`, `expires_at` | One OAuth round trip (SHA-256 of the state, 10 minutes, single use); no client access |
 | `cloud_export_items` | `conversation_id`, `shop_id`, `item_key` (`pdf` or the attachment id), `remote_path`, `remote_id`, `bytes`, `uploaded_at` | What was copied (unique per conversation and item); owners read |
+| `domain_settings` | one row: `search_url` (https), `same_price_as_registrar`, `low_credit_eur`, `test_domain`, `credit_eur`, `credit_checked_at`, `credit_alert_at` | Update 25; only the admin (owners read the search address and the switch through `domain_shop_settings()`) |
+| `domain_prices` | `tld` (key), `price_cents`, `renewal_cents`, `vat_included`, `currency` (EUR), `sort_order`, `active` | The admin's price table; everyone reads active rows |
+| `shop_legal` | `shop_id` (key), `company_name`, `contact_name`, `street`, `city`, `zip`, `country`, `ico`, `dic`, `ic_dph`, `email`, `phone` | The domain owner's details; members and the admin read, owners write through `owner_save_legal()` |
+| `domain_orders` | `shop_id`, `kind` (`bought`/`connected`), `hostname`, `site_host`, `www`, `status` (quoted → checkout → paid → registering → configuring → securing → live; waiting_dns → verified; taken, failed, dns_timeout, lapsed, ended, canceled), the frozen price, Stripe session/invoice/payment/refund, Websupport profile/order/service, `test_mode`, `waiting_credit`, `dns_records`, checks, tries, `live_at`, `live_email_at`, `expires_at`, renewal state and notices, `auth_code`, `last_error`, `needs_admin`, `log` | One open domain per shop and per host; members and the admin read; only the domains and Stripe functions write |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
 Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop), `raw-files` (private, last raw files kept
@@ -651,8 +728,9 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
   more than the database allows.
 - The Anthropic key is a server setting (Supabase function secret, Vercel variable), never in the browser; the AI
   search endpoint answers only the PPI website (no CORS).
-- Legacy: the `is_admin` flag and the remaining `admin_*` database functions from the old admin area still exist in
-  the database but nothing on the website uses them (`admin_shops()` and `admin_save_shop()` were dropped by migration
+- Legacy: the remaining `admin_*` database functions from the old admin area still exist in the database but nothing
+  on the website uses them; `is_admin` is used again since update 25, only for "Predplatné a domény" and the domain
+  functions (`admin_shops()` and `admin_save_shop()` were dropped by migration
   21 with the display columns they set).
 
 ## 9. Design
@@ -690,7 +768,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   the translations can be wrong; owners can correct translations. The first translation of each shop's names happens
   with its next new stock file.
 - **The four sample shops** from the build are still live (their names have no translations).
-- The site runs on `cacadooppivercel.vercel.app`; an own domain is still to come.
+- The site runs on `cacadooppivercel.vercel.app`; an own domain for PPI itself is still to come (shops can have theirs: 6.13).
 - **Paid plan in test mode.** Stripe runs with test keys (test cards only) until it is switched to live; the shop
   assistant, its texts, its documents and hiding other shops on product pages are the features that check
   `shop_has_plan()` so far. If Stripe cannot reach the webhook, the plan
@@ -716,6 +794,12 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   one piece; the archive's files are at most 10 MB. The failure e-mail needs `BREVO_API_KEY` and `ALERT_EMAIL_FROM`;
   without them copies still work and the page shows the problem. Disconnecting OneDrive deletes PPI's tokens but
   Microsoft keeps the app's permission until the owner removes it in their Microsoft account.
+- **Own domains (update 25):** built and tested only against Websupport, Vercel, Stripe and Brevo stand-ins. The
+  Websupport field names (domain profile, order, credit, auth code) follow its public REST documentation, which could
+  not be opened from the build machine: the test-mode dry run (SETUP.md part R) must show the order accepted with the
+  shop's profile before `REGISTRAR_MODE=live`. In test mode every bought domain goes on the one test domain, so only one
+  test website at a time. If Websupport does not return the auth code through the API, the admin is e-mailed and saves
+  it by hand. The main sitemap is rebuilt hourly, so a newly connected shop leaves it within the hour.
 - **The assistant can be wrong.** It reads photos and writes answers by machine; the cards, prices and availability
   come from the database, and it says when it is not sure, but a shopper should check the item page.
 - **Documents: machine reading.** Scanned pages are read by AI and can contain reading mistakes; picture descriptions
@@ -752,6 +836,10 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] Cloud folder: Microsoft and Dropbox apps registered (Dropbox app in production status for more than 50 users),
       their secrets, `EXPORT_TOKEN_ENCRYPTION_KEY`, `BREVO_API_KEY`, `ALERT_EMAIL_FROM` set in Supabase; job
       `ppi-cloud-export-tick` succeeds; a reminder for the Microsoft client secret's expiry date (SETUP.md part P)
+- [ ] Own domains: database update 25, the `domains` function and the updated Stripe functions; `invoice.paid` added to
+      the Stripe webhook; Websupport, Vercel and domain secrets set; price table and test domain filled in; a test-mode
+      purchase and a connected domain reached "Beží"; then `REGISTRAR_MODE=live` and enough Websupport credit (SETUP.md
+      part R)
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
 - [x] Stale shops show no stock on every page, in the API and in MCP
@@ -775,3 +863,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-10 | Conversation archive of the shop assistant: conversations, files (GPS removed) and a PDF per conversation; "Konverzácie asistenta" for owners; keep time 30/90/365 days |
 | 2026-10-10 | Cloud folder: each finished conversation (PDF + files) copied into the shop's OneDrive or Dropbox; status per conversation, "Uložiť znova", older conversations, e-mail after 24 hours of failures |
 | 2026-10-10 | Access keys for shoppers: unlock in the chat (also by typing the key), viewer with watermarked pages, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, downloads and ZIP (20 per session), a key per folder, counts; the shopper's own conversation PDF |
+| 2026-10-11 | Own domains for Pro shops: buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one the shop already has; the shop page served on its own domain; renewals, transfer code, admin page "Predplatné a domény" |
