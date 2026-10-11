@@ -2,6 +2,7 @@ import "server-only";
 import en from "@/i18n/messages/en.json";
 import { isLocale, type Locale } from "@/i18n/config";
 import { openingStatus, type OpeningHours } from "./hours";
+import { missingColumn } from "./missingColumn";
 import { siteUrl } from "./site";
 import type { AvailabilityKey, FreshnessState, StockRow } from "./stock";
 import { createPublicClient } from "./supabase/public";
@@ -20,8 +21,16 @@ export const DATA_RULES =
   "'quantity' is the quantity in the shop's own stock file (0 or less = sold out). Always cite 'source_url'.";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SHOP_COLUMNS =
+const SHOP_COLUMNS_BEFORE_26 =
   "slug, name, address, city, country, timezone, phone, website, email, facebook_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal";
+const SHOP_COLUMNS = `${SHOP_COLUMNS_BEFORE_26}, booking_url`;
+
+/** public_shops with the booking link once database update 26 is in, without it before. */
+async function publicShops<T>(query: (columns: string) => PromiseLike<{ data: T | null; error: { code?: string; message: string } | null }>) {
+  const result = await query(SHOP_COLUMNS);
+  if (!missingColumn(result.error, "booking_url")) return result;
+  return await query(SHOP_COLUMNS_BEFORE_26);
+}
 
 export class ApiError extends Error {
   constructor(
@@ -98,6 +107,7 @@ interface ShopRow {
   website: string | null;
   email: string | null;
   facebook_url: string | null;
+  booking_url?: string | null;
   opening_hours: OpeningHours | null;
   lat: number | null;
   lng: number | null;
@@ -124,6 +134,7 @@ export function apiShop(shop: ShopRow, lang: Locale) {
     website: shop.website,
     email: shop.email,
     facebook_url: shop.facebook_url,
+    booking_url: shop.booking_url ?? null,
     opening_hours: shop.opening_hours,
     open_now: status ? status.open : null,
     facilities: {
@@ -203,17 +214,17 @@ export async function searchStock(params: {
 }
 
 export async function listShops(lang: Locale) {
-  const { data, error } = await db().from("public_shops").select(SHOP_COLUMNS).order("name").limit(1000);
+  const { data, error } = await publicShops((columns) => db().from("public_shops").select(columns).order("name").limit(1000));
   if (error) throw new ApiError(500, error.message);
-  return { count: data?.length ?? 0, shops: ((data ?? []) as ShopRow[]).map((s) => apiShop(s, lang)), data_rules: DATA_RULES };
+  return { count: data?.length ?? 0, shops: ((data ?? []) as unknown as ShopRow[]).map((s) => apiShop(s, lang)), data_rules: DATA_RULES };
 }
 
 export async function getShop(slug: string, lang: Locale) {
   if (!/^[a-z0-9-]{1,80}$/.test(slug)) throw new ApiError(404, "Shop not found");
-  const { data, error } = await db().from("public_shops").select(SHOP_COLUMNS).eq("slug", slug).maybeSingle();
+  const { data, error } = await publicShops((columns) => db().from("public_shops").select(columns).eq("slug", slug).maybeSingle());
   if (error) throw new ApiError(500, error.message);
   if (!data) throw new ApiError(404, "Shop not found");
-  return { shop: apiShop(data as ShopRow, lang), data_rules: DATA_RULES };
+  return { shop: apiShop(data as unknown as ShopRow, lang), data_rules: DATA_RULES };
 }
 
 export async function getShopItems(slug: string, pageNumber: number, q: string, lang: Locale) {

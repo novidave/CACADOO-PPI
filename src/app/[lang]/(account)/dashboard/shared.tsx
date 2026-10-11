@@ -15,6 +15,7 @@ const ERRORS = [
   "website",
   "email",
   "facebook",
+  "booking",
   "logo",
   "translation",
   "plan_active",

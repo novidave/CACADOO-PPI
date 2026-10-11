@@ -90,6 +90,18 @@ export function ShopForm({
           />
         </Field>
       </div>
+      <Field label={dict.dashboard.booking} hint={dict.dashboard.booking_hint}>
+        <input
+          name="booking_url"
+          type="text"
+          inputMode="url"
+          autoComplete="url"
+          maxLength={500}
+          placeholder="https://"
+          defaultValue={shop?.booking_url ?? ""}
+          className={inputClass}
+        />
+      </Field>
 
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 text-sm">{o.location}</legend>

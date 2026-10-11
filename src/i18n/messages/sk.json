@@ -50,7 +50,8 @@
     "toilet": "WC pre zákazníkov",
     "douchette": "Bidetová sprška (douchette)",
     "card_terminal": "Platba kartou (platobný terminál)",
-    "facebook": "Facebook"
+    "facebook": "Facebook",
+    "booking": "Rezervovať termín"
   },
   "item": {
     "brand": "Značka",
@@ -193,7 +194,9 @@
     "assistant_hint": "Len obyčajný text – odkazy, e-mailové adresy a HTML sa odstránia. Prázdne pole = predvolený text v jazyku stránky. Správa sa zobrazí tak, ako ju napíšete.",
     "assistant_needs_plan": "Vlastný text tlačidla a uvítaciu správu si môžu nastaviť obchody s plateným plánom (pozri Plán).",
     "assistant_plan_only": "Súčasť plateného plánu",
-    "assistant_cleaned": "Uložené. Odkazy, e-mailové adresy a HTML sme odstránili."
+    "assistant_cleaned": "Uložené. Odkazy, e-mailové adresy a HTML sme odstránili.",
+    "booking": "Odkaz na rezervácie",
+    "booking_hint": "Vaša stránka v rezervačnej aplikácii (napr. Reservio, Bookio, Calendly). Na stránke obchodu bude tlačidlo „Rezervovať termín“."
   },
   "sync": {
     "title": "Priečinok s exportom",
@@ -310,7 +313,8 @@
     "error_facebook": "Zadajte odkaz na stránku na facebook.com alebo fb.com, napr. https://www.facebook.com/vasobchod.",
     "error_no_plan": "Toto je súčasť plateného plánu.",
     "private_columns_note": "Stĺpce, ktoré tu nevyberiete (napr. nákupná cena, dodávateľ, marža), sú súkromné: nikde sa neukazujú a neposielajú sa asistentovi.",
-    "delete_summary": "Natrvalo odstráni obchod z PPI"
+    "delete_summary": "Natrvalo odstráni obchod z PPI",
+    "error_booking": "Zadajte webovú adresu vašej rezervačnej stránky, napr. https://reservio.com/vasobchod."
   },
   "plan": {
     "title": "Plán",
@@ -571,7 +575,7 @@
   },
   "imports": {
     "title": "Posledné nahrané súbory",
-    "intro": "Posledných 10 skladových súborov. Ťuknite na kartu pre celý report. Ukazujú sa len schválené stĺpce.",
+    "intro": "Posledných 10 skladových súborov. Ťuknite na kartu – v rýchlom náhľade uvidíte celý report a šípkami prejdete na ďalší súbor. Ukazujú sa len schválené stĺpce.",
     "none": "Zatiaľ neprišiel žiadny súbor.",
     "previous": "Predchádzajúci",
     "next": "Ďalší",
@@ -583,7 +587,7 @@
     "skipped": "Preskočené riadky: {n}",
     "imported_label": "Importované produkty",
     "skipped_label": "Preskočené riadky",
-    "open_report": "Celý report",
+    "open_report": "Rýchly náhľad",
     "report_title": "Report importu",
     "close": "Zavrieť",
     "file": "Súbor",
@@ -594,7 +598,10 @@
     "error": "Chyba",
     "preview": "Prvých 5 riadkov presne ako v súbore – len schválené stĺpce",
     "no_preview": "Náhľad sa zobrazí po schválení stĺpcov.",
-    "summary": "Posledný súbor: {status} · {when}"
+    "summary": "Posledný súbor: {status} · {when}",
+    "position": "Súbor {n} z {total}",
+    "newer": "Novší",
+    "older": "Starší"
   },
   "privacy_assistant": {
     "title": "Súkromie v asistentovi obchodu",

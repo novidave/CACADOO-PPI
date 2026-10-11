@@ -826,6 +826,36 @@ bought, the website goes on your test domain. Do the steps in this order.
 
 ---
 
+## Part S — Booking link, product pages without other shops, quick view of stock files (11 October 2026)
+
+Every shop (free or Pro) can add the link to its page in a booking app (Reservio, Bookio, Calendly, its own booking
+page …): the shop page then shows a **Rezervovať termín** button that opens it in a new tab. Product pages of a shop
+with Pro **or** a domain of its own (being set up or live) show no "Dostupné aj v" block and no "V iných obchodoch sme
+tento výrobok nenašli." text. "Posledné nahrané súbory" gets a quick view: a tap on a file opens its full report, and
+the arrows (or a swipe) go through the last 10 files. No new secrets, no Edge Function changes. Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/26_booking_link.sql` → Run → "Success. No rows
+   returned" (a notice "… does not exist, skipping" is normal). Safe to run again. Check:
+   `select booking_url from public.public_shops limit 1;` → one row with an empty `booking_url`.
+2. **Merge the pull request** on GitHub → Vercel deploys. (Merged before step 1, the website still works: no booking
+   field effect and other shops hidden only for Pro until the SQL is in.)
+3. **Test:**
+   - Môj obchod → **Údaje obchodu** → **Odkaz na rezervácie**: type `reservio.com/vasobchod` → **Uložiť** → the field
+     shows `https://reservio.com/vasobchod`. Type `javascript:alert(1)` → "Zadajte webovú adresu vašej rezervačnej
+     stránky …" and nothing is saved.
+   - The shop page → **Rezervovať termín · reservio.com** under the contact links → opens in a new tab. Empty the field
+     and save → the button is gone.
+   - A product of the Cacadoo Paint shop (Pro) → no "Dostupné aj v" and no "V iných obchodoch sme tento výrobok
+     nenašli." (also on its own domain).
+   - **Priečinok s exportom** → **Posledné nahrané súbory** → tap a card (or **Rýchly náhľad**) → "Súbor 1 z 10" with
+     the full report → **Starší →** / **← Novší** (or the ← → keys; swipe on a phone) → **Zavrieť** or Esc.
+4. If a Pro shop's product page still shows "Dostupné aj v", check its plan in the SQL Editor:
+   `select s.slug, public.shop_has_plan(s.id) as pro, public.shop_stands_alone(s.id) as alone, sub.status,
+   sub.current_period_end from public.shops s left join public.subscriptions sub on sub.shop_id = s.id order by 1;`
+   — `alone` must be `true` for every Pro shop and every shop with a domain.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -858,3 +888,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 14. Cloud folder (paid plan): each finished conversation (PDF + files) copied into the shop's OneDrive or Dropbox; status per conversation, "Uložiť znova", older conversations, e-mail after 24 hours of failures | ✅ built — set up Part P |
 | 15. Access keys for shoppers (paid plan): "Mám prístupový kľúč" in the assistant, folder files in a watermarked viewer, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, ZIP, folder key and counts, the shopper's own conversation PDF | ✅ built — set up Part Q |
 | 16. Own domains (Pro): buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one; the shop page on its own domain; renewals, transfer code; admin page "Predplatné a domény" | ✅ built (test mode) — set up Part R |
+| 17. Booking link on the shop page (every shop); no other shops on product pages of shops with a domain of their own; quick view of the recently uploaded stock files | ✅ built — set up Part S |

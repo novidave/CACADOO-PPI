@@ -197,14 +197,21 @@ PPI's own → `shop_for_host` → rewrite to `/[lang]/site/[slug]` (+ items, `/a
 bare; canonical = the own domain; payment never affects search ranking. `PlanDetails`/`DomainStatus` labels from the
 `domains` i18n namespace; admin texts `admin_domains`.
 
-## Shop page and My shop (migration 21)
+## Shop page and My shop (migration 21, update 26)
 
-- Product pages of shops with `shop_has_plan(shop)` show no other shops: no "Also available at" block or "not found
-  elsewhere" text, no other pins, nothing in the JSON-LD (the item page skips `getOtherOffers`). Free shops and the
-  main search keep it. The shop assistant never names other shops.
+- Product pages of shops with the plan or a domain of their own (being set up or live) show no other shops: no "Also
+  available at" block or "not found elsewhere" text, no other pins, nothing in the JSON-LD (the item page skips
+  `getOtherOffers`). Only SQL decides: `shop_stands_alone(shop)` (`shopStandsAlone()`; before update 26 it falls back
+  to `shop_has_plan`). Free shops and the main search keep it. The shop assistant never names other shops.
 - Shop e-mail and Facebook page (`shops.email`, `facebook_url`; validated in `owner_save_shop()` and by checks:
   facebook.com / fb.com only) next to the website on the shop page (`@/components/ContactLinks`, mailto; Facebook in a
   new tab, `rel="noopener"`), in the JSON-LD (`email`, `sameAs`) and in the API's shop.
+- Booking link, every shop (`supabase/sql/26_booking_link.sql`, `shops.booking_url`: https of a real host, ≤ 500;
+  `clean_contact('booking', …)` in `owner_save_shop()`, error `booking`; kept when the form does not send it): the shop
+  page's "Rezervovať termín" button with the app's host (`BookingLink` in `@/components/ContactLinks`, new tab,
+  `rel="noopener"`), JSON-LD `potentialAction` `ReserveAction`, the API/MCP shop (`booking_url`), llms.txt, and one line
+  in the shop assistant's prompt (points to the button; never promises a time). PPI only links; nothing is booked here.
+  Reads of `public_shops` fall back without `booking_url` on 42703 (`@/lib/missingColumn`).
 - Assistant button label (≤ 40) and welcome text (≤ 300), paid plan: `owner_set_assistant_texts()`; the database keeps
   plain text only (`plain_text()`: no HTML, links or e-mail addresses); empty = NULL = the i18n default (`chat.title`,
   `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`).
@@ -218,7 +225,8 @@ bare; canonical = the own domain; payment never affects search ranking. `PlanDet
   first open; remembered per device in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). Files in private
   folders: `PrivateFiles` (data from `loadShopDocs()`, Open via `/api/owner/files/{kind}/{id}` → `doc-ingest`
   `open_file`, delete via `deleteDocOrPicture`); recently uploaded files: `@/components/RecentImports` (the last 10
-  `stock_imports` rows).
+  `stock_imports` rows as cards; a tap opens the quick view: a `<dialog>` slideshow of the full reports, "Súbor n z 10",
+  Novší/Starší, ← → keys, swipe, Esc).
 
 ## Stock upload
 

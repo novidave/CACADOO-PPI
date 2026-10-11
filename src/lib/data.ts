@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import { missingColumn } from "./missingColumn";
 import { createClient } from "./supabase/server";
 import type { OpeningHours } from "./hours";
 import type { NameI18n } from "./names";
@@ -31,6 +32,8 @@ export interface PublicShop {
   /** The owner's own assistant button label and welcome text (plain text; null = the default text). */
   assistant_label: string | null;
   assistant_welcome: string | null;
+  /** The shop's page in a booking app (https only; database update 26 — null before it). */
+  booking_url: string | null;
 }
 
 /** One row of public.shop_stock(). */
@@ -54,8 +57,16 @@ export interface ShopItemRow {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SHOP_COLUMNS =
+const SHOP_COLUMNS_BEFORE_26 =
   "id, slug, name, address, city, country, timezone, phone, website, logo_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal, email, facebook_url, assistant_label, assistant_welcome";
+const SHOP_COLUMNS = `${SHOP_COLUMNS_BEFORE_26}, booking_url`;
+
+/** Shops from public_shops, with the booking link once update 26 is in (without it before). */
+async function publicShops<T>(query: (columns: string) => PromiseLike<{ data: T | null; error: { code?: string; message: string } | null }>) {
+  const result = await query(SHOP_COLUMNS);
+  if (!missingColumn(result.error, "booking_url")) return result;
+  return await query(SHOP_COLUMNS_BEFORE_26);
+}
 
 async function client() {
   const supabase = await createClient();
@@ -65,20 +76,18 @@ async function client() {
 
 /** Cached per request, so metadata and page share one query. */
 export const getShop = cache(async (slug: string): Promise<PublicShop | null> => {
-  const { data, error } = await (await client())
-    .from("public_shops")
-    .select(SHOP_COLUMNS)
-    .eq("slug", slug)
-    .maybeSingle();
+  const db = await client();
+  const { data, error } = await publicShops((columns) => db.from("public_shops").select(columns).eq("slug", slug).maybeSingle());
   if (error) throw new Error(error.message);
-  return data as PublicShop | null;
+  return data ? ({ booking_url: null, ...(data as object) } as PublicShop) : null;
 });
 
 export async function getShopsByIds(ids: string[]): Promise<Map<string, PublicShop>> {
   if (ids.length === 0) return new Map();
-  const { data, error } = await (await client()).from("public_shops").select(SHOP_COLUMNS).in("id", ids);
+  const db = await client();
+  const { data, error } = await publicShops((columns) => db.from("public_shops").select(columns).in("id", ids));
   if (error) throw new Error(error.message);
-  return new Map(((data ?? []) as PublicShop[]).map((s) => [s.id, s]));
+  return new Map(((data ?? []) as unknown as PublicShop[]).map((s) => [s.id, { ...s, booking_url: s.booking_url ?? null }]));
 }
 
 export async function getShopItems(
@@ -102,6 +111,16 @@ export async function getShopItems(
 export async function shopHasPlan(shopId: string): Promise<boolean> {
   const { data, error } = await (await client()).rpc("shop_has_plan", { p_shop_id: shopId });
   return !error && data === true;
+}
+
+/**
+ * Whether the shop's product pages show no other shops: the paid plan, or a domain of its
+ * own being set up or live (shop_stands_alone(), database update 26; the plan alone before it).
+ */
+export async function shopStandsAlone(shopId: string): Promise<boolean> {
+  const { data, error } = await (await client()).rpc("shop_stands_alone", { p_shop_id: shopId });
+  if (error) return shopHasPlan(shopId);
+  return data === true;
 }
 
 /**

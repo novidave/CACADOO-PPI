@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 
 /** One stock file report (public.stock_imports), with its times already written in the shop's time zone. */
@@ -23,18 +23,28 @@ export interface ImportView {
 
 type Labels = Dictionary["imports"];
 
-const fill = (text: string, n: number | string) => text.replace("{n}", String(n));
+const fill = (text: string, values: Record<string, string | number>) =>
+  text.replace(/\{(\w+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all));
 
 /**
  * "Recently uploaded files": a card per received stock file (swipe on a phone, arrows on a
- * computer). A tap on a card shows its full report below the cards.
+ * computer). A tap on a card opens the quick view: that file's full report as a slideshow,
+ * newest first — arrows, the ← → keys or a swipe go to the newer or older file, Esc closes.
  */
 export function RecentImports({ imports, labels }: { imports: ImportView[]; labels: Labels }) {
   const track = useRef<HTMLDivElement>(null);
-  const report = useRef<HTMLDivElement>(null);
-  const [selected, setSelected] = useState<number | null>(null);
-  const chosen = imports.find((i) => i.id === selected) ?? null;
+  const dialog = useRef<HTMLDialogElement>(null);
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  const [index, setIndex] = useState<number | null>(null);
+  const chosen = index === null ? null : (imports[index] ?? null);
   const status = (s: ImportView["status"]) => labels[`status_${s}`];
+
+  useEffect(() => {
+    const el = dialog.current;
+    if (!el) return;
+    if (chosen && !el.open) el.showModal();
+    if (!chosen && el.open) el.close();
+  }, [chosen]);
 
   if (imports.length === 0) return <p className="text-sm text-muted">{labels.none}</p>;
 
@@ -45,9 +55,15 @@ export function RecentImports({ imports, labels }: { imports: ImportView[]; labe
     el.scrollBy({ left: direction * ((card?.offsetWidth ?? 280) + 12), behavior: "smooth" });
   }
 
-  function open(id: number) {
-    setSelected(id);
-    requestAnimationFrame(() => report.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  /** In the quick view: 1 = the older file, -1 = the newer one (the list is newest first). */
+  function step(direction: 1 | -1) {
+    setIndex((i) => (i === null ? i : Math.min(imports.length - 1, Math.max(0, i + direction))));
+  }
+
+  function close() {
+    // The card the quick view ended on stays in sight.
+    if (index !== null) track.current?.querySelector(`[data-import="${imports[index]?.id}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    setIndex(null);
   }
 
   return (
@@ -61,13 +77,13 @@ export function RecentImports({ imports, labels }: { imports: ImportView[]; labe
         </button>
       </div>
       <div ref={track} className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2" aria-label={labels.title}>
-        {imports.map((imp) => (
+        {imports.map((imp, i) => (
           <article
             key={imp.id}
             data-import={imp.id}
-            onClick={() => open(imp.id)}
+            onClick={() => setIndex(i)}
             className={`flex w-[85%] shrink-0 cursor-pointer snap-start flex-col gap-2 border p-3 text-sm sm:w-72 ${
-              selected === imp.id ? "border-foreground" : "border-line"
+              index === i ? "border-foreground" : "border-line"
             }`}
           >
             <span className="truncate font-semibold" title={imp.fileName}>
@@ -77,16 +93,16 @@ export function RecentImports({ imports, labels }: { imports: ImportView[]; labe
             <span>
               {labels.status}: <span className="font-semibold">{status(imp.status)}</span>
             </span>
-            <span>{fill(labels.imported, imp.imported)}</span>
-            <span>{fill(labels.skipped, imp.skipped)}</span>
+            <span>{fill(labels.imported, { n: imp.imported })}</span>
+            <span>{fill(labels.skipped, { n: imp.skipped })}</span>
             <Preview rows={imp.preview} columns={imp.columns} compact empty={labels.no_preview} />
             <button
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                open(imp.id);
+                setIndex(i);
               }}
-              aria-expanded={selected === imp.id}
+              aria-haspopup="dialog"
               className="self-start underline underline-offset-4"
             >
               {labels.open_report}
@@ -95,42 +111,95 @@ export function RecentImports({ imports, labels }: { imports: ImportView[]; labe
         ))}
       </div>
 
-      {chosen && (
-        <div ref={report} className="flex flex-col gap-3 border border-foreground p-3 text-sm" role="region" aria-label={labels.report_title}>
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="font-semibold">{labels.report_title}</h3>
-            <button type="button" onClick={() => setSelected(null)} className="underline underline-offset-4">
-              {labels.close}
-            </button>
+      <dialog
+        ref={dialog}
+        aria-labelledby="import-quick-view-title"
+        onClose={() => setIndex(null)}
+        onCancel={(event) => {
+          event.preventDefault();
+          close();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft") step(-1);
+          if (event.key === "ArrowRight") step(1);
+        }}
+        onTouchStart={(event) => {
+          const t = event.touches[0];
+          touch.current = t ? { x: t.clientX, y: t.clientY } : null;
+        }}
+        onTouchEnd={(event) => {
+          const start = touch.current;
+          const t = event.changedTouches[0];
+          touch.current = null;
+          if (!start || !t) return;
+          const dx = t.clientX - start.x;
+          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(t.clientY - start.y)) step(dx < 0 ? 1 : -1);
+        }}
+        className="m-0 h-full max-h-none w-full max-w-none bg-background p-0 text-foreground backdrop:bg-black/40 sm:m-auto sm:h-auto sm:max-h-[90vh] sm:max-w-2xl sm:border sm:border-foreground"
+        data-import-quick-view
+      >
+        {chosen && index !== null && (
+          <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col gap-1">
+                <h3 id="import-quick-view-title" className="font-semibold">
+                  {labels.report_title}
+                </h3>
+                <span className="text-muted" data-position>
+                  {fill(labels.position, { n: index + 1, total: imports.length })}
+                </span>
+              </div>
+              <button type="button" onClick={close} className="underline underline-offset-4">
+                {labels.close}
+              </button>
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+              <dt className="text-muted">{labels.file}</dt>
+              <dd className="break-all font-semibold">{chosen.fileName || "–"}</dd>
+              <dt className="text-muted">{labels.received}</dt>
+              <dd>{chosen.received}</dd>
+              <dt className="text-muted">{labels.file_time}</dt>
+              <dd>{chosen.fileTime ?? "–"}</dd>
+              <dt className="text-muted">{labels.status}</dt>
+              <dd className="font-semibold">{status(chosen.status)}</dd>
+              <dt className="text-muted">{labels.total_rows}</dt>
+              <dd className="tabular-nums">{chosen.total}</dd>
+              <dt className="text-muted">{labels.imported_label}</dt>
+              <dd className="tabular-nums">{chosen.imported}</dd>
+              <dt className="text-muted">{labels.zeroed}</dt>
+              <dd className="tabular-nums">{chosen.zeroed}</dd>
+              <dt className="text-muted">{labels.skipped_label}</dt>
+              <dd className="tabular-nums">{chosen.skipped}</dd>
+              {chosen.error && (
+                <>
+                  <dt className="text-muted">{labels.error}</dt>
+                  <dd>{chosen.error}</dd>
+                </>
+              )}
+            </dl>
+            <span className="text-muted">{labels.preview}</span>
+            <Preview rows={chosen.preview} columns={chosen.columns} empty={labels.no_preview} />
+            <div className="mt-auto flex justify-between gap-3 border-t border-line pt-3">
+              <button
+                type="button"
+                onClick={() => step(-1)}
+                disabled={index === 0}
+                className="rounded border border-line px-3 py-2 disabled:opacity-40"
+              >
+                ← {labels.newer}
+              </button>
+              <button
+                type="button"
+                onClick={() => step(1)}
+                disabled={index === imports.length - 1}
+                className="rounded border border-line px-3 py-2 disabled:opacity-40"
+              >
+                {labels.older} →
+              </button>
+            </div>
           </div>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-            <dt className="text-muted">{labels.file}</dt>
-            <dd className="break-all">{chosen.fileName || "–"}</dd>
-            <dt className="text-muted">{labels.received}</dt>
-            <dd>{chosen.received}</dd>
-            <dt className="text-muted">{labels.file_time}</dt>
-            <dd>{chosen.fileTime ?? "–"}</dd>
-            <dt className="text-muted">{labels.status}</dt>
-            <dd className="font-semibold">{status(chosen.status)}</dd>
-            <dt className="text-muted">{labels.total_rows}</dt>
-            <dd className="tabular-nums">{chosen.total}</dd>
-            <dt className="text-muted">{labels.imported_label}</dt>
-            <dd className="tabular-nums">{chosen.imported}</dd>
-            <dt className="text-muted">{labels.zeroed}</dt>
-            <dd className="tabular-nums">{chosen.zeroed}</dd>
-            <dt className="text-muted">{labels.skipped_label}</dt>
-            <dd className="tabular-nums">{chosen.skipped}</dd>
-            {chosen.error && (
-              <>
-                <dt className="text-muted">{labels.error}</dt>
-                <dd>{chosen.error}</dd>
-              </>
-            )}
-          </dl>
-          <span className="text-muted">{labels.preview}</span>
-          <Preview rows={chosen.preview} columns={chosen.columns} empty={labels.no_preview} />
-        </div>
-      )}
+        )}
+      </dialog>
     </div>
   );
 }

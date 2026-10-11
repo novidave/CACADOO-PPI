@@ -6,6 +6,7 @@ import { callerHash } from "./apiHttp";
 import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
 import { formatPrice } from "./format";
+import { missingColumn } from "./missingColumn";
 import { translatedName } from "./names";
 import { apiItem } from "./publicApi";
 import { availabilityText, freshnessText, type StockRow } from "./stock";
@@ -74,6 +75,8 @@ export interface ChatShop {
   lat: number | null;
   lng: number | null;
   phone: string | null;
+  /** The shop's booking app (database update 26; missing before it). */
+  booking_url?: string | null;
 }
 
 export interface ChatTurn {
@@ -190,13 +193,13 @@ function monthlyLimit(): number {
 /** An active shop by its page address, or null. */
 export async function chatShop(slug: string): Promise<ChatShop | null> {
   if (!/^[a-z0-9-]{1,80}$/.test(slug)) return null;
-  const { data, error } = await db()
-    .from("public_shops")
-    .select("id, slug, name, address, city, country, timezone, lat, lng, phone")
-    .eq("slug", slug)
-    .maybeSingle();
+  const columns = "id, slug, name, address, city, country, timezone, lat, lng, phone";
+  const read = (cols: string) => db().from("public_shops").select(cols).eq("slug", slug).maybeSingle();
+  let { data, error } = await read(`${columns}, booking_url`);
+  // Before database update 26 there is no booking link.
+  if (missingColumn(error, "booking_url")) ({ data, error } = await read(columns));
   if (error) throw new Error(error.message);
-  return data as ChatShop | null;
+  return data as unknown as ChatShop | null;
 }
 
 /** The database decides: paid plan, 20 messages an hour per caller, the shop's monthly cap. */
@@ -370,6 +373,12 @@ function systemPrompt(shop: ChatShop, lang: Locale, docs: ChatDocument[]): strin
       `and set call_shop to true${shop.phone ? ` (the page shows the shop's phone: ${shop.phone})` : ""}.`,
     "- Never ask for or use the shopper's location.",
   );
+  if (shop.booking_url) {
+    lines.push(
+      "- The shop takes appointments through a booking app: the page shows a \"Book an appointment\" button. When the " +
+        "shopper wants an appointment, tell them to use that button; never promise a date or time yourself.",
+    );
+  }
   return lines.join("\n");
 }
 

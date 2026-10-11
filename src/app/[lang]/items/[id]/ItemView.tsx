@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { locales, type Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { siteItemUrl, siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getItem, getOtherOffers, getShop, getShopsByIds, shopHasPlan, shopSiteHost } from "@/lib/data";
+import { getItem, getOtherOffers, getShop, getShopsByIds, shopSiteHost, shopStandsAlone } from "@/lib/data";
 import { addressLine, directionsUrl, formatDistance, formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
 import { pageAlternates, siteUrl } from "@/lib/site";
@@ -49,12 +49,13 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
   if (siteSlug && !host) notFound();
 
   // Other shops with the same EAN, nearest to this shop first (no visitor location is used).
-  // A shop with the paid plan has its own page: never other shops on it (not in the list,
-  // the map or the JSON-LD).
+  // A shop with the paid plan or a domain of its own has its own page: never other shops on
+  // it (no "Dostupné aj v" list or "not found elsewhere" text, not on the map or in the
+  // JSON-LD). The database decides (shop_stands_alone).
   const near = item.shop_lat !== null && item.shop_lng !== null ? { lat: item.shop_lat, lng: item.shop_lng } : null;
-  const pro = await shopHasPlan(item.shop_id);
+  const alone = await shopStandsAlone(item.shop_id);
 
-  const [shop, others] = await Promise.all([getShop(item.shop_slug), pro ? Promise.resolve([]) : getOtherOffers(item, near)]);
+  const [shop, others] = await Promise.all([getShop(item.shop_slug), alone ? Promise.resolve([]) : getOtherOffers(item, near)]);
   const otherShops = await getShopsByIds([...new Set(others.map((o) => o.shop_id))]);
   const hasLocation = item.shop_lat !== null && item.shop_lng !== null;
   const translated = translatedName(item.item_name, item.item_name_i18n, lang);
@@ -128,7 +129,7 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
         />
       )}
 
-      {item.ean && !pro && (
+      {item.ean && !alone && (
         <section aria-labelledby="others-heading" className="flex flex-col gap-2">
           <h2 id="others-heading" className="text-lg font-semibold">
             {dict.item.also_at}

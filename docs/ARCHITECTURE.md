@@ -172,8 +172,9 @@ section 7).
 | `api_hit(ip_hash, endpoint, limit)` | rate limit (60/min) and usage log |
 | `apply_stock_file(...)` | stock writing — service role only |
 | `shop_has_plan(shop)` | **the** paid-plan check: subscription `active` or `trialing` and `current_period_end` not passed; callable by anyone (yes/no only) |
+| `shop_stands_alone(shop)` | update 26: the shop's product pages show no other shops — `shop_has_plan()` or a domain order `paid` … `live` / `waiting_dns` / `verified`; callable by anyone (yes/no only) |
 | `link_stripe_customer(shop, customer)`, `apply_stripe_subscription(shop, customer, subscription, status, plan, period_end, cancel_at)` | paid-plan writing — service role only (the Stripe functions); a live subscription is never replaced by an ended one |
-| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop; `owner_delete_shop` refuses a shop whose paid plan still renews; `owner_save_shop` also takes the e-mail (lower case) and Facebook page (`clean_contact()`: https added; only facebook.com / fb.com, else `email` / `facebook` errors) |
+| `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop; `owner_delete_shop` refuses a shop whose paid plan still renews; `owner_save_shop` also takes the e-mail (lower case), Facebook page (`clean_contact()`: https added; only facebook.com / fb.com, else `email` / `facebook` errors) and, since update 26, the booking link (`clean_contact()`; an https address of a real host, ≤ 500, else `booking`; kept as it is when the form does not send it) |
 | `owner_set_assistant_texts(shop, label, welcome)` | the assistant's button label (≤ 40) and welcome text (≤ 300): owner + `shop_has_plan()` (`no_plan`), plain text via `plain_text()` (HTML tags, links, bare domains and e-mail addresses removed, spaces collapsed; empty = NULL = the default text) |
 | `record_stock_import(shop, file, file_time, status, total, imported, zeroed, skipped, error, rows)` | import report — service role only; keeps `mapped_columns()` of the approved mapping (`keep_columns()`), 5 rows, the last 10 per shop |
 | `is_private_column(name)`, `mapped_columns(mapping)` | the private-column name check (same words as `isPrivateColumn()` in stock-pull) and the approved columns in field order |
@@ -184,7 +185,7 @@ section 7).
 (`guard_profile_update`), and from saving an unknown time zone (`guard_shop_timezone`). `guard_shop_assistant_texts`
 cleans the assistant texts on every write and refuses a direct client write without the plan; `trim_sample_rows`
 keeps private columns out of `sample_rows` (3 rows without private-looking columns while a mapping is proposed, the
-approved columns only once confirmed); check constraints keep `email` and `facebook_url` valid. A profile row is
+approved columns only once confirmed); check constraints keep `email`, `facebook_url` and `booking_url` valid. A profile row is
 created for every new account (`handle_new_user`).
 
 **Row Level Security** is on for every table; visitors use only the public views/functions; owners reach only shops
@@ -231,10 +232,14 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `lib/supabase/client.ts` (browser: login finish, PPI app window), `lib/supabase/public.ts` (API, MCP, sitemap,
   llms.txt: anon, no cookies). Only the public URL and the anon/publishable key are in the website.
 - **Public pages** load data in server components (`lib/data.ts`) so crawlers see everything without JavaScript.
-  The item page asks `shop_has_plan()` for the item's shop: with the plan it loads no other offers at all (no "Also
-  available at" block or "not found elsewhere" text, no other pins, nothing in the JSON-LD). The shop page shows the
-  e-mail and Facebook page next to the website (`components/ContactLinks.tsx`, black inline icons; JSON-LD `email` and
-  `sameAs`) and gives `ShopChat` the owner's label and welcome text (`public_shops`).
+  The item page asks `shop_stands_alone()` for the item's shop (`shopStandsAlone()`; before update 26
+  `shop_has_plan()`): with the plan or a domain of its own it loads no other offers at all (no "Also available at"
+  block or "not found elsewhere" text, no other pins, nothing in the JSON-LD). The shop page shows the e-mail and
+  Facebook page next to the website (`components/ContactLinks.tsx`, black inline icons; JSON-LD `email` and `sameAs`),
+  the booking link as a "Rezervovať termín" button with the app's host (`BookingLink`, new tab, `rel="noopener"`;
+  JSON-LD `potentialAction` `ReserveAction`) and gives `ShopChat` the owner's label and welcome text (`public_shops`).
+  Reads of `public_shops` ask for `booking_url` and, when the database answers 42703 (before update 26), read again
+  without it (`lib/missingColumn.ts`; same in `publicApi.ts` and `shopChat.ts`).
 - **Formatting** (`lib/format.ts`): prices with the item's own currency in the visitor's language; times in the shop's
   time zone. Opening hours and "open now" in `lib/hours.ts`.
 - **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
@@ -252,7 +257,9 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   form parts; `AccountNav` keeps `?shop=` between the shop pages. On "Priečinok s exportom":
   `PrivateFiles.tsx` (files of private folders, from the same `loadShopDocs()` data as "Documents for the assistant";
   Open via `/api/owner/files`, Delete via `deleteDocOrPicture`) and `components/RecentImports.tsx` (the last 10
-  `stock_imports` rows: scroll-snap cards, arrow buttons from 640 px, a tap shows the full report). The column
+  `stock_imports` rows: scroll-snap cards, arrow buttons from 640 px; a tap or "Rýchly náhľad" opens the quick view, a
+  native `<dialog>` (full screen on a phone) with the full report, "Súbor n z 10", "← Novší" / "Starší →", ← → keys,
+  a swipe of 60 px, Esc / "Zavrieť"). The column
   drop-downs list `my_shops().file_columns`. Nothing on the dashboard changes how stock is shown. The Plan section reads the shop's `subscriptions` row and `shop_has_plan()`; "Upgrade" and "Manage
   subscription" run `openBilling`, which calls the `stripe-checkout` function with the owner's session and redirects to
   the Stripe page it returns.
@@ -741,7 +748,7 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | `stripe-webhook` unreachable or failing | — | the plan shows late; Stripe retries for up to three days (Stripe → Webhooks → event deliveries); past the paid period `shop_has_plan()` is false until the event arrives |
 | Shop assistant: Claude fails (no credit, wrong key, slow) | "The assistant is not answering right now" in the chat; the page works as usual | when logged in: the reason in the chat; Vercel log `shop-chat: …` |
 | Shop assistant over a limit | "Too many messages" (20 an hour) or "used up its messages for this month" | — |
-| Paid plan ends | the assistant box disappears; the route answers `no_plan`; product pages show "Also available at" again | Plan section shows the state; the assistant texts stay saved but cannot be changed |
+| Paid plan ends | the assistant box disappears; the route answers `no_plan`; product pages show "Also available at" again (once no domain of the shop's own is being set up or live) | Plan section shows the state; the assistant texts stay saved but cannot be changed |
 | Import report not saved (database error) | — | the stock is applied as usual; the report is missing from "Recently uploaded files" (logged as `import report not saved`) |
 | `doc-ingest` not deployed | — | "Uploading is not set up yet" in Documents for the assistant |
 | Claude unavailable while pictures wait | answers use text excerpts; pictures without a description are found by their title | "AI is looking at pictures: N left" or "Pictures are waiting: AI is not set up"; retried next time (3 attempts) |
@@ -905,6 +912,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 22 | `supabase/sql/22_assistant_archive.sql` | conversation archive: `assistant_conversations`, `assistant_messages`, `assistant_attachments`, `shop_assistant_settings` (RLS: members read), the `assistant_*` functions (service role), `owner_set_assistant_retention`, `owner_assistant_conversations`, `assistant_cron_ok`, Vault secret `ppi_assistant_cron`, private bucket `shop-assistant-uploads`, pg_cron jobs `ppi-assistant-tick` and `ppi-assistant-retention` (a notice if pg_cron is off or `ppi_project_url` missing). Safe to run twice |
 | 24 | `supabase/sql/24_access_key_access.sql` | access keys for shoppers: `shop_folders.access_mode` + counts, `access` on documents and pictures (private documents already downloadable keep it), `folder_keys.folder_key`, `folder_sessions.downloads`, `shop_assistant_settings.shopper_pdf`, tables `shop_document_pages` and `folder_zip_tickets` (RLS), `unlock_shop_folders` (24 hours, counts), `shop_folder_session` (+ downloads left), `shop_folder_files`, `shop_view_file`, `shop_download_file`, `shop_zip_ticket`, `shop_zip_take`, `shop_file_path` (private files by the access rule), `docs_register_pages`, `docs_pages_uploaded`, `shop_docs_upload_allowed` and `owner_docs_files` (+ pages), `owner_set_folder_access`, `owner_set_file_access`, `owner_set_folder_key`, `owner_set_shopper_pdf`, `shopper_pdf_allowed`, `assistant_shopper_pdf_data`. Needs 20, 22 and 23; safe to run twice |
 | 23 | `supabase/sql/23_cloud_export.sql` | cloud folder: `cloud_connections`, `cloud_oauth_states`, `cloud_export_items` (RLS: members read, never the tokens), export columns and `shopper_deleted_at` on `assistant_conversations`, the `cloud_*` functions (service role), `owner_cloud_retry`, `owner_cloud_backfill`, `assistant_shopper_forget`; `assistant_pdf_done` (queues the copy, returns whether it did), `assistant_empty_ended` and `owner_assistant_conversations` replaced; pg_cron job `ppi-cloud-export-tick`. Safe to run twice |
+| 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
 | 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
 
 ## 10. Testing and releasing
@@ -1008,6 +1016,11 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   host; Pro needed to connect; a payment recorded once (`duplicate`, `orphan`, `not_found`); renewals recorded once;
   claims hand an order out once; `shop_for_host` only for live domains of active Pro shops (www too), never for others;
   members and the admin read orders, nobody else writes them; the admin overview and stats only for the admin.
+- `npm run test:db` also checks (update 26): the booking link tidied (bare address and http:// → https://, IDN host),
+  kept when the form does not send it, removed when empty, refused when not an https address of a real host
+  (`javascript:`, `ftp://`, `localhost`, an IP, spaces, user@host, `">`, `data:`, over 500 characters) also by direct
+  write, never on another owner's shop; read back by the owner and in `public_shops`; `shop_stands_alone()` true with
+  the plan or a domain `waiting_dns` / `live`, false for a cancelled domain, a quote, or after the plan ends.
 - `npm run test:functions` also runs 17 tests of `domains`: names cleaned the same way on the website and in the
   function; Websupport's signature against a known example and the Date header; the registrant is the shop's company
   profile; test mode buys nothing and puts the website on the test domain (one at a time); DNS never touches MX, SPF,
@@ -1068,7 +1081,13 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   SPF, DMARC; the steps, the live box, the countdown and the site opened on the test domain; one e-mail; the domain's
   `/`, www, sitemap, robots, items, unknown host, canonical; an own domain from "Čaká na DNS" with Vercel's exact
   records to "Beží" and its e-mail; Pro + domain in one Checkout, taken after payment → 12,90 € refunded, Pro kept,
-  e-mail and message; 3-D Secure → Stripe's invoice page; the admin table);
+  e-mail and message; 3-D Secure → Stripe's invoice page; the admin table); update 26 (67 checks: Pro product pages in
+  sk/hu/en without other shops; a shop without the plan shows them, hides them while its own domain waits for DNS
+  (also "not found elsewhere") and shows them again when the order is cancelled; the booking link refused when wrong,
+  saved as https://, shown as "Rezervovať termín · reservio.com" in sk/hu/en with a new tab, `rel="noopener"` and
+  `ReserveAction`, in the API, OpenAPI and llms.txt, removed when emptied; the quick view on a computer and a phone:
+  "File 1 of 10", newer/older buttons and their ends, ← → keys, a swipe, Esc, "Close", full screen on a phone, no
+  sideways scroll);
   those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
