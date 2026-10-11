@@ -117,7 +117,9 @@
     "reload": "Újra",
     "sync": "Exportmappa",
     "password": "Jelszó",
-    "plan_page": "Előfizetés és domain"
+    "plan_page": "Előfizetés és domain",
+    "assistant_page": "AI asszisztens",
+    "assistant_page_intro": "Az üzlet oldalán lévő asszisztens: a szövegei, a beszélgetések a vásárlókkal, a felhőmappa és a dokumentumok, amelyekből válaszol."
   },
   "dashboard": {
     "shop": "Üzlet",

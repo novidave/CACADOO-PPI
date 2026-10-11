@@ -117,7 +117,9 @@
     "reload": "Skúsiť znova",
     "sync": "Priečinok s exportom",
     "password": "Heslo",
-    "plan_page": "Predplatné a doména"
+    "plan_page": "Predplatné a doména",
+    "assistant_page": "AI asistent",
+    "assistant_page_intro": "Asistent na stránke vášho obchodu: jeho texty, konverzácie so zákazníkmi, cloudový priečinok a dokumenty, z ktorých odpovedá."
   },
   "dashboard": {
     "shop": "Obchod",

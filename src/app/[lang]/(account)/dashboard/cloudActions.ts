@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { sectionUrl } from "@/lib/dashboardPages";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession, requestOrigin } from "@/lib/auth";
 import { functionFailure } from "@/lib/functionError";
@@ -39,7 +40,7 @@ async function start(formData: FormData) {
   const slug = String(formData.get("shop_slug") ?? "");
   const at = formData.get("at") === "conversations" ? "conversations" : "cloud";
   const back = (query: Record<string, string>): never =>
-    redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: slug, ...query, at })}#${at}`);
+    redirect(sectionUrl(lang, at, { shop: slug, ...query }));
   return { lang, session, shopId, slug, back };
 }
 
@@ -69,6 +70,7 @@ export async function connectCloud(formData: FormData) {
     shop_id: shopId,
     provider,
     folder: String(formData.get("folder") ?? "").trim().slice(0, 400),
+    // cloud-export accepts only …/{lang}/dashboard?… as the way back; Môj obchod forwards ?at=cloud to "AI asistent".
     return_url: `${await requestOrigin()}/${lang}/dashboard?${new URLSearchParams({ shop: slug, at: "cloud" })}`,
   });
   const url = typeof data?.url === "string" && CONSENT.test(data.url) ? data.url : null;

@@ -2,6 +2,7 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
+import { sectionUrl } from "@/lib/dashboardPages";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { endOfLocalDay } from "@/lib/format";
@@ -31,8 +32,7 @@ async function start(formData: FormData) {
   const slug = String(formData.get("shop_slug") ?? "");
   const atValue = String(formData.get("at") ?? "");
   const at = SECTIONS.includes(atValue) ? atValue : "docs";
-  const back = (query: Record<string, string>): never =>
-    redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: slug, ...query, at })}#${at}`);
+  const back = (query: Record<string, string>): never => redirect(sectionUrl(lang, at, { shop: slug, ...query }));
   return { session, shopId: id(formData, "shop_id"), back };
 }
 

@@ -191,7 +191,7 @@ export function Conversations({
   const filtered = Boolean(filter.q || filter.from || filter.to);
   const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
   const listUrl = (page: number) =>
-    `/${lang}/dashboard?${new URLSearchParams({
+    `/${lang}/dashboard/assistant?${new URLSearchParams({
       shop: shop.slug,
       at: "conversations",
       ...(filter.q ? { cq: filter.q } : {}),
@@ -238,7 +238,7 @@ export function Conversations({
       )}
 
       {data.all > 0 && (
-        <form method="get" action={`/${lang}/dashboard#conversations`} className="flex flex-wrap items-end gap-2" role="search">
+        <form method="get" action={`/${lang}/dashboard/assistant#conversations`} className="flex flex-wrap items-end gap-2" role="search">
           <input type="hidden" name="shop" value={shop.slug} />
           <input type="hidden" name="at" value="conversations" />
           <label className="flex min-w-48 flex-1 flex-col gap-1">
@@ -257,7 +257,7 @@ export function Conversations({
             {c.filter}
           </button>
           {filtered && (
-            <Link href={`/${lang}/dashboard?shop=${shop.slug}&at=conversations#conversations`} className="py-2 text-sm underline underline-offset-4">
+            <Link href={`/${lang}/dashboard/assistant?shop=${shop.slug}&at=conversations#conversations`} className="py-2 text-sm underline underline-offset-4">
               {c.reset}
             </Link>
           )}

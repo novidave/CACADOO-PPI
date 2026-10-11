@@ -5,6 +5,7 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
 import { getSession, requestOrigin } from "@/lib/auth";
 import { sanitizeHours } from "@/lib/hours";
+import { sectionUrl } from "@/lib/dashboardPages";
 import { MAPPING_FIELDS } from "@/lib/myShops";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,8 +26,7 @@ async function start(formData: FormData) {
   const slug = String(formData.get("shop_slug") ?? "");
   // Back to the section the form was in, with the message shown there.
   const at = String(formData.get("at") ?? "").replace(/[^a-z]/g, "");
-  const back = (query: Record<string, string>) =>
-    redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: slug, ...query, ...(at ? { at } : {}) })}${at ? `#${at}` : ""}`);
+  const back = (query: Record<string, string>) => redirect(sectionUrl(lang, at, { shop: slug, ...query }));
   if (!UUID.test(shopId)) back({ err: "invalid shop" });
   return { session, shopId, back };
 }

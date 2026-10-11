@@ -71,7 +71,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     .eq("id", id)
     .maybeSingle();
   if (error) return <DbError message={error.message} dict={dict} />;
-  const back = (slug?: string) => `/${lang}/dashboard?${new URLSearchParams({ ...(slug ? { shop: slug } : {}), at: "conversations" })}#conversations`;
+  const back = (slug?: string) => `/${lang}/dashboard/assistant?${new URLSearchParams({ ...(slug ? { shop: slug } : {}), at: "conversations" })}#conversations`;
   if (!conv) {
     return (
       <div className="flex max-w-3xl flex-col gap-4">
