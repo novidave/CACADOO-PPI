@@ -2,19 +2,23 @@
 // PPI · stripe-webhook Edge Function
 //
 // Stripe calls this when a payment page is completed and whenever a subscription changes
-// (renewal, failed payment, cancellation in the customer portal). It checks Stripe's
+// (renewal, failed payment, cancellation in the customer portal), and when an invoice is paid
+// (a domain bought with one click, a domain renewal: database update 25). It checks Stripe's
 // signature, fetches the subscription fresh from Stripe (so the order in which events
 // arrive does not matter) and writes it with apply_stripe_subscription(): the only place
 // where a shop's paid state is written. Every paid feature then asks shop_has_plan().
 // The company ID typed on the payment page goes onto the customer's later invoices.
+// A domain payment (metadata ppi_domain_order) is recorded once with domain_payment_received()
+// and the domains function is woken up (it registers the domain); a repeated event changes
+// nothing. A paid domain renewal (metadata ppi_domain_renewal) → domain_renewal_paid().
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor →
 // name "stripe-webhook" → paste this file → Deploy, then switch OFF "Verify JWT" (Stripe
 // signs its calls instead of logging in). Secrets: STRIPE_SECRET_KEY,
 // STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO. In Stripe: a webhook endpoint
 // https://<project>.supabase.co/functions/v1/stripe-webhook with the events
-// checkout.session.completed and customer.subscription.created / updated / deleted /
-// paused / resumed.
+// checkout.session.completed, invoice.paid and customer.subscription.created / updated /
+// deleted / paused / resumed.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
@@ -104,7 +108,11 @@ type Ref = string | { id: string } | null | undefined;
 const idOf = (ref: Ref) => (typeof ref === "string" ? ref : ref?.id ?? null);
 
 interface CheckoutSession {
+  id?: string;
   mode?: string;
+  payment_status?: string;
+  invoice?: Ref;
+  payment_intent?: Ref;
   subscription?: Ref;
   customer?: Ref;
   client_reference_id?: string | null;
@@ -135,6 +143,8 @@ export interface Deps {
   db: SupabaseClient;
   stripe: Stripe;
   priceId: string;
+  /** Wakes the domains function for a paid domain order (its 5-minute tick would pick it up too). */
+  notifyDomains?: (orderId: string) => Promise<void>;
 }
 
 const iso = (seconds: number | null | undefined) =>
@@ -184,17 +194,70 @@ async function saveCompanyId(session: CheckoutSession, deps: Deps) {
   });
 }
 
+const domainOrder = (metadata: Record<string, string> | null | undefined, key = "ppi_domain_order") => {
+  const id = metadata?.[key];
+  return id && UUID.test(id) ? id : null;
+};
+
+/** A domain was paid: recorded once (a repeated event answers "duplicate"), then the domains function works. */
+async function recordDomainPayment(
+  deps: Deps,
+  orderId: string,
+  ref: { session: string | null; invoice: string | null; intent: string | null; url: string | null },
+): Promise<string> {
+  const { data, error } = await deps.db.rpc("domain_payment_received", {
+    p_id: orderId,
+    p_session: ref.session,
+    p_invoice: ref.invoice,
+    p_payment_intent: ref.intent,
+    p_invoice_url: ref.url,
+  });
+  if (error) throw new Error(`domain_payment_received: ${error.message}`);
+  if ((data === "recorded" || data === "orphan") && deps.notifyDomains) await deps.notifyDomains(orderId).catch(() => undefined);
+  return `domain ${orderId}: ${data}`;
+}
+
 export async function handleEvent(event: StripeEvent, deps: Deps): Promise<string> {
   const object = event.data?.object ?? {};
   switch (event.type) {
     case "checkout.session.completed": {
       const session = object as CheckoutSession;
       const subscription = idOf(session.subscription);
-      if (session.mode !== "subscription" || !subscription) return "ignored: not a subscription";
+      const order = domainOrder(session.metadata);
+      const paid = session.payment_status === "paid" || session.payment_status === "no_payment_required";
+      if (session.mode !== "subscription" || !subscription) {
+        if (order && paid) {
+          return await recordDomainPayment(deps, order, {
+            session: session.id ?? null, invoice: idOf(session.invoice), intent: idOf(session.payment_intent), url: null,
+          });
+        }
+        return "ignored: not a subscription";
+      }
       const outcome = await syncSubscription(subscription, session.client_reference_id || session.metadata?.shop_id || null, deps);
       // The plan is saved first; if this fails, Stripe sends the event again (saving twice is harmless).
       await saveCompanyId(session, deps);
+      // Pro and a domain in one payment: the domain after the plan.
+      if (order && paid) {
+        const domain = await recordDomainPayment(deps, order, {
+          session: session.id ?? null, invoice: idOf(session.invoice), intent: idOf(session.payment_intent), url: null,
+        });
+        return `${outcome}; ${domain}`;
+      }
       return outcome;
+    }
+    case "invoice.paid": {
+      const invoice = object as { id?: string; metadata?: Record<string, string> | null; hosted_invoice_url?: string | null };
+      const order = domainOrder(invoice.metadata);
+      if (order && invoice.id) {
+        return await recordDomainPayment(deps, order, { session: null, invoice: invoice.id, intent: null, url: invoice.hosted_invoice_url ?? null });
+      }
+      const renewal = domainOrder(invoice.metadata, "ppi_domain_renewal");
+      if (renewal && invoice.id) {
+        const { data, error } = await deps.db.rpc("domain_renewal_paid", { p_id: renewal, p_invoice: invoice.id });
+        if (error) throw new Error(`domain_renewal_paid: ${error.message}`);
+        return `domain renewal ${renewal}: ${data ? "paid" : "already recorded"}`;
+      }
+      return "ignored: invoice.paid";
     }
     case "customer.subscription.created":
     case "customer.subscription.updated":
@@ -251,7 +314,15 @@ export async function handler(req: Request): Promise<Response> {
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   // STRIPE_API_BASE: only for local tests against a stand-in for Stripe.
   const stripe = stripeApi(secretKey, fetch, Deno.env.get("STRIPE_API_BASE") || undefined);
-  return await receiveEvent(req, webhookSecret, { db, stripe, priceId });
+  // The domains function registers a paid domain; it answers at once and works in the background.
+  const notifyDomains = async (orderId: string) => {
+    await fetch(`${url.replace(/\/+$/, "")}/functions/v1/domains`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "run", order_id: orderId }),
+    }).then((res) => res.body?.cancel());
+  };
+  return await receiveEvent(req, webhookSecret, { db, stripe, priceId, notifyDomains });
 }
 
 if (!Deno.env.get("PPI_FUNCTION_TEST")) Deno.serve(handler);

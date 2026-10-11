@@ -181,8 +181,9 @@ npx supabase migration repair --status applied 20261001000001 20261001000002 202
 
 ## Part E — Self-service sign-up and login (shop owners only)
 
-Shop owners sign up, create their shop and connect their stock **by themselves**. There is no admin area on the
-website; if you ever need to look at or fix something, use the Supabase dashboard (Table Editor / SQL Editor).
+Shop owners sign up, create their shop and connect their stock **by themselves**. There is no admin area for shops on
+the website (the only operator page is "Predplatné a domény" for own domains, Part R); if you ever need to look at or
+fix something, use the Supabase dashboard (Table Editor / SQL Editor).
 
 ### E1. Allow sign-ups with a password (once)
 
@@ -736,6 +737,95 @@ unlocks, views and downloads. Parts M and O must be done first. Do the steps in 
 
 ---
 
+## Part R — Own domains for Pro shops: buy one through PPI or connect one (11 October 2026)
+
+A Pro shop gets its page on its own domain: it finds a free name on websupport.sk, pastes it into **Môj obchod →
+Predplatné a doména** and pays once (Stripe); PPI registers the domain **in the shop's name** at Websupport (paid from
+your prepaid Websupport credit), adds it to the Vercel project and sets its DNS. Or it connects a domain it already
+has. You manage everything on the new admin page **Predplatné a domény**. Parts K (Stripe), O (Vault `ppi_project_url`,
+pg_cron, pg_net) and P (`BREVO_API_KEY`, `ALERT_EMAIL_FROM`) must be done first. Start in **test mode**: nothing is
+bought, the website goes on your test domain. Do the steps in this order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/25_custom_domains.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again. Check:
+   `select jobname from cron.job where jobname like 'ppi-domains%';` → `ppi-domains-tick` and `ppi-domains-daily`.
+2. **Your account as the admin** (only this account sees "Predplatné a domény"): SQL Editor →
+   `update public.profiles set is_admin = true where user_id = (select id from auth.users where email = 'YOUR E-MAIL');`
+   → "UPDATE 1".
+3. **Edge Functions:**
+   - **Deploy a new function** → **Via Editor** → name **`domains`** → paste the whole
+     `supabase/functions/domains/index.ts` → **Deploy** → open it → switch **off** "Verify JWT" → Save.
+   - **`stripe-webhook`** → Code → replace everything with `supabase/functions/stripe-webhook/index.ts` → Deploy
+     ("Verify JWT" stays off).
+   - **`stripe-checkout`** → Code → replace everything with `supabase/functions/stripe-checkout/index.ts` → Deploy.
+4. **Stripe (test mode):**
+   - Product catalog → **Add product** → name "Doména – registrácia na 1 rok" → **One-off** price (any amount, e.g.
+     1 €: the real amount always comes from your price table) → tax code: ask your accountant (e.g. "General –
+     Electronically Supplied Services") → Save → copy the price ID (`price_…`).
+   - Developers → **Webhooks** → your `stripe-webhook` endpoint → **Add events** → **`invoice.paid`** → Save
+     (one-click payments and renewals arrive with it).
+5. **Websupport** (admin.websupport.sk, the account that will own the orders):
+   - Account → **API / REST API** (security settings) → create an API key → copy its **identifier** and **secret**
+     (the secret is shown once).
+   - Your **user ID** (the number of the account; if you cannot find it, use `self`, Websupport's API name for your
+     own account — step 10 shows whether it works).
+   - **Test domain:** a domain in this account with Websupport's DNS and no website you need (its A `@` and CNAME `www`
+     records will point to Vercel; MX and every other record stay as they are).
+   - **Credit** ("Kredit", prepaid): needed only for live mode (step 12).
+6. **Vercel:**
+   - Account Settings → **Tokens** → Create (scope: the account or team of the PPI project; note the expiry date) → copy.
+   - The PPI project → Settings → General → **Project ID** → copy.
+   - Only if the project belongs to a team: Team Settings → General → **Team ID** → copy.
+   - Check that `NEXT_PUBLIC_SITE_URL` is PPI's own address (it, `www.` of it and `*.vercel.app` are never taken for a
+     shop's domain). Optional `PPI_MAIN_HOSTS`: more of PPI's own host names, comma-separated.
+7. **Supabase → Edge Functions → Secrets** → add:
+
+   | Name | Value |
+   | --- | --- |
+   | `WEBSUPPORT_API_KEY` | the API key's identifier (step 5) |
+   | `WEBSUPPORT_API_SECRET` | the API key's secret (step 5) |
+   | `WEBSUPPORT_USER_ID` | your Websupport user ID (step 5) |
+   | `REGISTRAR_MODE` | `test` |
+   | `VERCEL_API_TOKEN` | the token (step 6) |
+   | `VERCEL_PROJECT_ID` | the project ID (step 6) |
+   | `VERCEL_TEAM_ID` | only for a team project (step 6) |
+   | `STRIPE_PRICE_DOMAIN` | the domain price ID (step 4) |
+   | `ADMIN_EMAIL` | your e-mail for alerts (low credit, failed registration, DNS stuck) |
+
+   Already there and used too: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO`, `BREVO_API_KEY`,
+   `ALERT_EMAIL_FROM`. Never put any of these in Vercel, the repository or a chat.
+8. **Merge the pull request** on GitHub → Vercel deploys.
+9. **Admin settings:** log in → menu **Predplatné a domény** → **Overiť kredit** (shows your Websupport credit:
+   the API key works) → **Nastavenia**: the search page (default `https://www.websupport.sk`), the low-credit limit,
+   **Testovacia doména** = your test domain, the switch "Cena domény = cenník Websupport" (only if your prices really
+   are Websupport's) → **Uložiť nastavenia** → **Cenník domén pre obchody**: one row per TLD you sell (e.g. `sk`,
+   `com`, `eu`): domain price and renewal price per year in EUR, "Vrátane DPH" ticked if the price includes VAT →
+   **Pridať koncovku**. TLDs not in the table are not sold.
+10. **Test 13 (buy):** a Pro shop that paid Pro with the test card `4242 4242 4242 4242` (Part K) → Môj obchod →
+    **Predplatné a doména** → **Vyhľadať doménu na Websupport.sk** (new tab) → paste e.g. `https://www.Davide.sk/` →
+    **Overiť** → "✅ davide.sk je voľná · … / rok (Pro predplatné vrátane domény)" → fill in what step 3 asks (the
+    shop's company: it becomes the domain's owner) → tick the terms → **Zaplatiť …** (one click with the saved card) →
+    the steps Zaplatené → Registrujem doménu → Nastavujem stránku → Zabezpečujem (HTTPS) → Hotovo (the 5-minute job
+    moves it on; Vercel needs a few minutes for HTTPS) → "Vaša stránka beží na <test domain>" → after 5 s the shop page
+    opens there; the e-mail "Vaša stránka beží na …" arrives once. **Confirm the registrant:** SQL Editor →
+    `select status, registrar_order_id, last_error, log from public.domain_orders order by created_at desc limit 1;`
+    → the log has "ordered · dry run …": Websupport accepted the order with the shop's own domain profile. If it
+    shows "Websupport: … failed (…)" instead, **stop and send me the text** (do not go live).
+11. **Test 14 (connect):** a second Pro shop → **Už mám vlastnú doménu** → a domain you control at any registrar →
+    **Pripojiť doménu** → the page lists the records (A `@`, CNAME `www`, maybe TXT `_vercel`) with **Kopírovať** → add
+    them at that registrar (keep the MX records) → **Skontrolovať** → Čaká na DNS → Overené → Zabezpečujem → **Beží** →
+    the same e-mail. **Odpojiť doménu** removes it again.
+    In test mode only one shop at a time can be on the test domain; to free it after a test:
+    `update public.domain_orders set status = 'ended', ended_at = now() where test_mode and status = 'live';`
+12. **Live (when the tests passed):** Websupport credit above your low-credit limit → Stripe in live mode: the domain
+    product and price again and `invoice.paid` on the live webhook (with Part K5) → secrets `STRIPE_PRICE_DOMAIN` (live
+    ID) and **`REGISTRAR_MODE` = `live`**. From then on every paid order buys the domain from your credit.
+13. If something does not work: **Predplatné a domény** shows each shop's step, last error and actions ("Zopakovať
+    krok", "Skontrolovať DNS", "Znova poslať e-mail", "Vyriešené", "Kód na prevod"); Supabase → Edge Functions →
+    `domains` → Logs. Keys, signatures and tokens are never written to the logs.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -767,3 +857,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 13. Assistant conversations (paid plan): archive with files (GPS removed), a PDF per conversation, "Konverzácie asistenta", keep time 30/90/365 days | ✅ built — set up Part O |
 | 14. Cloud folder (paid plan): each finished conversation (PDF + files) copied into the shop's OneDrive or Dropbox; status per conversation, "Uložiť znova", older conversations, e-mail after 24 hours of failures | ✅ built — set up Part P |
 | 15. Access keys for shoppers (paid plan): "Mám prístupový kľúč" in the assistant, folder files in a watermarked viewer, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, ZIP, folder key and counts, the shopper's own conversation PDF | ✅ built — set up Part Q |
+| 16. Own domains (Pro): buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one; the shop page on its own domain; renewals, transfer code; admin page "Predplatné a domény" | ✅ built (test mode) — set up Part R |

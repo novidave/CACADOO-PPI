@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import { addressLine, formatDate, formatDateTime, formatPrice, formatTime, localDay } from "@/lib/format";
+import { addressLine, formatDateTime, formatPrice, formatTime, localDay } from "@/lib/format";
 import { MAPPING_FIELDS, REQUIRED_FIELDS, type MyShop } from "@/lib/myShops";
 import { translatedName, type NameI18n } from "@/lib/names";
 import { availabilityText, type AvailabilityKey } from "@/lib/stock";
@@ -18,7 +18,6 @@ import { ShopForm } from "@/components/ShopForm";
 import {
   approveColumns,
   deleteShop,
-  openBilling,
   saveAssistantTexts,
   saveShop,
   saveTranslation,
@@ -74,9 +73,6 @@ interface PlanRow {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
 }
-
-/** Subscriptions that still bill or can come back: managed in the Stripe customer portal. */
-const LIVE_PLAN = ["trialing", "active", "past_due", "unpaid", "paused"];
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -568,19 +564,12 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           </DashboardSection>
         )}
 
-        <DashboardSection {...section("plan")} title={dict.plan.title} summary={summaries.plan}>
+        <DashboardSection {...section("plan")} title={dict.domains.title} summary={summaries.plan}>
           {notice("plan")}
-          {first(sp.plan) === "done" && (
-            <p role="status" className="border border-foreground p-3 font-medium">
-              {plan?.active ? dict.plan.thanks : dict.plan.done}
-            </p>
-          )}
-          {first(sp.plan) === "canceled" && <p role="status" className="border border-line p-3">{dict.plan.canceled}</p>}
-          {plan ? (
-            <PlanDetails plan={plan} shop={shop} lang={lang} dict={dict} hidden={hidden} />
-          ) : (
-            <p className="text-sm text-muted">{dict.plan.unavailable}</p>
-          )}
+          <p className="text-sm">{plan ? (plan.active ? dict.plan.pro : dict.plan.free) : dict.plan.unavailable}</p>
+          <Link href={`/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`} className="self-start rounded border border-foreground px-4 py-2 font-medium" data-plan-page>
+            {dict.domains.open_page}
+          </Link>
         </DashboardSection>
 
         <DashboardSection {...section("docs")} title={dict.docs.title} summary={summaries.docs}>
@@ -672,65 +661,6 @@ function ItemNames({
         </form>
       </details>
     </div>
-  );
-}
-
-/** Current plan, the subscription's state and date, "Upgrade" and "Manage subscription". */
-function PlanDetails({
-  plan,
-  shop,
-  lang,
-  dict,
-  hidden,
-}: {
-  plan: { row: PlanRow | null; active: boolean };
-  shop: MyShop;
-  lang: Locale;
-  dict: Dictionary;
-  hidden: (extra?: Record<string, string>) => React.ReactNode;
-}) {
-  const p = dict.plan;
-  const row = plan.row;
-  const subscribed = Boolean(row?.stripe_subscription_id) && row?.status !== "none";
-  const live = subscribed && LIVE_PLAN.includes(row?.status ?? "");
-  const until = row?.cancel_at ?? row?.current_period_end ?? null;
-  const statusText = row ? ((p as Record<string, string>)[`status_${row.status}`] ?? row.status) : "";
-  return (
-    <>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
-        <dt className="text-muted">{p.current}</dt>
-        <dd className="font-semibold">{plan.active ? p.pro : p.free}</dd>
-        {subscribed && (
-          <>
-            <dt className="text-muted">{p.status}</dt>
-            <dd>{statusText}</dd>
-          </>
-        )}
-        {plan.active && until && (
-          <>
-            <dt className="text-muted">{row?.cancel_at ? p.ends : p.renews}</dt>
-            <dd>{formatDate(until, lang, shop.timezone)}</dd>
-          </>
-        )}
-      </dl>
-      {(row?.status === "past_due" || row?.status === "unpaid") && <p className="text-sm font-medium">{p.payment_problem}</p>}
-      <p className="text-sm text-muted">{p.intro}</p>
-      <div className="flex flex-wrap gap-2">
-        {!live && (
-          <form action={openBilling}>
-            {hidden({ at: "plan", intent: "checkout" })}
-            <PendingButton pending={p.opening}>{p.upgrade}</PendingButton>
-          </form>
-        )}
-        {subscribed && (
-          <form action={openBilling}>
-            {hidden({ at: "plan", intent: "portal" })}
-            <PendingButton pending={p.opening}>{p.manage}</PendingButton>
-          </form>
-        )}
-      </div>
-      {!live && !shop.ico && <p className="text-sm text-muted">{p.company_tip}</p>}
-    </>
   );
 }
 

@@ -113,6 +113,15 @@ export async function shopperPdfAllowed(slug: string): Promise<boolean> {
   return !error && data === true;
 }
 
+/**
+ * The shop's own domain while it is live (canonical address, JSON-LD, links), else null.
+ * Database update 25 — null before it.
+ */
+export async function shopSiteHost(slug: string): Promise<string | null> {
+  const { data, error } = await (await client()).rpc("shop_site", { p_slug: slug });
+  return !error && typeof data === "string" && data ? data : null;
+}
+
 /** An item as visitors may see it (public_stock), or null. */
 export const getItem = cache(async (id: string): Promise<StockRow | null> => {
   if (!UUID.test(id)) return null;

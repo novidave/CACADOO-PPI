@@ -176,6 +176,27 @@ downloads per folder (no visitor data). "Stiahnuť túto konverzáciu (PDF)": th
 `owner_set_shopper_pdf()` (default on). Never: keys or private files in logs, analytics, pages, JSON-LD, sitemap,
 search, API/MCP; nothing of one shop reachable with another shop's session.
 
+## Own domains (Pro, update 25)
+
+`supabase/sql/25_custom_domains.sql` + `supabase/functions/domains` (one file, Verify JWT off) + `src/proxy.ts` +
+dashboard `dashboard/plan` ("Predplatné a doména": `PlanDetails`, `@/components/DomainWizard`, `@/components/DomainStatus`,
+`plan/actions.ts`) + admin `admin/domains` ("Predplatné a domény", `notFound()` unless `profiles.is_admin`; SQL
+`is_admin()` decides). 13: the shop finds a name on websupport.sk (search URL from `domain_settings`), pastes it
+(`cleanDomain()` in `@/lib/domainName` = the function's), the function checks it at Websupport and quotes the price
+**only from `domain_prices`** (frozen on the order: price shown = price charged; never Websupport's partner price);
+owner details in `shop_legal` (`owner_save_legal`, never invented); pay: Pro + saved card → one-click invoice, else
+Checkout (Pro + domain together when no Pro). Order at the registrar **only after Stripe confirmed the payment**
+(`domain_payment_received` once; webhook → `run`), **registrant = the shop** (Websupport domain profile; never
+Cacadoo's name), paid by our prepaid credit; low credit waits + `ADMIN_EMAIL`. `REGISTRAR_MODE=test` (default) = dry
+runs, website on the admin's test domain. DNS: only Vercel's records (A/CNAME/TXT from the Vercel API), **never touch
+MX/SPF/DKIM/DMARC/other records**. 14: own domain → Vercel → the exact records shown → checks 7 days → Beží. Registrars
+behind the `Registrar` interface. Every step in `domain_orders.log`; never log keys or signatures. Live → one e-mail
+(Brevo, `live_email_at`), page countdown → `https://<domain>`. Renewal charged first, then Websupport renews;
+Pro ended → website back, auth code shown and e-mailed; **never hold a domain back**. `proxy.ts`: a host that is not
+PPI's own → `shop_for_host` → rewrite to `/[lang]/site/[slug]` (+ items, `/api/site/[slug]/sitemap|robots`), www →
+bare; canonical = the own domain; payment never affects search ranking. `PlanDetails`/`DomainStatus` labels from the
+`domains` i18n namespace; admin texts `admin_domains`.
+
 ## Shop page and My shop (migration 21)
 
 - Product pages of shops with `shop_has_plan(shop)` show no other shops: no "Also available at" block or "not found
@@ -219,7 +240,8 @@ hand, any browser, same POST). Guide: `docs/SHOP_PC_SETUP.md`.
 
 ## Auth
 
-Self-service, shop owners only — **no admin area on the website**. E-mail + password: `/signup` (anyone; Supabase
+Self-service, shop owners only — **no admin area on the website** except "Predplatné a domény" (`/[lang]/admin/domains`,
+own domains; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
 sends a confirmation e-mail), `/login`, `/forgot` (reset e-mail → `/auth/confirm` → `/[lang]/password`). `/auth/confirm`
 handles `token_hash` (templates in SETUP.md E3), `code` (default templates) and `#access_token` (→ `/[lang]/login/finish`).
 Owners create/edit shops via `owner_save_shop()`, read them via `my_shops()`, approve columns via `owner_set_mapping()`,

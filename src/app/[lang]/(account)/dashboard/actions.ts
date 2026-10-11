@@ -220,17 +220,23 @@ export async function openBilling(formData: FormData) {
   const lang: Locale = isLocale(langValue) ? langValue : "en";
   const slug = String(formData.get("shop_slug") ?? "");
   const dict = await getDictionary(lang);
+  // From "Predplatné a doména" (update 25) Stripe brings the owner back there.
+  const page = formData.get("back") === "plan" ? `/${lang}/dashboard/plan` : `/${lang}/dashboard`;
   const { data, error } = await session.supabase.functions.invoke<{ url?: string }>("stripe-checkout", {
     body: {
       shop_id: shopId,
       action: formData.get("intent") === "portal" ? "portal" : "checkout",
       lang,
-      return_url: `${await requestOrigin()}/${lang}/dashboard?${new URLSearchParams({ shop: slug })}`,
+      return_url: `${await requestOrigin()}${page}?${new URLSearchParams({ shop: slug })}`,
       company_id_label: dict.plan.company_id,
     },
   });
   const url = error ? null : stripePage(data?.url);
-  if (!url) back({ err: await billingError(error) });
+  if (!url) {
+    const err = await billingError(error);
+    if (formData.get("back") === "plan") redirect(`${page}?${new URLSearchParams({ shop: slug, err })}#plan`);
+    back({ err });
+  }
   redirect(url!);
 }
 

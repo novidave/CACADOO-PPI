@@ -151,7 +151,9 @@ Deno.test("only the shop's owners, with a valid login, get a Stripe page", async
 Deno.test("Stripe sends the owner back only to a PPI dashboard page", () => {
   eq(returnUrl(BACK)?.toString(), BACK, "dashboard");
   eq(returnUrl("http://localhost:3000/en/dashboard?shop=x")?.toString(), "http://localhost:3000/en/dashboard?shop=x", "this computer");
+  eq(returnUrl("https://cacadoo.example/sk/dashboard/plan?shop=x")?.toString(), "https://cacadoo.example/sk/dashboard/plan?shop=x", "\"Predplatné a doména\"");
   for (const bad of ["https://evil.example/login", "http://cacadoo.example/sk/dashboard", "javascript:alert(1)",
+    "https://cacadoo.example/sk/dashboard/conversations", "https://cacadoo.example/sk/dashboard/plan/x",
     "https://user:pw@cacadoo.example/sk/dashboard", "https://cacadoo.example/sk/dashboard/../login", "/sk/dashboard", null]) {
     eq(returnUrl(bad), null, String(bad));
   }

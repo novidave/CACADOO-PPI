@@ -2855,4 +2855,268 @@ end $$;
 reset role;
 drop table vip_test;
 
+\echo '--- custom domains: price table, owner details, payment once, hostname -> shop, admin (update 25)'
+create temporary table dom_test (k text primary key, v text);
+grant all on dom_test to public;
+
+-- the admin fills the price table and the settings; nothing else may
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$ begin
+  perform public.admin_save_domain_price('.SK', 1990, 1990, true, 1, true);
+  perform public.admin_save_domain_price('eu', 1490, 1590, true, 2, true);
+  perform public.admin_save_domain_price('co.uk', 2500, 2500, false, 3, true);
+  perform public.admin_save_domain_price('xyz', 900, 900, true, 9, false);
+  assert (select price_cents from public.domain_prices where tld = 'sk') = 1990, 'the TLD is cleaned (".SK" -> "sk")';
+  perform public.admin_save_domain_settings('https://www.websupport.sk/domeny', true, 30, 'test.example-shop.sk');
+  assert (public.admin_domain_stats() ->> 'low_credit_eur')::numeric = 30;
+  assert public.admin_domain_stats() ->> 'test_domain' = 'test.example-shop.sk';
+  begin
+    perform public.admin_save_domain_settings('http://websupport.sk', false, 30, null);
+    raise exception 'a search page without https was saved';
+  exception when check_violation then null;
+  end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin
+    perform public.admin_save_domain_price('com', 1, 1, true, 1, true);
+    raise exception 'an owner changed the price table';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_domain_overview();
+    raise exception 'an owner read the admin overview';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_domain_stats();
+    raise exception 'an owner read the credit';
+  exception when insufficient_privilege then null;
+  end;
+  assert not exists (select 1 from public.domain_settings), 'owners never read the settings row (credit, threshold)';
+  assert (select search_url from public.domain_shop_settings()) = 'https://www.websupport.sk/domeny', 'but the search page';
+  assert (select same_price_as_registrar from public.domain_shop_settings()), 'and the "same price" switch';
+  assert (select count(*) from public.domain_prices) = 3, 'owners see the active prices only';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  assert (select count(*) from public.domain_prices) = 3, 'prices are public (shown to shops)';
+  begin
+    perform public.domain_shop_settings();
+    raise exception 'a visitor read the settings';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- the price of a name: the longest TLD it ends with; a subdomain or an unknown TLD has none
+set role service_role;
+do $$ begin
+  assert (public.domain_price_for('davide.sk')).price_cents = 1990;
+  assert (public.domain_price_for('obchod.co.uk')).tld = 'co.uk';
+  assert (public.domain_price_for('shop.davide.sk')).tld is null, 'only second-level names are sold';
+  assert (public.domain_price_for('davide.xyz')).tld is null, 'an inactive TLD is not sold';
+  assert (public.domain_price_for('davide.de')).tld is null, 'a TLD not in the table';
+end $$;
+reset role;
+
+-- the owner's details: the shop's profile first, the rest asked for; never another shop's
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_d jsonb;
+begin
+  v_d := public.domain_owner_details(v_a);
+  assert v_d -> 'missing' ? 'company_name' and v_d -> 'missing' ? 'zip', 'company name and ZIP are asked for';
+  assert v_d ->> 'city' = (select city from public.shops where id = v_a), 'the shop''s own town is used';
+  begin
+    perform public.owner_save_legal(v_a, '{"email": "not-an-email"}');
+    raise exception 'a wrong e-mail was saved';
+  exception when check_violation then null;
+  end;
+  begin
+    perform public.owner_save_legal(v_a, '{"website": "x"}');
+    raise exception 'an unknown field was saved';
+  exception when invalid_parameter_value then null;
+  end;
+  perform public.owner_save_legal(v_a, jsonb_build_object('company_name', 'Potraviny Centrum s.r.o.', 'contact_name', 'Ján Novák',
+    'zip', '040 01', 'country', 'sk', 'ico', '12345678', 'email', 'Info@Example.invalid', 'phone', '+421 900 123 456',
+    'street', 'Hlavná 1', 'dic', '', 'ic_dph', ''));
+  v_d := public.domain_owner_details(v_a);
+  assert jsonb_array_length(v_d -> 'missing') = 0, format('nothing missing any more: %s', v_d -> 'missing');
+  assert v_d ->> 'country' = 'SK' and v_d ->> 'email' = 'info@example.invalid', 'cleaned';
+  assert v_d ->> 'dic' is null, 'an empty DIČ stays empty (never invented)';
+  perform public.owner_save_legal(v_a, '{"zip": "04001"}');
+  assert (select company_name from public.shop_legal where shop_id = v_a) = 'Potraviny Centrum s.r.o.', 'only the sent field changes';
+  begin
+    perform public.owner_save_legal(v_b, '{"zip": "1"}');
+    raise exception 'an owner wrote another shop''s details';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.domain_owner_details(v_b);
+    raise exception 'an owner read another shop''s details';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- flow 13: the price is frozen at the check; the payment is recorded once (a repeated
+-- webhook changes nothing); while it is set up the domain is not served
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_q jsonb;
+  v_id uuid;
+begin
+  begin
+    perform public.domain_quote(v_a, 'davide.de', 'https://ppi.example', false);
+    raise exception 'a TLD not in the table was quoted';
+  exception when no_data_found then null;
+  end;
+  v_q := public.domain_quote(v_a, 'Davide.SK', 'https://ppi.example', false);
+  v_id := (v_q ->> 'id')::uuid;
+  assert v_q ->> 'hostname' = 'davide.sk' and (v_q ->> 'price_cents')::int = 1990, 'the shown price';
+  -- the admin changes the table afterwards: the shop still pays what it saw
+  update public.domain_prices set price_cents = 2490 where tld = 'sk';
+  assert (select price_cents from public.domain_orders where id = v_id) = 1990, 'price shown = price charged';
+  update public.domain_prices set price_cents = 1990 where tld = 'sk';
+  -- a second check replaces the first quote
+  v_q := public.domain_quote(v_a, 'davide2.sk', 'https://ppi.example', false);
+  assert not exists (select 1 from public.domain_orders where id = v_id), 'one quote per shop';
+  v_id := (v_q ->> 'id')::uuid;
+  update public.domain_orders set status = 'checkout', stripe_session = 'cs_test_1' where id = v_id;
+
+  assert public.domain_payment_received(v_id, 'cs_test_1', null, 'pi_1', null) = 'recorded';
+  assert public.domain_payment_received(v_id, 'cs_test_1', 'in_1', 'pi_1', 'https://invoice.example/1') = 'duplicate',
+    'a repeated webhook changes nothing';
+  assert (select status || ' ' || attempts || ' ' || stripe_invoice from public.domain_orders where id = v_id) = 'paid 0 in_1',
+    'still one paid order; the invoice of the later event is kept';
+  assert (select log -> 0 ->> 'step' from public.domain_orders where id = v_id) = 'paid', 'logged with its time';
+  assert public.domain_payment_received(gen_random_uuid(), null, null, null, null) = 'not_found';
+
+  -- the shop's e-mail: its own address, else its owners'
+  assert public.domain_shop_emails(v_a) is not null and cardinality(public.domain_shop_emails(v_a)) >= 1;
+  -- a renewal is recorded once
+  update public.domain_orders set expires_at = now() + interval '20 days', renewal_state = 'due' where id = v_id;
+  assert public.domain_renewal_paid(v_id, 'in_r1'), 'the renewal is paid';
+  assert not public.domain_renewal_paid(v_id, 'in_r1'), 'a repeated event changes nothing';
+  update public.domain_orders set expires_at = null, renewal_state = 'none', renewal_invoice = null, renewal_paid_until = null where id = v_id;
+  -- one worker at a time
+  assert (select count(*) from public.domain_claim(10)) = 1;
+  assert (select count(*) from public.domain_claim(10)) = 0, 'a claimed order is not handed out twice';
+  assert not public.domain_claim_one(v_id), 'a claimed order is not run twice';
+  update public.domain_orders set claimed_until = null where id = v_id;
+  assert public.domain_claim_one(v_id), 'one order now';
+  assert not public.domain_claim_one(v_id), 'and only once';
+  update public.domain_orders set claimed_until = null where id = v_id;
+
+  -- the host is the shop's while it is set up; nobody else can start it
+  begin
+    perform public.domain_connect_start(v_a, 'other-domain.sk', true, 'https://ppi.example');
+    raise exception 'a second domain for the same shop';
+  exception when object_not_in_prerequisite_state then null;
+  end;
+  begin
+    insert into public.domain_orders (shop_id, kind, hostname, status) values (v_b, 'connected', 'davide2.sk', 'waiting_dns');
+    raise exception 'the same host for two shops';
+  exception when unique_violation then null;
+  end;
+  assert (select count(*) from public.shop_for_host('davide2.sk')) = 0, 'not served before it is live';
+
+  -- live: served on the bare host and on www (the bare one is the address)
+  update public.domain_orders set status = 'live', site_host = 'davide2.sk', live_at = now() where id = v_id;
+  insert into dom_test values ('bought', v_id);
+
+  -- a payment for an order that was given up meanwhile: kept apart, refunded by the function
+  insert into public.domain_orders (shop_id, kind, hostname, status, price_cents, renewal_cents, vat_included)
+  values (v_a, 'bought', 'old-name.sk', 'canceled', 1990, 1990, true) returning id into v_id;
+  assert public.domain_payment_received(v_id, 'cs_old', null, 'pi_old', null) = 'orphan', 'refund, never a second domain';
+  assert (select status from public.domain_orders where id = v_id) = 'canceled';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  assert (select slug || ' ' || primary_host || ' ' || site_lang from public.shop_for_host('davide2.sk'))
+         = 'potraviny-centrum davide2.sk sk', 'hostname -> shop';
+  assert (select primary_host from public.shop_for_host('WWW.Davide2.sk ')) = 'davide2.sk', 'www answers too';
+  assert (select count(*) from public.shop_for_host('evil.davide2.sk')) = 0;
+  assert public.shop_site('potraviny-centrum') = 'davide2.sk', 'the canonical address';
+  assert (select count(*) from public.live_shop_sites()) = 1;
+  begin
+    perform 1 from public.domain_orders;
+    raise exception 'a visitor read domain orders';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- owners read their own orders only; connecting needs the plan; the admin sees every shop
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert (select count(*) from public.domain_orders) = 0, 'owner B sees none of A''s domains';
+  begin
+    perform public.domain_connect_start((select id from public.shops where slug = 'drogeria-kostolne'), 'b-shop.sk', true, 'x');
+    raise exception 'an owner called the function''s own step';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+set role service_role;
+do $$ begin
+  begin
+    perform public.domain_connect_start((select id from public.shops where slug = 'drogeria-kostolne'), 'b-shop.sk', true, 'x');
+    raise exception 'a shop without the plan connected a domain';
+  exception when object_not_in_prerequisite_state then null;
+  end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  assert (select count(*) from public.domain_orders) = 2, 'owner A sees its own orders';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$ begin
+  assert (select status from public.admin_domain_overview('davide2', null, null)) = 'live', 'the admin finds the shop by its domain';
+  assert (select count(*) from public.admin_domain_overview(null, 'none', null)) >= 1, 'shops without a domain are listed too';
+  assert (select count(*) from public.admin_domain_overview()) = (select count(*) from public.shops), 'one row per shop';
+  perform public.admin_resolve_domain((select v::uuid from dom_test where k = 'bought'));
+  assert (public.admin_domain_stats() ->> 'live')::int = 1;
+end $$;
+reset role;
+
+-- the plan ends: the domain is no longer served (the shop is back on its Cacadoo address)
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_end timestamptz := (select current_period_end from public.subscriptions where shop_id = v_a);
+begin
+  update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = v_a;
+  assert (select count(*) from public.shop_for_host('davide2.sk')) = 0, 'no plan: not served';
+  assert public.shop_site('potraviny-centrum') is null, 'no canonical to it either';
+  update public.subscriptions set current_period_end = v_end where shop_id = v_a;
+  -- the credit: once a day under the threshold
+  assert public.domain_set_credit(12.50), 'under the threshold: e-mail the admin';
+  assert not public.domain_set_credit(11), 'not twice in a day';
+  assert not public.domain_set_credit(500), 'enough credit';
+  delete from public.domain_orders where shop_id = v_a;
+  delete from public.shop_legal where shop_id = v_a;
+end $$;
+reset role;
+drop table dom_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'
