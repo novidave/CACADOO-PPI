@@ -531,6 +531,24 @@ $$;
 revoke execute on function public.domain_claim(integer) from public, anon, authenticated;
 grant execute on function public.domain_claim(integer) to service_role;
 
+-- One order now (after a payment or a button): claimed unless another worker has it.
+create or replace function public.domain_claim_one(p_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = ''
+as $$
+  with claimed as (
+    update public.domain_orders o set claimed_until = now() + interval '3 minutes'
+    where o.id = p_id
+      and o.status in ('paid', 'registering', 'configuring', 'securing', 'waiting_dns', 'verified')
+      and (o.claimed_until is null or o.claimed_until < now())
+    returning o.id)
+  select exists (select 1 from claimed)
+$$;
+revoke execute on function public.domain_claim_one(uuid) from public, anon, authenticated;
+grant execute on function public.domain_claim_one(uuid) to service_role;
+
 -- The last seen Websupport credit; true once a day while it is under the threshold (e-mail the admin).
 create or replace function public.domain_set_credit(p_credit numeric)
 returns boolean

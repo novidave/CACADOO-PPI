@@ -184,6 +184,11 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
           }
         }
       }
+      // ... and one open website per host (domain_orders_open_site_host)
+      const site = this.values.site_host;
+      if (typeof site === "string" && hits.some((r) => this.rows.some((o) => o !== r && o.site_host === site && WORK.concat("live").includes(String(o.status))))) {
+        return { data: null, error: { message: "duplicate key value violates unique constraint", code: "23505" } };
+      }
       for (const r of hits) Object.assign(r, this.values);
       return { data: this.returning ? hits.map((r) => ({ ...r })) : null, error: null };
     }
@@ -219,6 +224,12 @@ function fakeDb(w: World): SupabaseClient {
           && (o.claimed_until === null || (o.claimed_until as string) < isoAt(w))).slice(0, Number(a.p_limit ?? 10));
         for (const o of due) o.claimed_until = isoAt(w, 180_000);
         return ok(due.map((o) => o.id));
+      }
+      case "domain_claim_one": {
+        const o = find(a.p_id);
+        if (!o || !WORK.includes(String(o.status)) || (o.claimed_until !== null && (o.claimed_until as string) >= isoAt(w))) return ok(false);
+        o.claimed_until = isoAt(w, 180_000);
+        return ok(true);
       }
       case "domain_set_credit": {
         const s = w.settings[0];
@@ -799,6 +810,13 @@ Deno.test("Test mode: a dry run, no credit used, the website goes on the test do
   assert(reg.calls.includes("add A @ 76.76.21.21"), "the test domain's DNS is set");
   const mail = w.mails.find((m) => m.subject === "Vaša stránka beží na cacadoo-test.sk")!;
   assert(mail.text.includes("Testovací režim"), "the e-mail says it was a test");
+
+  // A second test order: checked (taken → refund) like any other, then it waits for the test domain.
+  reg.state.available.add("druha.sk");
+  const second = newOrder(w, { shop_id: OTHER_SHOP, hostname: "druha.sk", status: "paid", paid_at: isoAt(w), next_attempt_at: isoAt(w), test_mode: true });
+  await tick(deps);
+  eq([second.status, second.site_host, second.needs_admin], ["registering", null, true], "waits: one website at a time on the test domain");
+  assert((second.log as { detail: string }[]).some((l) => /test domain cacadoo-test\.sk carries another shop's website/.test(l.detail ?? "")), "the reason is logged");
 });
 
 // ---------------------------------------------------------------- flow 14

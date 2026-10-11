@@ -3014,6 +3014,11 @@ begin
   -- one worker at a time
   assert (select count(*) from public.domain_claim(10)) = 1;
   assert (select count(*) from public.domain_claim(10)) = 0, 'a claimed order is not handed out twice';
+  assert not public.domain_claim_one(v_id), 'a claimed order is not run twice';
+  update public.domain_orders set claimed_until = null where id = v_id;
+  assert public.domain_claim_one(v_id), 'one order now';
+  assert not public.domain_claim_one(v_id), 'and only once';
+  update public.domain_orders set claimed_until = null where id = v_id;
 
   -- the host is the shop's while it is set up; nobody else can start it
   begin

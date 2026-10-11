@@ -818,19 +818,22 @@ async function later(deps: Deps, o: Order, ms: number, values: Record<string, un
   await patch(deps, o.id, { next_attempt_at: iso(deps, ms), ...values });
 }
 
+/** Test mode: the admin's test domain (in our Websupport account) carries the website. */
+async function testDomain(deps: Deps, o: Order): Promise<string | null> {
+  const settings = await settingsOf(deps);
+  if (settings.test_domain) return settings.test_domain;
+  await patch(deps, o.id, { needs_admin: true });
+  await log(deps, o.id, o.status, false, "Test mode: set the test domain in Predplatné a domény → Nastavenia");
+  await later(deps, o, 30 * MINUTE);
+  return null;
+}
+
 async function startRegistration(deps: Deps, o: Order) {
-  let siteHost = o.hostname;
-  if (o.test_mode) {
-    const settings = await settingsOf(deps);
-    if (!settings.test_domain) {
-      await patch(deps, o.id, { needs_admin: true });
-      await log(deps, o.id, "paid", false, "Test mode: set the test domain in Predplatné a domény → Nastavenia");
-      return await later(deps, o, 30 * MINUTE);
-    }
-    siteHost = settings.test_domain;
-  }
+  // Test mode: the test domain is taken on only when the website is set up (see register).
+  const siteHost = o.test_mode ? null : o.hostname;
+  if (o.test_mode && !(await testDomain(deps, o))) return;
   await patch(deps, o.id, { status: "registering", site_host: siteHost, attempts: 0, next_attempt_at: iso(deps) });
-  await log(deps, o.id, "registering", true, o.test_mode ? `test mode: the website goes on ${siteHost}` : null);
+  await log(deps, o.id, "registering", true, null);
   return await register(deps, { ...o, status: "registering", site_host: siteHost, attempts: 0 });
 }
 
@@ -899,16 +902,26 @@ async function register(deps: Deps, o: Order) {
   }
 
   // Registration takes a while: the domain appears among our services when it is done.
-  const service = await registrar.findService(o.site_host ?? o.hostname);
+  const siteHost = o.test_mode ? await testDomain(deps, o) : o.hostname;
+  if (!siteHost) return;
+  const service = await registrar.findService(siteHost);
   if (!service) {
     await stuckCheck(deps, o);
     return await later(deps, o, 5 * MINUTE);
   }
   if (!o.test_mode) await registrar.autoRenew(service.id, false).catch(() => null);
   const expiresAt = service.expiresAt ?? (o.test_mode ? null : iso(deps, 365 * DAY));
-  await patch(deps, o.id, { status: "configuring", registrar_service_id: service.id, expires_at: expiresAt, attempts: 0, next_attempt_at: iso(deps) });
-  await log(deps, o.id, "configuring", true, `service ${service.id}`);
-  return await configure(deps, { ...o, status: "configuring", registrar_service_id: service.id, expires_at: expiresAt, attempts: 0 });
+  try {
+    await patch(deps, o.id, { status: "configuring", site_host: siteHost, registrar_service_id: service.id, expires_at: expiresAt, attempts: 0, next_attempt_at: iso(deps) });
+  } catch (e) {
+    // Test mode: one website at a time on the test domain.
+    if (!o.test_mode || !/duplicate key|unique/i.test(failText(e))) throw e;
+    await patch(deps, o.id, { needs_admin: true });
+    await log(deps, o.id, "registering", false, `Test mode: the test domain ${siteHost} carries another shop's website; end that one first`);
+    return await later(deps, o, 30 * MINUTE);
+  }
+  await log(deps, o.id, "configuring", true, o.test_mode ? `test mode: the website goes on ${siteHost} (service ${service.id})` : `service ${service.id}`);
+  return await configure(deps, { ...o, status: "configuring", site_host: siteHost, registrar_service_id: service.id, expires_at: expiresAt, attempts: 0 });
 }
 
 /** Adds bare + www to Vercel (www redirects to the bare host) and returns the verification. */
@@ -1180,14 +1193,8 @@ export async function tick(deps: Deps): Promise<{ done: number }> {
 
 /** Runs one order now (after a payment or a button), unless another worker has it. */
 async function runOne(deps: Deps, id: string) {
-  const { data } = await deps.db
-    .from("domain_orders")
-    .update({ claimed_until: iso(deps, 3 * MINUTE) })
-    .eq("id", id)
-    .in("status", WORK)
-    .or(`claimed_until.is.null,claimed_until.lt.${iso(deps)}`)
-    .select("id");
-  if (!data?.length) return;
+  const { data: claimed } = await deps.db.rpc("domain_claim_one", { p_id: id });
+  if (claimed !== true) return;
   const o = await load(deps, id);
   if (o) await advance(deps, o);
 }

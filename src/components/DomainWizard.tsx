@@ -117,12 +117,10 @@ export function DomainWizard({
           {result.state === "available" && (
             <div className="flex flex-col gap-1">
               <p className="font-semibold">
-                {labels.available
-                  .replace("{domain}", result.domain ?? "")
-                  .replace("{price}", fmt(lang, result.price_cents ?? 0))
-                  .replace("{vat}", vat(result.vat_included))}{" "}
-                <span className="font-normal text-muted">{labels.available_note}</span>
+                {labels.available.replace("{domain}", result.domain ?? "").replace("{price}", fmt(lang, result.price_cents ?? 0))}{" "}
+                {labels.available_note}
               </p>
+              <p className="text-sm text-muted">{labels.price_vat_note.replace("{vat}", vat(result.vat_included))}</p>
               {samePrice && (
                 <p className="text-sm" data-same-price>
                   {labels.same_price}
