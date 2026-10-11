@@ -1,15 +1,20 @@
 /**
- * The shop's e-mail and Facebook page as small black icons with text, shown next to the
- * website link. E-mail opens the visitor's mail program; Facebook opens in a new tab.
+ * The shop's e-mail, Facebook page and booking app as small black icons with text, shown next
+ * to the website link. E-mail opens the visitor's mail program; Facebook and the booking app
+ * open in a new tab.
  */
 export function ContactLinks({
   email,
   facebookUrl,
   facebookLabel,
+  bookingUrl = null,
+  bookingLabel = "",
 }: {
   email: string | null;
   facebookUrl: string | null;
   facebookLabel: string;
+  bookingUrl?: string | null;
+  bookingLabel?: string;
 }) {
   return (
     <>
@@ -31,6 +36,12 @@ export function ContactLinks({
           <span className="underline underline-offset-4">{facebookLabel}</span>
         </a>
       )}
+      {bookingUrl && (
+        <a href={bookingUrl} className="inline-flex items-center gap-1" target="_blank" rel="noopener" data-contact="booking">
+          <CalendarIcon />
+          <span className="underline underline-offset-4">{bookingLabel}</span>
+        </a>
+      )}
     </>
   );
 }
@@ -49,33 +60,6 @@ function FacebookIcon() {
     <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
       <path d="M13.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.5-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.8 1.4-3.8 3.9v2.3H7.9v3h2.6V21h3Z" />
     </svg>
-  );
-}
-
-/**
- * The shop's booking app (a link the owner added): a button that opens it in a new tab, with
- * the app's address next to it so the visitor knows where it leads.
- */
-export function BookingLink({ url, label }: { url: string | null; label: string }) {
-  if (!url) return null;
-  let host = "";
-  try {
-    host = new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener"
-      data-contact="booking"
-      className="inline-flex items-center gap-2 self-start rounded border border-foreground px-4 py-2 font-medium"
-    >
-      <CalendarIcon />
-      <span>{label}</span>
-      <span className="text-sm font-normal text-muted">{host}</span>
-    </a>
   );
 }
 

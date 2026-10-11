@@ -196,7 +196,7 @@
     "assistant_plan_only": "Súčasť plateného plánu",
     "assistant_cleaned": "Uložené. Odkazy, e-mailové adresy a HTML sme odstránili.",
     "booking": "Odkaz na rezervácie",
-    "booking_hint": "Vaša stránka v rezervačnej aplikácii (napr. Reservio, Bookio, Calendly). Na stránke obchodu bude tlačidlo „Rezervovať termín“."
+    "booking_hint": "Vaša stránka v rezervačnej aplikácii (napr. Reservio, Bookio, Calendly). Na stránke obchodu bude odkaz „Rezervovať termín“ vedľa e-mailu a Facebooku."
   },
   "sync": {
     "title": "Priečinok s exportom",

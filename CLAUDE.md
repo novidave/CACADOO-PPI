@@ -208,9 +208,9 @@ bare; canonical = the own domain; payment never affects search ranking. `PlanDet
   new tab, `rel="noopener"`), in the JSON-LD (`email`, `sameAs`) and in the API's shop.
 - Booking link, every shop (`supabase/sql/26_booking_link.sql`, `shops.booking_url`: https of a real host, ≤ 500;
   `clean_contact('booking', …)` in `owner_save_shop()`, error `booking`; kept when the form does not send it): the shop
-  page's "Rezervovať termín" button with the app's host (`BookingLink` in `@/components/ContactLinks`, new tab,
-  `rel="noopener"`), JSON-LD `potentialAction` `ReserveAction`, the API/MCP shop (`booking_url`), llms.txt, and one line
-  in the shop assistant's prompt (points to the button; never promises a time). PPI only links; nothing is booked here.
+  page's "Rezervovať termín" link in the contact row, same style as e-mail/Facebook (`@/components/ContactLinks`,
+  calendar icon, new tab, `rel="noopener"`), JSON-LD `potentialAction` `ReserveAction`, the API/MCP shop (`booking_url`), llms.txt, and one line
+  in the shop assistant's prompt (points to that link; never promises a time). PPI only links; nothing is booked here.
   Reads of `public_shops` fall back without `booking_url` on 42703 (`@/lib/missingColumn`).
 - Assistant button label (≤ 40) and welcome text (≤ 300), paid plan: `owner_set_assistant_texts()`; the database keeps
   plain text only (`plain_text()`: no HTML, links or e-mail addresses); empty = NULL = the i18n default (`chat.title`,

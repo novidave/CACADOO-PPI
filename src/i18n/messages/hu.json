@@ -196,7 +196,7 @@
     "assistant_plan_only": "A fizetős csomag része",
     "assistant_cleaned": "Mentve. A linkeket, e-mail-címeket és a HTML-t eltávolítottuk.",
     "booking": "Foglalási link",
-    "booking_hint": "Az üzlet oldala a foglalási alkalmazásban (pl. Reservio, Bookio, Calendly). Az üzlet oldalán „Időpontfoglalás” gomb jelenik meg."
+    "booking_hint": "Az üzlet oldala a foglalási alkalmazásban (pl. Reservio, Bookio, Calendly). Az üzlet oldalán „Időpontfoglalás” link jelenik meg az e-mail és a Facebook mellett."
   },
   "sync": {
     "title": "Exportmappa",

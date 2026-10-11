@@ -236,8 +236,8 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `shop_has_plan()`): with the plan or a domain of its own it loads no other offers at all (no "Also available at"
   block or "not found elsewhere" text, no other pins, nothing in the JSON-LD). The shop page shows the e-mail and
   Facebook page next to the website (`components/ContactLinks.tsx`, black inline icons; JSON-LD `email` and `sameAs`),
-  the booking link as a "Rezervovať termín" button with the app's host (`BookingLink`, new tab, `rel="noopener"`;
-  JSON-LD `potentialAction` `ReserveAction`) and gives `ShopChat` the owner's label and welcome text (`public_shops`).
+  and in the same style the booking link "Rezervovať termín" (calendar icon, new tab, `rel="noopener"`; JSON-LD
+  `potentialAction` `ReserveAction`), and gives `ShopChat` the owner's label and welcome text (`public_shops`).
   Reads of `public_shops` ask for `booking_url` and, when the database answers 42703 (before update 26), read again
   without it (`lib/missingColumn.ts`; same in `publicApi.ts` and `shopChat.ts`).
 - **Formatting** (`lib/format.ts`): prices with the item's own currency in the visitor's language; times in the shop's
@@ -1084,7 +1084,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   e-mail and message; 3-D Secure → Stripe's invoice page; the admin table); update 26 (67 checks: Pro product pages in
   sk/hu/en without other shops; a shop without the plan shows them, hides them while its own domain waits for DNS
   (also "not found elsewhere") and shows them again when the order is cancelled; the booking link refused when wrong,
-  saved as https://, shown as "Rezervovať termín · reservio.com" in sk/hu/en with a new tab, `rel="noopener"` and
+  saved as https://, shown as "Rezervovať termín" in sk/hu/en in the contact row (same style as e-mail and Facebook) with a new tab, `rel="noopener"` and
   `ReserveAction`, in the API, OpenAPI and llms.txt, removed when emptied; the quick view on a computer and a phone:
   "File 1 of 10", newer/older buttons and their ends, ← → keys, a swipe, Esc, "Close", full screen on a phone, no
   sideways scroll);
