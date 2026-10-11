@@ -77,7 +77,7 @@ export async function payDomain(formData: FormData) {
   if (!UUID.test(orderId)) back({ err: "pay" });
   if (formData.get("accept_terms") !== "on") back({ err: "terms" });
   const dict = await getDictionary(lang);
-  const { data, error } = await callDomains<{ paid?: boolean; url?: string; state?: string }>(session.supabase, {
+  const { data, error, message } = await callDomains<{ paid?: boolean; url?: string; state?: string }>(session.supabase, {
     action: "pay",
     order_id: orderId,
     return_url: returnUrl,
@@ -85,12 +85,20 @@ export async function payDomain(formData: FormData) {
     accept_terms: true,
     company_id_label: dict.plan.company_id,
   });
+  if (error === "stripe" && message) back({ err: "pay_reason", reason: message.slice(0, 200) });
   if (error) back({ err: error === "owner_details" ? "owner" : error === "terms" ? "terms" : error === "not_configured" ? "not_configured" : "pay" });
   if (data?.state === "in_use") back({ err: "in_use" });
   if (data?.paid) back({ domain: "paid" });
   const url = paymentPage(data?.url);
   if (!url) back({ err: "pay" });
   redirect(url!);
+}
+
+/** "Zrušiť objednávku": an unpaid domain order is given up (its Stripe page is closed). */
+export async function cancelDomainPayment(formData: FormData) {
+  const { session, back } = await start(formData);
+  const { error } = await callDomains(session.supabase, { action: "cancel_payment", order_id: String(formData.get("order_id") ?? "") });
+  back(error ? { err: "error" } : { ok: "order_canceled" });
 }
 
 /** Flow 14: the shop's own domain (Pro only). */

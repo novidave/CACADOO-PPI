@@ -120,12 +120,18 @@ export async function loadDomainPage(supabase: SupabaseClient, shopId: string): 
 export async function callDomains<T>(
   supabase: SupabaseClient,
   body: Record<string, unknown>,
-): Promise<{ data: T | null; error: string | null; status: number | null }> {
+): Promise<{ data: T | null; error: string | null; status: number | null; message: string | null }> {
   const { data, error } = await supabase.functions.invoke<T>("domains", { body });
-  if (!error) return { data: data ?? null, error: null, status: 200 };
+  if (!error) return { data: data ?? null, error: null, status: 200, message: null };
   const failure = await functionFailure(error);
   if (!failure.error) console.error(`domains: ${String(body.action)} failed (${failure.detail})`);
-  return { data: null, error: failure.error ?? (failure.platform ? `fn_${failure.platform}` : "failed"), status: failure.status };
+  return {
+    data: null,
+    error: failure.error ?? (failure.platform ? `fn_${failure.platform}` : "failed"),
+    status: failure.status,
+    // Stripe's or Websupport's own reason (never a key), or Supabase's when it refused the call.
+    message: failure.message,
+  };
 }
 
 /** "19,90 €" in the page language. */

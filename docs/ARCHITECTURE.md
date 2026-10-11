@@ -580,7 +580,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `shop_site(slug)`, `live_shop_sites()`, and for `is_admin()`: `admin_domain_overview(q, status, kind)`,
   `admin_domain_stats()`, `admin_save_domain_settings`, `admin_resolve_domain`.
 - **The function** (`domains`, one file, Verify JWT off) checks every caller itself: the owner's login (`check`,
-  `pay`, `connect`, `recheck` (30 s), `disconnect`, `auth_code`, `pro_price`; `is_shop_member` through the caller's own
+  `pay`, `cancel_payment`, `connect`, `recheck` (30 s), `disconnect`, `auth_code`, `pro_price`; `is_shop_member` through the caller's own
   client), the admin's login (`admin_retry`, `admin_email`, `admin_auth_code`, `admin_save_auth_code`, `admin_credit`;
   `is_admin()`), stripe-webhook with the service role key (`run`: the paid order now, in the background), pg_cron with
   `x-ppi-cron` = Vault `ppi_assistant_cron` (`tick` every 5 minutes, `daily` once a day). Return addresses only to
@@ -611,7 +611,10 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   then says `duplicate`); 3-D Secure or a declined card → Stripe's hosted invoice page. Else Checkout `payment` with
   `invoice_creation`, or Checkout `subscription` with Pro + the domain line (company fields as in stripe-checkout).
   The name is reserved (`checkout`) before Stripe opens; unpaid after 24 hours → `canceled` (invoice voided); paid
-  after being given up → refunded. Idempotency keys per order.
+  after being given up → refunded. Idempotency keys per order and try (`…-{attempts}`): when Stripe refuses,
+  `paymentNotOpened` deletes the draft / voids the finalized invoice, closes an older Checkout page, puts the order
+  back to `quoted` with `attempts + 1` and the page shows Stripe's message. `cancel_payment` (owner) gives an unpaid
+  order up (Checkout expired, invoice voided); the page offers it, with "Pokračovať v platbe", for a `checkout` order.
 - **Daily:** abandoned payments, orphan refunds, credit (live mode), plan ended → `endDomain` (Vercel removed, Websupport
   renewal off, auth code saved and e-mailed), unsent live e-mails, renewals (`renewal()`: 30 days before expiry an
   off-session invoice for the renewal price; paid (`invoice.paid` with `ppi_domain_renewal` → `domain_renewal_paid`)

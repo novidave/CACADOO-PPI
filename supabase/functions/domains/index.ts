@@ -13,7 +13,7 @@
 // shop's Stripe renewal succeeded; never a domain held back (auth code on cancellation).
 //
 // Who calls it:
-//   - the website with the owner's login: check, pay, connect, recheck, disconnect, auth_code
+//   - the website with the owner's login: check, pay, cancel_payment, connect, recheck, disconnect, auth_code, pro_price
 //   - the website with the admin's login: admin_retry, admin_email, admin_auth_code,
 //     admin_save_auth_code, admin_credit
 //   - stripe-webhook (service role key): run (a payment was confirmed)
@@ -501,10 +501,10 @@ export class StripeError extends Error {
   }
 }
 
-export type Stripe = <T>(method: "GET" | "POST", path: string, params?: Params, idempotencyKey?: string) => Promise<T>;
+export type Stripe = <T>(method: "GET" | "POST" | "DELETE", path: string, params?: Params, idempotencyKey?: string) => Promise<T>;
 
 export function stripeApi(secretKey: string, f: Fetch = fetch, base = "https://api.stripe.com"): Stripe {
-  return async <T>(method: "GET" | "POST", path: string, params: Params = {}, idempotencyKey?: string) => {
+  return async <T>(method: "GET" | "POST" | "DELETE", path: string, params: Params = {}, idempotencyKey?: string) => {
     const form = toForm(params).toString();
     const headers: Record<string, string> = { Authorization: `Bearer ${secretKey}`, "Stripe-Version": STRIPE_VERSION };
     if (method === "POST") headers["Content-Type"] = "application/x-www-form-urlencoded";
@@ -1568,108 +1568,171 @@ async function payAction(deps: Deps, who: { authorization: string; userId: strin
     }
   }
 
-  const product = await domainProduct(stripe, deps.prices.domain);
-  const domainLine = {
-    price_data: {
-      currency: (o.currency || "EUR").toLowerCase(),
-      product,
-      unit_amount: o.price_cents ?? 0,
-      tax_behavior: taxBehavior(o.vat_included),
-    },
-    quantity: 1,
-  };
-
-  if (hasPlan === true && sub && LIVE_PLAN.includes(sub.status)) {
-    // On Pro: only the domain. The saved card pays it with one click.
-    const card = await savedCard(stripe, customer, sub.stripe_subscription_id);
-    if (card) {
-      const invoice = await stripe<Invoice>("POST", "/invoices", {
-        customer,
-        collection_method: "charge_automatically",
-        auto_advance: false,
-        automatic_tax: { enabled: true },
-        default_payment_method: card,
-        description,
-        metadata,
-      }, `ppi-domain-invoice-${o.id}`);
-      await stripe("POST", "/invoiceitems", {
-        customer,
-        invoice: invoice.id,
-        amount: o.price_cents ?? 0,
+  // Each try after a failed one gets new Stripe idempotency keys (Stripe keeps a key's answer for 24 hours).
+  const n = o.attempts;
+  const domainPrice: string = deps.prices.domain;
+  const made: Made = { invoice: null, finalized: false };
+  const open = async (): Promise<Response> => {
+    const product = await domainProduct(stripe, domainPrice);
+    const domainLine = {
+      price_data: {
         currency: (o.currency || "EUR").toLowerCase(),
-        description,
+        product,
+        unit_amount: o.price_cents ?? 0,
         tax_behavior: taxBehavior(o.vat_included),
-        metadata: { ppi_domain_order: o.id },
-      }, `ppi-domain-item-${o.id}`);
-      const final = await stripe<Invoice>("POST", `/invoices/${encodeURIComponent(invoice.id)}/finalize`, {}, `ppi-domain-finalize-${o.id}`);
-      await patch(deps, o.id, { status: "checkout", stripe_invoice: invoice.id, invoice_url: final.hosted_invoice_url ?? null, with_pro: false });
-      await log(deps, o.id, "checkout", true, `one-click invoice ${invoice.id}`);
-      try {
-        const paid = await stripe<Invoice>("POST", `/invoices/${encodeURIComponent(invoice.id)}/pay`, { payment_method: card, off_session: false });
-        if (paid.status === "paid") {
-          const { data: recorded } = await deps.db.rpc("domain_payment_received", {
-            p_id: o.id, p_session: null, p_invoice: invoice.id, p_payment_intent: null, p_invoice_url: paid.hosted_invoice_url ?? final.hosted_invoice_url ?? null,
-          });
-          if (recorded === "recorded") deps.background(runOne(deps, o.id));
-          return reply(200, { paid: true });
+      },
+      quantity: 1,
+    };
+
+    if (hasPlan === true && sub && LIVE_PLAN.includes(sub.status)) {
+      // On Pro: only the domain. The saved card pays it with one click.
+      const card = await savedCard(stripe, customer, sub.stripe_subscription_id);
+      if (card) {
+        const invoice = await stripe<Invoice>("POST", "/invoices", {
+          customer,
+          collection_method: "charge_automatically",
+          auto_advance: false,
+          automatic_tax: { enabled: true },
+          default_payment_method: card,
+          description,
+          metadata,
+        }, `ppi-domain-invoice-${o.id}-${n}`);
+        made.invoice = invoice.id;
+        await stripe("POST", "/invoiceitems", {
+          customer,
+          invoice: invoice.id,
+          amount: o.price_cents ?? 0,
+          currency: (o.currency || "EUR").toLowerCase(),
+          description,
+          tax_behavior: taxBehavior(o.vat_included),
+          metadata: { ppi_domain_order: o.id },
+        }, `ppi-domain-item-${o.id}-${n}`);
+        const final = await stripe<Invoice>("POST", `/invoices/${encodeURIComponent(invoice.id)}/finalize`, {}, `ppi-domain-finalize-${o.id}-${n}`);
+        made.finalized = true;
+        await patch(deps, o.id, { status: "checkout", stripe_invoice: invoice.id, invoice_url: final.hosted_invoice_url ?? null, with_pro: false });
+        await log(deps, o.id, "checkout", true, `one-click invoice ${invoice.id}`);
+        try {
+          const paid = await stripe<Invoice>("POST", `/invoices/${encodeURIComponent(invoice.id)}/pay`, { payment_method: card, off_session: false });
+          if (paid.status === "paid") {
+            const { data: recorded } = await deps.db.rpc("domain_payment_received", {
+              p_id: o.id, p_session: null, p_invoice: invoice.id, p_payment_intent: null, p_invoice_url: paid.hosted_invoice_url ?? final.hosted_invoice_url ?? null,
+            });
+            if (recorded === "recorded") deps.background(runOne(deps, o.id));
+            return reply(200, { paid: true });
+          }
+        } catch (e) {
+          // 3-D Secure or a declined card: Stripe's own invoice page finishes it.
+          await log(deps, o.id, "one-click", false, failText(e));
         }
-      } catch (e) {
-        // 3-D Secure or a declined card: Stripe's own invoice page finishes it.
-        await log(deps, o.id, "one-click", false, failText(e));
+        if (final.hosted_invoice_url) return reply(200, { url: final.hosted_invoice_url });
+        throw new Error("The invoice has no payment page");
       }
-      if (final.hosted_invoice_url) return reply(200, { url: final.hosted_invoice_url });
-      throw new Error("The invoice has no payment page");
+      const session = await stripe<{ id: string; url: string }>("POST", "/checkout/sessions", {
+        mode: "payment",
+        customer,
+        customer_update: { name: "auto", address: "auto" },
+        line_items: [domainLine],
+        automatic_tax: { enabled: true },
+        billing_address_collection: "required",
+        invoice_creation: { enabled: true, invoice_data: { description, metadata } },
+        payment_intent_data: { metadata, description },
+        metadata,
+        client_reference_id: o.shop_id,
+        locale: lang,
+        success_url: success.toString(),
+        cancel_url: cancel.toString(),
+      }, `ppi-domain-checkout-${o.id}-${n}`);
+      await patch(deps, o.id, { status: "checkout", stripe_session: session.id, with_pro: false });
+      await log(deps, o.id, "checkout", true, `payment page ${session.id}`);
+      return reply(200, { url: session.url });
     }
+
+    // Not on Pro: Pro and the domain in one payment (the domain is a one-time line).
+    if (!deps.prices.pro) return reply(503, { error: "not_configured" });
+    const companyId = String((details as { ico?: string } | null)?.ico ?? "").trim().slice(0, 40);
+    const label = String(body.company_id_label ?? "").replace(/[\x00-\x1f]/g, "").trim().slice(0, 100) || "Company ID";
     const session = await stripe<{ id: string; url: string }>("POST", "/checkout/sessions", {
-      mode: "payment",
+      mode: "subscription",
       customer,
       customer_update: { name: "auto", address: "auto" },
-      line_items: [domainLine],
-      automatic_tax: { enabled: true },
-      billing_address_collection: "required",
-      invoice_creation: { enabled: true, invoice_data: { description, metadata } },
-      payment_intent_data: { metadata, description },
-      metadata,
+      line_items: [{ price: deps.prices.pro, quantity: 1 }, { ...domainLine, price_data: { ...domainLine.price_data } }],
       client_reference_id: o.shop_id,
+      metadata,
+      subscription_data: { metadata: { shop_id: o.shop_id } },
+      automatic_tax: { enabled: true },
+      tax_id_collection: { enabled: true },
+      name_collection: { business: { enabled: true } },
+      billing_address_collection: "required",
+      custom_fields: [{
+        key: "companyid",
+        label: { type: "custom", custom: label },
+        type: "text",
+        optional: true,
+        text: { maximum_length: 40, default_value: companyId || undefined },
+      }],
       locale: lang,
       success_url: success.toString(),
       cancel_url: cancel.toString(),
-    }, `ppi-domain-checkout-${o.id}`);
-    await patch(deps, o.id, { status: "checkout", stripe_session: session.id, with_pro: false });
-    await log(deps, o.id, "checkout", true, `payment page ${session.id}`);
+    }, `ppi-domain-checkout-pro-${o.id}-${n}`);
+    await patch(deps, o.id, { status: "checkout", stripe_session: session.id, with_pro: true });
+    await log(deps, o.id, "checkout", true, `payment page with Pro ${session.id}`);
     return reply(200, { url: session.url });
+  };
+  try {
+    return await open();
+  } catch (e) {
+    await paymentNotOpened(deps, o, made, failText(e));
+    if (e instanceof StripeError) return reply(502, { error: "stripe", message: e.message.slice(0, 200) });
+    throw e;
   }
+}
 
-  // Not on Pro: Pro and the domain in one payment (the domain is a one-time line).
-  if (!deps.prices.pro) return reply(503, { error: "not_configured" });
-  const companyId = String((details as { ico?: string } | null)?.ico ?? "").trim().slice(0, 40);
-  const label = String(body.company_id_label ?? "").replace(/[\x00-\x1f]/g, "").trim().slice(0, 100) || "Company ID";
-  const session = await stripe<{ id: string; url: string }>("POST", "/checkout/sessions", {
-    mode: "subscription",
-    customer,
-    customer_update: { name: "auto", address: "auto" },
-    line_items: [{ price: deps.prices.pro, quantity: 1 }, { ...domainLine, price_data: { ...domainLine.price_data } }],
-    client_reference_id: o.shop_id,
-    metadata,
-    subscription_data: { metadata: { shop_id: o.shop_id } },
-    automatic_tax: { enabled: true },
-    tax_id_collection: { enabled: true },
-    name_collection: { business: { enabled: true } },
-    billing_address_collection: "required",
-    custom_fields: [{
-      key: "companyid",
-      label: { type: "custom", custom: label },
-      type: "text",
-      optional: true,
-      text: { maximum_length: 40, default_value: companyId || undefined },
-    }],
-    locale: lang,
-    success_url: success.toString(),
-    cancel_url: cancel.toString(),
-  }, `ppi-domain-checkout-pro-${o.id}`);
-  await patch(deps, o.id, { status: "checkout", stripe_session: session.id, with_pro: true });
-  await log(deps, o.id, "checkout", true, `payment page with Pro ${session.id}`);
-  return reply(200, { url: session.url });
+interface Made {
+  invoice: string | null;
+  finalized: boolean;
+}
+
+/**
+ * The payment page could not be opened: nothing half-made stays at Stripe (a finalized invoice
+ * is voided, a draft deleted, an older payment page closed) and the order is "checked" again,
+ * so the shop can simply press "Zaplatiť" again (with new idempotency keys).
+ */
+async function paymentNotOpened(deps: Deps, o: Order, made: Made, reason: string) {
+  const stripe = deps.stripe;
+  if (stripe && made.invoice) {
+    const path = `/invoices/${encodeURIComponent(made.invoice)}`;
+    await (made.finalized ? stripe("POST", `${path}/void`) : stripe("DELETE", path)).catch(() => null);
+  }
+  if (stripe && o.stripe_session) {
+    await stripe("POST", `/checkout/sessions/${encodeURIComponent(o.stripe_session)}/expire`).catch(() => null);
+  }
+  await deps.db
+    .from("domain_orders")
+    .update({ status: "quoted", stripe_session: null, stripe_invoice: null, invoice_url: null, attempts: o.attempts + 1, updated_at: iso(deps) })
+    .eq("id", o.id)
+    .is("paid_at", null);
+  await log(deps, o.id, "checkout", false, `Payment page not opened: ${reason}`);
+}
+
+/** "Zrušiť objednávku": an unpaid order is given up (its Stripe page closed); a payment that still arrives is refunded. */
+async function cancelPaymentAction(deps: Deps, who: { authorization: string }, body: Json): Promise<Response> {
+  const id = String(body.order_id ?? "");
+  const o = UUID.test(id) ? await load(deps, id) : null;
+  if (!o || !(await member(deps, who.authorization, o.shop_id))) return reply(404, { error: "not_found" });
+  if (o.kind !== "bought" || !["quoted", "checkout"].includes(o.status) || o.paid_at) return reply(409, { error: "state" });
+  if (deps.stripe) {
+    if (o.stripe_session) await deps.stripe("POST", `/checkout/sessions/${encodeURIComponent(o.stripe_session)}/expire`).catch(() => null);
+    if (o.stripe_invoice) await deps.stripe("POST", `/invoices/${encodeURIComponent(o.stripe_invoice)}/void`).catch(() => null);
+  }
+  const { data } = await deps.db
+    .from("domain_orders")
+    .update({ status: "canceled", ended_at: iso(deps), next_attempt_at: null, updated_at: iso(deps) })
+    .eq("id", o.id)
+    .is("paid_at", null)
+    .select("id");
+  if (!data?.length) return reply(409, { error: "state" });
+  await log(deps, o.id, "canceled", true, "Canceled by the owner before paying");
+  return reply(200, { status: "canceled" });
 }
 
 /** Flow 14: the shop's own domain (Pro only). */
@@ -1851,12 +1914,16 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
         return await authCodeAction(deps, who, body);
       case "pro_price":
         return await proPriceAction(deps, who, body);
+      case "cancel_payment":
+        return await cancelPaymentAction(deps, who, body);
     }
     return reply(400, { error: "bad_request" });
   } catch (e) {
     console.error("domains:", action, failText(e).slice(0, 200));
     const status = e instanceof RegistrarError || e instanceof StripeError ? 502 : 500;
-    return reply(status, { error: e instanceof RegistrarError ? "registrar" : e instanceof StripeError ? "stripe" : "failed" });
+    // Stripe's and Websupport's own reasons hold no keys: the page may show them.
+    const message = e instanceof RegistrarError || e instanceof StripeError ? e.message.slice(0, 200) : undefined;
+    return reply(status, { error: e instanceof RegistrarError ? "registrar" : e instanceof StripeError ? "stripe" : "failed", message });
   }
 }
 

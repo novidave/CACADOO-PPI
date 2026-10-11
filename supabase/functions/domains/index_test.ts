@@ -396,9 +396,17 @@ function fakeVercel() {
 
 function fakeStripe(opts: { card?: string | null; payFails?: boolean; renewalPaid?: boolean } = {}) {
   const calls: { method: string; path: string; params: Params; key?: string }[] = [];
+  // A Stripe error for the next call to this path (e.g. a price of the other mode, a missing tax address).
+  const fail = new Map<string, string>();
   const stripe = ((method: string, path: string, params: Params = {}, key?: string) => {
     calls.push({ method, path, params, key });
     const r = (v: unknown) => Promise.resolve(v);
+    const failure = fail.get(path);
+    if (failure) {
+      fail.delete(path);
+      return Promise.reject(new StripeError(`Stripe 400: ${failure}`, 400, "resource_missing"));
+    }
+    if (method === "DELETE") return r({ deleted: true });
     if (path === "/prices/price_pro") return r({ unit_amount: 2900, currency: "eur", recurring: { interval: "month", interval_count: 1 }, tax_behavior: "inclusive" });
     if (path.startsWith("/prices/")) return r({ product: "prod_domain" });
     if (path === "/customers") return r({ id: "cus_new" });
@@ -422,9 +430,10 @@ function fakeStripe(opts: { card?: string | null; payFails?: boolean; renewalPai
       });
     }
     if (path === "/refunds") return r({ id: "re_1" });
+    if (path.endsWith("/expire")) return r({ status: "expired" });
     return Promise.reject(new Error(`unexpected Stripe call ${method} ${path}`));
   }) as Stripe;
-  return { stripe, calls };
+  return { stripe, calls, fail };
 }
 
 function fakeFetch(w: World): typeof fetch {
@@ -747,6 +756,43 @@ Deno.test("Pay: 3-D Secure → Stripe's invoice page; no card → Checkout; no P
     newOrder(w, { shop_id: OTHER_SHOP, hostname: "davide.sk", status: "checkout" });
     const free = newOrder(w, { hostname: "davide.sk", status: "quoted" });
     eq((await post(deps, { action: "pay", order_id: free.id, return_url: RETURN, lang: "sk", accept_terms: true }))[1], { state: "in_use" }, "another shop is paying for the same name");
+  }
+});
+
+Deno.test("Pay fails at Stripe: the reason comes back, nothing stays half-made, a new try works; or the owner cancels", async () => {
+  {
+    const { w, deps, st } = setup();
+    const [, free] = await post(deps, { action: "check", shop_id: SHOP, domain: "davide.sk", return_url: RETURN });
+    st.fail.set("/invoices", "No such customer: 'cus_1'");
+    const [status, body] = await post(deps, { action: "pay", order_id: free.order_id, return_url: RETURN, lang: "sk", accept_terms: true });
+    eq([status, body], [502, { error: "stripe", message: "Stripe 400: No such customer: 'cus_1'" }], "the reason for the page");
+    const o = orderOf(w, free.order_id);
+    eq([o.status, o.attempts], ["quoted", 1], "checked again (no dead end in Čaká na platbu)");
+    assert((o.log as { detail: string }[]).some((l) => /Payment page not opened: Stripe 400: No such customer/.test(l.detail ?? "")), "logged");
+    // fixed: the next try opens with new keys and pays once
+    const [, paid] = await post(deps, { action: "pay", order_id: free.order_id, return_url: RETURN, lang: "sk", accept_terms: true });
+    eq(paid, { paid: true }, "paid on the second try");
+    eq(st.calls.filter((c) => c.key?.startsWith("ppi-domain-invoice-")).map((c) => c.key), [`ppi-domain-invoice-${free.order_id}-0`, `ppi-domain-invoice-${free.order_id}-1`], "the second try with a fresh idempotency key");
+  }
+  {
+    const { w, deps, st } = setup();
+    const [, free] = await post(deps, { action: "check", shop_id: SHOP, domain: "davide.sk", return_url: RETURN });
+    st.fail.set("/invoiceitems", "Customer has no valid tax location");
+    eq((await post(deps, { action: "pay", order_id: free.order_id, return_url: RETURN, lang: "sk", accept_terms: true }))[0], 502, "refused");
+    assert(st.calls.some((c) => c.method === "DELETE" && c.path === "/invoices/in_1"), "the draft invoice is deleted");
+    eq(orderOf(w, free.order_id).stripe_invoice, null, "no invoice left on the order");
+  }
+  {
+    const { w, deps, st } = setup({ card: null });
+    const [, free] = await post(deps, { action: "check", shop_id: SHOP, domain: "davide.sk", return_url: RETURN });
+    await post(deps, { action: "pay", order_id: free.order_id, return_url: RETURN, lang: "sk", accept_terms: true });
+    eq(orderOf(w, free.order_id).status, "checkout", "Stripe's page is open");
+    eq((await post(deps, { action: "cancel_payment", order_id: free.order_id }, "Bearer stranger"))[0], 404, "only the shop's owners");
+    eq((await post(deps, { action: "cancel_payment", order_id: free.order_id }))[1], { status: "canceled" }, "the owner gives it up");
+    assert(st.calls.some((c) => c.path === "/checkout/sessions/cs_1/expire"), "Stripe's page is closed");
+    eq(orderOf(w, free.order_id).status, "canceled", "a new name can be checked");
+    const paid = newOrder(w, { status: "paid", paid_at: isoAt(w) });
+    eq((await post(deps, { action: "cancel_payment", order_id: paid.id }))[0], 409, "a paid order is never canceled here");
   }
 });
 
