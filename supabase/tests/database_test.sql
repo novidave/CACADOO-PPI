@@ -3119,4 +3119,93 @@ end $$;
 reset role;
 drop table dom_test;
 
+\echo '--- booking link and product pages without other shops (update 26)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_shop jsonb := jsonb_build_object('id', (select id from public.shops where slug = 'potraviny-centrum'),
+    'name', 'Potraviny Centrum', 'timezone', 'Europe/Bratislava', 'country', 'SK', 'city', 'Michalovce',
+    'address', 'Námestie osloboditeľov 10', 'lat', '48.7547', 'lng', '21.9185', 'phone', '+421 56 000 0001',
+    'is_active', 'true', 'has_toilet', 'true', 'has_douchette', 'true', 'has_card_terminal', 'true',
+    'email', 'info@potraviny.sk', 'facebook_url', 'https://fb.com/potravinycentrum');
+  v_r text;
+begin
+  -- tidied like the other links: https:// added, http:// upgraded
+  perform public.owner_save_shop(v_shop || jsonb_build_object('booking_url', ' reservio.com/potraviny-centrum '));
+  assert (select booking_url from public.shops where id = v_a) = 'https://reservio.com/potraviny-centrum';
+  perform public.owner_save_shop(v_shop || jsonb_build_object('booking_url', 'http://www.bookio.com/potraviny?lang=sk#termin'));
+  assert (select booking_url from public.shops where id = v_a) = 'https://www.bookio.com/potraviny?lang=sk#termin';
+  perform public.owner_save_shop(v_shop || jsonb_build_object('booking_url', 'https://xn--rezervcia-x2a.sk/potraviny'));
+  assert (select booking_url from public.shops where id = v_a) = 'https://xn--rezervcia-x2a.sk/potraviny', 'an IDN host (punycode)';
+  -- a form without the field keeps it; an empty field removes it
+  perform public.owner_save_shop(v_shop);
+  assert (select booking_url from public.shops where id = v_a) = 'https://xn--rezervcia-x2a.sk/potraviny', 'kept when not sent';
+  perform public.owner_save_shop(v_shop || jsonb_build_object('booking_url', '  '));
+  assert (select booking_url from public.shops where id = v_a) is null, 'an empty field removes it';
+  -- only a web address of a real host
+  foreach v_r in array array['javascript:alert(1)', 'ftp://reservio.com/x', 'https://localhost/x', 'https://10.0.0.10/x',
+                             'https://reservio.com/a b', 'https://evil.com@reservio.com/x', 'https://reservio.com/"><script>',
+                             'data:text/html,hi', 'https://' || repeat('a', 490) || '.com'] loop
+    begin
+      perform public.owner_save_shop(v_shop || jsonb_build_object('booking_url', v_r));
+      raise exception 'bad booking link accepted: %', v_r;
+    exception when invalid_parameter_value then assert sqlerrm = 'booking', sqlerrm;
+    end;
+  end loop;
+  perform public.owner_save_shop(v_shop || jsonb_build_object('booking_url', 'https://calendly.com/potraviny-centrum/30min'));
+  begin
+    update public.shops set booking_url = 'javascript:alert(1)' where id = v_a;
+    raise exception 'bad booking link written directly';
+  exception when check_violation then null;
+  end;
+  begin
+    perform public.owner_save_shop(jsonb_build_object('id', v_b, 'name', 'x', 'booking_url', 'https://reservio.com/x'));
+    raise exception 'owner A saved shop B''s booking link';
+  exception when insufficient_privilege then null;
+  end;
+  assert (select booking_url from public.my_shops() where id = v_a) = 'https://calendly.com/potraviny-centrum/30min',
+    'the owner reads it back';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  assert (select booking_url from public.public_shops where slug = 'potraviny-centrum')
+         = 'https://calendly.com/potraviny-centrum/30min', 'the shop page reads the booking link';
+  assert (select booking_url from public.public_shops where slug = 'drogeria-kostolne') is null;
+  assert public.shop_stands_alone((select id from public_shops where slug = 'potraviny-centrum')), 'paid plan: no other shops';
+  assert not public.shop_stands_alone((select id from public_shops where slug = 'drogeria-kostolne')), 'free shop: other shops shown';
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_end timestamptz := (select current_period_end from public.subscriptions where shop_id = v_a);
+  v_o uuid;
+begin
+  -- a domain of its own being set up or live: no other shops either
+  insert into public.domain_orders (shop_id, kind, hostname, status) values (v_b, 'connected', 'drogeria26.sk', 'waiting_dns')
+  returning id into v_o;
+  assert public.shop_stands_alone(v_b), 'domain being connected';
+  update public.domain_orders set status = 'live' where id = v_o;
+  assert public.shop_stands_alone(v_b), 'domain live';
+  update public.domain_orders set status = 'canceled' where id = v_o;
+  assert not public.shop_stands_alone(v_b), 'a cancelled domain does not count';
+  update public.domain_orders set status = 'quoted' where id = v_o;
+  assert not public.shop_stands_alone(v_b), 'nor a price quote';
+  delete from public.domain_orders where id = v_o;
+  -- the plan ends: other shops come back
+  update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = v_a;
+  assert not public.shop_stands_alone(v_a), 'plan ended';
+  update public.subscriptions set current_period_end = v_end where shop_id = v_a;
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'

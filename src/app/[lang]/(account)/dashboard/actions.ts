@@ -129,6 +129,19 @@ export async function saveShop(formData: FormData) {
       fail("website");
     }
   }
+  // The booking app's address: written out as the browser reads it (https only; the
+  // database checks it again). Not sent before database update 26 has the column.
+  let booking = text(formData, "booking_url", 500);
+  if (booking && !/^[a-z][a-z0-9+.-]*:/i.test(booking)) booking = `https://${booking}`;
+  if (booking) {
+    try {
+      const url = new URL(booking.replace(/^http:\/\//i, "https://"));
+      if (url.protocol !== "https:" || url.username || url.password) throw new Error("booking");
+      booking = url.toString();
+    } catch {
+      fail("booking");
+    }
+  }
 
   const { data, error } = await session.supabase.rpc("owner_save_shop", {
     p: {
@@ -147,6 +160,7 @@ export async function saveShop(formData: FormData) {
       // Checked by the database (an e-mail address; a facebook.com or fb.com page).
       email: text(formData, "email", 254),
       facebook_url: text(formData, "facebook_url", 300),
+      ...(formData.has("booking_url") ? { booking_url: booking } : {}),
       opening_hours: sanitizeHours(formData.get("opening_hours")),
       is_active: formData.get("is_active") === "on",
       has_toilet: formData.get("has_toilet") === "on",
@@ -154,7 +168,7 @@ export async function saveShop(formData: FormData) {
       has_card_terminal: formData.get("has_card_terminal") === "on",
     },
   });
-  // A bad e-mail or Facebook link comes back as the message "email" / "facebook".
+  // A bad e-mail, Facebook or booking link comes back as the message "email" / "facebook" / "booking".
   if (error) fail(error.code === "54000" ? "limit" : error.message);
   const { data: saved } = await session.supabase.from("shops").select("slug").eq("id", String(data)).maybeSingle();
   redirect(

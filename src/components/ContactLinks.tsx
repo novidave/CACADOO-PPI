@@ -51,3 +51,39 @@ function FacebookIcon() {
     </svg>
   );
 }
+
+/**
+ * The shop's booking app (a link the owner added): a button that opens it in a new tab, with
+ * the app's address next to it so the visitor knows where it leads.
+ */
+export function BookingLink({ url, label }: { url: string | null; label: string }) {
+  if (!url) return null;
+  let host = "";
+  try {
+    host = new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener"
+      data-contact="booking"
+      className="inline-flex items-center gap-2 self-start rounded border border-foreground px-4 py-2 font-medium"
+    >
+      <CalendarIcon />
+      <span>{label}</span>
+      <span className="text-sm font-normal text-muted">{host}</span>
+    </a>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3.5" y="5" width="17" height="15" rx="1.5" />
+      <path d="M3.5 10h17M8 3v4M16 3v4" />
+    </svg>
+  );
+}

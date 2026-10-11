@@ -50,7 +50,8 @@
     "toilet": "Mosdó a vásárlóknak",
     "douchette": "Bidézuhany (douchette)",
     "card_terminal": "Bankkártyás fizetés (terminál)",
-    "facebook": "Facebook"
+    "facebook": "Facebook",
+    "booking": "Időpontfoglalás"
   },
   "item": {
     "brand": "Márka",
@@ -193,7 +194,9 @@
     "assistant_hint": "Csak egyszerű szöveg – a linkek, e-mail-címek és a HTML törlődnek. Üres mező = alapértelmezett szöveg az oldal nyelvén. Az üzenet úgy jelenik meg, ahogy megírja.",
     "assistant_needs_plan": "Saját gombszöveget és üdvözlő üzenetet a fizetős csomaggal rendelkező üzletek állíthatnak be (lásd Csomag).",
     "assistant_plan_only": "A fizetős csomag része",
-    "assistant_cleaned": "Mentve. A linkeket, e-mail-címeket és a HTML-t eltávolítottuk."
+    "assistant_cleaned": "Mentve. A linkeket, e-mail-címeket és a HTML-t eltávolítottuk.",
+    "booking": "Foglalási link",
+    "booking_hint": "Az üzlet oldala a foglalási alkalmazásban (pl. Reservio, Bookio, Calendly). Az üzlet oldalán „Időpontfoglalás” gomb jelenik meg."
   },
   "sync": {
     "title": "Exportmappa",
@@ -310,7 +313,8 @@
     "error_facebook": "Adja meg egy facebook.com vagy fb.com oldal linkjét, pl. https://www.facebook.com/azonuzlete.",
     "error_no_plan": "Ez a fizetős csomag része.",
     "private_columns_note": "Az itt ki nem választott oszlopok (pl. beszerzési ár, szállító, árrés) privátok: sehol nem jelennek meg, és nem kerülnek az asszisztenshez.",
-    "delete_summary": "Véglegesen törli az üzletet a PPI-ből"
+    "delete_summary": "Véglegesen törli az üzletet a PPI-ből",
+    "error_booking": "Adja meg a foglalási oldal webcímét, pl. https://reservio.com/azonuzlete."
   },
   "plan": {
     "title": "Csomag",
@@ -571,7 +575,7 @@
   },
   "imports": {
     "title": "Legutóbb feltöltött fájlok",
-    "intro": "Az utolsó 10 készletfájl. Koppintson egy kártyára a teljes jelentésért. Csak a jóváhagyott oszlopok látszanak.",
+    "intro": "Az utolsó 10 készletfájl. Koppintson egy kártyára – a gyors nézetben a teljes jelentés látszik, a nyilakkal a következő fájlra léphet. Csak a jóváhagyott oszlopok látszanak.",
     "none": "Még nem érkezett fájl.",
     "previous": "Előző",
     "next": "Következő",
@@ -583,7 +587,7 @@
     "skipped": "Kihagyott sorok: {n}",
     "imported_label": "Importált termékek",
     "skipped_label": "Kihagyott sorok",
-    "open_report": "Teljes jelentés",
+    "open_report": "Gyors nézet",
     "report_title": "Importálási jelentés",
     "close": "Bezárás",
     "file": "Fájl",
@@ -594,7 +598,10 @@
     "error": "Hiba",
     "preview": "Az első 5 sor pontosan úgy, ahogy a fájlban – csak a jóváhagyott oszlopok",
     "no_preview": "Az előnézet az oszlopok jóváhagyása után jelenik meg.",
-    "summary": "Utolsó fájl: {status} · {when}"
+    "summary": "Utolsó fájl: {status} · {when}",
+    "position": "{n}. fájl / {total}",
+    "newer": "Újabb",
+    "older": "Régebbi"
   },
   "privacy_assistant": {
     "title": "Adatvédelem az üzlet asszisztensében",

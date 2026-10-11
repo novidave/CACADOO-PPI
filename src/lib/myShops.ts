@@ -36,6 +36,8 @@ export interface MyShop {
   assistant_welcome: string | null;
   /** Every column name of the latest file (values only of the mapped columns are kept). */
   file_columns: string[] | null;
+  /** The shop's page in a booking app (database update 26; missing before it). */
+  booking_url?: string | null;
 }
 
 export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency"] as const;

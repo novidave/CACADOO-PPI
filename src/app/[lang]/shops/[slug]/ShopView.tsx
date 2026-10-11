@@ -13,7 +13,7 @@ import { DAYS, dayName, hasHours, openingHoursSpecification, rangesFor } from "@
 import { shopChatEnabled } from "@/lib/shopChat";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { freshnessText } from "@/lib/stock";
-import { ContactLinks } from "@/components/ContactLinks";
+import { BookingLink, ContactLinks } from "@/components/ContactLinks";
 import { JsonLd } from "@/components/JsonLd";
 import { OpenStatus } from "@/components/OpenStatus";
 import { ShopChat } from "@/components/ShopChat";
@@ -124,6 +124,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           )}
           <ContactLinks email={shop.email} facebookUrl={shop.facebook_url} facebookLabel={dict.shop.facebook} />
         </p>
+        <BookingLink url={shop.booking_url} label={dict.shop.booking} />
       </header>
 
       {assistant && (
@@ -271,6 +272,19 @@ function localBusiness(shop: PublicShop, lang: Locale, host: string | null) {
       : {}),
     ...(hasHours(shop.opening_hours) ? { openingHoursSpecification: openingHoursSpecification(shop.opening_hours) } : {}),
     ...(shop.has_card_terminal ? { paymentAccepted: "Cash, Credit Card, Debit Card" } : {}),
+    // The shop's booking app (the owner's link).
+    ...(shop.booking_url
+      ? {
+          potentialAction: {
+            "@type": "ReserveAction",
+            target: {
+              "@type": "EntryPoint",
+              urlTemplate: shop.booking_url,
+              actionPlatform: ["https://schema.org/DesktopWebPlatform", "https://schema.org/MobileWebPlatform"],
+            },
+          },
+        }
+      : {}),
     ...(shop.has_toilet || shop.has_douchette
       ? {
           amenityFeature: [

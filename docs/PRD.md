@@ -26,6 +26,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Conversation archive of the shop assistant (paid plan only): every conversation kept with its files (GPS removed) and made into a PDF; "Konverzácie asistenta" in My shop | Built and tested against Claude and Storage stand-ins; live after database update 22, the assistant-archive function and one secret (SETUP.md part O) |
 | Cloud folder for the archive (paid plan only): each finished conversation's PDF and files copied into the shop's own OneDrive or Dropbox; "Cloudový priečinok" in My shop | Built and tested against OneDrive, Dropbox and Brevo stand-ins; live after database update 23, the cloud-export function, the Microsoft and Dropbox app registrations and the secrets (SETUP.md part P) |
 | Access keys for shoppers (paid plan only): a valid key opens a private folder in the chat for 24 hours; its files open in a built-in viewer (pages with a watermark) or, when the owner allows, download one by one or as a ZIP; "Režim prístupu" and a key per folder in My shop; shoppers may download their own conversation as a PDF | Built and tested against Storage and Claude stand-ins; live after database update 24, three updated functions and the merge (SETUP.md part Q) |
+| Booking link (every shop): "Rezervovať termín" button on the shop page opening the shop's booking app; product pages of shops with a domain of their own show no other shops; quick view of the recently uploaded stock files | Built and tested; live after database update 26 and the merge (SETUP.md part S) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -156,12 +157,15 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
   with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
+- **Booking link** (update 26, every shop, optional): a "Rezervovať termín" button (calendar icon, the booking app's
+  address next to it, e.g. "reservio.com") that opens the shop's page in its booking app (Reservio, Bookio, Calendly,
+  its own booking page …) in a new tab (`rel="noopener"`). PPI only links to it; booking happens in that app.
 - Opening hours for the week in the shop's time zone, "Open now / Closes at / Opens at".
 - Facilities: customer toilet, douchette (bidet shower), card payment.
 - Stock freshness line, then the shop's public items: searchable in all three languages, 50 per page, name +
   translation, price and availability.
 - JSON-LD `Store` (address, geo, opening hours, phone, `email`, `sameAs` = website and Facebook page, logo,
-  `paymentAccepted`, `amenityFeature`).
+  `paymentAccepted`, `amenityFeature`, and with a booking link `potentialAction` = `ReserveAction` → the link).
 - **AI assistant** (only when the shop has the paid plan and the Anthropic key is set in Vercel): a collapsed box
   "Ask the shop's assistant" under the shop's details, in the page language — or the owner's own button label and
   welcome message (plain text, shown as written; empty = the default texts). The shopper can ask about the shop's
@@ -174,7 +178,9 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   projects, in the shopper's language, naming the source under the answer ("From: Katalóg 2026, page 4", with "Open
   PDF" when the owner allows downloads), and shows fitting pictures of the shop ("From: Projekty 2025, page 3"). A price
   from a document is shown apart from the shop's price ("Price in “Trade price list 2026”, page 2: 18,40 €"). When
-  neither the stock nor the documents answer, it says so and shows "Call the shop" with the phone number.
+  neither the stock nor the documents answer, it says so and shows "Call the shop" with the phone number. When the
+  shop has a booking link and the shopper wants an appointment, it points to the "Rezervovať termín" button (it never
+  promises a date or time).
 - **"Mám prístupový kľúč"** (under the chat, separate from it), or a message that is nothing but a valid key: opens the
   shop's private folders named by the key for 24 hours on this browser, or until the chat box closes or the page is
   left ("Prístup k priečinku <name> odomknutý", "Znova zamknúť"). A wrong key says "Nesprávny kľúč". The key is never
@@ -192,8 +198,9 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - Item name as the shop wrote it, its name in the page language under it, brand, EAN, price, availability with
   freshness, shop card with directions and "open now". The page title carries both names.
 - "Also available at": the same product (EAN) in other shops, nearest to this shop first (or "We did not find this
-  product in other shops."). **Not on product pages of shops with the paid plan** (`shop_has_plan`): no block, no
-  text, no other shops on the map or in the JSON-LD; the shop's own assistant never names other shops either. Shops
+  product in other shops."). **Not on product pages of shops with the paid plan or a domain of their own** (being set
+  up or live; `shop_stands_alone()`, update 26 — before it the plan alone): no block, no text, no other shops on the map
+  or in the JSON-LD; the shop's own assistant never names other shops either. The same on the shop's own domain. Shops
   without the plan and the main search work as before.
 - JSON-LD `Product` (translation as `alternateName`) with an `Offer` (price, currency, availability) only when the
   shop is not stale.
@@ -221,7 +228,8 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 - **Add your shop** (shown when the account has none, or via "+ Add another shop"): name, street, town, country (two
   letters), time zone, phone, company ID, website, location on the map, opening hours (several ranges per day),
-  facilities, contact e-mail and Facebook page (optional; only facebook.com / fb.com links), "Visible to shoppers"
+  facilities, contact e-mail and Facebook page (optional; only facebook.com / fb.com links), booking link (optional,
+  "Odkaz na rezervácie": the shop's page in a booking app; https only, a bare address gets https://), "Visible to shoppers"
   (ticked by default). The page address is made from name and town and made unique.
   At most 5 shops per account. After creating: three next steps are shown.
 - Every main section is a **dropdown** with its heading and a one-line summary while closed ("Last upload: today
@@ -239,8 +247,10 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - **Recently uploaded files** (page Export folder): a card per received stock file, the last 10 (swipe on a phone, arrows on a computer):
   file name, date and time, products imported, rows skipped, status (OK / errors / waiting for column approval) and
   the first 5 rows exactly as in the file — approved columns only, never a private column (no preview before the
-  columns are approved). A tap shows the full import report (received, file time, rows in the file, imported, set to
-  sold out, skipped, error, preview).
+  columns are approved). A tap on a card (or "Rýchly náhľad") opens the **quick view**: the file's full import report
+  (received, file time, rows in the file, imported, set to sold out, skipped, error, the 5-row preview) as a
+  slideshow over the 10 files, newest first — "Súbor 3 z 10", "← Novší" / "Starší →", the ← → keys or a swipe on a
+  phone, Esc or "Zavrieť" closes it (full screen on a phone).
 - **Stock file columns:** after the first file, one drop-down per field (item code, name, EAN, brand, quantity, price,
   currency) listing every column name of the file, pre-filled with the proposal, next to the file's first rows (before
   approval 3 rows without the columns whose name points to purchase price, supplier, margin or invoice; after it only
@@ -655,11 +665,11 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
   `ALERT_EMAIL_FROM` nothing is sent, the log says so, and the flow goes on.
 - Payment never affects search ranking.
 
-## 7. Data model (after database update 25)
+## 7. Data model (after database update 26)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
-| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
+| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
 | `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |
 | `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `updated_at`, `name_lang`, `name_i18n` (`{"sk","hu","en"}`), `translated_name_source`, `name_i18n_by_owner` | Unique per shop + code; names searchable through one trigram index over the original and the three translations. Every item of an active shop is public (`is_public` dropped by migration 21) |
@@ -701,7 +711,7 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
 
 | Data | Visitor | Shop owner | Stock-pull function |
 | --- | --- | --- | --- |
-| Shops | active shops (public fields, incl. e-mail, Facebook page and the assistant texts) | own shops: details through `owner_save_shop()`, the assistant texts through `owner_set_assistant_texts()` (paid plan), logo directly (never the page address); delete through `owner_delete_shop()` | read |
+| Shops | active shops (public fields, incl. e-mail, Facebook page, booking link and the assistant texts) | own shops: details through `owner_save_shop()`, the assistant texts through `owner_set_assistant_texts()` (paid plan), logo directly (never the page address); delete through `owner_delete_shop()` | read |
 | Items (names, codes, EAN, translations) | items of active shops | own items: read, correct the translation (`owner_set_item_translation()`); no way to hide an item | write (stock and machine translations) |
 | Stock (quantity, price) | only through `public_stock` / `search_stock` / `shop_stock`: the quantity as in the file and its label, nothing for stale shops | own stock (`owner_items()`) | write |
 | Import reports (`stock_imports`) | none | own shops' reports (read) | writes them (`record_stock_import()`, keeps the last 10) |
@@ -781,7 +791,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - The site runs on `cacadooppivercel.vercel.app`; an own domain for PPI itself is still to come (shops can have theirs: 6.13).
 - **Paid plan in test mode.** Stripe runs with test keys (test cards only) until it is switched to live; the shop
   assistant, its texts, its documents and hiding other shops on product pages are the features that check
-  `shop_has_plan()` so far. If Stripe cannot reach the webhook, the plan
+  `shop_has_plan()` so far (other shops are also hidden while a domain of the shop's own is being set up or live). If Stripe cannot reach the webhook, the plan
   shows late (Stripe retries for up to three days) and, past the paid period, counts as not paid until the event arrives.
 - **AI limits can be used up by others.** The AI search's daily total and the shop assistant's monthly cap are counted
   by database functions that the website calls with the public key; someone calling them directly could use up a
@@ -850,6 +860,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
       the Stripe webhook; Websupport, Vercel and domain secrets set; price table and test domain filled in; a test-mode
       purchase and a connected domain reached "Beží"; then `REGISTRAR_MODE=live` and enough Websupport credit (SETUP.md
       part R)
+- [ ] Booking link and other shops hidden with a domain: database update 26 pasted (SETUP.md part S)
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
 - [x] Stale shops show no stock on every page, in the API and in MCP
@@ -874,3 +885,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-10 | Cloud folder: each finished conversation (PDF + files) copied into the shop's OneDrive or Dropbox; status per conversation, "Uložiť znova", older conversations, e-mail after 24 hours of failures |
 | 2026-10-10 | Access keys for shoppers: unlock in the chat (also by typing the key), viewer with watermarked pages, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, downloads and ZIP (20 per session), a key per folder, counts; the shopper's own conversation PDF |
 | 2026-10-11 | Own domains for Pro shops: buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one the shop already has; the shop page served on its own domain; renewals, transfer code, admin page "Predplatné a domény" |
+| 2026-10-11 | Booking link on the shop page ("Rezervovať termín", every shop); no other shops on product pages of shops with a domain of their own; quick view (slideshow) of the recently uploaded stock files |

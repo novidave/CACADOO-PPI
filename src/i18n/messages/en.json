@@ -50,7 +50,8 @@
     "toilet": "Customer toilet",
     "douchette": "Douchette (bidet shower)",
     "card_terminal": "Card payment (card terminal)",
-    "facebook": "Facebook"
+    "facebook": "Facebook",
+    "booking": "Book an appointment"
   },
   "item": {
     "brand": "Brand",
@@ -193,7 +194,9 @@
     "assistant_hint": "Plain text only – links, e-mail addresses and HTML are removed. Empty = the default text in the page's language. The message is shown as you write it.",
     "assistant_needs_plan": "Shops with the paid plan can set their own button label and welcome message (see Plan).",
     "assistant_plan_only": "Part of the paid plan",
-    "assistant_cleaned": "Saved. Links, e-mail addresses and HTML were removed."
+    "assistant_cleaned": "Saved. Links, e-mail addresses and HTML were removed.",
+    "booking": "Booking link",
+    "booking_hint": "Your page in a booking app (e.g. Reservio, Bookio, Calendly). The shop page shows a “Book an appointment” button."
   },
   "sync": {
     "title": "Export folder",
@@ -310,7 +313,8 @@
     "error_facebook": "Enter a link to a page on facebook.com or fb.com, e.g. https://www.facebook.com/yourshop.",
     "error_no_plan": "This is part of the paid plan.",
     "private_columns_note": "Columns you don't choose here (e.g. purchase price, supplier, margin) are private: never shown anywhere and never sent to the assistant.",
-    "delete_summary": "Removes the shop from PPI for good"
+    "delete_summary": "Removes the shop from PPI for good",
+    "error_booking": "Enter the web address of your booking page, e.g. https://reservio.com/yourshop."
   },
   "plan": {
     "title": "Plan",
@@ -571,7 +575,7 @@
   },
   "imports": {
     "title": "Recently uploaded files",
-    "intro": "The last 10 stock files. Tap a card for the full report. Only the approved columns are shown.",
+    "intro": "The last 10 stock files. Tap a card: the quick view shows the full report, and the arrows take you to the next file. Only the approved columns are shown.",
     "none": "No file has arrived yet.",
     "previous": "Previous",
     "next": "Next",
@@ -583,7 +587,7 @@
     "skipped": "Rows skipped: {n}",
     "imported_label": "Products imported",
     "skipped_label": "Rows skipped",
-    "open_report": "Full report",
+    "open_report": "Quick view",
     "report_title": "Import report",
     "close": "Close",
     "file": "File",
@@ -594,7 +598,10 @@
     "error": "Error",
     "preview": "The first 5 rows exactly as in the file – approved columns only",
     "no_preview": "The preview appears once the columns are approved.",
-    "summary": "Last file: {status} · {when}"
+    "summary": "Last file: {status} · {when}",
+    "position": "File {n} of {total}",
+    "newer": "Newer",
+    "older": "Older"
   },
   "privacy_assistant": {
     "title": "Privacy in the shop assistant",

@@ -42,6 +42,7 @@ const shop = {
     country: { type: ["string", "null"] }, lat: { type: ["number", "null"] }, lng: { type: ["number", "null"] }, timezone: { type: "string" },
     phone: { type: ["string", "null"] }, website: { type: ["string", "null"] },
     email: { type: ["string", "null"] }, facebook_url: { type: ["string", "null"], description: "The shop's Facebook page" },
+    booking_url: { type: ["string", "null"], format: "uri", description: "The shop's page in a booking app (appointments), https" },
     opening_hours: { type: ["object", "null"], description: '{"mon":[["08:00","17:00"]],...} in the shop\'s time zone' },
     open_now: { type: ["boolean", "null"] },
     facilities: { type: "object", properties: { customer_toilet: { type: "boolean" }, douchette: { type: "boolean" }, card_payment: { type: "boolean" } } },
