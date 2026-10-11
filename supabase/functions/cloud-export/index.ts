@@ -534,7 +534,7 @@ export function dropbox(env: { appKey?: string; appSecret?: string }, f: Fetch =
 
 /** Dropbox-API-Arg is an HTTP header: JSON with every non-ASCII character escaped. */
 export function dropboxArg(value: unknown): string {
-  return JSON.stringify(value).replace(/[\u007f-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  return JSON.stringify(value).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
 // ---------------------------------------------------------------- dependencies

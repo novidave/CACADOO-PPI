@@ -875,7 +875,9 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   download and a ZIP after 20 refused; a revoked key or a locked session sees nothing; one unlock counted; the
   shopper's own PDF only with its token, only its messages, not when turned off; the 12-hour session check of update
   20 now expects 24 hours and a private file's download follows the access rule.
-- `npm run test:functions`: 99 Deno tests — 19 of `cloud-export` (tokens encrypted, bound to shop and use, refused when
+- `npm run test:functions`: 100 Deno tests — 1 checks that every function can be pasted into the Supabase editor
+  as it is (no invisible or special characters written straight into the code: they can change on the way and stop
+  the function from starting; write them as `\u…` escapes); 19 of `cloud-export` (tokens encrypted, bound to shop and use, refused when
   changed or with another key; PKCE against RFC 7636; QuickXorHash and the Dropbox content hash against reference
   implementations, also over 1 MB / 9 MB; names and paths safe for both clouds, share links and `..` refused, month
   rollover in another time zone; for OneDrive and Dropbox against in-memory stand-ins that refuse any delete or replace:

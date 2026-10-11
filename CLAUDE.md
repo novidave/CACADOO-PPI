@@ -51,6 +51,8 @@ always an extra — every page must work and show its data without it.
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook
+  — and `paste_safe_test.ts`: the owner pastes every `index.ts` into the Supabase editor, so write invisible or special
+  characters (U+FFFF, BOM, no-break space, zero-width) as `\u…` escapes, never literally.
 
 ## AI access
 

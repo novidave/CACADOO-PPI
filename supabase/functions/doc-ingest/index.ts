@@ -89,7 +89,7 @@ export function cleanText(text: string): string {
   return text
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
-    .replace(/[ \t ]+$/gm, "")
+    .replace(/[ \t\u00a0]+$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
