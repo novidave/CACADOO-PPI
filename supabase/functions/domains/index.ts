@@ -1738,6 +1738,21 @@ async function authCodeAction(deps: Deps, who: { authorization: string }, body: 
   return reply(200, { auth_code: null, requested: true });
 }
 
+/** The Pro price (from Stripe, STRIPE_PRICE_PRO), shown next to the domain to a shop without Pro. */
+async function proPriceAction(deps: Deps, who: { authorization: string }, body: Json): Promise<Response> {
+  if (!(await member(deps, who.authorization, String(body.shop_id ?? "")))) return reply(403, { error: "not_member" });
+  if (!deps.stripe || !deps.prices.pro) return reply(503, { error: "not_configured" });
+  const price = await deps.stripe<{ unit_amount?: number | null; currency?: string; recurring?: { interval?: string; interval_count?: number } | null; tax_behavior?: string | null }>(
+    "GET", `/prices/${encodeURIComponent(deps.prices.pro)}`);
+  return reply(200, {
+    cents: price.unit_amount ?? null,
+    currency: (price.currency ?? "eur").toUpperCase(),
+    interval: price.recurring?.interval ?? null,
+    interval_count: price.recurring?.interval_count ?? 1,
+    vat_included: price.tax_behavior === "inclusive" ? true : price.tax_behavior === "exclusive" ? false : null,
+  });
+}
+
 // ---------------------------------------------------------------- admin
 
 async function isAdmin(deps: Deps, authorization: string): Promise<boolean> {
@@ -1827,6 +1842,8 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
         return await disconnectAction(deps, who, body);
       case "auth_code":
         return await authCodeAction(deps, who, body);
+      case "pro_price":
+        return await proPriceAction(deps, who, body);
     }
     return reply(400, { error: "bad_request" });
   } catch (e) {

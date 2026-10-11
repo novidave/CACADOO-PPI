@@ -388,6 +388,7 @@ function fakeStripe(opts: { card?: string | null; payFails?: boolean; renewalPai
   const stripe = ((method: string, path: string, params: Params = {}, key?: string) => {
     calls.push({ method, path, params, key });
     const r = (v: unknown) => Promise.resolve(v);
+    if (path === "/prices/price_pro") return r({ unit_amount: 2900, currency: "eur", recurring: { interval: "month", interval_count: 1 }, tax_behavior: "inclusive" });
     if (path.startsWith("/prices/")) return r({ product: "prod_domain" });
     if (path === "/customers") return r({ id: "cus_new" });
     if (path.startsWith("/customers/")) return r({ invoice_settings: { default_payment_method: opts.card ?? null } });
@@ -913,4 +914,6 @@ Deno.test("Callers: cron secret, owners only for their shop, admin actions only 
   eq((await post(deps, { action: "admin_save_auth_code", order_id: o.id, auth_code: "XYZ-1" }, "Bearer admin"))[1], { saved: true }, "the admin saves a code");
   eq(o.auth_code, "XYZ-1", "kept for the shop");
   eq((await post(deps, { action: "auth_code", order_id: o.id }, "Bearer stranger"))[0], 404, "never another shop's code");
+  eq((await post(deps, { action: "pro_price", shop_id: SHOP }))[1], { cents: 2900, currency: "EUR", interval: "month", interval_count: 1, vat_included: true }, "the Pro price from Stripe");
+  eq((await post(deps, { action: "pro_price", shop_id: SHOP }, "Bearer stranger"))[0], 403, "owners only");
 });
