@@ -665,6 +665,26 @@ Deno.test("Dropbox: a missing permission is named (400 text or 401 missing_scope
   await rejects(() => db.stat("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "auth", "an expired sign-in is still renewed");
 });
 
+Deno.test("Microsoft: the reason number is kept; a redirect address outside the Web platform is named", async () => {
+  let answer = { error: "", error_description: "" };
+  const f: typeof fetch = () => Promise.resolve(new Response(JSON.stringify(answer), { status: 400, headers: { "Content-Type": "application/json" } }));
+  const od = oneDrive({ clientId: "od-client", clientSecret: "od-secret" }, f);
+  answer = {
+    error: "invalid_request",
+    error_description: "AADSTS9002327: Tokens issued for the 'Single-Page Application' client-type may only be redeemed via cross-origin requests. Trace ID: 1",
+  };
+  await rejects(() => od.exchange("code", "verifier", "https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive"),
+    (e) => e instanceof CloudError && e.kind === "platform" && /AADSTS9002327/.test(e.message), "registered as a single-page app");
+  answer = { error: "invalid_client", error_description: "AADSTS700025: Client is public so neither 'client_assertion' nor 'client_secret' should be presented." };
+  await rejects(() => od.exchange("code", "verifier", "x"), (e) => e instanceof CloudError && e.kind === "platform", "registered as a public client");
+  answer = { error: "invalid_client", error_description: "AADSTS7000215: Invalid client secret provided." };
+  await rejects(() => od.exchange("code", "verifier", "x"), (e) => e instanceof CloudError && e.kind === "app" && /AADSTS7000215/.test(e.message),
+    "a wrong secret keeps its number");
+  answer = { error: "invalid_request", error_description: "AADSTS90014: The required field 'scope' is missing." };
+  await rejects(() => od.exchange("code", "verifier", "x"), (e) => e instanceof CloudError && e.kind === "other" && /invalid_request AADSTS90014/.test(e.message),
+    "any other refusal: the code and the number in the log");
+});
+
 Deno.test("The provider's answer: tokens encrypted, the folder made, back to Môj obchod; a state works once", async () => {
   for (const provider of ["onedrive", "dropbox"] as Provider[]) {
     const cloud = fakeClouds();
@@ -704,6 +724,19 @@ Deno.test("The provider's answer: tokens encrypted, the folder made, back to Mô
     const res = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/${provider}?code=${provider}-code&state=${st}`), wrong.deps);
     eq(res.headers.get("Location"), `${RETURN}&err=cloud_app_${provider}#cloud`, `${provider}: a wrong app secret is named`);
     assert(!wrong.log.some((l) => l.startsWith("rpc cloud_connection_save")), `${provider}: nothing saved`);
+  }
+  // Microsoft: the redirect address registered as a single-page app → the owner is told to use "Web".
+  {
+    const spa = fakes(cloud, {});
+    const refuse: typeof fetch = (input, init) =>
+      String(input).includes("/oauth2/v2.0/token")
+        ? Promise.resolve(new Response(JSON.stringify({ error: "invalid_request", error_description: "AADSTS9002327: Tokens issued for the 'Single-Page Application' client-type may only be redeemed via cross-origin requests." }), { status: 400 }))
+        : cloud.fetch(input, init);
+    spa.deps.adapters = { ...adaptersFor(cloud.fetch), onedrive: oneDrive({ clientId: "od-client", clientSecret: "od-secret" }, refuse) };
+    const [, started] = await call(spa.deps, { action: "connect", shop_id: SHOP, provider: "onedrive", return_url: RETURN });
+    const st = new URL(started.url).searchParams.get("state")!;
+    const res = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive?code=onedrive-code&state=${st}`), spa.deps);
+    eq(res.headers.get("Location"), `${RETURN}&err=cloud_platform_onedrive#cloud`, "the Web platform is named");
   }
   // The Dropbox app lacks "files.content.write": Dropbox answers 400 in plain text; the owner is told what to tick.
   {

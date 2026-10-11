@@ -679,7 +679,10 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
    aplikácie" (or Microsoft) after "Allow": `DROPBOX_APP_SECRET` (or `ONEDRIVE_CLIENT_SECRET`) is not the secret of
    the same app as the key/ID — paste it again in Supabase → Secrets and connect again (no redeploy needed).
    "Dropbox aplikácii chýba povolenie": step 5 — Permissions → tick `files.metadata.read` and `files.content.write` →
-   **Submit**, then connect again and Allow (Dropbox grants new permissions only on a new Allow). Vercel → Logs → search
+   **Submit**, then connect again and Allow (Dropbox grants new permissions only on a new Allow).
+   "Microsoft odmietol prihlásenie: … platformou „Web“" (log: `AADSTS9002327` or `AADSTS700025`): step 4 — the
+   redirect address must be under **Web**, not "Single-page application" or "Mobile and desktop applications"
+   (Authentication → remove it there → Add a platform → Web), and "Allow public client flows" = No. Vercel → Logs → search
    `cloud-export: Supabase refused` shows the same with the HTTP status.
 
 ---

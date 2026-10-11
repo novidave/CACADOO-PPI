@@ -736,6 +736,7 @@
     "error_app_onedrive": "Microsoft odmietol tajný kľúč aplikácie (možno vypršal). V Supabase → Edge Functions → Secrets nastavte ONEDRIVE_CLIENT_SECRET na „Value“ nového client secret (Microsoft Entra → App registrations → Certificates & secrets) a pripojte znova.",
     "error_scope_dropbox": "Dropbox aplikácii chýba povolenie (zápis súborov). dropbox.com/developers/apps → vaša aplikácia → Permissions → zaškrtnite files.metadata.read a files.content.write → Submit. Potom znova Pripojiť Dropbox a Povoliť.",
     "error_scope_onedrive": "OneDrive aplikácii chýba povolenie. V Microsoft Entra → App registrations → API permissions pridajte Files.ReadWrite a offline_access, potom znova Pripojiť OneDrive.",
+    "error_platform_onedrive": "Microsoft odmietol prihlásenie: presmerovacia adresa musí byť pod platformou „Web“. Microsoft Entra → App registrations → Cacadoo PPI → Authentication: adresu …/cloud-export/oauth/onedrive odstráňte zo „Single-page application“ (alebo „Mobile and desktop“), pridajte ju cez Add a platform → Web, „Allow public client flows“ = No → Save. Potom znova Pripojiť OneDrive.",
     "error_folder": "Do tohto priečinka sa nedá uložiť (v ceste je súbor s rovnakým názvom). Vyberte iný.",
     "error_bad_folder": "Napíšte cestu k priečinku, napr. /Cacadoo/Obchod.",
     "error_not_configured": "Pripojenie cloudu ešte nie je nastavené (chýbajú kľúče aplikácie v Supabase).",

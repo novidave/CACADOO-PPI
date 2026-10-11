@@ -234,9 +234,10 @@ export function conversationFolder(target: string, startedAt: string, timeZone: 
 
 /**
  * "app": the provider refused the app's own ID or secret (the Supabase secrets are wrong);
- * "scope": the app lacks a permission (Dropbox: the Permissions tab of the app).
+ * "scope": the app lacks a permission (Dropbox: the Permissions tab of the app);
+ * "platform": Microsoft: the redirect address is not under the "Web" platform of the app.
  */
-export type ErrorKind = "auth" | "expired" | "throttled" | "quota" | "conflict" | "not_folder" | "app" | "scope" | "other";
+export type ErrorKind = "auth" | "expired" | "throttled" | "quota" | "conflict" | "not_folder" | "app" | "scope" | "platform" | "other";
 
 /** What went wrong at the cloud; `message` is safe to show the owner (never a token). */
 export class CloudError extends Error {
@@ -297,11 +298,19 @@ async function body(res: Response): Promise<Record<string, unknown>> {
 async function tokenError(res: Response, name: string): Promise<never> {
   const data = await body(res);
   const code = String(data.error ?? "");
-  if (code === "invalid_grant") throw new CloudError("expired", `${name}: the connection has expired`);
-  if (code === "invalid_client" || code === "unauthorized_client") {
-    throw new CloudError("app", `${name}: the app's ID or secret in Supabase is not valid`);
+  // Microsoft's reason number ("AADSTS9002327: …"); the description holds no token or secret.
+  const reason = /AADSTS\d+/.exec(String(data.error_description ?? ""))?.[0] ?? "";
+  // The redirect address registered as "Single-page application" (9002327) or as a public
+  // "Mobile and desktop" client (700025): our server-side sign-in needs the "Web" platform.
+  if (reason === "AADSTS9002327" || reason === "AADSTS700025") {
+    throw new CloudError("platform", `${name}: the redirect address must be under the Web platform (${reason})`);
   }
-  throw new CloudError(res.status === 429 ? "throttled" : "other", `${name}: sign-in failed (${code || res.status})`, retryAfter(res));
+  if (code === "invalid_grant") throw new CloudError("expired", `${name}: the connection has expired${reason ? ` (${reason})` : ""}`);
+  if (code === "invalid_client" || code === "unauthorized_client") {
+    throw new CloudError("app", `${name}: the app's ID or secret in Supabase is not valid${reason ? ` (${reason})` : ""}`);
+  }
+  const why = [code || String(res.status), reason].filter(Boolean).join(" ");
+  throw new CloudError(res.status === 429 ? "throttled" : "other", `${name}: sign-in failed (${why})`, retryAfter(res));
 }
 
 function tokens(data: Record<string, unknown>, keepRefresh: string | null = null): Tokens {
@@ -1015,7 +1024,9 @@ async function callback(req: Request, deps: Deps, provider: Provider): Promise<R
         ? `cloud_app_${provider}`
         : kind === "scope"
           ? `cloud_scope_${provider}`
-          : "cloud_failed";
+          : kind === "platform"
+            ? `cloud_platform_${provider}`
+            : "cloud_failed";
     return backTo(st.return_url, `err=${err}`);
   }
 }
