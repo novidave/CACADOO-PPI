@@ -150,6 +150,40 @@ Deno.test("other events and one-off payments are ignored", async () => {
   eq([calls.length, writes.length], [0, 0], "no calls, no writes");
 });
 
+Deno.test("domain payments: recorded once, the domains function woken; renewals recorded", async () => {
+  const ORDER = "99999999-2222-4333-8444-555555555555";
+  const woken: string[] = [];
+  const answers = ["recorded", "duplicate"];
+  const writes: Record<string, unknown>[] = [];
+  const db = {
+    rpc: (name: string, args: Record<string, unknown>) => {
+      writes.push({ name, ...args });
+      return Promise.resolve({ data: name === "domain_renewal_paid" ? true : answers.shift() ?? "duplicate", error: null });
+    },
+  } as unknown as SupabaseClient;
+  const { stripe, calls } = fakeStripe(activeSub());
+  const deps = { db, stripe, priceId: "price_pro", notifyDomains: (id: string) => { woken.push(id); return Promise.resolve(); } };
+
+  // Checkout (domain only, the shop is on Pro)
+  const session = { id: "cs_1", mode: "payment", payment_status: "paid", payment_intent: "pi_1", invoice: "in_1", metadata: { ppi_domain_order: ORDER, shop_id: SHOP } };
+  eq(await handleEvent({ id: "e1", type: "checkout.session.completed", data: { object: session } }, deps), `domain ${ORDER}: recorded`, "recorded");
+  eq(writes[0], { name: "domain_payment_received", p_id: ORDER, p_session: "cs_1", p_invoice: "in_1", p_payment_intent: "pi_1", p_invoice_url: null }, "what was paid");
+  // the same payment again (Stripe retries, and the invoice's own event)
+  eq(await handleEvent({ id: "e2", type: "invoice.paid", data: { object: { id: "in_1", hosted_invoice_url: "https://invoice.stripe.com/i/1", metadata: { ppi_domain_order: ORDER } } } }, deps),
+    `domain ${ORDER}: duplicate`, "a repeated payment changes nothing");
+  eq(woken, [ORDER], "the domains function is woken once");
+  eq(calls.length, 0, "no Stripe calls for a domain");
+
+  // a renewal paid on Stripe's page
+  eq(await handleEvent({ id: "e3", type: "invoice.paid", data: { object: { id: "in_r", metadata: { ppi_domain_renewal: ORDER } } } }, deps),
+    `domain renewal ${ORDER}: paid`, "renewal recorded");
+  eq(writes.at(-1), { name: "domain_renewal_paid", p_id: ORDER, p_invoice: "in_r" }, "renewal");
+
+  // unpaid sessions and foreign metadata are ignored
+  eq(await handleEvent({ id: "e4", type: "checkout.session.completed", data: { object: { ...session, payment_status: "unpaid" } } }, deps), "ignored: not a subscription", "not paid yet");
+  eq(await handleEvent({ id: "e5", type: "invoice.paid", data: { object: { id: "in_x", metadata: { ppi_domain_order: "not-a-uuid" } } } }, deps), "ignored: invoice.paid", "not ours");
+});
+
 Deno.test("receiveEvent: bad signature 400 and nothing written; database error 500 so Stripe tries again", async () => {
   const body = JSON.stringify({ id: "evt_9", type: "customer.subscription.updated", data: { object: { id: "sub_1", metadata: { shop_id: SHOP } } } });
   const forged = fakeDb();
