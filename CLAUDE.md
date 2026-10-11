@@ -208,10 +208,16 @@ bare; canonical = the own domain; payment never affects search ranking. `PlanDet
 - Assistant button label (≤ 40) and welcome text (≤ 300), paid plan: `owner_set_assistant_texts()`; the database keeps
   plain text only (`plain_text()`: no HTML, links or e-mail addresses); empty = NULL = the i18n default (`chat.title`,
   `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`).
-- Dashboard sections are `@/components/DashboardSection` dropdowns (heading + summary line; phone: only the first open;
-  remembered per device in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). Under "Export folder": files in
-  private folders (`PrivateFiles`, data from `loadShopDocs()`, Open via `/api/owner/files/{kind}/{id}` → `doc-ingest`
-  `open_file`, delete via `deleteDocOrPicture`) and "Recently uploaded files" (`@/components/RecentImports`, the last 10
+- Môj obchod is three pages (menu: Môj obchod · AI asistent · Priečinok s exportom · Predplatné a doména · Heslo; the
+  menu keeps `?shop=`): `/dashboard` (columns, details, logo, items, plan, delete), `/dashboard/assistant` "AI asistent"
+  (Shop assistant texts, Konverzácie asistenta, Cloudový priečinok, Dokumenty pre asistenta) and `/sync` "Priečinok s
+  exportom" (export folder + `FolderSync`, files in private folders, recently uploaded files). Which page holds a section:
+  `@/lib/dashboardPages` (`sectionUrl(lang, at, query)` for every form's way back; `/dashboard?at=<moved section>` is
+  forwarded there, e.g. cloud-export's `…/dashboard?at=cloud`). Shared messages/switcher/form parts:
+  `dashboard/shared.tsx`. Sections are `@/components/DashboardSection` dropdowns (heading + summary line; phone: only the
+  first open; remembered per device in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). Files in private
+  folders: `PrivateFiles` (data from `loadShopDocs()`, Open via `/api/owner/files/{kind}/{id}` → `doc-ingest`
+  `open_file`, delete via `deleteDocOrPicture`); recently uploaded files: `@/components/RecentImports` (the last 10
   `stock_imports` rows).
 
 ## Stock upload

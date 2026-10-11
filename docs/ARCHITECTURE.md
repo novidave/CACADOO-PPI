@@ -243,7 +243,13 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   Facebook page, approve columns, logo, translation correction, assistant texts, plan, delete) and `docActions.ts`;
   each form returns to its own section with its message. Every main section is a `components/DashboardSection.tsx`
   (`<details>` with heading and summary line; a phone starts with only the first open, a computer with all; the owner's
-  choice per section in `localStorage` key `ppi.dashboard.open`; `?at=`/`#` opens a section). Under "Export folder":
+  choice per section in `localStorage` key `ppi.dashboard.open`; `?at=`/`#` opens a section). Môj obchod is three pages:
+  `/dashboard` (columns, details, logo, items, plan, delete), `/dashboard/assistant` "AI asistent" (assistant texts,
+  `Conversations.tsx`, `CloudFolder.tsx`, `ShopDocuments.tsx`) and `/sync` "Priečinok s exportom" (export status +
+  `FolderSync`, private files, recent imports, one shop at a time with a switcher); `lib/dashboardPages.ts` says which
+  page holds a section (`sectionUrl` for every action's way back; `/dashboard?at=<moved>` forwards, so cloud-export's
+  return address `…/dashboard?at=cloud` still works); `dashboard/shared.tsx` has the messages, the shop switcher and
+  form parts; `AccountNav` keeps `?shop=` between the shop pages. On "Priečinok s exportom":
   `PrivateFiles.tsx` (files of private folders, from the same `loadShopDocs()` data as "Documents for the assistant";
   Open via `/api/owner/files`, Delete via `deleteDocOrPicture`) and `components/RecentImports.tsx` (the last 10
   `stock_imports` rows: scroll-snap cards, arrow buttons from 640 px, a tap shows the full report). The column

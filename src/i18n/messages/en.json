@@ -117,7 +117,9 @@
     "reload": "Try again",
     "sync": "Export folder",
     "password": "Password",
-    "plan_page": "Subscription and domain"
+    "plan_page": "Subscription and domain",
+    "assistant_page": "AI Assistant",
+    "assistant_page_intro": "The assistant on your shop page: its texts, the conversations with shoppers, the cloud folder and the documents it answers from."
   },
   "dashboard": {
     "shop": "Shop",

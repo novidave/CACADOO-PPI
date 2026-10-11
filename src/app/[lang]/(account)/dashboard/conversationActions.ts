@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { sectionUrl } from "@/lib/dashboardPages";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 
@@ -16,7 +17,7 @@ async function start(formData: FormData) {
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
   const back = (query: Record<string, string>) =>
-    redirect(`/${lang}/dashboard?${new URLSearchParams({ shop: slug, ...query, at: "conversations" })}#conversations`);
+    redirect(sectionUrl(lang, "conversations", { shop: slug, ...query }));
   return { lang, session, shopId, back };
 }
 

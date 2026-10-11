@@ -210,7 +210,12 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - **Log in** (`/login`) with e-mail and password. Clear messages for a wrong password or an unconfirmed e-mail.
 - **Forgot password** (`/forgot`): a reset link by e-mail (same answer whether the address exists or not); the link opens
   **Change password** (`/password`), which is also in the account menu.
-- The account menu: My shop · Export folder · Password · Sign out.
+- The account menu: My shop · AI Assistant · Export folder · Subscription and domain · Password · Sign out (the shop
+  pages keep the shop that is open). "My shop" holds the stock-file columns, details, logo, items, the plan and
+  deleting the shop; **AI Assistant** (`/[lang]/dashboard/assistant`) holds Shop assistant, Assistant conversations,
+  Cloud folder and Documents for the assistant; **Export folder** (`/[lang]/sync`, also the shop PC's window) holds
+  the export folder, Files in private folders and Recently uploaded files. Old links to a moved section open it on its
+  new page.
 
 ### 5.6 Owner dashboard — "My shop" (`/[lang]/dashboard`)
 
@@ -223,15 +228,15 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   14:20 · 152 products", "Approved – new files are applied automatically.", "Button: “…”", …). On a phone only the
   first section starts open, on a computer all of them; what the owner opens or closes is remembered on that device.
   The section a form was sent from opens with its message.
-- **Export folder** section:
+- **Export folder** section (page Export folder):
   - status: latest file time, Current/Recent/Stale, "PPI window on the shop PC last active", last file received, last
     error;
   - **Connect folder** (Edge/Chrome) and **Upload file** (any browser), with the result of each send;
   - the rules for the stock software's export (below) and a link to the full-screen `/sync` page.
-- **Files in private folders** (owner only): every PDF and picture of the shop's private folders with its name,
+- **Files in private folders** (page Export folder; owner only): every PDF and picture of the shop's private folders with its name,
   upload date, folder and "Access key: on/off" (on = a valid key opens that folder), **Open** (a 10-minute link, new
   tab) and **Delete** (as in Documents for the assistant).
-- **Recently uploaded files:** a card per received stock file, the last 10 (swipe on a phone, arrows on a computer):
+- **Recently uploaded files** (page Export folder): a card per received stock file, the last 10 (swipe on a phone, arrows on a computer):
   file name, date and time, products imported, rows skipped, status (OK / errors / waiting for column approval) and
   the first 5 rows exactly as in the file — approved columns only, never a private column (no preview before the
   columns are approved). A tap shows the full import report (received, file time, rows in the file, imported, set to
@@ -247,10 +252,10 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - **Items:** name (and its translation), code, price, quantity, what shoppers see ("12 in stock" / "Out of stock",
   exactly as in the file); search, 50 per page. **Correct the translation** per item (Slovak, Hungarian, English): a corrected item is never translated by
   machine again ("Translate automatically" hands it back); a note appears when the shop renames a corrected item.
-- **Shop assistant** (paid plan): the button label (up to 40 characters) and the welcome message shown when the
+- **Shop assistant** (page AI Assistant; paid plan): the button label (up to 40 characters) and the welcome message shown when the
   assistant opens (up to 300). Plain text only: HTML, links and e-mail addresses are removed (the owner is told);
   empty = the default texts in the page language. Without the plan the section only says it is part of the plan.
-- **Konverzácie asistenta** (paid plan; owners only, view only; see 6.10): how long conversations are kept (30, 90 or
+- **Konverzácie asistenta** (page AI Assistant; paid plan; owners only, view only; see 6.10): how long conversations are kept (30, 90 or
   365 days, default 90); search words (any message or its Slovak version) and a date range (in the shop's time zone);
   the list, newest first: date and time, the shopper's language, number of messages, a paperclip with the number of
   files, the first question; 20 per page. **Open** shows the whole conversation: every message with its time and
@@ -262,7 +267,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   "Renews on" or "Ends on" with the date in the shop's time zone. **Upgrade** opens the Stripe payment page; **Manage
   subscription** opens the Stripe customer portal (cancel, change card, invoices). After paying, the owner comes back to
   this section with a thank-you note. A hint asks for the company ID in Shop details first, so it is on the first invoice.
-- **Documents for the assistant** (paid plan; see 6.9): before the first upload a tick box ("Public folder: anyone can
+- **Documents for the assistant** (page AI Assistant; paid plan; see 6.9): before the first upload a tick box ("Public folder: anyone can
   see it. Private folder: anyone with a key can see it, and keys can be passed on. No personal data, and no photos of
   people without their consent."); what is used of the shop's limits; **Upload a PDF** (name, short description,
   folder; read in the browser with progress "Reading page 12 of 80…") and **Add pictures** (JPEG/PNG/WebP, title,
