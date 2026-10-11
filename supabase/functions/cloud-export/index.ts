@@ -235,16 +235,42 @@ export function conversationFolder(target: string, startedAt: string, timeZone: 
 /**
  * "app": the provider refused the app's own ID or secret (the Supabase secrets are wrong);
  * "scope": the app lacks a permission (Dropbox: the Permissions tab of the app);
- * "platform": Microsoft: the redirect address is not under the "Web" platform of the app.
+ * "platform": Microsoft: the redirect address is not under the "Web" platform of the app;
+ * "audience": Microsoft: the app does not let in this kind of account (its supported account types).
  */
-export type ErrorKind = "auth" | "expired" | "throttled" | "quota" | "conflict" | "not_folder" | "app" | "scope" | "platform" | "other";
+export type ErrorKind =
+  | "auth"
+  | "expired"
+  | "throttled"
+  | "quota"
+  | "conflict"
+  | "not_folder"
+  | "app"
+  | "scope"
+  | "platform"
+  | "audience"
+  | "other";
 
-/** What went wrong at the cloud; `message` is safe to show the owner (never a token). */
+/**
+ * What went wrong at the cloud; `message` is safe to show the owner (never a token), `reason`
+ * a short code the owner can pass on ("AADSTS90014", "invalid_request").
+ */
 export class CloudError extends Error {
-  constructor(readonly kind: ErrorKind, message: string, readonly retryAfter: number | null = null) {
+  constructor(
+    readonly kind: ErrorKind,
+    message: string,
+    readonly retryAfter: number | null = null,
+    readonly reason: string | null = null,
+  ) {
     super(message);
   }
 }
+
+/** Microsoft's answers that name the app's settings, not the owner (see tokenError). */
+const MS_PLATFORM = ["AADSTS9002327", "AADSTS700025"];
+const MS_AUDIENCE = ["AADSTS50194", "AADSTS9002331"];
+/** A reason code safe for an address and a page: letters, digits, "_", ".", "-". */
+const reasonCode = (text: string) => text.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 40);
 
 export interface Tokens {
   access: string;
@@ -302,15 +328,19 @@ async function tokenError(res: Response, name: string): Promise<never> {
   const reason = /AADSTS\d+/.exec(String(data.error_description ?? ""))?.[0] ?? "";
   // The redirect address registered as "Single-page application" (9002327) or as a public
   // "Mobile and desktop" client (700025): our server-side sign-in needs the "Web" platform.
-  if (reason === "AADSTS9002327" || reason === "AADSTS700025") {
-    throw new CloudError("platform", `${name}: the redirect address must be under the Web platform (${reason})`);
+  if (MS_PLATFORM.includes(reason)) {
+    throw new CloudError("platform", `${name}: the redirect address must be under the Web platform (${reason})`, null, reason);
+  }
+  // A single-tenant app (50194) or one for personal accounts only (9002331) cannot use /common.
+  if (MS_AUDIENCE.includes(reason)) {
+    throw new CloudError("audience", `${name}: the app's supported account types do not fit (${reason})`, null, reason);
   }
   if (code === "invalid_grant") throw new CloudError("expired", `${name}: the connection has expired${reason ? ` (${reason})` : ""}`);
   if (code === "invalid_client" || code === "unauthorized_client") {
     throw new CloudError("app", `${name}: the app's ID or secret in Supabase is not valid${reason ? ` (${reason})` : ""}`);
   }
   const why = [code || String(res.status), reason].filter(Boolean).join(" ");
-  throw new CloudError(res.status === 429 ? "throttled" : "other", `${name}: sign-in failed (${why})`, retryAfter(res));
+  throw new CloudError(res.status === 429 ? "throttled" : "other", `${name}: sign-in failed (${why})`, retryAfter(res), reason || code || String(res.status));
 }
 
 function tokens(data: Record<string, unknown>, keepRefresh: string | null = null): Tokens {
@@ -474,7 +504,7 @@ export function dropbox(env: { appKey?: string; appSecret?: string }, f: Fetch =
     const s = summary(data);
     if (/insufficient_space/.test(s)) throw new CloudError("quota", "Dropbox is full");
     const why = s.split("/").slice(0, 2).join("/") || String(data._text ?? "").replace(/^Error in call to API function "[^"]*":\s*/, "").slice(0, 120);
-    throw new CloudError("other", `Dropbox: ${what} failed (${status}${why ? `: ${why}` : ""})`);
+    throw new CloudError("other", `Dropbox: ${what} failed (${status}${why ? `: ${why}` : ""})`, null, s.split("/")[0] || `http${status}`);
   }
   const toItem = (d: Record<string, unknown>): RemoteItem => ({
     id: String(d.id ?? ""),
@@ -986,7 +1016,19 @@ async function callback(req: Request, deps: Deps, provider: Provider): Promise<R
   if (!st || st.provider !== provider) {
     return errorPage("Odkaz vypršal alebo už bol použitý. Zatvorte toto okno a skúste to znova v Môj obchod → Cloudový priečinok.");
   }
-  if (url.searchParams.get("error") || !url.searchParams.get("code")) return backTo(st.return_url, "err=cloud_denied");
+  const refused = url.searchParams.get("error");
+  if (refused && refused !== "access_denied") {
+    // Not the owner's "No": the provider refused the request itself (often the app's settings).
+    const reason = /AADSTS\d+/.exec(url.searchParams.get("error_description") ?? "")?.[0] ?? "";
+    console.error("cloud-export: sign-in refused", provider, reasonCode(refused), reason);
+    const err = MS_PLATFORM.includes(reason)
+      ? `cloud_platform_${provider}`
+      : MS_AUDIENCE.includes(reason)
+        ? `cloud_audience_${provider}`
+        : `cloud_failed:${reasonCode(reason || refused)}`;
+    return backTo(st.return_url, `err=${err}`);
+  }
+  if (refused || !url.searchParams.get("code")) return backTo(st.return_url, "err=cloud_denied");
   const adapter = deps.adapters[provider];
   try {
     if (!deps.tokenSecret || !adapter.configured()) throw new CloudError("other", "not set up");
@@ -1024,9 +1066,11 @@ async function callback(req: Request, deps: Deps, provider: Provider): Promise<R
         ? `cloud_app_${provider}`
         : kind === "scope"
           ? `cloud_scope_${provider}`
-          : kind === "platform"
-            ? `cloud_platform_${provider}`
-            : "cloud_failed";
+          : kind === "platform" || kind === "audience"
+            ? `cloud_${kind}_${provider}`
+            : e instanceof CloudError && e.reason
+              ? `cloud_failed:${reasonCode(e.reason)}`
+              : "cloud_failed";
     return backTo(st.return_url, `err=${err}`);
   }
 }
