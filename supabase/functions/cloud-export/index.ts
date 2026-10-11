@@ -232,7 +232,8 @@ export function conversationFolder(target: string, startedAt: string, timeZone: 
 
 // ---------------------------------------------------------------- the clouds
 
-export type ErrorKind = "auth" | "expired" | "throttled" | "quota" | "conflict" | "not_folder" | "other";
+/** "app": the provider refused the app's own ID or secret (the Supabase secrets are wrong). */
+export type ErrorKind = "auth" | "expired" | "throttled" | "quota" | "conflict" | "not_folder" | "app" | "other";
 
 /** What went wrong at the cloud; `message` is safe to show the owner (never a token). */
 export class CloudError extends Error {
@@ -287,7 +288,7 @@ async function tokenError(res: Response, name: string): Promise<never> {
   const code = String(data.error ?? "");
   if (code === "invalid_grant") throw new CloudError("expired", `${name}: the connection has expired`);
   if (code === "invalid_client" || code === "unauthorized_client") {
-    throw new CloudError("other", `${name}: the app's ID or secret in Supabase is not valid`);
+    throw new CloudError("app", `${name}: the app's ID or secret in Supabase is not valid`);
   }
   throw new CloudError(res.status === 429 ? "throttled" : "other", `${name}: sign-in failed (${code || res.status})`, retryAfter(res));
 }
@@ -984,7 +985,10 @@ async function callback(req: Request, deps: Deps, provider: Provider): Promise<R
     return backTo(st.return_url, "ok=cloud_connected");
   } catch (e) {
     console.error("cloud-export: connect failed", provider, e instanceof CloudError ? e.kind : "other", failText(e).slice(0, 120));
-    return backTo(st.return_url, e instanceof CloudError && e.kind === "not_folder" ? "err=cloud_folder" : "err=cloud_failed");
+    const kind = e instanceof CloudError ? e.kind : "other";
+    // The app's secret is wrong (its ID worked: the owner saw the consent page): say which one.
+    const err = kind === "not_folder" ? "cloud_folder" : kind === "app" ? `cloud_app_${provider}` : "cloud_failed";
+    return backTo(st.return_url, `err=${err}`);
   }
 }
 

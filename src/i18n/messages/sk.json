@@ -732,6 +732,8 @@
     "ok_retry": "Konverzáciu skúsime uložiť znova.",
     "error_denied": "Pripojenie ste nepotvrdili. Skúste to znova.",
     "error_failed": "Pripojenie sa nepodarilo. Skúste to znova.",
+    "error_app_dropbox": "Dropbox odmietol tajný kľúč aplikácie. V Supabase → Edge Functions → Secrets nastavte DROPBOX_APP_SECRET na „App secret“ z dropbox.com/developers/apps → vaša aplikácia → Settings (Show) a pripojte znova.",
+    "error_app_onedrive": "Microsoft odmietol tajný kľúč aplikácie (možno vypršal). V Supabase → Edge Functions → Secrets nastavte ONEDRIVE_CLIENT_SECRET na „Value“ nového client secret (Microsoft Entra → App registrations → Certificates & secrets) a pripojte znova.",
     "error_folder": "Do tohto priečinka sa nedá uložiť (v ceste je súbor s rovnakým názvom). Vyberte iný.",
     "error_bad_folder": "Napíšte cestu k priečinku, napr. /Cacadoo/Obchod.",
     "error_not_configured": "Pripojenie cloudu ešte nie je nastavené (chýbajú kľúče aplikácie v Supabase).",

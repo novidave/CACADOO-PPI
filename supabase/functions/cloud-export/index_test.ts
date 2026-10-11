@@ -312,7 +312,7 @@ Deno.test("OneDrive: consent URL with the narrowest scope and PKCE; folders and 
   await rejects(() => od.refresh("old"), (e) => e instanceof CloudError && e.kind === "expired", "a refresh token no longer valid");
   eq((await od.refresh("od-refresh-1")).refresh, "od-refresh-rotated", "Microsoft rotates refresh tokens");
   await rejects(() => oneDrive({ clientId: "od-client", clientSecret: "wrong" }, cloud.fetch).refresh("od-refresh-1"),
-    (e) => e instanceof CloudError && e.kind === "other", "a wrong app secret is not the owner's expired connection");
+    (e) => e instanceof CloudError && e.kind === "app", "a wrong app secret is not the owner's expired connection");
 
   const tk = "od-access-1";
   eq(await od.createFolder(tk, "/Cacadoo"), "created", "mkdir");
@@ -666,6 +666,19 @@ Deno.test("The provider's answer: tokens encrypted, the folder made, back to Mô
   const state = new URL(body.url).searchParams.get("state")!;
   const denied = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/dropbox?error=access_denied&state=${state}`), deps);
   eq(denied.headers.get("Location"), `${RETURN}&err=cloud_denied#cloud`, "the owner said no");
+  // A wrong app secret in Supabase: Dropbox refuses the code exchange (invalid_client); the owner is told which secret.
+  for (const provider of ["onedrive", "dropbox"] as Provider[]) {
+    const wrong = fakes(cloud, {});
+    wrong.deps.adapters = {
+      onedrive: oneDrive({ clientId: "od-client", clientSecret: "not-the-secret" }, cloud.fetch),
+      dropbox: dropbox({ appKey: "db-key", appSecret: "not-the-secret" }, cloud.fetch),
+    };
+    const [, started] = await call(wrong.deps, { action: "connect", shop_id: SHOP, provider, return_url: RETURN });
+    const st = new URL(started.url).searchParams.get("state")!;
+    const res = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/${provider}?code=${provider}-code&state=${st}`), wrong.deps);
+    eq(res.headers.get("Location"), `${RETURN}&err=cloud_app_${provider}#cloud`, `${provider}: a wrong app secret is named`);
+    assert(!wrong.log.some((l) => l.startsWith("rpc cloud_connection_save")), `${provider}: nothing saved`);
+  }
   const [, body2] = await call(deps, { action: "connect", shop_id: SHOP, provider: "dropbox", return_url: RETURN });
   const state2 = new URL(body2.url).searchParams.get("state")!;
   eq((await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive?code=x&state=${state2}`), deps)).status, 400,

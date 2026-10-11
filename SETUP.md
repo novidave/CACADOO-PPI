@@ -675,7 +675,9 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
    redirect_uri" means the address in step 4 or 5 differs from your project's. When Supabase refuses the call before
    the function runs, Môj obchod says which of these it is: "V Supabase nie je funkcia cloud-export" (step 2: the name
    must be exactly `cloud-export`), "… až po vypnutí „Verify JWT“" (step 2: switch it off → Save) or "Funkcia
-   cloud-export sa nespustila" (paste the whole file again → Deploy; its Logs say why). Vercel → Logs → search
+   cloud-export sa nespustila" (paste the whole file again → Deploy; its Logs say why). "Dropbox odmietol tajný kľúč
+   aplikácie" (or Microsoft) after "Allow": `DROPBOX_APP_SECRET` (or `ONEDRIVE_CLIENT_SECRET`) is not the secret of
+   the same app as the key/ID — paste it again in Supabase → Secrets and connect again (no redeploy needed). Vercel → Logs → search
    `cloud-export: Supabase refused` shows the same with the HTTP status.
 
 ---

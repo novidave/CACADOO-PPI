@@ -732,6 +732,8 @@
     "ok_retry": "We will try to save the conversation again.",
     "error_denied": "You did not confirm the connection. Try again.",
     "error_failed": "The connection did not work. Try again.",
+    "error_app_dropbox": "Dropbox refused the app's secret. In Supabase → Edge Functions → Secrets set DROPBOX_APP_SECRET to the \"App secret\" from dropbox.com/developers/apps → your app → Settings (Show), then connect again.",
+    "error_app_onedrive": "Microsoft refused the app's secret (it may have expired). In Supabase → Edge Functions → Secrets set ONEDRIVE_CLIENT_SECRET to the \"Value\" of a new client secret (Microsoft Entra → App registrations → Certificates & secrets), then connect again.",
     "error_folder": "This folder cannot be used (a file with the same name is in the path). Choose another one.",
     "error_bad_folder": "Type the folder's path, e.g. /Cacadoo/Shop.",
     "error_not_configured": "The cloud connection is not set up yet (the app keys are missing in Supabase).",
