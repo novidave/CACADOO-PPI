@@ -639,6 +639,32 @@ Deno.test("Connect: owners of a Pro shop only; a share link is explained; the st
   eq(url.searchParams.get("redirect_uri"), "https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive", "back to this function");
 });
 
+/** What Dropbox really answers when the app lacks a permission (HTTP 400, plain text). */
+const SCOPE_400 =
+  'Error in call to API function "files/create_folder_v2": Your app (ID: 1234567) is not permitted to access this endpoint ' +
+  "because it does not have the required scope 'files.content.write'. The owner of the app can enable the scope for the app " +
+  "using the Permissions tab on the App Console.";
+
+Deno.test("Dropbox: a missing permission is named (400 text or 401 missing_scope); other 400s keep Dropbox's reason", async () => {
+  const answers: Record<string, Response> = {};
+  const f: typeof fetch = (input) => Promise.resolve(answers[String(input).replace(/^https:\/\/[^/]+/, "")]);
+  const db = dropbox({ appKey: "db-key", appSecret: "db-secret" }, f);
+  answers["/2/files/create_folder_v2"] = new Response(SCOPE_400, { status: 400 });
+  await rejects(() => db.createFolder("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "scope" && /files\.content\.write/.test(e.message),
+    "400: the app lacks files.content.write");
+  answers["/2/files/get_metadata"] = new Response(
+    JSON.stringify({ error_summary: "missing_scope/..", error: { ".tag": "missing_scope", required_scope: "files.metadata.read" } }),
+    { status: 401, headers: { "Content-Type": "application/json" } },
+  );
+  await rejects(() => db.stat("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "scope" && /files\.metadata\.read/.test(e.message),
+    "401 missing_scope: the sign-in did not grant it");
+  answers["/2/files/create_folder_v2"] = new Response('Error in call to API function "files/create_folder_v2": request body: could not decode input as JSON', { status: 400 });
+  await rejects(() => db.createFolder("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "other" && /400: request body: could not decode/.test(e.message),
+    "another 400 keeps Dropbox's reason");
+  answers["/2/files/get_metadata"] = new Response(JSON.stringify({ error_summary: "expired_access_token/" }), { status: 401 });
+  await rejects(() => db.stat("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "auth", "an expired sign-in is still renewed");
+});
+
 Deno.test("The provider's answer: tokens encrypted, the folder made, back to Môj obchod; a state works once", async () => {
   for (const provider of ["onedrive", "dropbox"] as Provider[]) {
     const cloud = fakeClouds();
@@ -678,6 +704,18 @@ Deno.test("The provider's answer: tokens encrypted, the folder made, back to Mô
     const res = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/${provider}?code=${provider}-code&state=${st}`), wrong.deps);
     eq(res.headers.get("Location"), `${RETURN}&err=cloud_app_${provider}#cloud`, `${provider}: a wrong app secret is named`);
     assert(!wrong.log.some((l) => l.startsWith("rpc cloud_connection_save")), `${provider}: nothing saved`);
+  }
+  // The Dropbox app lacks "files.content.write": Dropbox answers 400 in plain text; the owner is told what to tick.
+  {
+    const noWrite = fakes(cloud, {});
+    const blocked: typeof fetch = (input, init) =>
+      String(input).includes("/2/files/create_folder_v2") ? Promise.resolve(new Response(SCOPE_400, { status: 400 })) : cloud.fetch(input, init);
+    noWrite.deps.adapters = { ...adaptersFor(cloud.fetch), dropbox: dropbox({ appKey: "db-key", appSecret: "db-secret" }, blocked) };
+    const [, started] = await call(noWrite.deps, { action: "connect", shop_id: SHOP, provider: "dropbox", folder: "/Nový priečinok", return_url: RETURN });
+    const st = new URL(started.url).searchParams.get("state")!;
+    const res = await handle(new Request(`https://p.supabase.co/functions/v1/cloud-export/oauth/dropbox?code=dropbox-code&state=${st}`), noWrite.deps);
+    eq(res.headers.get("Location"), `${RETURN}&err=cloud_scope_dropbox#cloud`, "a missing Dropbox permission is named");
+    assert(!noWrite.log.some((l) => l.startsWith("rpc cloud_connection_save")), "nothing saved without the permission");
   }
   const [, body2] = await call(deps, { action: "connect", shop_id: SHOP, provider: "dropbox", return_url: RETURN });
   const state2 = new URL(body2.url).searchParams.get("state")!;

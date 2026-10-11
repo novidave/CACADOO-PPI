@@ -734,6 +734,8 @@
     "error_failed": "A csatlakozás nem sikerült. Próbálja újra.",
     "error_app_dropbox": "A Dropbox elutasította az alkalmazás titkos kulcsát. A Supabase → Edge Functions → Secrets alatt állítsa a DROPBOX_APP_SECRET értékét az „App secret”-re (dropbox.com/developers/apps → az alkalmazás → Settings, Show), majd csatlakoztasson újra.",
     "error_app_onedrive": "A Microsoft elutasította az alkalmazás titkos kulcsát (lehet, hogy lejárt). A Supabase → Edge Functions → Secrets alatt állítsa a ONEDRIVE_CLIENT_SECRET értékét egy új client secret „Value” értékére (Microsoft Entra → App registrations → Certificates & secrets), majd csatlakoztasson újra.",
+    "error_scope_dropbox": "A Dropbox alkalmazásnak hiányzik egy engedélye (fájlok írása). dropbox.com/developers/apps → az alkalmazás → Permissions → jelölje be: files.metadata.read és files.content.write → Submit. Utána újra Dropbox csatlakoztatása és engedélyezés.",
+    "error_scope_onedrive": "A OneDrive alkalmazásnak hiányzik egy engedélye. A Microsoft Entra → App registrations → API permissions alatt adja hozzá: Files.ReadWrite és offline_access, majd csatlakoztassa újra a OneDrive-ot.",
     "error_folder": "Ebbe a mappába nem lehet menteni (az útvonalon azonos nevű fájl van). Válasszon másikat.",
     "error_bad_folder": "Írja be a mappa útvonalát, pl. /Cacadoo/Uzlet.",
     "error_not_configured": "A felhőkapcsolat még nincs beállítva (hiányoznak az alkalmazás kulcsai a Supabase-ben).",

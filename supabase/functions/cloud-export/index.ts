@@ -232,8 +232,11 @@ export function conversationFolder(target: string, startedAt: string, timeZone: 
 
 // ---------------------------------------------------------------- the clouds
 
-/** "app": the provider refused the app's own ID or secret (the Supabase secrets are wrong). */
-export type ErrorKind = "auth" | "expired" | "throttled" | "quota" | "conflict" | "not_folder" | "app" | "other";
+/**
+ * "app": the provider refused the app's own ID or secret (the Supabase secrets are wrong);
+ * "scope": the app lacks a permission (Dropbox: the Permissions tab of the app).
+ */
+export type ErrorKind = "auth" | "expired" | "throttled" | "quota" | "conflict" | "not_folder" | "app" | "scope" | "other";
 
 /** What went wrong at the cloud; `message` is safe to show the owner (never a token). */
 export class CloudError extends Error {
@@ -278,8 +281,16 @@ const retryAfter = (res: Response) => {
   return Number.isFinite(value) && value > 0 ? Math.min(value, 3600) : null;
 };
 
+/** JSON answer; a plain-text one (Dropbox's 400s) is kept as `_text` (it never holds a token). */
 async function body(res: Response): Promise<Record<string, unknown>> {
-  return (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const text = await res.text().catch(() => "");
+  try {
+    const data: unknown = JSON.parse(text);
+    if (data && typeof data === "object") return data as Record<string, unknown>;
+  } catch {
+    // not JSON
+  }
+  return text ? { _text: text.replace(/\s+/g, " ").slice(0, 300) } : {};
 }
 
 /** A refused token request: invalid_grant (the owner revoked it, or it is too old) means connect again. */
@@ -431,18 +442,30 @@ export function dropbox(env: { appKey?: string; appSecret?: string }, f: Fetch =
       headers: { Authorization: `Bearer ${t}`, ...(args === null ? {} : { "Content-Type": "application/json" }) },
       body: args === null ? undefined : JSON.stringify(args),
     });
-    return { status: check(res), data: await body(res) };
+    return await answer(res);
   }
-  function check(res: Response): number {
-    if (res.status === 401) throw new CloudError("auth", "Dropbox: the sign-in needs renewing");
+  /**
+   * The status and body; a missing permission (400 "does not have the required scope 'x'" when
+   * the app lacks it, 401 missing_scope when the sign-in did not grant it) is its own error.
+   */
+  async function answer(res: Response): Promise<{ status: number; data: Record<string, unknown> }> {
     if (res.status === 429 || res.status === 503) throw new CloudError("throttled", "Dropbox is busy, trying later", retryAfter(res));
-    return res.status;
+    const data = await body(res);
+    const text = `${summary(data)} ${String(data._text ?? "")}`;
+    const scope = /required scope '([a-z._]+)'/.exec(text)?.[1] ??
+      (/missing_scope/.test(text) ? String((data.error as { required_scope?: string } | undefined)?.required_scope ?? "") : null);
+    if (scope !== null && (res.status === 400 || res.status === 401)) {
+      throw new CloudError("scope", `Dropbox: the app lacks the permission ${scope || "it needs"}`);
+    }
+    if (res.status === 401) throw new CloudError("auth", "Dropbox: the sign-in needs renewing");
+    return { status: res.status, data };
   }
   const summary = (data: Record<string, unknown>) => String(data.error_summary ?? "");
   function fail(status: number, data: Record<string, unknown>, what: string): never {
     const s = summary(data);
     if (/insufficient_space/.test(s)) throw new CloudError("quota", "Dropbox is full");
-    throw new CloudError("other", `Dropbox: ${what} failed (${s.split("/").slice(0, 2).join("/") || status})`);
+    const why = s.split("/").slice(0, 2).join("/") || String(data._text ?? "").replace(/^Error in call to API function "[^"]*":\s*/, "").slice(0, 120);
+    throw new CloudError("other", `Dropbox: ${what} failed (${status}${why ? `: ${why}` : ""})`);
   }
   const toItem = (d: Record<string, unknown>): RemoteItem => ({
     id: String(d.id ?? ""),
@@ -520,8 +543,7 @@ export function dropbox(env: { appKey?: string; appSecret?: string }, f: Fetch =
         },
         body: bytes as BodyInit,
       });
-      const status = check(res);
-      const data = await body(res);
+      const { status, data } = await answer(res);
       if (status === 409 && /conflict/.test(summary(data))) return "exists";
       if (status !== 200) fail(status, data, "sending a file");
       return toItem(data);
@@ -987,7 +1009,13 @@ async function callback(req: Request, deps: Deps, provider: Provider): Promise<R
     console.error("cloud-export: connect failed", provider, e instanceof CloudError ? e.kind : "other", failText(e).slice(0, 120));
     const kind = e instanceof CloudError ? e.kind : "other";
     // The app's secret is wrong (its ID worked: the owner saw the consent page): say which one.
-    const err = kind === "not_folder" ? "cloud_folder" : kind === "app" ? `cloud_app_${provider}` : "cloud_failed";
+    const err = kind === "not_folder"
+      ? "cloud_folder"
+      : kind === "app"
+        ? `cloud_app_${provider}`
+        : kind === "scope"
+          ? `cloud_scope_${provider}`
+          : "cloud_failed";
     return backTo(st.return_url, `err=${err}`);
   }
 }
