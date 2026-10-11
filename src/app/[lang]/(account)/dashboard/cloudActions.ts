@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession, requestOrigin } from "@/lib/auth";
+import { functionFailure } from "@/lib/functionError";
 
 /**
  * "Cloudový priečinok" (database update 23): every action goes to the cloud-export Edge
@@ -42,14 +43,18 @@ async function start(formData: FormData) {
   return { lang, session, shopId, slug, back };
 }
 
-/** Calls cloud-export; a refusal comes back as one of the codes above (or "other:<message>"). */
+/**
+ * Calls cloud-export; a refusal comes back as one of the codes above, "fn_<reason>" when
+ * Supabase refused before the function ran (not deployed, "Verify JWT" on, does not start),
+ * or "other:<reason>".
+ */
 async function cloudCall<T>(session: Session, body: Record<string, unknown>): Promise<{ data: T | null; code: string | null }> {
   const { data, error } = await session.supabase.functions.invoke<T>("cloud-export", { body });
   if (!error) return { data: data ?? null, code: null };
-  const context = (error as { context?: unknown }).context;
-  const answer = context instanceof Response ? await context.json().catch(() => null) : null;
-  const code = typeof answer?.error === "string" ? answer.error : "";
-  return { data: null, code: CODES[code] ?? `other:${(code || error.message || "no answer").slice(0, 120)}` };
+  const failure = await functionFailure(error);
+  if (failure.error) return { data: null, code: CODES[failure.error] ?? `other:${failure.error}` };
+  if (failure.platform) console.error(`cloud-export: Supabase refused the call (${failure.detail})`);
+  return { data: null, code: failure.platform ? `fn_${failure.platform}` : `other:${failure.detail.slice(0, 160)}` };
 }
 
 const errQuery = (code: string) => ({ err: `cloud_${code}` });

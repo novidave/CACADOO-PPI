@@ -1,4 +1,5 @@
 import "server-only";
+import { functionFailure } from "./functionError";
 import { createPublicClient } from "./supabase/public";
 
 /**
@@ -80,15 +81,11 @@ async function call<T>(body: Record<string, unknown>): Promise<{ data: T | null;
     headers: { "x-ppi-archive": key },
   });
   if (!error) return { data: data ?? null, error: null };
-  // The function answers {error: "..."}; anything else is a failure (logged without content).
-  let code: unknown = null;
-  try {
-    code = (await (error as { context?: Response }).context?.json())?.error;
-  } catch {
-    // not JSON
-  }
-  const known = KNOWN.find((k) => k === code);
-  if (!known) console.error(`assistant-archive: ${String(body.action)} failed (${typeof code === "string" ? code : error.name})`);
+  // The function answers {error: "..."}; anything else is a failure (logged without content:
+  // our reason code, or Supabase's own refusal such as "HTTP 404 NOT_FOUND").
+  const failure = await functionFailure(error);
+  const known = KNOWN.find((k) => k === failure.error);
+  if (!known) console.error(`assistant-archive: ${String(body.action)} failed (${failure.error ?? failure.detail})`);
   return { data: null, error: known ?? "failed" };
 }
 

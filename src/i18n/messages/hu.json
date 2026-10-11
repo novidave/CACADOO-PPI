@@ -740,6 +740,10 @@
     "error_expired": "A felhőkapcsolat lejárt – csatlakoztassa újra",
     "error_cloud": "A felhő most nem válaszol. Próbálja újra kicsit később.",
     "error_period": "Válasszon érvényes időszakot (-tól – -ig).",
+    "error_fn_missing": "A Supabase-ben nincs cloud-export függvény: Edge Functions → Deploy a new function → pontosan cloud-export név → illessze be az egész fájlt → Deploy.",
+    "error_fn_jwt": "A Supabase csak a „Verify JWT” kikapcsolása után engedi a cloud-export hívását: Edge Functions → cloud-export → Verify JWT ki → Save.",
+    "error_fn_boot": "A cloud-export függvény nem indult el: illessze be újra az egész supabase/functions/cloud-export/index.ts fájlt → Deploy (az ok a Logs-ban van).",
+    "error_fn_limit": "A cloud-export függvénynek most nincs elég erőforrása. Próbálja újra kicsit később.",
     "error_confirm": "Erősítse meg a leválasztást.",
     "error_other": "Nem sikerült: {message}"
   }

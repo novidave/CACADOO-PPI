@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
+import { functionFailure } from "@/lib/functionError";
 import { createClient } from "@/lib/supabase/client";
 import { canvasBlob, fitCanvas, openPdf, pagePicture, readPage, type PdfPicture } from "@/lib/pdfRead";
 
@@ -39,9 +40,8 @@ class IngestError extends Error {
 async function ingest<T>(supabase: Supabase, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke<T>("doc-ingest", { body });
   if (!error) return data as T;
-  const context = (error as { context?: unknown }).context;
-  const reply = context instanceof Response ? await context.json().catch(() => null) : null;
-  throw new IngestError(String(reply?.error ?? "failed"), String(reply?.message ?? error.message));
+  const failure = await functionFailure(error);
+  throw new IngestError(failure.error ?? "failed", failure.error ? (failure.message ?? failure.error) : `doc-ingest ${failure.detail}`);
 }
 
 function errorText(labels: Labels, e: unknown): string {

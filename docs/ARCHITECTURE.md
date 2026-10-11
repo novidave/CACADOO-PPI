@@ -675,7 +675,8 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | The two secrets differ | the assistant answers; nothing is kept | Vercel log `assistant-archive: start failed (secret)` |
 | pg_cron / pg_net off or `ppi_project_url` missing | — | idle conversations stay "prebieha" and get no PDF until closed; nothing is deleted after the keep time (`cron.job_run_details` shows the error) |
 | A PDF cannot be made (storage, bad data) | — | tried 3 times, 10 and 20 minutes apart; then "PDF: nepodarilo sa vytvoriť" on the conversation; log `assistant-archive: pdf …` |
-| `cloud-export` not deployed or `EXPORT_TOKEN_ENCRYPTION_KEY` / the app's ID or secret missing | — | "Pripojenie cloudu ešte nie je nastavené" when connecting; nothing is copied (conversations stay in the archive) |
+| `EXPORT_TOKEN_ENCRYPTION_KEY` / the app's ID or secret missing | — | "Pripojenie cloudu ešte nie je nastavené" when connecting; nothing is copied (conversations stay in the archive) |
+| Supabase refuses `cloud-export` before it runs: not deployed under that name (404), "Verify JWT" on (401), the code does not start (503 BOOT_ERROR) | — | Môj obchod names the cause and the fix (`@/lib/functionError` reads Supabase's answer instead of supabase-js's "non-2xx status code"); Vercel log `cloud-export: Supabase refused the call (HTTP …)`; document uploads show "doc-ingest HTTP …" the same way |
 | Cloud connection expired (password changed, app removed, refresh token too old) | — | "Cloud: chyba – Pripojenie k cloudu vypršalo – pripojte ho znova" on each waiting conversation, the same on the section; one e-mail after 24 hours; "Pripojiť znova" copies what waited |
 | Microsoft app secret expired or wrong | — | every OneDrive copy fails with "the app's ID or secret in Supabase is not valid"; e-mail after 24 hours; renew the secret in Azure and Supabase (SETUP.md part P) |
 | Cloud busy (429/503), full, or a file in the folder's place | — | "Cloud: chyba – Cloud je preťažený, skúsime to znova" / "V cloude nie je miesto" / a folder message; retried 5 min · 2ⁿ up to 6 h (never before Retry-After), 20 times; "Uložiť znova" any time |
@@ -771,7 +772,7 @@ src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
 src/components/            ShopMap, FolderSync, AiSearch, ShopChat, FolderAccess, DocUpload, FolderKeyForm,
                            FolderKeySetter, ShopForm, LogoInput, DashboardSection, RecentImports, ContactLinks, …
 src/lib/                   data, publicApi, aiSearch, shopChat, assistantArchive, docsAccess, accessKey, watermark,
-                           pdfRead, names, apiHttp, …
+                           pdfRead, names, apiHttp, functionError, …
 src/types/                 type declarations for packages without their own (opentype.js)
 src/i18n/                  languages and texts (sk, hu, en)
 src/proxy.ts               language redirect + session refresh

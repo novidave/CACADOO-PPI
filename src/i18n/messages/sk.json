@@ -740,6 +740,10 @@
     "error_expired": "Pripojenie k cloudu vypršalo – pripojte ho znova",
     "error_cloud": "Cloud teraz neodpovedá. Skúste to o chvíľu.",
     "error_period": "Zvoľte platné obdobie (od – do).",
+    "error_fn_missing": "V Supabase nie je funkcia cloud-export: Edge Functions → Deploy a new function → názov presne cloud-export → vložte celý súbor → Deploy.",
+    "error_fn_jwt": "Supabase pustí volanie k funkcii cloud-export až po vypnutí „Verify JWT“: Edge Functions → cloud-export → vypnite Verify JWT → Save.",
+    "error_fn_boot": "Funkcia cloud-export sa nespustila: v Supabase jej vložte znova celý súbor supabase/functions/cloud-export/index.ts → Deploy (dôvod je v jej Logs).",
+    "error_fn_limit": "Funkcia cloud-export teraz nemá dosť prostriedkov. Skúste to o chvíľu.",
     "error_confirm": "Potvrďte odpojenie.",
     "error_other": "Nepodarilo sa: {message}"
   }

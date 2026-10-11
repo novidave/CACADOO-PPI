@@ -672,7 +672,11 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
 9. If something does not work: Supabase → Edge Functions → `cloud-export` → **Logs** (lines start with
    `cloud-export:`; tokens, keys and file contents are never logged). "Pripojenie cloudu ešte nie je nastavené" means
    a secret from step 6 is missing; Microsoft's "redirect URI mismatch" (AADSTS50011) or Dropbox's "Invalid
-   redirect_uri" means the address in step 4 or 5 differs from your project's.
+   redirect_uri" means the address in step 4 or 5 differs from your project's. When Supabase refuses the call before
+   the function runs, Môj obchod says which of these it is: "V Supabase nie je funkcia cloud-export" (step 2: the name
+   must be exactly `cloud-export`), "… až po vypnutí „Verify JWT“" (step 2: switch it off → Save) or "Funkcia
+   cloud-export sa nespustila" (paste the whole file again → Deploy; its Logs say why). Vercel → Logs → search
+   `cloud-export: Supabase refused` shows the same with the HTTP status.
 
 ---
 
