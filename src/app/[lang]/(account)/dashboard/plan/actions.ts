@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
 import { getSession, requestOrigin } from "@/lib/auth";
+import { validSkIco } from "@/lib/domainName";
 import { callDomains, OWNER_FIELDS } from "@/lib/domains";
 
 /**
@@ -66,8 +67,18 @@ export async function saveLegal(formData: FormData) {
     const value = formData.get(field);
     if (typeof value === "string" && value.trim()) details[field] = value.trim().slice(0, 200);
   }
+  // A Slovak IČO must be valid (the registrar refuses it otherwise): said here, before paying.
+  if (details.ico) {
+    const { data: current } = await session.supabase.rpc("domain_owner_details", { p_shop_id: shopId });
+    const country = (details.country ?? (current as { country?: string | null } | null)?.country ?? "").toUpperCase();
+    if (country === "SK" && !validSkIco(details.ico)) back({ err: "legal_ico" });
+  }
   const { error } = await session.supabase.rpc("owner_save_legal", { p_shop_id: shopId, p_details: details });
-  back(error ? { err: "legal" } : { ok: "legal" });
+  if (error) back({ err: "legal" });
+  // Corrected after Websupport refused them: the registration goes on now.
+  const retry = String(formData.get("retry_order") ?? "");
+  if (UUID.test(retry)) await callDomains(session.supabase, { action: "recheck", order_id: retry });
+  back({ ok: "legal" });
 }
 
 /** Step 4: one click with the saved card, else Stripe's payment page. */
@@ -86,7 +97,7 @@ export async function payDomain(formData: FormData) {
     company_id_label: dict.plan.company_id,
   });
   if (error === "stripe" && message) back({ err: "pay_reason", reason: message.slice(0, 200) });
-  if (error) back({ err: error === "owner_details" ? "owner" : error === "terms" ? "terms" : error === "not_configured" ? "not_configured" : "pay" });
+  if (error) back({ err: error === "owner_details" ? "owner" : error === "owner_ico" ? "legal_ico" : error === "terms" ? "terms" : error === "not_configured" ? "not_configured" : "pay" });
   if (data?.state === "in_use") back({ err: "in_use" });
   if (data?.paid) back({ domain: "paid" });
   const url = paymentPage(data?.url);

@@ -12,13 +12,16 @@ import {
   handle,
   nameProblem,
   type Params,
+  OWNER_REFUSED,
   type Registrar,
+  RegistrarError,
   sendLiveMail,
   soldTld,
   type Stripe,
   StripeError,
   testRegistrar,
   tick,
+  validSkIco,
   type Vercel,
   vercelApi,
   verificationRecords,
@@ -82,7 +85,7 @@ function world(): World {
     plan: new Set([SHOP]),
     owner: {
       company_name: "Potraviny Centrum s.r.o.", contact_name: "Ján Novák", street: "Hlavná 1", city: "Košice", zip: "04001",
-      country: "SK", ico: "12345678", dic: null, ic_dph: null, email: "info@example.invalid", phone: "+421 900 123 456", missing: [],
+      country: "SK", ico: "12345679", dic: null, ic_dph: null, email: "info@example.invalid", phone: "+421 900 123 456", missing: [],
     },
     mails: [],
     https: new Set(),
@@ -324,6 +327,8 @@ function fakeRegistrar() {
     records: new Map<string, DnsRecord[]>(),
     authCode: "AUTH-CODE-1" as string | null,
     registerAtOnce: true,
+    // Websupport's validation answer for the domain profile (its own field names), e.g. ["identCompanyRegistration"].
+    profileRefuses: [] as string[],
   };
   let n = 0;
   const registrar: Registrar = {
@@ -338,6 +343,10 @@ function fakeRegistrar() {
     },
     profile: (owner, existing) => {
       calls.push(`profile ${owner.company_name} ${existing ?? "new"}`);
+      if (state.profileRefuses.length) {
+        const errors = Object.fromEntries(state.profileRefuses.map((f) => [f, ["validation.not-valid"]]));
+        return Promise.reject(new RegistrarError(`Websupport: creating the domain profile failed (200: ${JSON.stringify(errors)})`, 200, state.profileRefuses));
+      }
       return Promise.resolve(existing ?? "501");
     },
     findService: (d) => {
@@ -584,7 +593,7 @@ Deno.test("Websupport: the registrant is the shop (its company profile), test mo
   });
   eq(profile, {
     firstName: "Ján Peter", lastName: "Novák", orgName: "Potraviny Centrum s.r.o.", street: "Hlavná 1", city: "Košice", zip: "040 01",
-    country: "sk", email: "info@example.invalid", phone: "+421900123456", identCompanyRegistration: "12345678", identVat: "SK2020123456",
+    country: "SK", email: "info@example.invalid", phone: "+421900123456", identCompanyRegistration: "12345678", identVat: "SK2020123456",
   }, "the shop's own company, never Cacadoo");
 
   const { registrar, calls } = fakeRegistrar();
@@ -596,6 +605,43 @@ Deno.test("Websupport: the registrant is the shop (its company profile), test mo
 });
 
 // ---------------------------------------------------------------- Vercel and DNS
+
+Deno.test("A Slovak IČO is checked (mod 11) on the website and in the function the same way", () => {
+  for (const [ico, ok] of [
+    ["35763469", true], ["31322832", true], ["12345679", true], [" 357 634 69 ", true],
+    ["12345678", false], ["1234567", false], ["123456789", false], ["abc12345", false], ["", false],
+  ] as [string, boolean][]) {
+    eq(validSkIco(ico), ok, `function: IČO ${ico}`);
+    eq(site.validSkIco(ico), ok, `website: IČO ${ico}`);
+  }
+});
+
+Deno.test("Websupport refuses the owner's details: the shop corrects them (e-mail once), nothing refunded, then it goes on", async () => {
+  const { w, deps, reg } = setup({ mode: "test" });
+  const o = newOrder(w, { status: "paid", paid_at: isoAt(w), next_attempt_at: isoAt(w), test_mode: true });
+  reg.state.profileRefuses = ["country", "identCompanyRegistration"];
+  await tick(deps);
+  eq([o.status, o.needs_admin, o.attempts, o.refunded_at], ["registering", true, 0, null], "waits for the correction, no try counted");
+  assert(String(o.last_error).startsWith(`${OWNER_REFUSED}country, ico`), String(o.last_error));
+  eq(w.mails.filter((m) => m.subject === "Opravte údaje majiteľa domény davide.sk").length, 1, "the shop is told");
+  assert(w.mails[0].text.includes("krajina, IČO"), w.mails[0].text);
+  w.now += 6 * 3_600_000 + 1000;
+  await tick(deps);
+  eq(w.mails.filter((m) => m.subject.startsWith("Opravte")).length, 1, "once, not every 6 hours");
+  // corrected on the page → "Skontrolovať" runs it again at once
+  reg.state.profileRefuses = [];
+  w.now += 60_000;
+  await post(deps, { action: "recheck", order_id: o.id });
+  eq(o.status, "configuring", "registered (dry run) and on to the website");
+});
+
+Deno.test("Pay: a Slovak IČO that is not valid is refused before anything is paid", async () => {
+  const { w, deps, st } = setup();
+  w.owner = { ...w.owner, ico: "12345678" };
+  const [, free] = await post(deps, { action: "check", shop_id: SHOP, domain: "davide.sk", return_url: RETURN });
+  eq((await post(deps, { action: "pay", order_id: free.order_id, return_url: RETURN, lang: "sk", accept_terms: true }))[1], { error: "owner_ico" }, "IČO first");
+  eq(st.calls.filter((c) => c.method === "POST").length, 0, "nothing at Stripe");
+});
 
 Deno.test("DNS: only the records Vercel asked for; mail (MX, SPF, DKIM, DMARC) is never touched", () => {
   const verification = verificationRecords("davide.sk", [{ type: "TXT", domain: "_vercel.davide.sk", value: "vc-domain-verify=davide.sk,abc", reason: "pending" }]);

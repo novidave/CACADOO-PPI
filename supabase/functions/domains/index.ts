@@ -146,9 +146,40 @@ export interface Registrar {
 }
 
 export class RegistrarError extends Error {
-  constructor(message: string, readonly status: number) {
+  /** The fields the registrar refused (its own names, e.g. "identCompanyRegistration"). */
+  constructor(message: string, readonly status: number, readonly fields: string[] = []) {
     super(message);
   }
+}
+
+/** Websupport's profile fields → the owner's details on the page (step 3). */
+const OWNER_FIELD_OF: Record<string, string> = {
+  firstName: "contact_name",
+  lastName: "contact_name",
+  orgName: "company_name",
+  street: "street",
+  city: "city",
+  zip: "zip",
+  country: "country",
+  email: "email",
+  phone: "phone",
+  identCompanyRegistration: "ico",
+  identVat: "ic_dph",
+};
+export const OWNER_REFUSED = "Owner details refused by Websupport: ";
+export function refusedOwnerFields(e: unknown): string[] {
+  if (!(e instanceof RegistrarError)) return [];
+  return [...new Set(e.fields.map((f) => OWNER_FIELD_OF[f]).filter(Boolean))];
+}
+
+/** A Slovak company ID (IČO): 8 digits (older ones 6, with leading zeros), the last one a mod-11 check digit. */
+export function validSkIco(value: string): boolean {
+  const digits = String(value ?? "").replace(/\s+/g, "");
+  if (!/^\d{6,8}$/.test(digits)) return false;
+  const n = digits.padStart(8, "0");
+  let sum = 0;
+  for (let i = 0; i < 7; i++) sum += Number(n[i]) * (8 - i);
+  return (11 - (sum % 11)) % 10 === Number(n[7]);
 }
 
 /** Websupport's Date header: ISO 8601 basic, GMT ("20261011T143005Z"). */
@@ -184,7 +215,7 @@ export function websupportProfile(owner: Registrant): Json {
     street: owner.street,
     city: owner.city,
     zip: owner.zip,
-    country: owner.country.toLowerCase(),
+    country: owner.country.toUpperCase(),
     email: owner.email,
     phone: owner.phone.startsWith("+") ? `+${owner.phone.replace(/\D/g, "")}` : owner.phone.replace(/[^\d+]/g, ""),
     identCompanyRegistration: owner.ico.replace(/\s+/g, ""),
@@ -242,7 +273,8 @@ export function websupport(
   };
   const must = (r: { status: number; data: Json }, what: string) => {
     if (r.status >= 200 && r.status < 300 && r.data.status !== "error") return r.data;
-    throw new RegistrarError(`Websupport: ${what} failed (${r.status}: ${why(r.data)})`, r.status);
+    const fields = r.data.errors && typeof r.data.errors === "object" && !Array.isArray(r.data.errors) ? Object.keys(r.data.errors as Json) : [];
+    throw new RegistrarError(`Websupport: ${what} failed (${r.status}: ${why(r.data)})`, r.status, fields);
   };
 
   return {
@@ -884,7 +916,14 @@ async function register(deps: Deps, o: Order) {
       .order("created_at", { ascending: false })
       .limit(1);
     const known = o.registrar_profile_id ?? (earlier?.[0] as { registrar_profile_id: string } | undefined)?.registrar_profile_id ?? null;
-    const profileId = await registrar.profile(owner, known);
+    let profileId: string;
+    try {
+      profileId = await registrar.profile(owner, known);
+    } catch (e) {
+      const fields = refusedOwnerFields(e);
+      if (!fields.length) throw e;
+      return await ownerDetailsRefused(deps, o, fields, failText(e));
+    }
     await patch(deps, o.id, { registrar_profile_id: profileId, waiting_credit: false });
 
     const placed = await registrar.order(o.hostname, profileId, o.test_mode);
@@ -922,6 +961,33 @@ async function register(deps: Deps, o: Order) {
   }
   await log(deps, o.id, "configuring", true, o.test_mode ? `test mode: the website goes on ${siteHost} (service ${service.id})` : `service ${service.id}`);
   return await configure(deps, { ...o, status: "configuring", site_host: siteHost, registrar_service_id: service.id, expires_at: expiresAt, attempts: 0 });
+}
+
+const OWNER_LABEL_SK: Record<string, string> = {
+  company_name: "názov firmy", contact_name: "kontaktná osoba", street: "ulica", city: "mesto", zip: "PSČ",
+  country: "krajina", ico: "IČO", ic_dph: "IČ DPH", email: "e-mail", phone: "telefón",
+};
+
+/**
+ * Websupport refused some of the owner's details (e.g. an IČO that is not valid): retrying cannot
+ * help and nothing is refunded for it. The shop corrects them on its page (or the admin), and the
+ * registration goes on by itself; the shop is told once by e-mail.
+ */
+async function ownerDetailsRefused(deps: Deps, o: Order, fields: string[], reason: string) {
+  const firstTime = !o.needs_admin;
+  await patch(deps, o.id, { needs_admin: true });
+  await log(deps, o.id, "registering", false, `${OWNER_REFUSED}${fields.join(", ")} (${reason})`);
+  if (firstTime) {
+    const shop = await shopOf(deps, o.shop_id);
+    if (shop) {
+      await send(deps, {
+        to: await shopMail(deps, o.shop_id),
+        subject: `Opravte údaje majiteľa domény ${o.hostname}`,
+        text: `Dobrý deň,\n\nregistrátor Websupport neprijal tieto údaje majiteľa domény ${o.hostname}: ${fields.map((f) => OWNER_LABEL_SK[f] ?? f).join(", ")}.\nOpravte ich na stránke Predplatné a doména – registrácia potom pokračuje sama:\n${planPage(o, shop)}\n\nCacadoo PPI`,
+      });
+    }
+  }
+  return await later(deps, o, 6 * HOUR);
 }
 
 /** Adds bare + www to Vercel (www redirects to the bare host) and returns the verification. */
@@ -1526,6 +1592,9 @@ async function payAction(deps: Deps, who: { authorization: string; userId: strin
 
   const { data: details } = await deps.db.rpc("domain_owner_details", { p_shop_id: o.shop_id });
   if ((details as { missing?: string[] } | null)?.missing?.length) return reply(409, { error: "owner_details" });
+  const owner = details as { country?: string | null; ico?: string | null };
+  // The registrar refuses a Slovak IČO that is not valid: say so before anything is paid.
+  if (String(owner.country ?? "").toUpperCase() === "SK" && !validSkIco(String(owner.ico ?? ""))) return reply(409, { error: "owner_ico" });
 
   const stripe = deps.stripe;
   const [{ data: hasPlan }, { data: subRow }, shop] = await Promise.all([

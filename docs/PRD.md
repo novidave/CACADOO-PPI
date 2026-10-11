@@ -593,7 +593,10 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
      rovnaká ako na Websupport.sk" only while the admin's switch is on.
   3. The owner's details (the domain is registered **in the shop's name**: company, contact person, address, country,
      IČO, DIČ/IČ DPH, e-mail, phone; `shop_legal` + the shop's profile): only the missing ones are asked, nothing is
-     invented.
+     invented. A Slovak IČO must pass its check digit (mod 11) before anything is paid ("IČO nie je platné…"). If
+     Websupport still refuses a detail after the payment, the registration waits (no retries counted, nothing
+     refunded), the shop gets one e-mail "Opravte údaje majiteľa domény …" and the page shows the refused fields with
+     a form; "Uložiť a pokračovať v registrácii" continues at once.
   4. Summary + one tick for the terms (`/podmienky`, `/podmienky-domeny`: Websupport is the registrar, the shop is the
      domain's owner). On Pro with a saved card: **"Zaplatiť 12,90 €" with one click** (a Stripe invoice paid with that
      card; 3-D Secure → Stripe's invoice page). On Pro without a saved card: Stripe Checkout (card, Apple Pay, Google

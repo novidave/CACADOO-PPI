@@ -601,7 +601,10 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 - **Steps of a bought domain:** `paid` → `registering` (check again: taken → refund the domain part (the Pro line
   stays), e-mail, `taken`; already in our account → never ordered twice; credit (live mode) below the price → wait,
   admin e-mail; owner details missing → wait for the admin; Websupport profile with the shop's details; order (dry run
-  in test mode); pay by credit; wait until the domain appears among our services) → `configuring` (Vercel, DNS at
+  in test mode; Websupport's field errors (`RegistrarError.fields`, e.g. `identCompanyRegistration`) → `ownerDetailsRefused`:
+  `needs_admin`, log "Owner details refused by Websupport: ico, …", one e-mail, wait for the owner's correction
+  (`saveLegal` with `retry_order` → `recheck`), never counted as a try; a Slovak IČO is checked (mod 11) before paying);
+  pay by credit; wait until the domain appears among our services) → `configuring` (Vercel, DNS at
   Websupport, Vercel's verification) → `securing` (HTTPS answers) → `live` + the e-mail once (`live_email_at` set
   atomically; reset if Brevo failed). Failures back off 5 min · 2ⁿ up to 6 hours; after 12 tries in registration the
   domain part is refunded and the admin is flagged. More than 48 hours anywhere → one admin e-mail.

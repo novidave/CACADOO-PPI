@@ -40,3 +40,13 @@ export function soldTld(name: string, tlds: string[]): string | null {
   }
   return null;
 }
+
+/** A Slovak company ID (IČO): 8 digits (older ones 6, with leading zeros), the last one a mod-11 check digit. */
+export function validSkIco(value: string): boolean {
+  const digits = String(value ?? "").replace(/\s+/g, "");
+  if (!/^\d{6,8}$/.test(digits)) return false;
+  const n = digits.padStart(8, "0");
+  let sum = 0;
+  for (let i = 0; i < 7; i++) sum += Number(n[i]) * (8 - i);
+  return (11 - (sum % 11)) % 10 === Number(n[7]);
+}
