@@ -26,7 +26,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Conversation archive of the shop assistant (paid plan only): every conversation kept with its files (GPS removed) and made into a PDF; "Konverzácie asistenta" in My shop | Built and tested against Claude and Storage stand-ins; live after database update 22, the assistant-archive function and one secret (SETUP.md part O) |
 | Cloud folder for the archive (paid plan only): each finished conversation's PDF and files copied into the shop's own OneDrive or Dropbox; "Cloudový priečinok" in My shop | Built and tested against OneDrive, Dropbox and Brevo stand-ins; live after database update 23, the cloud-export function, the Microsoft and Dropbox app registrations and the secrets (SETUP.md part P) |
 | Access keys for shoppers (paid plan only): a valid key opens a private folder in the chat for 24 hours; its files open in a built-in viewer (pages with a watermark) or, when the owner allows, download one by one or as a ZIP; "Režim prístupu" and a key per folder in My shop; shoppers may download their own conversation as a PDF | Built and tested against Storage and Claude stand-ins; live after database update 24, three updated functions and the merge (SETUP.md part Q) |
-| Booking link (every shop): "Rezervovať termín" button on the shop page opening the shop's booking app; product pages of shops with a domain of their own show no other shops; quick view of the recently uploaded stock files | Built and tested; live after database update 26 and the merge (SETUP.md part S) |
+| Booking link (every shop): "Rezervovať termín" link on the shop page, next to the e-mail and Facebook page, opening the shop's booking app; product pages of shops with a domain of their own show no other shops; quick view of the recently uploaded stock files | Built and tested; live after database update 26 and the merge (SETUP.md part S) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -157,9 +157,10 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
   with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
-- **Booking link** (update 26, every shop, optional): a "Rezervovať termín" button (calendar icon, the booking app's
-  address next to it, e.g. "reservio.com") that opens the shop's page in its booking app (Reservio, Bookio, Calendly,
-  its own booking page …) in a new tab (`rel="noopener"`). PPI only links to it; booking happens in that app.
+- **Booking link** (update 26, every shop, optional): "Rezervovať termín" in the same row and style as the e-mail
+  and Facebook page (small black calendar icon + underlined text); it opens the shop's page in its booking app
+  (Reservio, Bookio, Calendly, its own booking page …) in a new tab (`rel="noopener"`). PPI only links to it; booking
+  happens in that app.
 - Opening hours for the week in the shop's time zone, "Open now / Closes at / Opens at".
 - Facilities: customer toilet, douchette (bidet shower), card payment.
 - Stock freshness line, then the shop's public items: searchable in all three languages, 50 per page, name +
@@ -179,7 +180,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   PDF" when the owner allows downloads), and shows fitting pictures of the shop ("From: Projekty 2025, page 3"). A price
   from a document is shown apart from the shop's price ("Price in “Trade price list 2026”, page 2: 18,40 €"). When
   neither the stock nor the documents answer, it says so and shows "Call the shop" with the phone number. When the
-  shop has a booking link and the shopper wants an appointment, it points to the "Rezervovať termín" button (it never
+  shop has a booking link and the shopper wants an appointment, it points to the "Rezervovať termín" link (it never
   promises a date or time).
 - **"Mám prístupový kľúč"** (under the chat, separate from it), or a message that is nothing but a valid key: opens the
   shop's private folders named by the key for 24 hours on this browser, or until the chat box closes or the page is

@@ -196,7 +196,7 @@
     "assistant_plan_only": "Part of the paid plan",
     "assistant_cleaned": "Saved. Links, e-mail addresses and HTML were removed.",
     "booking": "Booking link",
-    "booking_hint": "Your page in a booking app (e.g. Reservio, Bookio, Calendly). The shop page shows a “Book an appointment” button."
+    "booking_hint": "Your page in a booking app (e.g. Reservio, Bookio, Calendly). The shop page shows a “Book an appointment” link next to the e-mail and Facebook page."
   },
   "sync": {
     "title": "Export folder",

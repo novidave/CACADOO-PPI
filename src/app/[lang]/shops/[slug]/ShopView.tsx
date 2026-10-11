@@ -13,7 +13,7 @@ import { DAYS, dayName, hasHours, openingHoursSpecification, rangesFor } from "@
 import { shopChatEnabled } from "@/lib/shopChat";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { freshnessText } from "@/lib/stock";
-import { BookingLink, ContactLinks } from "@/components/ContactLinks";
+import { ContactLinks } from "@/components/ContactLinks";
 import { JsonLd } from "@/components/JsonLd";
 import { OpenStatus } from "@/components/OpenStatus";
 import { ShopChat } from "@/components/ShopChat";
@@ -122,9 +122,14 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
               {dict.shop.website}
             </a>
           )}
-          <ContactLinks email={shop.email} facebookUrl={shop.facebook_url} facebookLabel={dict.shop.facebook} />
+          <ContactLinks
+            email={shop.email}
+            facebookUrl={shop.facebook_url}
+            facebookLabel={dict.shop.facebook}
+            bookingUrl={shop.booking_url}
+            bookingLabel={dict.shop.booking}
+          />
         </p>
-        <BookingLink url={shop.booking_url} label={dict.shop.booking} />
       </header>
 
       {assistant && (

@@ -375,8 +375,8 @@ function systemPrompt(shop: ChatShop, lang: Locale, docs: ChatDocument[]): strin
   );
   if (shop.booking_url) {
     lines.push(
-      "- The shop takes appointments through a booking app: the page shows a \"Book an appointment\" button. When the " +
-        "shopper wants an appointment, tell them to use that button; never promise a date or time yourself.",
+      "- The shop takes appointments through a booking app: the page shows a \"Book an appointment\" link. When the " +
+        "shopper wants an appointment, tell them to use that link; never promise a date or time yourself.",
     );
   }
   return lines.join("\n");
