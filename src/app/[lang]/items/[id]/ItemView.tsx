@@ -4,14 +4,16 @@ import { notFound } from "next/navigation";
 import { locales, type Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { siteItemUrl, siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getItem, getOtherOffers, getShop, getShopsByIds, shopSiteHost, shopStandsAlone } from "@/lib/data";
+import { getItem, getOtherOffers, getShop, getShopCalendars, getShopsByIds, shopSiteHost, shopStandsAlone } from "@/lib/data";
 import { addressLine, directionsUrl, formatDistance, formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
+import { requestTime } from "@/lib/requestTime";
+import { statusInput } from "@/lib/shopCalendar";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import type { StockRow } from "@/lib/stock";
 import { JsonLd } from "@/components/JsonLd";
-import { OpenStatus } from "@/components/OpenStatus";
 import { ShopMap } from "@/components/ShopMap";
+import { LiveStatus } from "@/components/ShopStatus";
 import { StockLine } from "@/components/StockLine";
 
 export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> {
@@ -56,7 +58,12 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
   const alone = await shopStandsAlone(item.shop_id);
 
   const [shop, others] = await Promise.all([getShop(item.shop_slug), alone ? Promise.resolve([]) : getOtherOffers(item, near)]);
-  const otherShops = await getShopsByIds([...new Set(others.map((o) => o.shop_id))]);
+  const [otherShops, calendars] = await Promise.all([
+    getShopsByIds([...new Set(others.map((o) => o.shop_id))]),
+    // Special days and holidays for the status of each shop (database update 27).
+    getShopCalendars([item.shop_id, ...others.map((o) => o.shop_id)]).catch(() => new Map()),
+  ]);
+  const renderedAt = requestTime();
   const hasLocation = item.shop_lat !== null && item.shop_lng !== null;
   const translated = translatedName(item.item_name, item.item_name_i18n, lang);
   const shopHref = siteSlug && shop ? sitePath(lang, siteLang(shop.country)) : `/${lang}/shops/${item.shop_slug}`;
@@ -96,7 +103,7 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
           {item.shop_name}
         </Link>
         <p>{addressLine(item.shop_address, item.shop_city)}</p>
-        {shop && <OpenStatus hours={shop.opening_hours} timeZone={shop.timezone} lang={lang} dict={dict} className="text-sm" />}
+        {shop && <LiveStatus input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} className="text-sm" />}
         <p className="flex flex-wrap gap-x-4 text-sm">
           {hasLocation && (
             <a
@@ -119,12 +126,31 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
       {hasLocation && (
         <ShopMap
           shops={[
-            { slug: item.shop_slug, name: item.shop_name, lat: item.shop_lat!, lng: item.shop_lng!, href: shopHref },
+            {
+              slug: item.shop_slug,
+              name: item.shop_name,
+              lat: item.shop_lat!,
+              lng: item.shop_lng!,
+              href: shopHref,
+              ...(shop ? { status: statusInput(shop, calendars) } : {}),
+            },
             ...others
               .filter((o) => o.shop_lat !== null && o.shop_lng !== null)
-              .map((o) => ({ slug: o.shop_slug, name: o.shop_name, lat: o.shop_lat!, lng: o.shop_lng!, href: `/${lang}/items/${o.item_id}` })),
+              .map((o) => {
+                const other = otherShops.get(o.shop_id);
+                return {
+                  slug: o.shop_slug,
+                  name: o.shop_name,
+                  lat: o.shop_lat!,
+                  lng: o.shop_lng!,
+                  href: `/${lang}/items/${o.item_id}`,
+                  ...(other ? { status: statusInput(other, calendars) } : {}),
+                };
+              }),
           ]}
           label={dict.shop.map}
+          legend={dict.status}
+          renderedAt={renderedAt}
           className="h-56 md:h-72"
         />
       )}
@@ -156,7 +182,7 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
                     <div className="flex flex-wrap gap-x-3 text-sm">
                       <StockLine row={o} timeZone={o.shop_timezone} dict={dict} lang={lang} />
                       {otherShop && (
-                        <OpenStatus hours={otherShop.opening_hours} timeZone={otherShop.timezone} lang={lang} dict={dict} />
+                        <LiveStatus input={statusInput(otherShop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />
                       )}
                     </div>
                   </li>

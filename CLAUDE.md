@@ -39,15 +39,19 @@ Setup steps for humans are in `SETUP.md`.
 
 Plain white background, black text, thin light-grey lines (`border-line`, `text-muted`).
 **No colours** (only exceptions, at the owner's request: the Cacadoo PPI logo in the header, `public/brand/cacadoo-ppi.png`,
-and the blue "Select picture" link for shop logos), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
-Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), black dot pins;
-always an extra — every page must work and show its data without it.
+the blue "Select picture" link for shop logos, and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
+#D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
+colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
+Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
+with the legend in words under the map; always an extra — every page must work and show its data without it.
 
 ## Commands
 
 - `npm run dev` — local site on http://localhost:3000
 - `npm run lint` · `npm run typecheck` · `npm run build`
 - `npm run test:db` — applies all migrations + seed to a throwaway local Postgres/PostGIS and runs the RLS and stock-logic checks
+- `npm run test:status` — unit tests of `shopStatus()` in `src/lib/hours.ts` (Deno): breaks, past midnight, holidays,
+  special days, DST
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook
@@ -193,7 +197,8 @@ MX/SPF/DKIM/DMARC/other records**. 14: own domain → Vercel → the exact recor
 behind the `Registrar` interface. Every step in `domain_orders.log`; never log keys or signatures. Live → one e-mail
 (Brevo, `live_email_at`), page countdown → `https://<domain>`. Renewal charged first, then Websupport renews;
 Pro ended → website back, auth code shown and e-mailed; **never hold a domain back**. `proxy.ts`: a host that is not
-PPI's own → `shop_for_host` → rewrite to `/[lang]/site/[slug]` (+ items, `/api/site/[slug]/sitemap|robots`), www →
+PPI's own → `shop_for_host` → rewrite to `/site/[lang]/[slug]` (own root layout: no Cacadoo header, the shop's name/logo +
+`SiteLanguageSwitch`; + items, `/api/site/[slug]/sitemap|robots`), www →
 bare; canonical = the own domain; payment never affects search ranking. `PlanDetails`/`DomainStatus` labels from the
 `domains` i18n namespace; admin texts `admin_domains`.
 
@@ -227,6 +232,23 @@ bare; canonical = the own domain; payment never affects search ranking. `PlanDet
   `open_file`, delete via `deleteDocOrPicture`); recently uploaded files: `@/components/RecentImports` (the last 10
   `stock_imports` rows as cards; a tap opens the quick view: a `<dialog>` slideshow of the full reports, "Súbor n z 10",
   Novší/Starší, ← → keys, swipe, Esc).
+
+## Shop status and Pro page layout (update 27)
+
+`supabase/sql/27_shop_status.sql`. **One function decides the status**: `shopStatus()` in `@/lib/hours` (open / break /
+closed / holiday / no hours, text and next change, in the shop's time zone; past-midnight ranges; a gap under 3 h between two
+ranges of a day = break). Every place uses it: shop page (map pin, status line, `@/components/ShopStatus` `LiveStatus`
+refreshed every minute in the browser), search map + result list, item page, API/MCP (`status` {state, text, label,
+next_change} on every shop), JSON-LD `specialOpeningHoursSpecification`. Input = `opening_hours` + `shop_calendar()`
+(`@/lib/shopCalendar`; before update 27 it is empty and the regular hours apply). Special day (`shop_special_hours`,
+`owner_save_special_hours()` / `owner_delete_special_hours()`) wins over a holiday, a holiday over the regular hours.
+`public_holidays` (SK, HU, CZ; rows from `scripts/holidays.mjs` with date-holidays, `source` library|admin, admin wins,
+`admin_save_holiday()` on the admin page); `kind` day_off (yellow all day: "Štátny sviatok – overte otváracie hodiny")
+or shops_closed (closed by law, red "Zatvorené – štátny sviatok"; `closed_from` e.g. 24.12 12:00); `shops.auto_holidays` (`owner_set_auto_holidays()`, default on)
+— off = regular hours every day. Shop page order: name, map, opening hours (today highlighted, status line, special days
+next 14 days), details, assistant (always open, own scroll), "Mám prístupový kľúč" (collapsed), items. On an own domain
+the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacadoo header). These are shop profile
+data, never stock.
 
 ## Stock upload
 

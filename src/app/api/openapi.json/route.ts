@@ -13,6 +13,19 @@ const freshness = {
   },
 };
 
+const status = {
+  type: "object",
+  description:
+    "The shop's status now, from its opening hours, the owner's special days and the public holidays that apply " +
+    "(only when the shop keeps 'automatic public holidays' on), in the shop's time zone.",
+  properties: {
+    state: { type: "string", enum: ["open", "break", "closed", "holiday", "no_hours"], description: "break = lunch break (a gap under 3 hours between two ranges of the day); holiday = public day off, opening hours to be checked" },
+    text: { type: "string", description: "The status in words in the requested language, e.g. \"Otvorené · zatvára o 17:00\"" },
+    label: { type: ["string", "null"], enum: ["holiday", "special", null], description: "Special hours on a holiday (holiday) or the owner's special hours (special)" },
+    next_change: { type: ["string", "null"], format: "date-time", description: "When the status changes next (UTC)" },
+  },
+};
+
 const item = {
   type: "object",
   properties: {
@@ -30,7 +43,7 @@ const item = {
     quantity: { type: ["number", "null"], description: "The quantity in the shop's own stock file (0 or less = sold out); null when the shop's data is stale." },
     freshness,
     distance_km: { type: ["number", "null"] },
-    shop: { type: "object", properties: { slug: { type: "string" }, name: { type: "string" }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] }, country: { type: ["string", "null"] }, timezone: { type: ["string", "null"] }, lat: { type: ["number", "null"] }, lng: { type: ["number", "null"] }, source_url: { type: "string", format: "uri" } } },
+    shop: { type: "object", properties: { slug: { type: "string" }, name: { type: "string" }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] }, country: { type: ["string", "null"] }, timezone: { type: ["string", "null"] }, lat: { type: ["number", "null"] }, lng: { type: ["number", "null"] }, source_url: { type: "string", format: "uri" }, status } },
     source_url: { type: "string", format: "uri", description: "PPI page to cite." },
   },
 };
@@ -45,6 +58,7 @@ const shop = {
     booking_url: { type: ["string", "null"], format: "uri", description: "The shop's page in a booking app (appointments), https" },
     opening_hours: { type: ["object", "null"], description: '{"mon":[["08:00","17:00"]],...} in the shop\'s time zone' },
     open_now: { type: ["boolean", "null"] },
+    status,
     facilities: { type: "object", properties: { customer_toilet: { type: "boolean" }, douchette: { type: "boolean" }, card_payment: { type: "boolean" } } },
     freshness,
     source_url: { type: "string", format: "uri" },

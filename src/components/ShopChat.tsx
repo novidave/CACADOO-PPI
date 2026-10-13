@@ -179,12 +179,13 @@ function toHistory(entries: Entry[]): ChatTurn[] {
 }
 
 /**
- * The shop's AI assistant: a collapsible box on the shop page (paid plan only). Answers
- * about this shop's items, makes shopping lists and reads photos and PDFs. With the
- * archive on, every conversation is kept for the shop (files go straight to the archive
- * function; GPS is removed there); it ends when the box is closed, the page is left or
- * after 30 minutes without a message, and the shopper can delete it while the box is open.
- * Everything else on the page is rendered on the server without it.
+ * The shop's AI assistant on the shop page (paid plan only), always open: answers about this
+ * shop's items, makes shopping lists and reads photos and PDFs. The conversation scrolls in
+ * its own area (the rest of the page stays reachable on a phone). With the archive on, every
+ * conversation is kept for the shop (files go straight to the archive function; GPS is
+ * removed there); it ends with "Nová konverzácia", when the page is left or after 30 minutes
+ * without a message, and the shopper can delete it. Under it, "Mám prístupový kľúč" is a
+ * closed dropdown. Everything else on the page is rendered on the server without it.
  */
 export function ShopChat({
   slug,
@@ -216,7 +217,6 @@ export function ShopChat({
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
   const base = `/api/shops/${encodeURIComponent(slug)}`;
-  const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [text, setText] = useState("");
   const [files, setFilesState] = useState<Attachment[]>([]);
@@ -309,7 +309,7 @@ export function ShopChat({
 
   // The folders opened in this browser (the HttpOnly cookie); leaving the page locks them.
   useEffect(() => {
-    if (!keys || !open) return;
+    if (!keys) return;
     let live = true;
     fetch(`${base}/access`, { cache: "no-store" })
       .then((r) => r.json())
@@ -321,7 +321,7 @@ export function ShopChat({
       live = false;
       window.removeEventListener("pagehide", hide);
     };
-  }, [keys, open, base, showFolders, lockFolders]);
+  }, [keys, base, showFolders, lockFolders]);
 
   /** The key goes only to the shop's system, never to the AI or into the conversation. */
   async function unlockFolders(key: string): Promise<boolean> {
@@ -443,16 +443,6 @@ export function ShopChat({
     setEntries([]);
     setProblem(null);
     setConversation(null);
-  }
-
-  function toggle() {
-    // Closing the box ends the conversation: it is kept for the shop as it is; open folders lock again.
-    if (open && archive) {
-      finish("closed");
-      reset();
-    }
-    if (open && keys) lockFolders();
-    setOpen(!open);
   }
 
   function startOver() {
@@ -692,17 +682,11 @@ export function ShopChat({
   const preparing = files.some((f) => !f.ready);
 
   return (
-    <section className="border border-line" aria-label={title}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={toggle}
-        className="flex w-full items-center justify-between gap-3 p-3 text-left font-semibold"
-      >
-        <span>{title}</span>
-        <span aria-hidden="true">{open ? "−" : "+"}</span>
-      </button>
-      {open && (
+    <>
+    <section className="flex flex-col border border-line" aria-labelledby="assistant-heading" data-assistant>
+      <h2 id="assistant-heading" className="p-3 font-semibold">
+        {title}
+      </h2>
         <div className="flex flex-col gap-3 border-t border-line p-3">
           <p className="text-sm text-muted" data-chat-welcome>
             {intro}
@@ -715,6 +699,7 @@ export function ShopChat({
               </Link>
             </p>
           )}
+          <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log>
           {entries.length > 0 && (
             <ol className="flex flex-col gap-4" aria-live="polite">
               {entries.map((entry, i) => (
@@ -745,6 +730,7 @@ export function ShopChat({
             </p>
           )}
           <div ref={end} />
+          </div>
           <form onSubmit={send} className="flex flex-col gap-2">
             {files.length > 0 && (
               <ul className="flex flex-wrap gap-3" aria-label={labels.photo}>
@@ -827,7 +813,13 @@ export function ShopChat({
               {archive ? labels.files_note : labels.photo_note} {labels.note}
             </p>
           </form>
-          {keys && (
+        </div>
+    </section>
+      {keys && (
+        // "Mám prístupový kľúč": closed until the shopper opens it; open while a folder is unlocked.
+        <details key={folders ? "unlocked" : "locked"} open={Boolean(folders)} className="border border-line" data-key-access>
+          <summary className="cursor-pointer p-3 font-semibold">{labels.key_have}</summary>
+          <div className="px-3 pb-3">
             <FolderAccess
               session={folders}
               labels={labels}
@@ -840,9 +832,10 @@ export function ShopChat({
               onOpen={openFile}
               onDownload={downloadFile}
               onZip={zipFolder}
+              inline
             />
-          )}
-        </div>
+          </div>
+        </details>
       )}
       {viewing && (
         <FolderViewer
@@ -854,7 +847,7 @@ export function ShopChat({
           onDownload={() => downloadFile(viewing)}
         />
       )}
-    </section>
+    </>
   );
 }
 

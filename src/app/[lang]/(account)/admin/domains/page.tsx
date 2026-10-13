@@ -8,6 +8,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings } from "./actions";
+import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/admin/domains">): Promise<Metadata> {
   const { lang } = await params;
@@ -76,12 +77,23 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
   const q = (first(sp.q) ?? "").trim().slice(0, 100);
   const status = first(sp.status) ?? "";
   const kind = first(sp.kind) ?? "";
-  const keep = `?${new URLSearchParams({ ...(q ? { q } : {}), ...(status ? { status } : {}), ...(kind ? { kind } : {}) })}`;
+  // "Sviatky": one country and year at a time (default: Slovakia, this year).
+  const hcountry = /^[A-Za-z]{2}$/.test(first(sp.hcountry) ?? "") ? first(sp.hcountry)!.toUpperCase() : "SK";
+  const hyearValue = Number(first(sp.hyear));
+  const hyear = Number.isInteger(hyearValue) && hyearValue >= 2000 && hyearValue < 2100 ? hyearValue : new Date().getUTCFullYear();
+  const keep = `?${new URLSearchParams({
+    ...(q ? { q } : {}),
+    ...(status ? { status } : {}),
+    ...(kind ? { kind } : {}),
+    hcountry,
+    hyear: String(hyear),
+  })}`;
 
-  const [overview, stats, prices] = await Promise.all([
+  const [overview, stats, prices, holidays] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
+    session.supabase.rpc("admin_holidays", { p_country: hcountry, p_year: hyear }),
   ]);
   if (overview.error) return <DbError message={overview.error.message} dict={dict} />;
   const rows = (overview.data ?? []) as Overview[];
@@ -323,6 +335,16 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
           ))}
         </div>
       </section>
+
+      <HolidaysAdmin
+        rows={holidays.error ? null : ((holidays.data ?? []) as AdminHoliday[])}
+        country={hcountry}
+        year={hyear}
+        lang={lang}
+        dict={dict}
+        hidden={hidden}
+        keep={keep}
+      />
     </div>
   );
 }

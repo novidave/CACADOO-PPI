@@ -3208,4 +3208,208 @@ begin
 end $$;
 reset role;
 
+\echo '--- shop status: public holidays, special days, automatic holidays (update 27)'
+set role anon;
+do $$
+declare v_n integer;
+begin
+  -- Slovakia: days off, not every state holiday (2026: no 8.5, 1.9, 15.9, 17.11; 2027: 8.5 and 15.9 again)
+  select count(*) into v_n from public.holidays_between('SK', '2026-01-01', '2026-12-31');
+  assert v_n = 12, format('SK 2026: 11 days off + Easter Sunday (shops closed), got %s', v_n);
+  assert not exists (select 1 from public.holidays_between('sk', '2026-01-01', '2026-12-31')
+                     where date in ('2026-05-08', '2026-09-01', '2026-09-15', '2026-11-17')), 'no longer days off in 2026';
+  assert (select string_agg(to_char(date, 'MM-DD'), ',' order by date) from public.holidays_between('SK', '2026-01-01', '2026-12-31')
+          where kind = 'shops_closed') = '01-01,04-03,04-05,12-24,12-25,12-26', 'shops closed by law';
+  assert (select closed_from from public.holidays_between('SK', '2026-12-24', '2026-12-24')) = '12:00', '24.12 from 12:00';
+  assert (select kind from public.holidays_between('SK', '2026-01-06', '2026-01-06')) = 'day_off';
+  assert exists (select 1 from public.holidays_between('SK', '2027-01-01', '2027-12-31') where date = '2027-05-08' and kind = 'day_off');
+  assert exists (select 1 from public.holidays_between('SK', '2027-01-01', '2027-12-31') where date = '2027-09-15' and kind = 'day_off');
+  assert not exists (select 1 from public.holidays_between('SK', '2027-01-01', '2027-12-31') where date in ('2027-09-01', '2027-11-17'));
+  assert (select count(*) from public.holidays_between('HU', '2026-01-01', '2026-12-31')) >= 10, 'Hungary';
+  assert (select count(*) from public.holidays_between('CZ', '2026-01-01', '2026-12-31')) >= 10, 'Czechia';
+  assert (select name_en from public.holidays_between('SK', '2026-12-25', '2026-12-25')) = 'Christmas Day';
+  begin
+    insert into public.public_holidays (country, date, kind) values ('SK', '2026-03-01', 'day_off');
+    raise exception 'a visitor wrote a holiday';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- an owner cannot write holidays, directly or through the admin functions
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin
+    insert into public.public_holidays (country, date, kind, source) values ('SK', '2026-03-01', 'day_off', 'admin');
+    raise exception 'an owner wrote a holiday';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_save_holiday('SK', '2026-03-01', 'day_off', null, 'x', null, null);
+    raise exception 'an owner used admin_save_holiday';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_holidays('SK', 2026);
+    raise exception 'an owner listed holidays as the admin';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- the admin's rows win over the library's and survive a new run of the script
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$ begin
+  perform public.admin_save_holiday('SK', '2026-05-08', 'day_off', null, 'Deň víťazstva nad fašizmom', null, 'Victory Day');
+  perform public.admin_save_holiday('SK', '2026-01-06', 'removed', null, null, null, null);
+  perform public.admin_save_holiday('SK', '2026-12-31', 'shops_closed', '14:00', '<b>Silvester</b>', null, null);
+  assert exists (select 1 from public.holidays_between('SK', '2026-05-08', '2026-05-08')), 'admin adds a date';
+  assert not exists (select 1 from public.holidays_between('SK', '2026-01-06', '2026-01-06')), 'admin removes a library date';
+  assert (select name_sk || ' ' || closed_from from public.holidays_between('SK', '2026-12-31', '2026-12-31')) = 'Silvester 14:00',
+    'admin row, plain text name';
+  assert (select count(*) from public.admin_holidays('SK', 2026) where date = '2026-01-06') = 2, 'both rows listed';
+  assert (select counts from public.admin_holidays('SK', 2026) where date = '2026-01-06' and source = 'library') = false;
+  begin
+    perform public.admin_save_holiday('SK', '2026-03-02', 'day_off', '12:00', null, null, null);
+    assert (select closed_from from public.public_holidays where country = 'SK' and date = '2026-03-02' and source = 'admin') is null,
+      'closed_from only for shops_closed';
+  end;
+  perform public.admin_delete_holiday('SK', '2026-03-02');
+end $$;
+reset role;
+-- the script runs again (library rows only): the admin's rows stay and still win
+insert into public.public_holidays (country, date, name_sk, name_hu, name_en, kind, closed_from, source) values
+  ('SK', '2026-01-06', 'Zjavenie Pána', 'Vízkereszt', 'Epiphany', 'day_off', null, 'library')
+on conflict (country, date, source) do update set name_sk = excluded.name_sk, kind = excluded.kind, updated_at = now();
+do $$ begin
+  assert (select kind from public.public_holidays where country = 'SK' and date = '2026-01-06' and source = 'admin') = 'removed';
+  assert not exists (select 1 from public.holidays_between('SK', '2026-01-06', '2026-01-06')), 'still removed after the script';
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$ begin
+  assert public.admin_delete_holiday('SK', '2026-01-06'), 'admin row deleted';
+  assert exists (select 1 from public.holidays_between('SK', '2026-01-06', '2026-01-06')), 'the library row counts again';
+  perform public.admin_delete_holiday('SK', '2026-05-08');
+  perform public.admin_delete_holiday('SK', '2026-12-31');
+end $$;
+reset role;
+
+-- special days: only the shop's owner writes them, through the owner function
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_d date := current_date + 3;
+  v_r jsonb;
+begin
+  assert public.owner_save_special_hours(v_a, v_d, v_d + 2, true, null, ' Inventúra  www.example.com ') = 3, 'a date range';
+  assert (select count(*) from public.shop_special_hours where shop_id = v_a and closed) = 3;
+  assert (select note from public.shop_special_hours where shop_id = v_a and date = v_d) = 'Inventúra', 'note: plain text';
+  assert public.owner_save_special_hours(v_a, v_d, null, false, '[["08:00","12:00"],["12:30","17:00"]]', null) = 1, 'other hours with a break';
+  assert (select ranges from public.shop_special_hours where shop_id = v_a and date = v_d) = '[["08:00","12:00"],["12:30","17:00"]]'::jsonb;
+  assert public.owner_save_special_hours(v_a, v_d + 1, null, false, '[["22:00","02:00"]]', null) = 1, 'past midnight';
+  foreach v_r in array array['[]', '[["25:00","26:00"]]', '[["08:00","08:00"]]', '[["8:00","12:00"]]', '"x"',
+                             '[["08:00","09:00"],["09:00","10:00"],["10:00","11:00"],["11:00","12:00"],["13:00","14:00"]]']::jsonb[] loop
+    begin
+      perform public.owner_save_special_hours(v_a, v_d, null, false, v_r, null);
+      raise exception 'bad ranges accepted: %', v_r;
+    exception when invalid_parameter_value then assert sqlerrm = 'ranges', sqlerrm;
+    end;
+  end loop;
+  begin
+    perform public.owner_save_special_hours(v_a, current_date - 5, null, true, null, null);
+    raise exception 'a past date accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'dates', sqlerrm;
+  end;
+  begin
+    perform public.owner_save_special_hours(v_a, v_d, v_d + 70, true, null, null);
+    raise exception 'a 71-day range accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'dates', sqlerrm;
+  end;
+  begin
+    perform public.owner_save_special_hours(v_a, v_d, null, true, null, repeat('x', 150));
+    assert (select length(note) from public.shop_special_hours where shop_id = v_a and date = v_d) = 100, 'note at most 100';
+  end;
+  begin
+    perform public.owner_save_special_hours(v_b, v_d, null, true, null, null);
+    raise exception 'owner A saved shop B''s special hours';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.shop_special_hours (shop_id, date, closed) values (v_a, v_d + 10, true);
+    raise exception 'special hours written directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_delete_special_hours(v_b, v_d);
+    raise exception 'owner A deleted shop B''s special hours';
+  exception when insufficient_privilege then null;
+  end;
+  assert public.owner_delete_special_hours(v_a, v_d + 2), 'deleted';
+  assert (select count(*) from public.shop_special_hours where shop_id = v_a) = 2;
+
+  -- "Automatické štátne sviatky": only through the owner function
+  begin
+    update public.shops set auto_holidays = false where id = v_a;
+    raise exception 'auto_holidays written directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_auto_holidays(v_b, false);
+    raise exception 'owner A switched shop B''s holidays';
+  exception when insufficient_privilege then null;
+  end;
+  assert (select auto_holidays from public.shops where id = v_a), 'on by default';
+end $$;
+reset role;
+
+-- the calendar: holidays only with the switch on, special days always, an admin row wins
+set role anon;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_h uuid := (select id from public.shops where slug = 'kisbolt-budapest');
+  v_d date := current_date + 3;
+begin
+  assert (select count(*) from public.shop_special_hours where shop_id = v_a) = 2, 'visitors read special days';
+  assert (select holiday_kind || ' ' || holiday_closed_from from public.shop_calendar(array[v_a, v_h], '2026-12-20', '2027-01-10')
+          where shop_id = v_a and date = '2026-12-24') = 'shops_closed 12:00';
+  assert (select holiday_kind from public.shop_calendar(array[v_a, v_h], '2026-12-20', '2027-01-10')
+          where shop_id = v_h and date = '2026-12-25') = 'day_off', 'Hungarian shop: Hungarian holidays';
+  assert not exists (select 1 from public.shop_calendar(array[v_h], '2026-12-20', '2026-12-31') where date = '2026-12-24'),
+    'no Slovak holiday for a Hungarian shop';
+  assert (select special_closed::text || ' ' || coalesce(holiday_kind, '-') from public.shop_calendar(array[v_a], v_d, v_d + 1)
+          where date = v_d) = 'true -', 'special day (closed) without a holiday';
+  assert (select special_ranges from public.shop_calendar(array[v_a], v_d, v_d + 1) where date = v_d + 1) = '[["22:00","02:00"]]'::jsonb;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := current_date + 3;
+begin
+  assert public.owner_set_auto_holidays(v_a, false) = false;
+  assert not exists (select 1 from public.shop_calendar(array[v_a], '2026-12-20', '2027-01-10') where holiday_kind is not null),
+    'switch off: no holidays';
+  assert (select count(*) from public.shop_calendar(array[v_a], v_d, v_d + 5)) = 2, 'switch off: special days still apply';
+  assert public.owner_set_auto_holidays(v_a, true);
+  assert exists (select 1 from public.shop_calendar(array[v_a], '2026-12-20', '2027-01-10') where holiday_kind = 'shops_closed');
+  begin
+    delete from public.shop_special_hours where shop_id = v_a;
+    raise exception 'special hours deleted directly';
+  exception when insufficient_privilege then null;
+  end;
+  perform public.owner_delete_special_hours(v_a, v_d);
+  perform public.owner_delete_special_hours(v_a, v_d + 1);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -117,7 +117,18 @@ export function ShopForm({
           name="opening_hours"
           initial={shop?.opening_hours ?? null}
           dayNames={Object.fromEntries(DAYS.map((d) => [d, dayName(d, lang)])) as Record<DayKey, string>}
-          labels={{ closed: dict.dashboard.closed_day, add: dict.dashboard.add_range, remove: dict.dashboard.remove_range }}
+          labels={{
+            closed: dict.dashboard.closed_day,
+            add: dict.dashboard.add_range,
+            remove: dict.dashboard.remove_range,
+            add_break: dict.dashboard.add_break,
+            break_from: dict.dashboard.break_from,
+            break_to: dict.dashboard.break_to,
+            break_add: dict.dashboard.break_add,
+            break_cancel: dict.dashboard.break_cancel,
+            break_outside: dict.dashboard.break_outside,
+            past_midnight: dict.dashboard.past_midnight,
+          }}
         />
       </div>
 

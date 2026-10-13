@@ -1,0 +1,115 @@
+#!/usr/bin/env node
+/**
+ * Public holidays for the countries where PPI has shops → SQL rows for public.public_holidays
+ * (source 'library'). Run it when a year or a country is added and paste the output into that
+ * phase's SQL file:  node scripts/holidays.mjs 2026 2027 > rows.sql
+ *
+ * The website, API and MCP never use the library: they read only the table. The library gives
+ * the dates and names; each country's rules below decide what counts, because the library
+ * does not know every change in the law (Slovakia 2026/2027: see SK below). Rows the admin
+ * entered (source 'admin') are never touched: the insert only updates 'library' rows.
+ *
+ * kind: 'day_off'      = a public day off: shops may open, the page says "Štátny sviatok – overte
+ *                        otváracie hodiny";
+ *       'shops_closed' = shops must close by law (closed_from: from that time on, e.g. 24.12 12:00).
+ */
+import Holidays from "date-holidays";
+
+const LANGS = ["sk", "hu", "en"];
+
+/** Easter Sunday (Gregorian), as "YYYY-MM-DD". */
+function easter(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return iso(year, month, day);
+}
+const iso = (y, m, d) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const shift = (date, days) => {
+  const t = new Date(`${date}T12:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + days);
+  return t.toISOString().slice(0, 10);
+};
+
+/**
+ * Slovakia: days off (dni pracovného pokoja, zákon č. 241/1993 Z. z.) and the days shops must
+ * close (zákaz predaja). Not every state holiday is a day off:
+ * - 1.9 (Deň Ústavy) and 17.11 are no longer days off (consolidation packages 2024 and 2025);
+ * - 8.5 and 15.9 are not days off in 2026 only (§ 4b, consolidation 2025) and are days off
+ *   again from 2027 — the library (3.37) still lists them as observances in 2027;
+ * - shops must close on 1.1, Good Friday, Easter Sunday, 24.12 from 12:00, 25.12 and 26.12
+ *   (with exceptions such as pharmacies and petrol stations); on the other days off they may open.
+ */
+function slovakia(year) {
+  const es = easter(year);
+  const daysOff = [
+    `${year}-01-01`, `${year}-01-06`, shift(es, -2), shift(es, 1), `${year}-05-01`,
+    `${year}-07-05`, `${year}-08-29`, `${year}-11-01`, `${year}-12-24`, `${year}-12-25`, `${year}-12-26`,
+  ];
+  if (year !== 2026) daysOff.push(`${year}-05-08`, `${year}-09-15`);
+  const closed = new Map([
+    [`${year}-01-01`, null], [shift(es, -2), null], [es, null],
+    [`${year}-12-24`, "12:00"], [`${year}-12-25`, null], [`${year}-12-26`, null],
+  ]);
+  const dates = new Set([...daysOff, ...closed.keys()]);
+  return [...dates].map((date) => ({
+    date,
+    kind: closed.has(date) ? "shops_closed" : "day_off",
+    closedFrom: closed.get(date) ?? null,
+    fallback: date === es ? { sk: "Veľkonočná nedeľa", hu: "Húsvétvasárnap", en: "Easter Sunday" } : null,
+  }));
+}
+
+/** Other countries: the library's public holidays, all as days off (shops-closed rules depend
+ *  on the shop's size and type there; the admin adds them per date when needed). */
+function publicDays(country, year) {
+  return new Holidays(country)
+    .getHolidays(year)
+    .filter((h) => h.type === "public")
+    .map((h) => ({ date: h.date.slice(0, 10), kind: "day_off", closedFrom: null, fallback: null }));
+}
+
+const RULES = { SK: slovakia, HU: (y) => publicDays("HU", y), CZ: (y) => publicDays("CZ", y) };
+
+/** The holiday's name in sk/hu/en from the library (any type), else the fallback. */
+function names(country, year, date, fallback) {
+  const lib = new Holidays(country);
+  const out = {};
+  for (const lang of LANGS) {
+    const found = lib.getHolidays(year, lang).find((h) => h.date.slice(0, 10) === date && h.type !== "observance")
+      ?? lib.getHolidays(year, lang).find((h) => h.date.slice(0, 10) === date);
+    out[lang] = fallback?.[lang] ?? found?.name ?? null;
+  }
+  return out;
+}
+
+const q = (v) => (v === null || v === undefined ? "null" : `'${String(v).replace(/'/g, "''")}'`);
+
+const years = process.argv.slice(2).map(Number).filter((y) => y >= 2000 && y < 2100);
+if (years.length === 0) years.push(2026, 2027);
+const rows = [];
+for (const [country, rule] of Object.entries(RULES)) {
+  for (const year of years) {
+    for (const h of rule(year).sort((a, b) => a.date.localeCompare(b.date))) {
+      const n = names(country, year, h.date, h.fallback);
+      rows.push(`  (${q(country)}, ${q(h.date)}, ${q(n.sk)}, ${q(n.hu)}, ${q(n.en)}, ${q(h.kind)}, ${q(h.closedFrom)}, 'library')`);
+    }
+  }
+}
+console.log(`-- generated by scripts/holidays.mjs ${years.join(" ")} (date-holidays ${(await import("date-holidays/package.json", { with: { type: "json" } })).default.version})`);
+console.log("insert into public.public_holidays (country, date, name_sk, name_hu, name_en, kind, closed_from, source) values");
+console.log(rows.join(",\n"));
+console.log("on conflict (country, date, source) do update set");
+console.log("  name_sk = excluded.name_sk, name_hu = excluded.name_hu, name_en = excluded.name_en,");
+console.log("  kind = excluded.kind, closed_from = excluded.closed_from, updated_at = now();");

@@ -98,3 +98,40 @@ export async function domainAction(formData: FormData) {
   });
   back(error ? { err: error } : { ok: "done", ...(action === "auth" ? { code_for: id } : {}) });
 }
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * "Sviatky": the admin adds, changes or removes a public holiday per country (database update
+ * 27). The admin's rows always win over the library's and the script never touches them;
+ * admin_save_holiday / admin_delete_holiday check is_admin() themselves.
+ */
+export async function saveHoliday(formData: FormData) {
+  const { session, back } = await start(formData);
+  const country = String(formData.get("country") ?? "").trim().toUpperCase();
+  const date = String(formData.get("date") ?? "");
+  const kind = String(formData.get("kind") ?? "");
+  if (!/^[A-Z]{2}$/.test(country) || !DATE.test(date) || !["day_off", "shops_closed", "removed"].includes(kind)) {
+    back({ err: "holiday" }, "holidays");
+  }
+  const { error } = await session.supabase.rpc("admin_save_holiday", {
+    p_country: country,
+    p_date: date,
+    p_kind: kind,
+    p_closed_from: String(formData.get("closed_from") ?? "") || null,
+    p_name_sk: String(formData.get("name_sk") ?? ""),
+    p_name_hu: String(formData.get("name_hu") ?? ""),
+    p_name_en: String(formData.get("name_en") ?? ""),
+  });
+  back(error ? { err: error.message.slice(0, 200) } : { ok: "holiday" }, "holidays");
+}
+
+/** Deletes the admin's own row for a date: the library's row (if any) counts again. */
+export async function deleteHoliday(formData: FormData) {
+  const { session, back } = await start(formData);
+  const { error } = await session.supabase.rpc("admin_delete_holiday", {
+    p_country: String(formData.get("country") ?? "").trim().toUpperCase(),
+    p_date: String(formData.get("date") ?? ""),
+  });
+  back(error ? { err: error.message.slice(0, 200) } : { ok: "holiday" }, "holidays");
+}
