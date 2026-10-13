@@ -27,6 +27,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Cloud folder for the archive (paid plan only): each finished conversation's PDF and files copied into the shop's own OneDrive or Dropbox; "Cloudový priečinok" in My shop | Built and tested against OneDrive, Dropbox and Brevo stand-ins; live after database update 23, the cloud-export function, the Microsoft and Dropbox app registrations and the secrets (SETUP.md part P) |
 | Access keys for shoppers (paid plan only): a valid key opens a private folder in the chat for 24 hours; its files open in a built-in viewer (pages with a watermark) or, when the owner allows, download one by one or as a ZIP; "Režim prístupu" and a key per folder in My shop; shoppers may download their own conversation as a PDF | Built and tested against Storage and Claude stand-ins; live after database update 24, three updated functions and the merge (SETUP.md part Q) |
 | Booking link (every shop): "Rezervovať termín" link on the shop page, next to the e-mail and Facebook page, opening the shop's booking app; product pages of shops with a domain of their own show no other shops; quick view of the recently uploaded stock files | Built and tested; live after database update 26 and the merge (SETUP.md part S) |
+| Shop status and Pro page layout: open / lunch break / closed / holiday / no hours (dots on the maps and lists, API, MCP, JSON-LD), public holidays SK/HU/CZ, the owner's special days, "Automatické štátne sviatky"; new section order; the assistant always open; no Cacadoo header on own domains | Built and tested; live after database update 27 and the merge (SETUP.md part T) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -143,8 +144,9 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - Up to 50 results: available first, then fresher, then by name. Each result shows the item name as the shop wrote it
   and, under it, its name in the page language when that reads differently ("Farba fas. biela 5L" / "White facade
   paint 5 l"), price, shop name, street and town, the availability text with its freshness ("In stock · updated 8 min
-  ago") and "Open now"/"Closed".
-- A map shows the shops of the results (black dots); it is an extra: the page works without it.
+  ago") and the shop's **status**: a coloured dot with the words ("● Otvorené · zatvára o 17:00", 6.6).
+- A map shows the shops of the results, each pin in its status colour, with the legend in words under it ("● Otvorené
+  ● Obedňajšia prestávka ● Zatvorené ● Sviatok ● Neuvedené"); it is an extra: the page works without it.
 - No results: "No shop has this right now".
 - **Search with AI** (button next to the filter; only when the Anthropic key is set): the shopper's question, in any
   language, goes to Claude Haiku, which works out what is needed and searches several times (names and synonyms in
@@ -155,21 +157,35 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 ### 5.2 Shop page (`/[lang]/shops/{slug}`)
 
+- **Order** (Prompt 9A; the same on the shop's own domain): 1) name (+ logo); 2) the map with the shop's status dot
+  and the legend; 3) **opening hours**: the status line ("Otvorené · zatvára o 17:00", "Obedňajšia prestávka · otvára
+  o 12:30", "Zatvorené · otvára zajtra o 8:00", "Štátny sviatok – overte otváracie hodiny", with a small "sviatok" /
+  "mimoriadne" label for special hours), the week with today in bold, breaks in the day's row ("8:00–12:00,
+  12:30–17:00"), then the holidays and special days of the next 14 days; 4) **shop details** (address, directions,
+  phone, website, e-mail, Facebook, booking link, facilities, card payment); 5) [Phase B: PDF sections]; 6) the **AI
+  assistant**, shown directly and always open (paid plan); 7) **"Mám prístupový kľúč"** as a closed dropdown under
+  it (paid plan); 8) the items, with the stock freshness line. Shops without the plan: the same without 5–7.
+- **On the shop's own domain** there is no Cacadoo header: the top shows only the shop's name (and logo) and the
+  SK · HU · EN switch ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
   with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
 - **Booking link** (update 26, every shop, optional): "Rezervovať termín" in the same row and style as the e-mail
   and Facebook page (small black calendar icon + underlined text); it opens the shop's page in its booking app
   (Reservio, Bookio, Calendly, its own booking page …) in a new tab (`rel="noopener"`). PPI only links to it; booking
   happens in that app.
-- Opening hours for the week in the shop's time zone, "Open now / Closes at / Opens at".
+- Opening hours for the week in the shop's time zone, with the live status (6.6): the browser recomputes it right after
+  the page loads and every minute while it is open (no server polling).
 - Facilities: customer toilet, douchette (bidet shower), card payment.
 - Stock freshness line, then the shop's public items: searchable in all three languages, 50 per page, name +
   translation, price and availability.
 - JSON-LD `Store` (address, geo, opening hours, phone, `email`, `sameAs` = website and Facebook page, logo,
-  `paymentAccepted`, `amenityFeature`, and with a booking link `potentialAction` = `ReserveAction` → the link).
-- **AI assistant** (only when the shop has the paid plan and the Anthropic key is set in Vercel): a collapsed box
-  "Ask the shop's assistant" under the shop's details, in the page language — or the owner's own button label and
-  welcome message (plain text, shown as written; empty = the default texts). The shopper can ask about the shop's
+  `paymentAccepted`, `amenityFeature`, and with a booking link `potentialAction` = `ReserveAction` → the link;
+  `specialOpeningHoursSpecification` for the next 60 days: the owner's special days and the days shops must close by
+  law — public days off where shops may open are left out, their hours are not known).
+- **AI assistant** (only when the shop has the paid plan and the Anthropic key is set in Vercel): shown directly under
+  the shop's details, always open (no dropdown), titled "Ask the shop's assistant" in the page language — or the
+  owner's own label and welcome message (plain text, shown as written; empty = the default texts). The conversation
+  scrolls in its own area (at most about half the screen on a phone), so the rest of the page stays reachable. The shopper can ask about the shop's
   items, prices and availability; ask for a shopping list for a job (shown as a list with quantity, price and each
   item's availability, with "Copy list" and "Print list"); or add a photo of a device, part, model plate or serial
   number — the assistant says what it read, searches the shop and says plainly whether the shop has a match, is not
@@ -182,22 +198,23 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   neither the stock nor the documents answer, it says so and shows "Call the shop" with the phone number. When the
   shop has a booking link and the shopper wants an appointment, it points to the "Rezervovať termín" link (it never
   promises a date or time).
-- **"Mám prístupový kľúč"** (under the chat, separate from it), or a message that is nothing but a valid key: opens the
-  shop's private folders named by the key for 24 hours on this browser, or until the chat box closes or the page is
-  left ("Prístup k priečinku <name> odomknutý", "Znova zamknúť"). A wrong key says "Nesprávny kľúč". The key is never
+- **"Mám prístupový kľúč"** (a closed dropdown under the assistant; open while a folder is unlocked), or a message
+  that is nothing but a valid key: opens the shop's private folders named by the key for 24 hours on this browser, or
+  until "Znova zamknúť" or the page is left ("Prístup k priečinku <name> odomknutý", "Znova zamknúť"). A wrong key says "Nesprávny kľúč". The key is never
   part of the conversation and never reaches the AI. Then the folder's files are listed with **Otvoriť** (the viewer)
   and, when the owner allows, **Stiahnuť** and **Stiahnuť celý priečinok (ZIP)** (6.12).
 - **"Stiahnuť túto konverzáciu (PDF)"** (archive on, unless the owner turned it off): the shopper's own conversation
   so far, labelled in the page's language, without the owner's Slovak versions; made on request, never stored.
 - **Files and the archive** (6.10): "Add photo or PDF" takes up to 4 files per message and 10 per conversation (JPG,
   PNG, WebP, HEIC, PDF, 10 MB each). One line under the welcome text says "Konverzácia a nahrané súbory sa ukladajú pre
-  obchod <name>. Viac" (→ `/[lang]/sukromie-asistent`, a draft text for now). While the box is open the shopper can
-  **"Vymazať moju konverzáciu"**; closing the box, "New conversation" or leaving the page ends the conversation.
+  obchod <name>. Viac" (→ `/[lang]/sukromie-asistent`, a draft text for now). The shopper can **"Vymazať moju
+  konverzáciu"**; "New conversation", leaving the page or 30 minutes without a message ends the conversation.
 
 ### 5.3 Item page (`/[lang]/items/{id}`)
 
 - Item name as the shop wrote it, its name in the page language under it, brand, EAN, price, availability with
-  freshness, shop card with directions and "open now". The page title carries both names.
+  freshness, shop card with directions and the shop's status (dot + words). The page title carries both names. The
+  map's pins show each shop's status, with the legend.
 - "Also available at": the same product (EAN) in other shops, nearest to this shop first (or "We did not find this
   product in other shops."). **Not on product pages of shops with the paid plan or a domain of their own** (being set
   up or live; `shop_stands_alone()`, update 26 — before it the plan alone): no block, no text, no other shops on the map
@@ -257,7 +274,16 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   approval 3 rows without the columns whose name points to purchase price, supplier, margin or invoice; after it only
   the approved columns). Code, name, quantity and price are required. **Approve columns** → from then on every new
   file is applied automatically. A note says that the columns not chosen stay private.
-- **Shop details:** everything from "Add your shop", editable.
+- **Shop details:** everything from "Add your shop", editable. Opening hours: several ranges per day; **"+ Obedňajšia
+  prestávka"** (from–to) splits the day's range in two (no new data field); a closing time before the opening time
+  ("22:00–2:00") runs past midnight and belongs to the day it starts.
+- **Sviatky a mimoriadne zatvorenie** (every shop; database update 27): the switch **"Automatické štátne sviatky"** (on
+  by default; "Zapnuté: na štátne sviatky sa pri obchode zobrazí sviatok alebo zatvorené podľa zákona. Vypnuté: platia
+  vaše bežné otváracie hodiny aj počas sviatkov (napr. lekáreň, čerpacia stanica, obchod, ktorý má otvorené vždy).");
+  add a date or a date range (≤ 62 days) as "Zatvorené celý deň" or other hours (a break allowed) with an optional
+  note (≤ 100, plain text), change and delete (past dates disappear after 7 days); the country's public holidays of
+  the next 60 days (hidden when the switch is off) with one button each: "Otvorené ako zvyčajne" (that weekday's
+  regular hours), "Zatvorené", "Iné hodiny" (the form with that date).
 - **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once,
   with a small PNG copy (256 px) for the conversation PDFs.
 - **Items:** name (and its translation), code, price, quantity, what shoppers see ("12 in stock" / "Out of stock",
@@ -333,8 +359,10 @@ sold out); every 15–30 minutes during opening hours plus once at night; only p
   website itself never uses a location.
 - Every result carries `source_url` (the PPI page to cite), `name` (as the shop wrote it), `name_translated` (in the
   requested `lang`), `name_lang`, price, currency, availability text, freshness and the shop's address, coordinates and
-  time zone, the quantity exactly as in the shop's file; no availability for stale shops. `get_shop` also gives the
-  shop's e-mail and Facebook page. Search works across
+  time zone, the quantity exactly as in the shop's file; no availability for stale shops. Each result's shop and
+  `get_shop` carry the shop's **status** (`state` open / break / closed / holiday / no_hours, `text` in the requested
+  language, `label`, `next_change`), the same as on the page. `get_shop` also gives the shop's e-mail, Facebook page
+  and booking link. Search works across
   Slovak, Hungarian and English as on the website.
 - Search-engine ownership tags (`GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`) can be set in Vercel so the
   sitemap can be submitted (SETUP.md part I).
@@ -406,10 +434,29 @@ choose "exact number / in stock–low stock / available" and hide items; migrati
   Vercel log as `ai-search: …`.
 - Crawlers are kept away from it (robots.txt); the Anthropic key is only on the server.
 
-### 6.6 Open now
+### 6.6 Status: open / lunch break / closed / holiday / no hours
 
-Open if the current time in the shop's own time zone falls inside today's ranges; otherwise "Opens at …"
-(today, tomorrow or the next opening day).
+One function (`src/lib/hours.ts`, `shopStatus()`) for the server render, the browser's minute refresh, the API and MCP,
+in the shop's own time zone. The first rule that applies wins:
+
+1. **Special hours the owner set for that date**: green / blue / red from those hours, with a small "sviatok" (on a
+   holiday) or "mimoriadne" label; "Zatvorené celý deň" = red.
+2. Only with "Automatické štátne sviatky" on — **a day shops must close by law** (SK: 1.1, Good Friday, Easter Sunday,
+   24.12 from 12:00, 25.12, 26.12): red "Zatvorené – štátny sviatok" (from the closing time when it starts at noon;
+   before it, the regular hours with "sviatok").
+3. Only with the switch on — **a public day off**: yellow "Štátny sviatok – overte otváracie hodiny".
+4. **The regular hours**: green inside a range; blue in a gap of under 3 hours between two ranges of the day
+   ("Obedňajšia prestávka · otvára o 12:30"); red before the first range, after the last, in a gap of 3 hours or more
+   or on a closed day ("Zatvorené · otvára zajtra o 8:00"). A range past midnight belongs to the day it starts.
+5. **No opening hours at all**: grey "Otváracie hodiny neuvedené".
+
+Colours (the only colour on the site besides the logo, always with the words): green #1E9E5A open, blue #2F6FED lunch
+break, red #D64545 closed, yellow #F2B705 public holiday, grey #9AA5B1 no hours; dots have a white outline and a thin
+dark ring. Public holidays come only from `public_holidays` (SK, HU, CZ 2026–2027 from the date-holidays library via
+`scripts/holidays.mjs`, corrected for the law; the admin's rows win). Slovakia 2026: days off 1.1, 6.1, 3.4, 6.4, 1.5,
+5.7, 29.8, 1.11, 24.12, 25.12, 26.12 — 8.5 and 15.9 are not days off in 2026 only, 1.9 and 17.11 no longer; 2027:
+8.5 and 15.9 are days off again (unless the law changes again). Hungary and Czechia: the library's public holidays,
+all as days off (shops-closed rules there depend on the shop's size and type; the admin adds them per date).
 
 ### 6.7 Paid plan
 
@@ -666,11 +713,13 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
   `ALERT_EMAIL_FROM` nothing is sent, the log says so, and the flow goes on.
 - Payment never affects search ranking.
 
-## 7. Data model (after database update 26)
+## 7. Data model (after database update 27)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
-| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
+| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `auto_holidays` (default true, update 27; only `owner_set_auto_holidays()`), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
+| `public_holidays` | `country`, `date`, `name_sk/hu/en`, `kind` (`day_off`, `shops_closed`, `removed` = an admin row taking a date away), `closed_from`, `source` (`library`/`admin`) | Update 27. Everyone reads; only the service role and the admin's functions write; an admin row always wins over the library's |
+| `shop_special_hours` | `shop_id`, `date`, `closed`, `ranges` (1–4, a break allowed, past midnight allowed), `note` (≤ 100, plain text) | Update 27. Read with the shop; written only through `owner_save_special_hours()` / `owner_delete_special_hours()` |
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
 | `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |
 | `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `updated_at`, `name_lang`, `name_i18n` (`{"sk","hu","en"}`), `translated_name_source`, `name_i18n_by_owner` | Unique per shop + code; names searchable through one trigram index over the original and the three translations. Every item of an active shop is public (`is_public` dropped by migration 21) |
@@ -761,6 +810,11 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
 - Availability always written out as text, in bold, always next to its freshness.
 - Translated names in grey under the shop's own name; the AI answer in a plain bordered box above the results.
 - Map: OpenFreeMap "positron" (free, no key), black dot pins; never required for the page to work.
+- **Status dots** (Prompt 9A, at the owner's request — the one colour exception besides the logo): green #1E9E5A open,
+  blue #2F6FED lunch break, red #D64545 closed, yellow #F2B705 public holiday, grey #9AA5B1 no hours; always shown
+  together with the status in words, never colour alone; on maps a white outline and a thin dark ring, and the legend
+  in words under each map.
+- On a shop's own domain: no Cacadoo header; the shop's name (and logo) and SK · HU · EN at the top.
 - Language switch SK · HU · EN in the header; "For shops" link to the login.
 - App icon: black "PPI" letters on white.
 
@@ -862,6 +916,8 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
       purchase and a connected domain reached "Beží"; then `REGISTRAR_MODE=live` and enough Websupport credit (SETUP.md
       part R)
 - [ ] Booking link and other shops hidden with a domain: database update 26 pasted (SETUP.md part S)
+- [ ] Shop status: database update 27 pasted; the Slovak, Hungarian and Czech holidays checked against official sources
+      before each new year (`node scripts/holidays.mjs <year>`; changes as admin rows in "Sviatky") (SETUP.md part T)
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
 - [x] Stale shops show no stock on every page, in the API and in MCP
@@ -887,3 +943,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-10 | Access keys for shoppers: unlock in the chat (also by typing the key), viewer with watermarked pages, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, downloads and ZIP (20 per session), a key per folder, counts; the shopper's own conversation PDF |
 | 2026-10-11 | Own domains for Pro shops: buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one the shop already has; the shop page served on its own domain; renewals, transfer code, admin page "Predplatné a domény" |
 | 2026-10-11 | Booking link on the shop page ("Rezervovať termín", every shop); no other shops on product pages of shops with a domain of their own; quick view (slideshow) of the recently uploaded stock files |
+| 2026-10-13 | Pro page layout and shop status: open / lunch break / closed / holiday / no hours with coloured dots on maps, lists, the shop page, API, MCP and JSON-LD; public holidays (SK, HU, CZ) and the owner's special days; "Automatické štátne sviatky"; new section order, the assistant always open, "Mám prístupový kľúč" as a dropdown; no Cacadoo header on own domains |

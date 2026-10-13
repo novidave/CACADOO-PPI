@@ -92,15 +92,16 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
 
   if (pathname === "/sitemap.xml") return to(`/api/site/${site.slug}/sitemap`);
   if (pathname === "/robots.txt") return to(`/api/site/${site.slug}/robots`);
-  if (parts.length === 0) return to(`/${site.lang}/site/${site.slug}`);
+  // The domain's own pages: src/app/site/[lang]/[slug] (their own layout, no Cacadoo header).
+  if (parts.length === 0) return to(`/site/${site.lang}/${site.slug}`);
   const [first, second, third] = parts;
   if (isLocale(first)) {
-    if (parts.length === 1) return to(`/${first}/site/${site.slug}`);
-    if (second === "items" && third && parts.length === 3) return to(`/${first}/site/${site.slug}/items/${third}`);
+    if (parts.length === 1) return to(`/site/${first}/${site.slug}`);
+    if (second === "items" && third && parts.length === 3) return to(`/site/${first}/${site.slug}/items/${third}`);
     // The shop's own Cacadoo path → its address on the domain.
     if (second === "shops" && third === site.slug && parts.length === 3) return goTo(first === site.lang ? "/" : `/${first}`);
   }
-  if (first === "items" && second && parts.length === 2) return to(`/${site.lang}/site/${site.slug}/items/${second}`);
+  if (first === "items" && second && parts.length === 2) return to(`/site/${site.lang}/${site.slug}/items/${second}`);
   return NextResponse.redirect(`${siteUrl()}${pathname}${search}`, 307);
 }
 
@@ -113,6 +114,15 @@ export async function proxy(request: NextRequest) {
   // PPI's own sitemap.xml and robots.txt (matched only for shops' domains).
   if (pathname === "/sitemap.xml" || pathname === "/robots.txt") return NextResponse.next();
   const segment = pathname.split("/")[1];
+
+  // A shop's domain page asked for on PPI's own address (/site/{lang}/{slug}…): the Cacadoo page.
+  if (segment === "site") {
+    const [, lang, slug, kind, id] = pathname.split("/").filter(Boolean);
+    const url = request.nextUrl.clone();
+    const target = isLocale(lang) ? lang : preferredLocale(request);
+    url.pathname = !slug ? `/${target}` : kind === "items" && id ? `/${target}/items/${id}` : `/${target}/shops/${slug}`;
+    return NextResponse.redirect(url, 308);
+  }
 
   if (!isLocale(segment)) {
     const url = request.nextUrl.clone();

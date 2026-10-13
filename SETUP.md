@@ -856,6 +856,43 @@ the arrows (or a swipe) go through the last 10 files. No new secrets, no Edge Fu
 
 ---
 
+## Part T — Open / break / closed / holiday status, holidays, Pro page layout (13 October 2026)
+
+Every shop now shows a **status dot with the status in words** (● Otvorené, ● Obedňajšia prestávka, ● Zatvorené,
+● Sviatok, ● Neuvedené) on the shop page, the search map and list, the product page, the API and the MCP server. Public
+holidays of Slovakia, Hungary and Czechia (2026–2027) are in the database; each shop decides in Môj obchod →
+**Sviatky a mimoriadne zatvorenie** whether they apply and can add special days (closed, or other hours). The shop page
+has a new order (name, map, opening hours, details, assistant always open, "Mám prístupový kľúč", items) and on a
+shop's own domain there is no Cacadoo header — only the shop's name, logo and SK · HU · EN. No new secrets, no Edge
+Function changes. Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/27_shop_status.sql` → Run → "Success. No rows
+   returned" (a notice "… does not exist, skipping" is normal). Safe to run again. Check:
+   `select country, count(*) from public.public_holidays group by 1 order by 1;` → CZ 26, HU 26, SK 26.
+2. **Merge the pull request** on GitHub → Vercel deploys. (Merged before step 1, the website still works: the status
+   then uses only the regular opening hours and "Sviatky a mimoriadne zatvorenie" says it needs update 27.)
+3. **Test:**
+   - A shop page → the dot on the map and the line under "Otváracie hodiny" (today in bold, "· dnes") say the same,
+     e.g. "● Otvorené · zatvára o 17:00".
+   - **Lunch break (blue)**, during today's opening hours: Môj obchod → **Údaje obchodu** → opening hours → today →
+     **+ Obedňajšia prestávka** → a time around now (e.g. now − 10 min to now + 20 min) → **Pridať prestávku** →
+     **Uložiť** → the shop page shows a blue dot and "Obedňajšia prestávka · otvára o …". Then set today back
+     (**Odstrániť** on the second time, the first time's end back to the closing time) and save.
+   - **Holiday (yellow):** Admin → **Predplatné a domény** → **Sviatky** → the shop's country → today's date, kind
+     "deň pracovného pokoja – obchody môžu mať otvorené", a name → **Uložiť sviatok** → the shop page shows a yellow
+     dot and "Štátny sviatok – overte otváracie hodiny". Then **Zrušiť úpravu** on that row.
+   - Môj obchod → **Sviatky a mimoriadne zatvorenie** → **Pridať mimoriadny deň** (e.g. tomorrow, Zatvorené celý deň,
+     note "Inventúra") → it is listed on the shop page under "Sviatky a mimoriadne dni (najbližších 14 dní)".
+     **Vymazať** removes it.
+   - The shop on its own domain → no Cacadoo logo or menu at the top, the shop's name and logo with SK · HU · EN.
+4. Opening hours that run past midnight (e.g. a bar 18:00–02:00): enter 18:00 – 02:00; the editor explains it under
+   the days.
+5. **Next year's holidays** (once a year, e.g. in November): `node scripts/holidays.mjs 2028` prints the SQL rows; paste
+   them into the SQL Editor (the admin's own changes always stay). If a law changes a date, change it on the admin
+   page **Sviatky** instead.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -889,3 +926,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 15. Access keys for shoppers (paid plan): "Mám prístupový kľúč" in the assistant, folder files in a watermarked viewer, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, ZIP, folder key and counts, the shopper's own conversation PDF | ✅ built — set up Part Q |
 | 16. Own domains (Pro): buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one; the shop page on its own domain; renewals, transfer code; admin page "Predplatné a domény" | ✅ built (test mode) — set up Part R |
 | 17. Booking link on the shop page (every shop); no other shops on product pages of shops with a domain of their own; quick view of the recently uploaded stock files | ✅ built — set up Part S |
+| 18. Open / lunch break / closed / holiday status (dots + words) everywhere, public holidays SK/HU/CZ, special days, "+ Obedňajšia prestávka"; Pro shop page order, assistant always open, no Cacadoo header on own domains | ✅ built — set up Part T |

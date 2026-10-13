@@ -1,6 +1,8 @@
 import "server-only";
 import { cache } from "react";
+import type { CalendarDay } from "./hours";
 import { missingColumn } from "./missingColumn";
+import { loadCalendars } from "./shopCalendar";
 import { createClient } from "./supabase/server";
 import type { OpeningHours } from "./hours";
 import type { NameI18n } from "./names";
@@ -121,6 +123,11 @@ export async function shopStandsAlone(shopId: string): Promise<boolean> {
   const { data, error } = await (await client()).rpc("shop_stands_alone", { p_shop_id: shopId });
   if (error) return shopHasPlan(shopId);
   return data === true;
+}
+
+/** The special days and holidays of these shops for the status (database update 27; none before it). */
+export async function getShopCalendars(shopIds: string[], days = 16): Promise<Map<string, CalendarDay[]>> {
+  return loadCalendars(await client(), shopIds, days);
 }
 
 /**

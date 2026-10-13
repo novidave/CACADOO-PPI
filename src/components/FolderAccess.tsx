@@ -16,7 +16,8 @@ export interface ViewTarget {
  * "Mám prístupový kľúč" and, once a private folder is open, its files: "Otvoriť" (the viewer,
  * pages with a watermark), "Stiahnuť" and "Stiahnuť celý priečinok (ZIP)" only for files the
  * owner lets shoppers download. The key goes only to the shop's system (never to the AI);
- * the folder stays open for 24 hours or until the chat box closes.
+ * the folder stays open for 24 hours, until "Znova zamknúť" or until the page is left.
+ * inline: the key field is shown at once (inside the "Mám prístupový kľúč" dropdown).
  */
 export function FolderAccess({
   session,
@@ -30,6 +31,7 @@ export function FolderAccess({
   onOpen,
   onDownload,
   onZip,
+  inline = false,
 }: {
   session: OpenSession | null;
   labels: Labels;
@@ -42,8 +44,9 @@ export function FolderAccess({
   onOpen: (file: FolderFile) => void;
   onDownload: (file: FolderFile) => void;
   onZip: (folder: OpenFolder) => void;
+  inline?: boolean;
 }) {
-  const [show, setShow] = useState(false);
+  const [show, setShow] = useState(inline);
   const [key, setKey] = useState("");
   const until = (iso: string) => new Intl.DateTimeFormat(lang, { timeZone, dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
 
@@ -52,7 +55,7 @@ export function FolderAccess({
     if (!key.trim() || busy) return;
     const ok = await onUnlock(key.trim());
     setKey("");
-    if (ok) setShow(false);
+    if (ok) setShow(inline);
   }
 
   if (session) {

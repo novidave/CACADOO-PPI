@@ -19,6 +19,8 @@ const ERRORS = [
   "logo",
   "translation",
   "plan_active",
+  "special_dates",
+  "special_ranges",
   "plan_unavailable",
   "no_plan",
 ] as const;
@@ -65,6 +67,9 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     cloud_folder: dict.cloud.ok_folder,
     cloud_backfill: t(dict.cloud.ok_backfill, { n: extra.backfilled ?? 0 }),
     cloud_retry: dict.cloud.ok_retry,
+    holidays_auto: dict.holidays.saved,
+    special_saved: dict.holidays.special_saved,
+    special_deleted: dict.holidays.special_deleted,
   };
 }
 

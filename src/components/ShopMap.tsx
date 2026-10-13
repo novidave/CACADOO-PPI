@@ -2,6 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { shopStatus, STATUS_COLORS, type StatusInput } from "@/lib/hours";
+import { type LegendLabels, StatusLegend, useNow } from "./ShopStatus";
 
 export interface MapShop {
   slug: string;
@@ -9,25 +11,36 @@ export interface MapShop {
   lat: number;
   lng: number;
   href: string;
+  /** The shop's status dot (open / break / closed / holiday / no hours), refreshed every minute. */
+  status?: StatusInput;
 }
 
 /**
  * Black-and-white map of shops (OpenFreeMap "positron" tiles: free, no API key,
  * commercial use allowed). Purely an extra: every page works without it.
  * Tapping a pin marks that shop's results (elements with data-shop="<slug>").
+ * With statuses, each pin is the shop's status colour (white outline, thin dark ring) and the
+ * legend in words is under the map; the colours follow the clock every minute.
  */
 export function ShopMap({
   shops,
   visitor,
   label,
   className = "h-64 md:h-96",
+  legend,
+  renderedAt = 0,
 }: {
   shops: MapShop[];
   visitor?: { lat: number; lng: number } | null;
   label: string;
   className?: string;
+  legend?: LegendLabels;
+  /** Date.now() on the server (the first render of the colours). */
+  renderedAt?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const pins = useRef(new Map<string, HTMLElement>());
+  const now = useNow(renderedAt);
   // Re-create the map only when the pins really change.
   const key = JSON.stringify({ shops, visitor });
 
@@ -58,6 +71,9 @@ export function ShopMap({
         pin.className = "ppi-pin";
         pin.title = shop.name;
         pin.setAttribute("aria-label", shop.name);
+        pin.dataset.pin = shop.slug;
+        if (shop.status) paint(pin, shop.status, Date.now());
+        pins.current.set(shop.slug, pin);
         pin.addEventListener("click", () => highlight(shop.slug));
 
         const popup = new maplibre.Popup({ offset: 12, closeButton: false }).setDOMContent(popupContent(shop));
@@ -73,14 +89,37 @@ export function ShopMap({
       if (shops.length > 1 || visitor) map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 0 });
     });
 
+    const known = pins.current;
     return () => {
       cancelled = true;
+      known.clear();
       map?.remove();
     };
   }, [key]);
 
+  // Every minute (and right after load): the pins' colours follow the clock.
+  useEffect(() => {
+    for (const shop of shops) {
+      const pin = pins.current.get(shop.slug);
+      if (pin && shop.status) paint(pin, shop.status, now);
+    }
+  }, [now, shops]);
+
   if (shops.length === 0) return null;
-  return <div ref={container} role="region" aria-label={label} className={`w-full border border-line ${className}`} />;
+  const withStatus = Boolean(legend) && shops.some((s) => s.status);
+  return (
+    <div className="flex flex-col gap-2">
+      <div ref={container} role="region" aria-label={label} className={`w-full border border-line ${className}`} />
+      {withStatus && legend && <StatusLegend labels={legend} />}
+    </div>
+  );
+}
+
+/** The pin in the shop's status colour (the status in words is always next to it on the page). */
+function paint(pin: HTMLElement, status: StatusInput, now: number) {
+  const state = shopStatus(status, new Date(now)).state;
+  pin.style.background = STATUS_COLORS[state];
+  pin.dataset.status = state;
 }
 
 function popupContent(shop: MapShop): HTMLElement {

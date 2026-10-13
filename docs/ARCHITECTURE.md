@@ -172,6 +172,9 @@ section 7).
 | `api_hit(ip_hash, endpoint, limit)` | rate limit (60/min) and usage log |
 | `apply_stock_file(...)` | stock writing — service role only |
 | `shop_has_plan(shop)` | **the** paid-plan check: subscription `active` or `trialing` and `current_period_end` not passed; callable by anyone (yes/no only) |
+| `shop_calendar(shops[], from, to)`, `holidays_between(country, from, to)` | update 27: per shop (≤ 200) and date (≤ 71 days) the owner's special hours and the public holiday that applies (only with `shops.auto_holidays`, from the shop's country, an admin row winning over the library's, `removed` taking a date away); public read — the status is computed from it in `lib/hours.ts` |
+| `owner_set_auto_holidays(shop, on)`, `owner_save_special_hours(shop, from, to, closed, ranges, note)`, `owner_delete_special_hours(shop, date)` | update 27: "Sviatky a mimoriadne zatvorenie" — owner only; a date range ≤ 62 days from yesterday to a year ahead, 1–4 ranges (`valid_hour_ranges`: a break, past midnight), note `plain_text` ≤ 100; errors `dates` / `ranges`; `guard_shop_auto_holidays` refuses direct client writes of `auto_holidays` |
+| `admin_holidays(country, year)`, `admin_save_holiday(...)`, `admin_delete_holiday(country, date)` | update 27: "Sviatky" on the admin page — `is_admin()` only; admin rows (source `admin`) always win and are never touched by `scripts/holidays.mjs` |
 | `shop_stands_alone(shop)` | update 26: the shop's product pages show no other shops — `shop_has_plan()` or a domain order `paid` … `live` / `waiting_dns` / `verified`; callable by anyone (yes/no only) |
 | `link_stripe_customer(shop, customer)`, `apply_stripe_subscription(shop, customer, subscription, status, plan, period_end, cancel_at)` | paid-plan writing — service role only (the Stripe functions); a live subscription is never replaced by an ended one |
 | `my_shops()`, `owner_save_shop(p)`, `owner_set_mapping(shop, mapping)`, `owner_delete_shop(shop)`, `owner_items(...)`, `my_sync_status(shop)`, `upload_check_in(shop)` | the owner dashboard; each checks that the caller owns the shop; `owner_delete_shop` refuses a shop whose paid plan still renews; `owner_save_shop` also takes the e-mail (lower case), Facebook page (`clean_contact()`: https added; only facebook.com / fb.com, else `email` / `facebook` errors) and, since update 26, the booking link (`clean_contact()`; an https address of a real host, ≤ 500, else `booking`; kept as it is when the form does not send it) |
@@ -241,7 +244,25 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   Reads of `public_shops` ask for `booking_url` and, when the database answers 42703 (before update 26), read again
   without it (`lib/missingColumn.ts`; same in `publicApi.ts` and `shopChat.ts`).
 - **Formatting** (`lib/format.ts`): prices with the item's own currency in the visitor's language; times in the shop's
-  time zone. Opening hours and "open now" in `lib/hours.ts`.
+  time zone. Opening hours in `lib/hours.ts`.
+- **Status** (update 27): `lib/hours.ts` `shopStatus(input, now)` is the one rule for the server render, the browser,
+  the API and MCP — input = the opening hours, the shop's time zone and its calendar days (`lib/shopCalendar.ts`
+  `loadCalendars()` → `shop_calendar()`; none before update 27 or on an error, so the regular hours alone decide).
+  Order: the owner's special hours → shops closed by law (from `closed_from`) → public day off (yellow) → regular hours
+  (open; a gap under 3 h = lunch break; else closed; a range past midnight belongs to the day it starts) → no hours
+  (grey). `statusParts`/`statusText` give the words (namespace `status`), `nextChange` the next change (UTC, right on
+  daylight-saving days via `zonedToUtc`), `upcomingDays` the list under the hours, `specialOpeningHoursSpecification`
+  the JSON-LD (special days and shops-closed days; days off left out). `components/ShopStatus.tsx`: `LiveStatus` (dot +
+  words; first render with the server's `requestTime()` — `lib/requestTime.ts`, React `cache` — then the browser's clock
+  right after load and every minute), `StatusDot` (colours `STATUS_COLORS`, white outline + dark ring), `StatusLegend`.
+  `ShopMap` takes a status per shop and recolours the pins every minute, with the legend under the map. Used on the
+  shop page, the item page (shop card, other shops, map), the search results and their map; the public API adds
+  `status` to each shop (`apiStatus`, `listShops`, `getShop`, each search result's `shop`), `open_now` stays.
+- **Shop page layout** (Prompt 9A): name → map → hours (`HoursSection`: status line, week with today in bold, breaks
+  "8:00–12:00, 12:30–17:00", the next 14 days' holidays and special days) → details → [PDF sections, Phase B] →
+  `ShopChat` (always open, `data-assistant`; the conversation scrolls in `data-chat-log`, max 55vh / 65vh) →
+  "Mám prístupový kľúč" (`<details data-key-access>`, closed; open while a folder is unlocked; `FolderAccess inline`)
+  → items. The shop's own domain renders under `src/app/site/[lang]/[slug]/layout.tsx` (no Cacadoo header).
 - **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
   `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
 - **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop incl. e-mail and
@@ -637,11 +658,11 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   → Websupport renewal switched on; notices 30/7 days; failed → weekly reminders, at expiry `lapsed`).
 - **Website:** `proxy.ts` — a host that is not PPI's own (`NEXT_PUBLIC_SITE_URL`'s host, `www.` of it, localhost,
   `*.vercel.app`, `PPI_MAIN_HOSTS`) is looked up with `shop_for_host` (kept 60 s, unknown 20 s): `/` →
-  rewrite to `/{lang}/site/{slug}`, `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml` and `/robots.txt` →
+  rewrite to `/site/{lang}/{slug}` (`src/app/site/[lang]/[slug]`: its own root layout without the Cacadoo header — the shop's name/logo and `SiteLanguageSwitch`), `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml` and `/robots.txt` →
   `/api/site/{slug}/…`, `www` → 308 bare, the shop's Cacadoo path → 308 to `/`, anything else → 307 to PPI's address,
-  unknown → 404 page. On PPI's own host `/{lang}/site/…` → 308 to the Cacadoo page. `ShopView` / `ItemView` render both
+  unknown → 404 page. On PPI's own host `/site/…` (and the old `/{lang}/site/…`) → 308 to the Cacadoo page. `ShopView` / `ItemView` render both
   (`onSite`: canonical and links on the own domain); the Cacadoo pages put `rel=canonical` on the own domain
-  (`shopSiteHost` → `shop_site`); `sitemap.ts` leaves those shops out; `robots.ts` disallows `/*/site/` and
+  (`shopSiteHost` → `shop_site`); `sitemap.ts` leaves those shops out; `robots.ts` disallows `/site/`, `/*/site/` and
   `/*/admin`. Owner page `dashboard/plan` (`PlanDetails`, `DomainWizard`, `DomainStatus` polling
   `/api/owner/domains/[id]` every 3 s, 15 s while waiting for DNS), server actions in `plan/actions.ts`
   (`callDomains` with the owner's login); admin page `admin/domains` (`notFound()` unless `profiles.is_admin`).
@@ -912,6 +933,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 22 | `supabase/sql/22_assistant_archive.sql` | conversation archive: `assistant_conversations`, `assistant_messages`, `assistant_attachments`, `shop_assistant_settings` (RLS: members read), the `assistant_*` functions (service role), `owner_set_assistant_retention`, `owner_assistant_conversations`, `assistant_cron_ok`, Vault secret `ppi_assistant_cron`, private bucket `shop-assistant-uploads`, pg_cron jobs `ppi-assistant-tick` and `ppi-assistant-retention` (a notice if pg_cron is off or `ppi_project_url` missing). Safe to run twice |
 | 24 | `supabase/sql/24_access_key_access.sql` | access keys for shoppers: `shop_folders.access_mode` + counts, `access` on documents and pictures (private documents already downloadable keep it), `folder_keys.folder_key`, `folder_sessions.downloads`, `shop_assistant_settings.shopper_pdf`, tables `shop_document_pages` and `folder_zip_tickets` (RLS), `unlock_shop_folders` (24 hours, counts), `shop_folder_session` (+ downloads left), `shop_folder_files`, `shop_view_file`, `shop_download_file`, `shop_zip_ticket`, `shop_zip_take`, `shop_file_path` (private files by the access rule), `docs_register_pages`, `docs_pages_uploaded`, `shop_docs_upload_allowed` and `owner_docs_files` (+ pages), `owner_set_folder_access`, `owner_set_file_access`, `owner_set_folder_key`, `owner_set_shopper_pdf`, `shopper_pdf_allowed`, `assistant_shopper_pdf_data`. Needs 20, 22 and 23; safe to run twice |
 | 23 | `supabase/sql/23_cloud_export.sql` | cloud folder: `cloud_connections`, `cloud_oauth_states`, `cloud_export_items` (RLS: members read, never the tokens), export columns and `shopper_deleted_at` on `assistant_conversations`, the `cloud_*` functions (service role), `owner_cloud_retry`, `owner_cloud_backfill`, `assistant_shopper_forget`; `assistant_pdf_done` (queues the copy, returns whether it did), `assistant_empty_ended` and `owner_assistant_conversations` replaced; pg_cron job `ppi-cloud-export-tick`. Safe to run twice |
+| 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
 | 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
 | 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
 
@@ -1021,6 +1043,16 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   (`javascript:`, `ftp://`, `localhost`, an IP, spaces, user@host, `">`, `data:`, over 500 characters) also by direct
   write, never on another owner's shop; read back by the owner and in `public_shops`; `shop_stands_alone()` true with
   the plan or a domain `waiting_dns` / `live`, false for a cancelled domain, a quote, or after the plan ends.
+- `npm run test:db` also checks (update 27): SK 2026 = 11 days off + Easter Sunday, not 8.5/1.9/15.9/17.11, the six
+  shops-closed dates (24.12 from 12:00), 2027 with 8.5 and 15.9 again, HU and CZ; nobody but the admin writes holidays;
+  an admin row adds, removes (`removed`) and wins, and survives a new run of the script; special days only through the
+  owner function (a range, a break, past midnight, bad ranges, past dates, > 62 days, a long note, another owner's shop,
+  direct writes refused); `auto_holidays` only through its function; `shop_calendar` with the switch on and off, a
+  Hungarian shop gets Hungarian holidays only.
+- `npm run test:status` (Deno, `src/lib/hours_test.ts`): the status rules in Europe/Bratislava — open, lunch break,
+  a gap of 3 hours, before/after/closed day, past midnight, day off (also without hours), shops closed incl. 24.12
+  before and after 12:00, special hours with a break on a holiday, a special closed day, no hours, the switch off,
+  the last Sundays of March and October, the coming-days list and the JSON-LD.
 - `npm run test:functions` also runs 17 tests of `domains`: names cleaned the same way on the website and in the
   function; Websupport's signature against a known example and the Date header; the registrant is the shop's company
   profile; test mode buys nothing and puts the website on the test domain (one at a time); DNS never touches MX, SPF,
@@ -1088,6 +1120,14 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   `ReserveAction`, in the API, OpenAPI and llms.txt, removed when emptied; the quick view on a computer and a phone:
   "File 1 of 10", newer/older buttons and their ends, ← → keys, a swipe, Esc, "Close", full screen on a phone, no
   sideways scroll);
+  Prompt 9A (95 checks: on the own domain no Cacadoo header, the shop's name and SK · HU · EN ("/hu", items kept), the
+  Cacadoo URL keeps its header; the section order on desktop and phone, also for a free shop without assistant and key;
+  one assistant, always open, its conversation scrolling on a phone; the key dropdown closed and unlocking as before,
+  the key never in the conversation; every status with the database changed live — open, lunch break, a 3-hour gap,
+  after closing, closed day, day off, shops closed (also from a time), a holiday with special hours and a break, a
+  special closed day, no hours, the switch off — page = API = MCP = map pin; legend, today, the coming special days,
+  JSON-LD; search results and map; "+ Obedňajšia prestávka", the switch, a date range, change, delete, the holiday
+  buttons, a past date refused; the admin's "Sviatky": remove a library date, undo, add a date);
   those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with

@@ -1,7 +1,10 @@
 import "server-only";
 import en from "@/i18n/messages/en.json";
+import hu from "@/i18n/messages/hu.json";
+import sk from "@/i18n/messages/sk.json";
 import { isLocale, type Locale } from "@/i18n/config";
-import { openingStatus, type OpeningHours } from "./hours";
+import { type CalendarDay, type OpeningHours, shopStatus, statusText } from "./hours";
+import { loadCalendars } from "./shopCalendar";
 import { missingColumn } from "./missingColumn";
 import { siteUrl } from "./site";
 import type { AvailabilityKey, FreshnessState, StockRow } from "./stock";
@@ -22,7 +25,7 @@ export const DATA_RULES =
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHOP_COLUMNS_BEFORE_26 =
-  "slug, name, address, city, country, timezone, phone, website, email, facebook_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal";
+  "id, slug, name, address, city, country, timezone, phone, website, email, facebook_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal";
 const SHOP_COLUMNS = `${SHOP_COLUMNS_BEFORE_26}, booking_url`;
 
 /** public_shops with the booking link once database update 26 is in, without it before. */
@@ -97,6 +100,7 @@ export function apiItem(row: StockRow, lang: Locale) {
 }
 
 interface ShopRow {
+  id: string;
   slug: string;
   name: string;
   address: string | null;
@@ -119,8 +123,36 @@ interface ShopRow {
   has_card_terminal: boolean;
 }
 
-export function apiShop(shop: ShopRow, lang: Locale) {
-  const status = openingStatus(shop.opening_hours, shop.timezone);
+const STATUS_LABELS = { sk: sk.status, hu: hu.status, en: en.status };
+
+/**
+ * The shop's status now — open / break / closed / holiday / no_hours — computed with the same
+ * function as the website (src/lib/hours.ts) from the hours, the owner's special days and the
+ * holidays that apply (shop_calendar()), with the status in words and when it changes next.
+ */
+export function apiStatus(
+  shop: { opening_hours: OpeningHours | null; timezone: string | null },
+  calendar: CalendarDay[],
+  lang: Locale,
+  now: Date = new Date(),
+) {
+  const status = shopStatus({ hours: shop.opening_hours, timeZone: shop.timezone, days: calendar }, now);
+  return {
+    state: status.state,
+    text: statusText(status, STATUS_LABELS[lang], lang),
+    /** "holiday" = special hours on a holiday or a shortened holiday; "special" = the owner's special hours. */
+    label: status.label,
+    next_change: status.nextChange,
+  };
+}
+
+/** Each shop's special days and holidays (database update 27; none before it). */
+async function calendarsFor(ids: string[], days = 16) {
+  return loadCalendars(db(), ids, days).catch(() => new Map<string, CalendarDay[]>());
+}
+
+export function apiShop(shop: ShopRow, lang: Locale, calendar: CalendarDay[] = []) {
+  const status = apiStatus(shop, calendar, lang);
   return {
     slug: shop.slug,
     name: shop.name,
@@ -136,7 +168,8 @@ export function apiShop(shop: ShopRow, lang: Locale) {
     facebook_url: shop.facebook_url,
     booking_url: shop.booking_url ?? null,
     opening_hours: shop.opening_hours,
-    open_now: status ? status.open : null,
+    open_now: status.state === "open" ? true : status.state === "break" || status.state === "closed" ? false : null,
+    status,
     facilities: {
       customer_toilet: shop.has_toilet,
       douchette: shop.has_douchette,
@@ -196,7 +229,24 @@ export async function searchStock(params: {
     only_available: Boolean(params.onlyAvailable),
   });
   if (error) throw new ApiError(500, error.message);
-  const results = ((data ?? []) as StockRow[]).map((row) => apiItem(row, params.lang));
+  const rows = (data ?? []) as StockRow[];
+  // Each result's shop gets its status (the same rule as the page): hours + special days + holidays.
+  const ids = [...new Set(rows.map((r) => r.shop_id))];
+  const [hours, calendars] = await Promise.all([
+    ids.length
+      ? db().from("public_shops").select("id, opening_hours, timezone").in("id", ids)
+      : Promise.resolve({ data: [], error: null }),
+    calendarsFor(ids),
+  ]);
+  const hoursOf = new Map(((hours.data ?? []) as { id: string; opening_hours: OpeningHours | null; timezone: string }[]).map((h) => [h.id, h]));
+  const now = new Date();
+  const results = rows.map((row) => {
+    const item = apiItem(row, params.lang);
+    const shopHours = hoursOf.get(row.shop_id);
+    return shopHours
+      ? { ...item, shop: { ...item.shop, status: apiStatus(shopHours, calendars.get(row.shop_id) ?? [], params.lang, now) } }
+      : item;
+  });
   return {
     query: params.q,
     location: location ?? { source: "none" },
@@ -216,7 +266,9 @@ export async function searchStock(params: {
 export async function listShops(lang: Locale) {
   const { data, error } = await publicShops((columns) => db().from("public_shops").select(columns).order("name").limit(1000));
   if (error) throw new ApiError(500, error.message);
-  return { count: data?.length ?? 0, shops: ((data ?? []) as unknown as ShopRow[]).map((s) => apiShop(s, lang)), data_rules: DATA_RULES };
+  const shops = (data ?? []) as unknown as ShopRow[];
+  const calendars = await calendarsFor(shops.map((s) => s.id));
+  return { count: shops.length, shops: shops.map((s) => apiShop(s, lang, calendars.get(s.id) ?? [])), data_rules: DATA_RULES };
 }
 
 export async function getShop(slug: string, lang: Locale) {
@@ -224,7 +276,9 @@ export async function getShop(slug: string, lang: Locale) {
   const { data, error } = await publicShops((columns) => db().from("public_shops").select(columns).eq("slug", slug).maybeSingle());
   if (error) throw new ApiError(500, error.message);
   if (!data) throw new ApiError(404, "Shop not found");
-  return { shop: apiShop(data as unknown as ShopRow, lang), data_rules: DATA_RULES };
+  const shop = data as unknown as ShopRow;
+  const calendars = await calendarsFor([shop.id]);
+  return { shop: apiShop(shop, lang, calendars.get(shop.id) ?? []), data_rules: DATA_RULES };
 }
 
 export async function getShopItems(slug: string, pageNumber: number, q: string, lang: Locale) {

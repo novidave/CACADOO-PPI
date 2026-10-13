@@ -4,14 +4,17 @@ import { getDictionary, type Dictionary } from "@/i18n/dictionaries";
 import Link from "next/link";
 import { aiSearchEnabled } from "@/lib/aiSearch";
 import { createClient } from "@/lib/supabase/server";
-import { getShopsByIds, type PublicShop } from "@/lib/data";
+import { getShopCalendars, getShopsByIds, type PublicShop } from "@/lib/data";
 import { missingSupabaseEnv, supabaseEnv } from "@/lib/supabase/env";
 import { formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
 import type { StockRow } from "@/lib/stock";
 import { AiSearch } from "@/components/AiSearch";
-import { OpenStatus } from "@/components/OpenStatus";
 import { ShopMap } from "@/components/ShopMap";
+import { LiveStatus } from "@/components/ShopStatus";
+import type { CalendarDay } from "@/lib/hours";
+import { requestTime } from "@/lib/requestTime";
+import { statusInput } from "@/lib/shopCalendar";
 import { StockLine } from "@/components/StockLine";
 
 
@@ -31,8 +34,10 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
   const aiEnabled = aiSearchEnabled();
   const askAi = aiEnabled && first(sp.ai) === "1" && q.length >= 2;
 
+  const renderedAt = requestTime();
   let rows: StockRow[] = [];
   let shops = new Map<string, PublicShop>();
+  let calendars = new Map<string, CalendarDay[]>();
   let error: string | null = null;
 
   try {
@@ -47,8 +52,11 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
         error = `${result.error.message} · Supabase: ${supabaseEnv()?.url}`;
       }
       rows = (result.data ?? []) as StockRow[];
-      // Opening hours for "Open now"; one extra query for all result shops.
-      if (!result.error) shops = await getShopsByIds([...new Set(rows.map((r) => r.shop_id))]);
+      // Opening hours, special days and holidays for each shop's status: two queries for all result shops.
+      if (!result.error) {
+        const ids = [...new Set(rows.map((r) => r.shop_id))];
+        [shops, calendars] = await Promise.all([getShopsByIds(ids), getShopCalendars(ids).catch(() => new Map())]);
+      }
     }
   } catch (e) {
     // e.g. a mistyped Supabase URL: show it instead of a blank 500 page.
@@ -112,19 +120,33 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
             <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
               <div className="lg:sticky lg:top-4 lg:order-2">
                 <ShopMap
-                  shops={[...new Map(rows.filter((r) => r.shop_lat !== null && r.shop_lng !== null).map((r) => [r.shop_slug, r])).values()].map((r) => ({
-                    slug: r.shop_slug,
-                    name: r.shop_name,
-                    lat: r.shop_lat!,
-                    lng: r.shop_lng!,
-                    href: `/${lang}/shops/${r.shop_slug}`,
-                  }))}
+                  shops={[...new Map(rows.filter((r) => r.shop_lat !== null && r.shop_lng !== null).map((r) => [r.shop_slug, r])).values()].map((r) => {
+                    const shop = shops.get(r.shop_id);
+                    return {
+                      slug: r.shop_slug,
+                      name: r.shop_name,
+                      lat: r.shop_lat!,
+                      lng: r.shop_lng!,
+                      href: `/${lang}/shops/${r.shop_slug}`,
+                      ...(shop ? { status: statusInput(shop, calendars) } : {}),
+                    };
+                  })}
                   label={dict.shop.map}
+                  legend={dict.status}
+                  renderedAt={renderedAt}
                 />
               </div>
               <ul className="divide-y divide-line border-y border-line lg:order-1">
                 {rows.map((row) => (
-                  <ResultRow key={row.item_id} row={row} shop={shops.get(row.shop_id)} lang={lang} dict={dict} />
+                  <ResultRow
+                    key={row.item_id}
+                    row={row}
+                    shop={shops.get(row.shop_id)}
+                    calendars={calendars}
+                    renderedAt={renderedAt}
+                    lang={lang}
+                    dict={dict}
+                  />
                 ))}
               </ul>
             </div>
@@ -138,11 +160,15 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
 function ResultRow({
   row,
   shop,
+  calendars,
+  renderedAt,
   lang,
   dict,
 }: {
   row: StockRow;
   shop: PublicShop | undefined;
+  calendars: Map<string, CalendarDay[]>;
+  renderedAt: number;
   lang: Locale;
   dict: Dictionary;
 }) {
@@ -166,7 +192,7 @@ function ResultRow({
       </div>
       <div className="flex flex-wrap gap-x-3 text-sm">
         <StockLine row={row} timeZone={row.shop_timezone} dict={dict} lang={lang} />
-        {shop && <OpenStatus hours={shop.opening_hours} timeZone={shop.timezone} lang={lang} dict={dict} />}
+        {shop && <LiveStatus input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />}
       </div>
     </li>
   );

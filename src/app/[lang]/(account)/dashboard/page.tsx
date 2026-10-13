@@ -14,6 +14,7 @@ import { LogoInput } from "@/components/LogoInput";
 import { ShopForm } from "@/components/ShopForm";
 import { approveColumns, deleteShop, saveShop, saveTranslation, uploadLogo } from "./actions";
 import { errorText, hiddenFields, inputClass, messages, SubmitButton } from "./shared";
+import { Holidays, holidaysSummary, loadHolidays } from "./Holidays";
 
 const PAGE_SIZE = 50;
 
@@ -109,7 +110,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
   const q = (first(sp.q) ?? "").trim();
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  const [{ data: itemRows, error: e3 }, planRow, hasPlan, itemCount] = await Promise.all([
+  const [{ data: itemRows, error: e3 }, planRow, hasPlan, itemCount, holidays] = await Promise.all([
     supabase.rpc("owner_items", { p_shop_id: shop.id, q: q || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE }),
     supabase
       .from("subscriptions")
@@ -118,6 +119,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
       .maybeSingle(),
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.from("shop_items").select("id", { count: "exact", head: true }).eq("shop_id", shop.id),
+    // "Sviatky a mimoriadne zatvorenie" (database update 27; null before it).
+    loadHolidays(supabase, shop),
   ]);
   // The database decides whether the shop has the paid plan; before database update 18
   // the Plan section only says that paid plans are not available yet.
@@ -147,6 +150,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const summaries = {
     columns: columns.length === 0 ? d.summary_no_file : shop.mapping_status === "confirmed" ? o.state_confirmed : o.state_proposed,
     details: addressLine(shop.address, shop.city) || shop.name,
+    holidays: holidaysSummary(holidays, dict),
     logo: shop.logo_url ? d.summary_logo : d.summary_no_logo,
     items: productCount(products),
     plan: plan ? (plan.active ? dict.plan.pro : dict.plan.free) : dict.plan.unavailable,
@@ -244,6 +248,18 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
             defaults={{ country: "", timezone: "" }}
             action={saveShop}
             submitLabel={dict.account.save}
+          />
+        </DashboardSection>
+
+        <DashboardSection {...section("holidays")} title={dict.holidays.title} summary={summaries.holidays}>
+          <Holidays
+            data={holidays}
+            shop={shop}
+            lang={lang}
+            dict={dict}
+            hidden={hidden}
+            notice={notice("holidays")}
+            editDate={/^\d{4}-\d{2}-\d{2}$/.test(first(sp.date) ?? "") ? first(sp.date)! : null}
           />
         </DashboardSection>
 
