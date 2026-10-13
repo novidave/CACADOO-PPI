@@ -105,35 +105,25 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <JsonLd data={localBusiness(shop, lang, host, input)} />
 
-      {/* 1. The shop's name (on its own domain the header above shows it). */}
-      <header className={onSite ? "sr-only" : "flex items-center gap-3"}>
-        {shop.logo_url && !onSite && (
-          // eslint-disable-next-line @next/next/no-img-element -- logos come from Supabase Storage
-          <img src={shop.logo_url} alt="" width={48} height={48} className="h-12 w-12 border border-line object-contain" />
-        )}
-        <h1 className="text-2xl font-semibold tracking-tight">{shop.name}</h1>
-      </header>
-
-      {/* 2. The map with the shop's status dot (an extra: the page works without it). */}
-      {hasLocation && (
-        <ShopMap
-          shops={[{ slug: shop.slug, name: shop.name, lat: shop.lat!, lng: shop.lng!, href: shopPath, status: input }]}
-          label={dict.shop.map}
-          className="h-56 md:h-72"
-          legend={dict.status}
-          renderedAt={renderedAt}
-        />
-      )}
-
-      {/* 3. Opening hours: status line, the week (today marked, breaks in the row), the coming special days. */}
-      <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} />
-
-      {/* 4. The shop's details. */}
-      <section aria-labelledby="details-heading" className="flex flex-col gap-2">
-        <h2 id="details-heading" className="text-lg font-semibold">
-          {dict.shop.details}
-        </h2>
+      {/* 1. The shop's name and logo (on its own domain the header above shows them), its details under them. */}
+      <header className="flex flex-col gap-2" data-shop-details>
+        <div className={onSite ? "sr-only" : "flex items-center gap-3"}>
+          {shop.logo_url && !onSite && (
+            // eslint-disable-next-line @next/next/no-img-element -- logos come from Supabase Storage
+            <img src={shop.logo_url} alt="" width={48} height={48} className="h-12 w-12 border border-line object-contain" />
+          )}
+          <h1 className="text-2xl font-semibold tracking-tight">{shop.name}</h1>
+        </div>
         {address && <p>{address}</p>}
+        {(shop.has_toilet || shop.has_douchette) && (
+          <p className="text-sm">
+            <span className="text-muted">{dict.shop.facilities}: </span>
+            <span className="font-semibold">
+              {[shop.has_toilet && dict.shop.toilet, shop.has_douchette && dict.shop.douchette].filter(Boolean).join(" · ")}
+            </span>
+          </p>
+        )}
+        {shop.has_card_terminal && <p className="text-sm font-semibold">{dict.shop.card_terminal}</p>}
         <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
           {hasLocation && (
             <a href={directionsUrl(shop.lat!, shop.lng!)} className="underline underline-offset-4" target="_blank" rel="noopener">
@@ -158,18 +148,23 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
             bookingLabel={dict.shop.booking}
           />
         </p>
-        {(shop.has_toilet || shop.has_douchette) && (
-          <p className="text-sm">
-            <span className="text-muted">{dict.shop.facilities}: </span>
-            <span className="font-semibold">
-              {[shop.has_toilet && dict.shop.toilet, shop.has_douchette && dict.shop.douchette].filter(Boolean).join(" · ")}
-            </span>
-          </p>
-        )}
-        {shop.has_card_terminal && <p className="text-sm font-semibold">{dict.shop.card_terminal}</p>}
-      </section>
+      </header>
 
-      {/* 6. and 7. The assistant (paid plan): always open; "Mám prístupový kľúč" as a closed dropdown under it. */}
+      {/* 2. The map with the shop's status dot (an extra: the page works without it). */}
+      {hasLocation && (
+        <ShopMap
+          shops={[{ slug: shop.slug, name: shop.name, lat: shop.lat!, lng: shop.lng!, href: shopPath, status: input }]}
+          label={dict.shop.map}
+          className="h-56 md:h-72"
+          statusLabels={dict.status}
+          renderedAt={renderedAt}
+        />
+      )}
+
+      {/* 3. Opening hours: status line, the week (today marked, breaks in the row), the coming special days. */}
+      <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} />
+
+      {/* 4. and 5. The assistant (paid plan): always open; "Mám prístupový kľúč" as a closed dropdown under it. */}
       {assistant && (
         <ShopChat
           slug={shop.slug}
@@ -185,7 +180,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         />
       )}
 
-      {/* 8. The items. */}
+      {/* 6. The items. */}
       <section className="flex flex-col gap-3" aria-labelledby="items-heading">
         <h2 id="items-heading" className="text-lg font-semibold">
           {dict.shop.items}

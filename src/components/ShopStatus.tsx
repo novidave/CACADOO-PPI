@@ -72,33 +72,3 @@ export function LiveStatus({
     </span>
   );
 }
-
-export interface LegendLabels {
-  legend: string;
-  legend_open: string;
-  legend_break: string;
-  legend_closed: string;
-  legend_holiday: string;
-  legend_none: string;
-}
-
-/** "● Otvorené ● Obedňajšia prestávka ● Zatvorené ● Sviatok ● Neuvedené" under each map. */
-export function StatusLegend({ labels }: { labels: LegendLabels }) {
-  const items: [StatusState, string][] = [
-    ["open", labels.legend_open],
-    ["break", labels.legend_break],
-    ["closed", labels.legend_closed],
-    ["holiday", labels.legend_holiday],
-    ["no_hours", labels.legend_none],
-  ];
-  return (
-    <ul aria-label={labels.legend} className="flex flex-wrap gap-x-4 gap-y-1 text-xs" data-status-legend>
-      {items.map(([state, text]) => (
-        <li key={state} className="inline-flex items-center gap-1.5">
-          <StatusDot state={state} size={8} />
-          {text}
-        </li>
-      ))}
-    </ul>
-  );
-}

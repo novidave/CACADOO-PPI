@@ -132,7 +132,7 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
                     };
                   })}
                   label={dict.shop.map}
-                  legend={dict.status}
+                  statusLabels={dict.status}
                   renderedAt={renderedAt}
                 />
               </div>

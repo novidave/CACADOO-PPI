@@ -51,8 +51,7 @@
     "douchette": "Bidetová sprška (douchette)",
     "card_terminal": "Platba kartou (platobný terminál)",
     "facebook": "Facebook",
-    "booking": "Rezervovať termín",
-    "details": "Údaje obchodu"
+    "booking": "Rezervovať termín"
   },
   "item": {
     "brand": "Značka",
@@ -1038,12 +1037,6 @@
     "opens_day": "otvára: {day} {time}",
     "label_holiday": "sviatok",
     "label_special": "mimoriadne",
-    "legend": "Vysvetlivky",
-    "legend_open": "Otvorené",
-    "legend_break": "Obedňajšia prestávka",
-    "legend_closed": "Zatvorené",
-    "legend_holiday": "Sviatok",
-    "legend_none": "Neuvedené",
     "upcoming": "Sviatky a mimoriadne dni (najbližších 14 dní)",
     "closed_all_day": "Zatvorené celý deň",
     "check_hours": "overte otváracie hodiny",

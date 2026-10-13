@@ -51,8 +51,7 @@
     "douchette": "Douchette (bidet shower)",
     "card_terminal": "Card payment (card terminal)",
     "facebook": "Facebook",
-    "booking": "Book an appointment",
-    "details": "Shop details"
+    "booking": "Book an appointment"
   },
   "item": {
     "brand": "Brand",
@@ -1038,12 +1037,6 @@
     "opens_day": "opens {day} at {time}",
     "label_holiday": "holiday",
     "label_special": "special hours",
-    "legend": "Legend",
-    "legend_open": "Open",
-    "legend_break": "Lunch break",
-    "legend_closed": "Closed",
-    "legend_holiday": "Holiday",
-    "legend_none": "Not given",
     "upcoming": "Holidays and special days (next 14 days)",
     "closed_all_day": "Closed all day",
     "check_hours": "check opening hours",

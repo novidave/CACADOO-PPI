@@ -145,8 +145,8 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   and, under it, its name in the page language when that reads differently ("Farba fas. biela 5L" / "White facade
   paint 5 l"), price, shop name, street and town, the availability text with its freshness ("In stock · updated 8 min
   ago") and the shop's **status**: a coloured dot with the words ("● Otvorené · zatvára o 17:00", 6.6).
-- A map shows the shops of the results, each pin in its status colour, with the legend in words under it ("● Otvorené
-  ● Obedňajšia prestávka ● Zatvorené ● Sviatok ● Neuvedené"); it is an extra: the page works without it.
+- A map shows the shops of the results, each pin in its status colour (its tooltip says the shop and the status in
+  words, e.g. "Potraviny Centrum · Otvorené"; no legend under the map); it is an extra: the page works without it.
 - No results: "No shop has this right now".
 - **Search with AI** (button next to the filter; only when the Anthropic key is set): the shopper's question, in any
   language, goes to Claude Haiku, which works out what is needed and searches several times (names and synonyms in
@@ -157,16 +157,18 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 ### 5.2 Shop page (`/[lang]/shops/{slug}`)
 
-- **Order** (Prompt 9A; the same on the shop's own domain): 1) name (+ logo); 2) the map with the shop's status dot
-  and the legend; 3) **opening hours**: the status line ("Otvorené · zatvára o 17:00", "Obedňajšia prestávka · otvára
+- **Order** (Prompt 9A, details under the name at the owner's request; the same on the shop's own domain): 1) name
+  (+ logo) with the **shop details** right under it, as before (address, facilities, card payment, then directions,
+  phone, website, e-mail, Facebook, booking link); 2) the map with the shop's status dot (no legend); 3) **opening
+  hours**: the status line ("Otvorené · zatvára o 17:00", "Obedňajšia prestávka · otvára
   o 12:30", "Zatvorené · otvára zajtra o 8:00", "Štátny sviatok – overte otváracie hodiny", with a small "sviatok" /
   "mimoriadne" label for special hours), the week with today in bold, breaks in the day's row ("8:00–12:00,
-  12:30–17:00"), then the holidays and special days of the next 14 days; 4) **shop details** (address, directions,
-  phone, website, e-mail, Facebook, booking link, facilities, card payment); 5) [Phase B: PDF sections]; 6) the **AI
-  assistant**, shown directly and always open (paid plan); 7) **"Mám prístupový kľúč"** as a closed dropdown under
-  it (paid plan); 8) the items, with the stock freshness line. Shops without the plan: the same without 5–7.
+  12:30–17:00"), then the holidays and special days of the next 14 days; 4) [Phase B: PDF sections]; 5) the **AI
+  assistant**, shown directly and always open (paid plan); 6) **"Mám prístupový kľúč"** as a closed dropdown under
+  it (paid plan); 7) the items, with the stock freshness line. Shops without the plan: the same without 4–6.
 - **On the shop's own domain** there is no Cacadoo header: the top shows only the shop's name (and logo) and the
-  SK · HU · EN switch ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
+  SK · HU · EN switch, with the shop details right under it ("/" is the shop's language, "/hu", "/en"; an item page
+  keeps the item).
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
   with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
 - **Booking link** (update 26, every shop, optional): "Rezervovať termín" in the same row and style as the e-mail
@@ -183,7 +185,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   `specialOpeningHoursSpecification` for the next 60 days: the owner's special days and the days shops must close by
   law — public days off where shops may open are left out, their hours are not known).
 - **AI assistant** (only when the shop has the paid plan and the Anthropic key is set in Vercel): shown directly under
-  the shop's details, always open (no dropdown), titled "Ask the shop's assistant" in the page language — or the
+  the opening hours, always open (no dropdown), titled "Ask the shop's assistant" in the page language — or the
   owner's own label and welcome message (plain text, shown as written; empty = the default texts). The conversation
   scrolls in its own area (at most about half the screen on a phone), so the rest of the page stays reachable. The shopper can ask about the shop's
   items, prices and availability; ask for a shopping list for a job (shown as a list with quantity, price and each
@@ -214,7 +216,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 - Item name as the shop wrote it, its name in the page language under it, brand, EAN, price, availability with
   freshness, shop card with directions and the shop's status (dot + words). The page title carries both names. The
-  map's pins show each shop's status, with the legend.
+  map's pins show each shop's status (tooltip in words).
 - "Also available at": the same product (EAN) in other shops, nearest to this shop first (or "We did not find this
   product in other shops."). **Not on product pages of shops with the paid plan or a domain of their own** (being set
   up or live; `shop_stands_alone()`, update 26 — before it the plan alone): no block, no text, no other shops on the map
@@ -812,8 +814,8 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
 - Map: OpenFreeMap "positron" (free, no key), black dot pins; never required for the page to work.
 - **Status dots** (Prompt 9A, at the owner's request — the one colour exception besides the logo): green #1E9E5A open,
   blue #2F6FED lunch break, red #D64545 closed, yellow #F2B705 public holiday, grey #9AA5B1 no hours; always shown
-  together with the status in words, never colour alone; on maps a white outline and a thin dark ring, and the legend
-  in words under each map.
+  together with the status in words, never colour alone (on the page next to the shop; on a map pin in its tooltip
+  and label — no legend under the maps, at the owner's request); on maps a white outline and a thin dark ring.
 - On a shop's own domain: no Cacadoo header; the shop's name (and logo) and SK · HU · EN at the top.
 - Language switch SK · HU · EN in the header; "For shops" link to the login.
 - App icon: black "PPI" letters on white.
@@ -943,4 +945,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-10 | Access keys for shoppers: unlock in the chat (also by typing the key), viewer with watermarked pages, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, downloads and ZIP (20 per session), a key per folder, counts; the shopper's own conversation PDF |
 | 2026-10-11 | Own domains for Pro shops: buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one the shop already has; the shop page served on its own domain; renewals, transfer code, admin page "Predplatné a domény" |
 | 2026-10-11 | Booking link on the shop page ("Rezervovať termín", every shop); no other shops on product pages of shops with a domain of their own; quick view (slideshow) of the recently uploaded stock files |
-| 2026-10-13 | Pro page layout and shop status: open / lunch break / closed / holiday / no hours with coloured dots on maps, lists, the shop page, API, MCP and JSON-LD; public holidays (SK, HU, CZ) and the owner's special days; "Automatické štátne sviatky"; new section order, the assistant always open, "Mám prístupový kľúč" as a dropdown; no Cacadoo header on own domains |
+| 2026-10-13 | Pro page layout and shop status: open / lunch break / closed / holiday / no hours with coloured dots on maps, lists, the shop page, API, MCP and JSON-LD; public holidays (SK, HU, CZ) and the owner's special days; "Automatické štátne sviatky"; new section order (details under the name), the assistant always open, "Mám prístupový kľúč" as a dropdown; no Cacadoo header on own domains |

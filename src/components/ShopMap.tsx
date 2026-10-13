@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { shopStatus, STATUS_COLORS, type StatusInput } from "@/lib/hours";
-import { type LegendLabels, StatusLegend, useNow } from "./ShopStatus";
+import { shopStatus, STATUS_COLORS, type StatusInput, type StatusLabels } from "@/lib/hours";
+import { useNow } from "./ShopStatus";
 
 export interface MapShop {
   slug: string;
@@ -19,22 +19,24 @@ export interface MapShop {
  * Black-and-white map of shops (OpenFreeMap "positron" tiles: free, no API key,
  * commercial use allowed). Purely an extra: every page works without it.
  * Tapping a pin marks that shop's results (elements with data-shop="<slug>").
- * With statuses, each pin is the shop's status colour (white outline, thin dark ring) and the
- * legend in words is under the map; the colours follow the clock every minute.
+ * With statuses, each pin is the shop's status colour (white outline, thin dark ring) and says
+ * the status in words in its tooltip; the page shows it in words next to the shop too. The
+ * colours follow the clock every minute.
  */
 export function ShopMap({
   shops,
   visitor,
   label,
   className = "h-64 md:h-96",
-  legend,
+  statusLabels,
   renderedAt = 0,
 }: {
   shops: MapShop[];
   visitor?: { lat: number; lng: number } | null;
   label: string;
   className?: string;
-  legend?: LegendLabels;
+  /** The status words for the pins' tooltips (namespace "status"). */
+  statusLabels?: StatusLabels;
   /** Date.now() on the server (the first render of the colours). */
   renderedAt?: number;
 }) {
@@ -42,10 +44,14 @@ export function ShopMap({
   const pins = useRef(new Map<string, HTMLElement>());
   const now = useNow(renderedAt);
   // Re-create the map only when the pins really change.
-  const key = JSON.stringify({ shops, visitor });
+  const key = JSON.stringify({ shops, visitor, statusLabels });
 
   useEffect(() => {
-    const { shops, visitor } = JSON.parse(key) as { shops: MapShop[]; visitor?: { lat: number; lng: number } | null };
+    const { shops, visitor, statusLabels } = JSON.parse(key) as {
+      shops: MapShop[];
+      visitor?: { lat: number; lng: number } | null;
+      statusLabels?: StatusLabels;
+    };
     if (!container.current || shops.length === 0) return;
     let map: import("maplibre-gl").Map | undefined;
     let cancelled = false;
@@ -72,7 +78,7 @@ export function ShopMap({
         pin.title = shop.name;
         pin.setAttribute("aria-label", shop.name);
         pin.dataset.pin = shop.slug;
-        if (shop.status) paint(pin, shop.status, Date.now());
+        if (shop.status) paint(pin, shop, statusLabels, Date.now());
         pins.current.set(shop.slug, pin);
         pin.addEventListener("click", () => highlight(shop.slug));
 
@@ -101,25 +107,25 @@ export function ShopMap({
   useEffect(() => {
     for (const shop of shops) {
       const pin = pins.current.get(shop.slug);
-      if (pin && shop.status) paint(pin, shop.status, now);
+      if (pin && shop.status) paint(pin, shop, statusLabels, now);
     }
-  }, [now, shops]);
+  }, [now, shops, statusLabels]);
 
   if (shops.length === 0) return null;
-  const withStatus = Boolean(legend) && shops.some((s) => s.status);
-  return (
-    <div className="flex flex-col gap-2">
-      <div ref={container} role="region" aria-label={label} className={`w-full border border-line ${className}`} />
-      {withStatus && legend && <StatusLegend labels={legend} />}
-    </div>
-  );
+  return <div ref={container} role="region" aria-label={label} className={`w-full border border-line ${className}`} />;
 }
 
-/** The pin in the shop's status colour (the status in words is always next to it on the page). */
-function paint(pin: HTMLElement, status: StatusInput, now: number) {
-  const state = shopStatus(status, new Date(now)).state;
-  pin.style.background = STATUS_COLORS[state];
-  pin.dataset.status = state;
+/** The pin in the shop's status colour, with "Name · Otvorené" as its tooltip and label. */
+function paint(pin: HTMLElement, shop: MapShop, labels: StatusLabels | undefined, now: number) {
+  if (!shop.status) return;
+  const status = shopStatus(shop.status, new Date(now));
+  pin.style.background = STATUS_COLORS[status.state];
+  pin.dataset.status = status.state;
+  if (labels) {
+    const text = `${shop.name} · ${status.closedByLaw ? labels.closed_holiday : labels[status.state]}`;
+    pin.title = text;
+    pin.setAttribute("aria-label", text);
+  }
 }
 
 function popupContent(shop: MapShop): HTMLElement {
