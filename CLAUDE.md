@@ -54,7 +54,7 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
   special days, DST
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
-  checkout and webhook
+  checkout and webhook, page-sections PDF cleaning and limits
   — and `paste_safe_test.ts`: the owner pastes every `index.ts` into the Supabase editor, so write invisible or special
   characters (U+FFFF, BOM, no-break space, zero-width) as `\u…` escapes, never literally.
 
@@ -92,7 +92,7 @@ plan still renews cannot be deleted (`owner_delete_shop`).
 ## Shop assistant (paid)
 
 Shop page only, only when `shop_has_plan(shop)` is true and `ANTHROPIC_API_KEY` is set: `@/components/ShopChat`
-(collapsed box; the page stays server-rendered without it) → `POST /api/shops/[slug]/chat` → `@/lib/shopChat` (Claude
+(always open since update 27; the page stays server-rendered without it) → `POST /api/shops/[slug]/chat` → `@/lib/shopChat` (Claude
 `AI_MODEL`, default Haiku `claude-haiku-5-5`; strict tools bound to that shop on the server: `search_items` →
 `shop_stock`, `get_item` → `public_stock` filtered by the shop, and `search_shop_docs` when the shop has documents;
 never other shops; structured answer: answer, item_refs, shopping_list, photo read/match, sources, pictures,
@@ -197,8 +197,8 @@ MX/SPF/DKIM/DMARC/other records**. 14: own domain → Vercel → the exact recor
 behind the `Registrar` interface. Every step in `domain_orders.log`; never log keys or signatures. Live → one e-mail
 (Brevo, `live_email_at`), page countdown → `https://<domain>`. Renewal charged first, then Websupport renews;
 Pro ended → website back, auth code shown and e-mailed; **never hold a domain back**. `proxy.ts`: a host that is not
-PPI's own → `shop_for_host` → rewrite to `/site/[lang]/[slug]` (own root layout: no Cacadoo header, the shop's name/logo +
-`SiteLanguageSwitch`; + items, `/api/site/[slug]/sitemap|robots`), www →
+PPI's own → `shop_for_host` → rewrite to `/site/[lang]/[slug]` (own root layout: no Cacadoo header, `SiteLanguageSwitch` +
+the shop's header picture (update 28); + items, `/api/site/[slug]/sitemap|robots`), www →
 bare; canonical = the own domain; payment never affects search ranking. `PlanDetails`/`DomainStatus` labels from the
 `domains` i18n namespace; admin texts `admin_domains`.
 
@@ -247,8 +247,33 @@ next_change} on every shop), JSON-LD `specialOpeningHoursSpecification`. Input =
 or shops_closed (closed by law, red "Zatvorené – štátny sviatok"; `closed_from` e.g. 24.12 12:00); `shops.auto_holidays` (`owner_set_auto_holidays()`, default on)
 — off = regular hours every day. Shop page order: name + logo with the details right under it, map, opening hours (today
 highlighted, status line, special days next 14 days), assistant (always open, own scroll), "Mám prístupový kľúč" (collapsed), items. On an own domain
-the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacadoo header). These are shop profile
-data, never stock.
+the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacadoo header; SK · HU · EN and the shop's
+header picture; the name and logo on the page itself, above the details). These are shop profile data, never stock.
+
+## Page sections from PDFs and the own domain's header picture (Pro, update 28)
+
+`supabase/sql/28_pdf_sections.sql` + `supabase/functions/page-sections` (one file, Verify JWT off) + shop-files
+`section_pdf` + dashboard `PageSectionsPanel.tsx` / `sectionActions.ts` / page `dashboard/sections/[id]` (preview) +
+`@/components/SectionUploader`, `SectionOrder`, `PageSections`, `SectionZoom`, `HeaderPictureInput` + `@/lib/sections`
+(server) / `@/lib/sectionLimits` (shared with the browser). ≤ 10 sections per shop; PDF only, ≤ 10 MB, ≤ 20 pages,
+encrypted refused. The owner's browser draws every page (pdf.js `sectionPage()`: 800 and 1600 px wide, WebP 0.8, JPEG
+fallback) and reads its text; the function checks the real type, **cleans with pdf-lib** (JavaScript, open/automatic
+actions, Launch and other unsafe actions, links to programs, embedded/attached files, media, XFA, unreachable objects;
+refused if anything is left) and stores **only the cleaned file** (private `shop-sections`); page pictures checked by
+their bytes (WebP/JPEG, exact width, ≤ 5 MB); text as written (never translated or corrected; pages without text →
+`AI_MODEL`). **Visibility is decided only in SQL**: `section_visible()` (published, not hidden, inside its dates in the
+shop's day, `shop_has_plan`) and `section_shown()` (+ pictures public) for the page (`shop_sections()`), the assistant
+(`search_shop_docs` / `shop_docs_list`, source = the title) and the download (`shop_section_pdf` → shop-files, 10-minute
+signed URL, only with `allow_download`). Page pictures are in the public bucket `shop-sections-public` **only while
+shown** (`sections_to_sync()`; the function's `sync` after owner actions + hourly job `ppi-sections-hourly`); previews,
+hidden, expired, not-yet-visible and plan-ended sections stay private (the owner's preview: 10-minute signed URLs). Pro
+ended → hidden, never deleted. Visitors: four positions (after_details, after_map, before_items, end), `<details>` or an
+open block, `<img srcset 800w/1600w>` straight from storage (never image optimisation, never the raw PDF), ≤ 760 px,
+12 px gap, page counter, `SectionZoom`, the text in the HTML under "Zobraziť text". Deleting removes every file in both
+buckets first; `owner_delete_shop` refuses while sections exist. Lighthouse mobile within 5 points with and without
+sections. Header picture of an own domain: `shops.header_*` only through `owner_set_header_picture()` (plan or own
+domain; URLs in the shop's `logos` folder), made 1600/800 px in the browser and checked with sharp on the server; shown
+only on the own domain (`shop_header_picture()`), never on PPI's pages.
 
 ## Stock upload
 

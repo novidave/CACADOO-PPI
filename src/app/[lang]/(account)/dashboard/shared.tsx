@@ -27,6 +27,12 @@ const ERRORS = [
 
 export function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
+  if (err === "header_picture") return dict.sections.error_header;
+  if (err.startsWith("sections_failed:")) return t(dict.sections.error_failed, { message: err.slice("sections_failed:".length) });
+  if (err.startsWith("sections_")) {
+    const text = (dict.sections as Record<string, string>)[`error_${err.slice("sections_".length)}`];
+    if (text) return text;
+  }
   if (err.startsWith("docs:")) return t(dict.docs.error_failed, { message: err.slice("docs:".length) });
   if (err.startsWith("docs_")) {
     const text = (dict.docs as Record<string, string>)[`error_${err.slice("docs_".length)}`];
@@ -70,6 +76,13 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     holidays_auto: dict.holidays.saved,
     special_saved: dict.holidays.special_saved,
     special_deleted: dict.holidays.special_deleted,
+    section_saved: dict.sections.ok_saved,
+    section_published: dict.sections.ok_published,
+    section_hidden: dict.sections.ok_hidden,
+    section_shown: dict.sections.ok_shown,
+    section_deleted: dict.sections.ok_deleted,
+    header_saved: dict.sections.ok_header,
+    header_removed: dict.sections.ok_header_removed,
   };
 }
 

@@ -259,13 +259,25 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `aria-label` say "<shop> · <status>" (no legend under the map). Used on the
   shop page, the item page (shop card, other shops, map), the search results and their map; the public API adds
   `status` to each shop (`apiStatus`, `listShops`, `getShop`, each search result's `shop`), `open_now` stays.
-- **Shop page layout** (Prompt 9A): name (+ logo) with the details under it (`<header data-shop-details>`: address,
-  facilities, card payment, directions / phone / website / `ContactLinks`; on an own domain the name row is `sr-only`
-  and the site header shows it) → map → hours (`HoursSection`: status line, week with today in bold, breaks
-  "8:00–12:00, 12:30–17:00", the next 14 days' holidays and special days) → [PDF sections, Phase B] →
-  `ShopChat` (always open, `data-assistant`; the conversation scrolls in `data-chat-log`, max 55vh / 65vh) →
-  "Mám prístupový kľúč" (`<details data-key-access>`, closed; open while a folder is unlocked; `FolderAccess inline`)
-  → items. The shop's own domain renders under `src/app/site/[lang]/[slug]/layout.tsx` (no Cacadoo header).
+- **Shop page layout** (Prompt 9A/9B): name (+ logo) with the details under it (`<header data-shop-details>`:
+  address, facilities, card payment, directions / phone / website / `ContactLinks`; the same on an own domain) →
+  [sections "after_details"] → map → [sections "after_map"] → hours (`HoursSection`: status line, week with today in
+  bold, breaks "8:00–12:00, 12:30–17:00", the next 14 days' holidays and special days) → `ShopChat` (always open,
+  `data-assistant`; the conversation scrolls in `data-chat-log`, max 55vh / 65vh) → "Mám prístupový kľúč"
+  (`<details data-key-access>`, closed; open while a folder is unlocked; `FolderAccess inline`) → [sections
+  "before_items"] → items → [sections "end"]. The shop's own domain renders under
+  `src/app/site/[lang]/[slug]/layout.tsx`: no Cacadoo header; `SiteLanguageSwitch` and the shop's header picture
+  (`getHeaderPicture` → `shop_header_picture()`, `<img srcset>` 800/1600 px, a link home; update 28).
+- **Page sections** (update 28, `lib/sections.ts`, `lib/sectionLimits.ts` for the browser): `getShopSections(slug,
+  shopId)` → `shop_sections()` (only shown sections; none before update 28 or on any error); `components/PageSections`
+  (server: per position a `<details data-display=collapsed>` or `<section data-display=open>`; pages as
+  `<a href=1600 data-zoom><img srcset="800w, 1600w" sizes="(min-width: 792px) 760px, calc(100vw - 32px)" width height
+  loading>` — the first page of an open section eager, the rest lazy; no image optimisation; "Strana n / m"; "Stiahnuť
+  PDF" → `/api/shops/[slug]/sections/[id]/pdf` (→ shop-files `section_pdf`, 302 to a 10-minute signed address) only
+  with `allow_download`; the text as written under `<details data-section-text>` "Zobraziť text") and
+  `components/SectionZoom` (client, one document click listener for `a[data-zoom]` → `<dialog>` with the 1600 px
+  picture, fit / full size, Esc). Picture addresses: `${SUPABASE_URL}/storage/v1/object/public/shop-sections-public/
+  <shop>/<section>/v<version>/<page>-<800|1600>.<webp|jpg>`.
 - **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
   `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
 - **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop incl. e-mail and
@@ -661,7 +673,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   → Websupport renewal switched on; notices 30/7 days; failed → weekly reminders, at expiry `lapsed`).
 - **Website:** `proxy.ts` — a host that is not PPI's own (`NEXT_PUBLIC_SITE_URL`'s host, `www.` of it, localhost,
   `*.vercel.app`, `PPI_MAIN_HOSTS`) is looked up with `shop_for_host` (kept 60 s, unknown 20 s): `/` →
-  rewrite to `/site/{lang}/{slug}` (`src/app/site/[lang]/[slug]`: its own root layout without the Cacadoo header — the shop's name/logo and `SiteLanguageSwitch`), `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml` and `/robots.txt` →
+  rewrite to `/site/{lang}/{slug}` (`src/app/site/[lang]/[slug]`: its own root layout without the Cacadoo header — `SiteLanguageSwitch` and the shop's header picture (update 28); the shop's name and logo on the page), `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml` and `/robots.txt` →
   `/api/site/{slug}/…`, `www` → 308 bare, the shop's Cacadoo path → 308 to `/`, anything else → 307 to PPI's address,
   unknown → 404 page. On PPI's own host `/site/…` (and the old `/{lang}/site/…`) → 308 to the Cacadoo page. `ShopView` / `ItemView` render both
   (`onSite`: canonical and links on the own domain); the Cacadoo pages put `rel=canonical` on the own domain
@@ -671,6 +683,50 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   (`callDomains` with the owner's login); admin page `admin/domains` (`notFound()` unless `profiles.is_admin`).
 - **Jobs:** `ppi-domains-tick` (`4-59/5 * * * *`) and `ppi-domains-daily` (`17 3 * * *`) call
   `<Vault ppi_project_url>/functions/v1/domains`.
+
+### 2.15 Page sections from PDFs (database update 28, `supabase/sql/28_pdf_sections.sql`, `supabase/functions/page-sections`)
+
+- **Tables** (RLS on; members read, no client writes): `shop_page_sections` (title, display, position, sort,
+  allow_download, visible_from/until, hidden, published, `version` + `pdf_path` of the live PDF, `upload_version` +
+  `upload_*` of a new one being made ready, `upload_error`, `public_version`) and `shop_section_pages` (per version and
+  page: 1600 px width/height, `ext`, both sizes' bytes, `text` as written, `needs_ai`, `search` tsvector). At most 10
+  sections per shop.
+- **One rule:** `section_visible(id)` = published, not hidden, a PDF, inside its dates in the shop's own day
+  (`shop_today()`), an active shop with `shop_has_plan`; `section_shown(id)` = visible and `public_version = version`.
+  Visitors: `shop_sections(slug)`; the assistant: `search_shop_docs` (an extra `sections` part: chunk id = −page row
+  id, source = title, public, `downloadable` = allow_download) and `shop_docs_list`; the download: `shop_section_pdf`
+  (service role). Owners: `owner_save_section` (no_plan / title / dates / limit / bad), `owner_set_section_state`
+  (publish needs a PDF; hide / show), `owner_reorder_sections`, `owner_section_files` (every path in both buckets),
+  `owner_section`. The function's steps (service role): `sections_begin_upload` (next version; a half-made upload's
+  files returned), `sections_page_stored`, `sections_save_text`, `sections_finish` (switches the version; returns the
+  old files), `sections_upload_failed`, `sections_to_sync`, `sections_mark_public`, `sections_claim_ai`,
+  `sections_save_ai_text`. `owner_delete_shop` refuses while sections exist.
+- **Owner's browser** (`components/SectionUploader`): checks type and 10 MB → `createSection` (server action) → pdf.js
+  (`openPdf`; a password → "chránený heslom"; > 20 pages refused) → `page-sections?action=pdf` (the file) → per page
+  `sectionPage()` (`lib/pdfRead.ts`: 1600 and 800 px wide, WebP 0.8, JPEG where WebP cannot be written) →
+  `?action=page` twice → `text` → `finish` → `work` while pages without text wait. Mode "replace" sends a new PDF for
+  the same section. `components/SectionOrder` (drag and drop + ↑ ↓ → `reorderSections`, row actions as forms);
+  `dashboard/PageSectionsPanel.tsx` (`loadSections`, states, the edit form, add / replace); preview page
+  `dashboard/sections/[id]` (the function's `preview`: 10-minute signed addresses, then "Zverejniť"); server actions in
+  `dashboard/sectionActions.ts` (each change of what visitors see then calls the function's `sync`).
+- **Function `page-sections`** (one file, Verify JWT off; owner's JWT, the job with `x-ppi-cron`): `pdf` (≤ 10 MB,
+  `%PDF-` in the first kilobyte, pdf-lib load: encrypted → 422, > 20 pages → 413; cleaning removes `OpenAction`, `AA`,
+  `JS`/`JavaScript`, `EmbeddedFiles`/`EF`/`RF`/`AF`, `RichMediaContent`, `XFA`, actions other than GoTo / safe URI /
+  Named / Thread (Launch, SubmitForm, ImportData, GoToR/E, Rendition …), URI links to programs or other schemes,
+  file-attachment and media annotations, embedded-file streams and filespecs, and every object the trailer no longer
+  reaches; anything left → refused "unclean"; only the cleaned file is stored, private), `page` (WebP/JPEG by the
+  first bytes, ≤ 5 MB, exactly 800/1600 px wide), `text` (`cleanText`, `detectLang`), `finish`, `work` (AI_MODEL reads
+  the 1600 px picture of a page without text, as written; 3 tries), `sync` (copy private → public bucket, or download
+  and upload, cache 5 minutes; or remove), `preview`, `delete` (both buckets, then the row), `tick` (hourly:
+  `sections_to_sync(null)` and the AI).
+- **Storage:** `shop-sections` (private) and `shop-sections-public` (public), no policies — only the function.
+- **Job:** `ppi-sections-hourly` (`7 * * * *`) calls `<Vault ppi_project_url>/functions/v1/page-sections` with
+  `ppi_assistant_cron`.
+- **Header picture of an own domain:** `shops.header_url`, `header_small_url`, `header_width`, `header_height`
+  (check: the shop's own `logos` folder, `header-<ms>.webp|jpg` and `-800`; guard trigger: only
+  `owner_set_header_picture()`, which needs `shop_stands_alone`); the dashboard's `HeaderPictureInput` makes 1600 and
+  800 px in the browser, `uploadHeaderPicture` checks both with sharp (type, width 1600/800, height 50–4000, ≤ 1 MB),
+  uploads them with the owner's login, removes the old ones.
 
 ## 3. Main flows step by step
 
@@ -779,6 +835,9 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | The owner leaves during an upload | — | the document shows "Processing", after an hour "Error – upload interrupted: delete it and upload it again" |
 | `SESSION_COOKIE_SECRET` missing | no "Mám prístupový kľúč" field, no viewer pages; Public documents still used | — |
 | `shop-files` not deployed | pictures and "Open PDF" links do not open (404) | — |
+| Update 28 missing or `page-sections` not deployed | no page sections (the page works as before) | "Táto časť bude dostupná po aktualizácii databázy 28" / an upload ends with "Nepodarilo sa: page-sections HTTP 404 …" |
+| `shop-files` not updated after update 28 | "Stiahnuť PDF" answers 404 | — |
+| pg_cron / pg_net off or `ppi_project_url` missing (update 28) | a section whose date passed or whose shop lost Pro is already gone from the page (the database decides); only its pictures stay in the public bucket until the job runs | a new "from" date shows the section only after an owner's action or the job |
 | Update 24 missing, or shop-files / doc-ingest / assistant-archive not updated | the key still opens folders for the assistant; no file list, viewer, downloads or own PDF ("Súbor sa teraz nedá zobraziť") | no "Režim prístupu", folder key or counts in Documents; uploads fail at "register_pages" until doc-ingest is updated |
 | A PDF uploaded before update 24 | listed as "pripravuje sa na zobrazenie", no "Otvoriť" | "Zobrazenie pre zákazníkov: chýba" with "Pripraviť na zobrazenie" |
 | A viewer page after 10 minutes | the viewer renews the addresses once; a closed or locked session gets 410 | — |
@@ -897,7 +956,7 @@ src/proxy.ts               language redirect + session refresh; shops' own domai
 supabase/migrations/       updates 1–21 (section 9)
 supabase/sql/              from update 22 on: one SQL file per phase, pasted by the owner (section 9)
 supabase/functions/        stock-pull, stripe-checkout, stripe-webhook, doc-ingest, shop-files, assistant-archive,
-                           cloud-export, domains
+                           cloud-export, domains, page-sections
                            (each index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
@@ -936,6 +995,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 22 | `supabase/sql/22_assistant_archive.sql` | conversation archive: `assistant_conversations`, `assistant_messages`, `assistant_attachments`, `shop_assistant_settings` (RLS: members read), the `assistant_*` functions (service role), `owner_set_assistant_retention`, `owner_assistant_conversations`, `assistant_cron_ok`, Vault secret `ppi_assistant_cron`, private bucket `shop-assistant-uploads`, pg_cron jobs `ppi-assistant-tick` and `ppi-assistant-retention` (a notice if pg_cron is off or `ppi_project_url` missing). Safe to run twice |
 | 24 | `supabase/sql/24_access_key_access.sql` | access keys for shoppers: `shop_folders.access_mode` + counts, `access` on documents and pictures (private documents already downloadable keep it), `folder_keys.folder_key`, `folder_sessions.downloads`, `shop_assistant_settings.shopper_pdf`, tables `shop_document_pages` and `folder_zip_tickets` (RLS), `unlock_shop_folders` (24 hours, counts), `shop_folder_session` (+ downloads left), `shop_folder_files`, `shop_view_file`, `shop_download_file`, `shop_zip_ticket`, `shop_zip_take`, `shop_file_path` (private files by the access rule), `docs_register_pages`, `docs_pages_uploaded`, `shop_docs_upload_allowed` and `owner_docs_files` (+ pages), `owner_set_folder_access`, `owner_set_file_access`, `owner_set_folder_key`, `owner_set_shopper_pdf`, `shopper_pdf_allowed`, `assistant_shopper_pdf_data`. Needs 20, 22 and 23; safe to run twice |
 | 23 | `supabase/sql/23_cloud_export.sql` | cloud folder: `cloud_connections`, `cloud_oauth_states`, `cloud_export_items` (RLS: members read, never the tokens), export columns and `shopper_deleted_at` on `assistant_conversations`, the `cloud_*` functions (service role), `owner_cloud_retry`, `owner_cloud_backfill`, `assistant_shopper_forget`; `assistant_pdf_done` (queues the copy, returns whether it did), `assistant_empty_ended` and `owner_assistant_conversations` replaced; pg_cron job `ppi-cloud-export-tick`. Safe to run twice |
+| 28 | `supabase/sql/28_pdf_sections.sql` | page sections from PDFs: `shop_page_sections`, `shop_section_pages` (RLS: members read; service role all), `shop_today`, `section_visible`, `section_shown`, `owner_save_section`, `owner_set_section_state`, `owner_reorder_sections`, `owner_section_files`, `owner_section`, the `sections_*` functions (service role), `shop_sections` (public), `shop_section_pdf` (service role), `search_shop_docs` and `shop_docs_list` with shown sections, `owner_delete_shop` (sections first), buckets `shop-sections` (private) and `shop-sections-public`, pg_cron job `ppi-sections-hourly`; the own domain's header picture: `shops.header_*` (+ check, `guard_shop_header_picture`), `owner_set_header_picture`, `shop_header_picture`. Needs 20, 22, 26 and 27; safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
 | 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
 | 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
@@ -1052,6 +1112,11 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   owner function (a range, a break, past midnight, bad ranges, past dates, > 62 days, a long note, another owner's shop,
   direct writes refused); `auto_holidays` only through its function; `shop_calendar` with the switch on and off, a
   Hungarian shop gets Hungarian holidays only.
+- `npm run test:functions` also covers `page-sections` (13 tests: limits, encrypted, cleaning against a PDF with
+  JavaScript, actions, a launch link, links to programs, an attached program and a file attachment — the safe link and
+  the transparency group stay, nothing of it left in the bytes; WebP/JPEG sniffing; owners only; the job's secret;
+  stored only cleaned; page pictures checked; text as written; finish, sync and copy fallback; the AI; preview;
+  delete order) and shop-files' `section_pdf`.
 - `npm run test:status` (Deno, `src/lib/hours_test.ts`): the status rules in Europe/Bratislava — open, lunch break,
   a gap of 3 hours, before/after/closed day, past midnight, day off (also without hours), shops closed incl. 24.12
   before and after 12:00, special hours with a break on a holiday, a special closed day, no hours, the switch off,
@@ -1131,6 +1196,20 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   special closed day, no hours, the switch off — page = API = MCP = map pin (and its tooltip); no legend, details under the name, today, the coming special days,
   JSON-LD; search results and map; "+ Obedňajšia prestávka", the switch, a date range, change, delete, the holiday
   buttons, a past date refused; the admin's "Sviatky": remove a library date, undo, add a date);
+  Prompt 9B (70 checks: PDF limits in the browser and on the server — over 10 MB, not a PDF, 21 pages, a password; a
+  PDF with JavaScript, a launch link and an attached program taken but stored only cleaned; every page as WebP 800 and
+  1600 px with A4 proportions; nothing public before publishing; page 3 without text read by the AI; the private bucket
+  has no public addresses; the owner's preview through signed addresses, then "Zverejniť" copies the pictures; the
+  shop page: a closed dropdown after the details, srcset and sizes, all lazy when collapsed, the page counter, the text
+  in the HTML and under "Zobraziť text", the raw PDF never in the page, zoom with Esc; the assistant answers from the
+  section and names it; "Vždy otvorené" with the first page at once, a landscape page, download on (302 to a signed
+  address of the cleaned PDF) and off (404); reorder with ↓ and by dragging; "Pred tovarom"; a phone: full width minus
+  the margins, no sideways scroll; visible until yesterday → gone from the page and the assistant at once, the hourly
+  job removes the pictures; from tomorrow → not yet; Pro ended → hidden, pictures removed, nothing deleted, back with
+  Pro; "Skryť"; the own domain; a free shop has no sections; "Nahradiť PDF" keeps the section and removes the old
+  files; "Vymazať" removes every file and the text; the header picture 1600/800 px on the own domain with SK · HU · EN,
+  the logo and name on the page, removed again); Lighthouse mobile (lighthouse 12.6.1, the same local production
+  build, alternating runs): without sections median 91, with two sections (one collapsed, one open) median 92;
   those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
