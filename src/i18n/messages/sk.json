@@ -1204,7 +1204,7 @@
     "go_to_page": "Prejsť na stranu {n}",
     "slider": "Prezentácia strán",
     "site_logo_title": "Logo v hlavičke webu",
-    "site_logo_intro": "Malé logo vľavo hore na vašej webstránke na vlastnej doméne; kliknutím sa návštevník vráti na úvod. Vpravo je SK · HU · EN. Názov a logo obchodu sú na stránke nad údajmi obchodu.",
+    "site_logo_intro": "Malé logo vľavo hore na vašej webstránke na vlastnej doméne; kliknutím sa návštevník vráti na úvod (alebo prejde na odkaz loga nižšie). Vpravo je SK · HU · EN. Názov a logo obchodu sú na stránke nad údajmi obchodu.",
     "site_logo_hint": "Vhodné obrázky: PNG alebo WebP s priehľadným pozadím (aj JPG), logo na šírku alebo štvorcové, aspoň 120 px vysoké. Upravíme ho na výšku 120 px (najviac 600 px šírky); v hlavičke má výšku 40 px. Bez neho sa použije logo obchodu.",
     "site_logo_upload": "Vybrať logo",
     "site_logo_change": "Vybrať iné logo",
@@ -1214,6 +1214,17 @@
     "site_logo_none": "Použije sa logo obchodu",
     "ok_site_logo": "Logo v hlavičke uložené.",
     "ok_site_logo_removed": "Logo v hlavičke odstránené.",
-    "error_site_logo": "Logo sa nepodarilo použiť. Skúste PNG, WebP alebo JPG."
+    "error_site_logo": "Logo sa nepodarilo použiť. Skúste PNG, WebP alebo JPG.",
+    "site_logo_link_label": "Odkaz loga",
+    "site_logo_link_hint": "Kam vedie kliknutie na logo, napríklad na váš hlavný web (https://…). Otvorí sa v tom istom okne. Prázdne = úvodná stránka tohto webu.",
+    "site_logo_link_save": "Uložiť odkaz",
+    "site_logo_link_home": "Logo vedie na úvodnú stránku webu.",
+    "site_logo_link_to": "Logo vedie na:",
+    "site_logo_link_reset": "Späť na úvodnú stránku",
+    "site_logo_link_summary": "odkaz: {link}",
+    "ok_site_logo_link": "Odkaz loga uložený.",
+    "ok_site_logo_link_removed": "Logo opäť vedie na úvodnú stránku.",
+    "error_site_logo_link": "Odkaz nie je platný. Zadajte celú adresu webu, ktorá začína https://.",
+    "error_site_logo_no_plan": "Len s predplatným Pro alebo s vlastnou doménou."
   }
 }

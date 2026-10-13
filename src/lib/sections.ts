@@ -86,11 +86,16 @@ export const getShopSections = cache(async (slug: string, shopId: string): Promi
   }));
 });
 
-/** The header logo of a shop's own domain (database update 31; none before it or without one). */
+/**
+ * The header logo of a shop's own domain (database update 31; none before it or without one) and
+ * where it leads (update 32: an https address; null or missing = the shop's home page). Since
+ * update 32 a shop with only a link has a row too (url null: the header shows the shop's logo).
+ */
 export interface SiteLogo {
-  url: string;
-  width: number;
-  height: number;
+  url: string | null;
+  width: number | null;
+  height: number | null;
+  link?: string | null;
 }
 
 export const getSiteLogo = cache(async (slug: string): Promise<SiteLogo | null> => {

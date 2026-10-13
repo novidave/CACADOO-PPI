@@ -32,6 +32,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Zobrazenie strán" per section: a slider (one page at a time, swipe, ‹ ›, keys, "2 / 5" and dots; the default) or "Pod sebou"; a full-screen viewer with pinch / wheel zoom and swipe; "Stiahnuť PDF" as a button | Built and tested; live after database update 29 and the merge (SETUP.md part V) |
 | Page sections for free shops too: the same upload and display options; limits per plan set by the admin (default free 1 section, 5 pages, 10 MB; Pro 10, 20, 10 MB); "Pre viac sekcií prejdite na Pro" at the limit; on a free page after the opening hours; Pro → free keeps every section, shows the first one | Built and tested; live after database update 30, the updated page-sections function and the merge (SETUP.md part W) |
 | Own domain header as before update 28: a small clickable logo ("Logo v hlavičke webu" replaces the header picture) and SK · HU · EN; the section position "Za otváracími hodinami"; sections made of pictures (JPG, PNG, WebP; one picture = one page) | Built and tested; live after database update 31, the updated page-sections function and the merge (SETUP.md part X) |
+| "Odkaz loga": where a click on the own domain's header logo leads (e.g. the shop's main website; empty = the home page) | Built and tested; live after database update 32 and the merge (SETUP.md part Y) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -175,7 +176,8 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   directly after the opening hours, before the items.
 - **On the shop's own domain** there is no Cacadoo header: the shop's own header is as before update 28 — a **small
   logo at the top left that leads to the shop's home page** (its "Logo v hlavičke webu", update 31; without one the
-  shop's logo; without a logo its name) and the SK · HU · EN switch on the right, a thin line under it (the header
+  shop's logo; without a logo its name), or to the address the owner set as "Odkaz loga" (update 32, e.g. the shop's
+  main website; same window), and the SK · HU · EN switch on the right, a thin line under it (the header
   picture of update 28 is no longer shown); the shop's name and logo are on the page itself, above its details, as
   on the Cacadoo address ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
@@ -302,6 +304,13 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   picture's own data does not survive), the server checks it again (sharp), it is stored in the shop's folder of the
   public `logos` bucket and shown 40 px high (36 px on a phone). A preview shows it as in the header; "Odstrániť logo"
   removes it and its file, and the shop's logo is used again.
+  **Odkaz loga** (update 32, same plan rule): where a click on the logo leads — any https address of a real host
+  (≤ 500 characters, e.g. the shop's main website or e-shop), typed with or without https:// (http becomes https),
+  opened in the same window; empty = the website's home page (the default). The section says where the logo leads
+  now ("Logo vedie na: …" / "Logo vedie na úvodnú stránku webu."), and the closed section's line adds "odkaz: …".
+  "Späť na úvodnú stránku" is always there while a link is set, also after Pro ended (then without the field). It
+  applies to whatever the header shows (the header logo, the shop's logo or its name); the shop's name on an item
+  page still leads to the shop's home page. A wrong address is refused ("Odkaz nie je platný …") and the old one stays.
 - **Sekcie stránky (PDF)** (every shop since update 30, limits per plan): see 6.14.
 - **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once,
   with a small PNG copy (256 px) for the conversation PDFs.
@@ -820,7 +829,7 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
-| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `site_logo_url` / `site_logo_width` / `site_logo_height` (the own domain's header logo in the shop's `logos` folder, update 31; only `owner_set_site_logo()`), `header_url` / `header_small_url` / `header_width` / `header_height` (the header picture of update 28; no longer shown since update 31), `auto_holidays` (default true, update 27; only `owner_set_auto_holidays()`), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
+| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `site_logo_url` / `site_logo_width` / `site_logo_height` (the own domain's header logo in the shop's `logos` folder, update 31; only `owner_set_site_logo()`), `site_logo_link` (where the logo leads: https of a real host, ≤ 500; NULL = the home page; update 32, only `owner_set_site_logo_link()`), `header_url` / `header_small_url` / `header_width` / `header_height` (the header picture of update 28; no longer shown since update 31), `auto_holidays` (default true, update 27; only `owner_set_auto_holidays()`), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
 | `public_holidays` | `country`, `date`, `name_sk/hu/en`, `kind` (`day_off`, `shops_closed`, `removed` = an admin row taking a date away), `closed_from`, `source` (`library`/`admin`) | Update 27. Everyone reads; only the service role and the admin's functions write; an admin row always wins over the library's |
 | `shop_special_hours` | `shop_id`, `date`, `closed`, `ranges` (1–4, a break allowed, past midnight allowed), `note` (≤ 100, plain text) | Update 27. Read with the shop; written only through `owner_save_special_hours()` / `owner_delete_special_hours()` |
 | `shop_page_sections` | `id`, `shop_id`, `title` (≤ 80), `display` (`collapsed`/`open`), `position` (`after_details`/`after_map`/`after_hours` (update 31)/`before_items`/`end`), `sort`, `allow_download`, `visible_from`, `visible_until`, `hidden`, `published`, `version` (live PDF), `pdf_path`, `pdf_bytes`, `pages` (≤ 20), `lang`, `upload_version` / `upload_*` (a new PDF being made ready), `upload_error`, `public_version` (whose pictures are public), `page_layout` (`slider`/`stacked`, default `slider`, update 29); `pages` ≤ 50 since update 30, `source` (`pdf`/`pictures`, update 31; pictures: no `pdf_path`) and `upload_source` | Update 28. At most the plan's number per shop (`section_limits`, update 30). Owners read their own; written only through `owner_*` functions and the page-sections function; visitors only through `shop_sections()` |
@@ -1060,3 +1069,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-13 | Page sections from PDFs (Pro): up to 10 per shop, cleaned on the server, pages as 800/1600 px pictures with their text, collapsed or always open in four positions, dates, preview, download on/off, the assistant names them; public pictures only while shown (hourly job); own domains get the shop's header picture, the name and logo back on the page |
 | 2026-10-13 | Page sections: "Zobrazenie strán" (slider or one under another), full-screen viewer; page sections for free shops too (limits per plan set by the admin, "Pre viac sekcií prejdite na Pro", after the opening hours on a free page, Pro → free shows the first one) |
 | 2026-10-14 | Own domain header back to a small clickable logo ("Logo v hlavičke webu" replaces the header picture) with SK · HU · EN; the section position "Za otváracími hodinami"; page sections made of pictures (JPG, PNG, WebP) |
+| 2026-10-14 | "Odkaz loga": the own domain's header logo can lead to another address (e.g. the shop's main website) instead of the home page |

@@ -85,6 +85,8 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     section_deleted: dict.sections.ok_deleted,
     site_logo_saved: dict.sections.ok_site_logo,
     site_logo_removed: dict.sections.ok_site_logo_removed,
+    site_logo_link_saved: dict.sections.ok_site_logo_link,
+    site_logo_link_removed: dict.sections.ok_site_logo_link_removed,
   };
 }
 

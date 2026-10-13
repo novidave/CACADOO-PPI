@@ -277,7 +277,11 @@ logo at the top left as a link home + SK · HU · EN on the right (`src/app/site
 logo `shops.site_logo_*` only through `owner_set_site_logo()` (plan or own domain; `site-logo-<ms>.webp|png` in the
 shop's `logos` folder; made ≤ 120 px high / 600 px wide in the browser by `@/components/SiteLogoInput`, checked with
 sharp in `uploadSiteLogo`; dashboard "Logo v hlavičke webu" = `SiteLogoPanel`, with the hint which pictures are fine),
-read by `shop_site_logo()`; without it the shop's logo, without that the name. The header picture of update 28
+read by `shop_site_logo()`; without it the shop's logo, without that the name. **"Odkaz loga" (update 32,
+`supabase/sql/32_site_logo_link.sql`):** `shops.site_logo_link` (https of a real host, ≤ 500; NULL = the home page) only
+through `owner_set_site_logo_link()` (same plan rule; going home is always allowed), returned by `shop_site_logo()`
+(`link`); the header logo (or the name) is then a plain `<a rel="noopener">` in the same window; `SiteLogoPanel` field +
+`saveSiteLogoLink` / `resetSiteLogoLink`. The header picture of update 28
 (`shops.header_*`) is no longer shown or offered. Sections: position `after_hours` ("Za otváracími hodinami", between
 the hours and the assistant; a free shop's sections sit there); **pictures are fine** — `source` pdf|pictures, one
 picture (JPG/PNG/WebP) = one page, drawn 800/1600 px in the browser (`picturePage()`), no original and no PDF kept,
