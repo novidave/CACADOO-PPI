@@ -8,7 +8,7 @@ import { sectionUrl } from "@/lib/dashboardPages";
 import { POSITIONS, type SectionPosition } from "@/lib/sectionLimits";
 
 /**
- * Page sections from PDFs and the header logo of an own domain (database updates 28–31). Every
+ * Page sections from PDFs and the header logo of an own domain and its link (database updates 28–32). Every
  * change goes through an owner function that checks the caller owns the shop (and, for
  * sections, its plan's limits: every shop since update 30); after a change of what visitors see, the page-sections
  * function moves the pictures in or out of the public bucket at once (the hourly job would too).
@@ -191,7 +191,7 @@ export async function uploadSiteLogo(formData: FormData) {
   });
   if (error) {
     await storage.remove([path]);
-    back({ err: error.message === "no_plan" ? "sections_no_plan" : "site_logo" });
+    back({ err: error.message === "no_plan" ? "sections_site_logo_no_plan" : "site_logo" });
   }
   if (old.length) await storage.remove(old);
   back({ ok: "site_logo_saved" });
@@ -205,4 +205,37 @@ export async function removeSiteLogo(formData: FormData) {
   if (error) back({ err: error.message });
   if (old.length) await session.supabase.storage.from("logos").remove(old);
   back({ ok: "site_logo_removed" });
+}
+
+/**
+ * "Odkaz loga" (database update 32): where a click on the own domain's header logo leads. The
+ * address as the browser reads it (https only; the database checks it again);
+ * owner_set_site_logo_link() decides (Pro or a domain of its own). Empty = the home page again.
+ */
+export async function saveSiteLogoLink(formData: FormData) {
+  const { session, shopId, back } = await start(formData, "header");
+  let link = String(formData.get("site_logo_link") ?? "").trim().slice(0, 500);
+  if (link && !/^[a-z][a-z0-9+.-]*:/i.test(link)) link = `https://${link}`;
+  if (link) {
+    try {
+      const url = new URL(link.replace(/^http:\/\//i, "https://"));
+      if (url.protocol !== "https:" || url.username || url.password) throw new Error("site_logo_link");
+      link = url.toString();
+    } catch {
+      back({ err: "sections_site_logo_link" });
+    }
+  }
+  const { error } = await session.supabase.rpc("owner_set_site_logo_link", { p_shop_id: shopId, p_link: link || null });
+  if (error) {
+    back({ err: error.message === "no_plan" ? "sections_site_logo_no_plan" : error.message === "link" ? "sections_site_logo_link" : error.message });
+  }
+  back({ ok: link ? "site_logo_link_saved" : "site_logo_link_removed" });
+}
+
+/** "Späť na úvodnú stránku": the logo leads to the shop's home page again (always allowed). */
+export async function resetSiteLogoLink(formData: FormData) {
+  const { session, shopId, back } = await start(formData, "header");
+  const { error } = await session.supabase.rpc("owner_set_site_logo_link", { p_shop_id: shopId, p_link: null });
+  if (error) back({ err: error.message });
+  back({ ok: "site_logo_link_removed" });
 }

@@ -1204,7 +1204,7 @@
     "go_to_page": "Ugrás a(z) {n}. oldalra",
     "slider": "Oldalak lapozója",
     "site_logo_title": "Logó a weboldal fejlécében",
-    "site_logo_intro": "Kis logó a saját domainen lévő weboldal bal felső sarkában; rákattintva a látogató a kezdőlapra jut. Jobbra SK · HU · EN. Az üzlet neve és logója az oldalon, az adatai felett van.",
+    "site_logo_intro": "Kis logó a saját domainen lévő weboldal bal felső sarkában; rákattintva a látogató a kezdőlapra jut (vagy a lenti logóhivatkozásra). Jobbra SK · HU · EN. Az üzlet neve és logója az oldalon, az adatai felett van.",
     "site_logo_hint": "Megfelelő képek: PNG vagy WebP átlátszó háttérrel (JPG is), fekvő vagy négyzetes logó, legalább 120 px magas. 120 px magasra alakítjuk (legfeljebb 600 px széles); a fejlécben 40 px magas. Nélküle az üzlet logója jelenik meg.",
     "site_logo_upload": "Logó kiválasztása",
     "site_logo_change": "Másik logó kiválasztása",
@@ -1214,6 +1214,17 @@
     "site_logo_none": "Az üzlet logója jelenik meg",
     "ok_site_logo": "Fejléclogó mentve.",
     "ok_site_logo_removed": "Fejléclogó eltávolítva.",
-    "error_site_logo": "A logót nem sikerült használni. Próbálja PNG, WebP vagy JPG formátumban."
+    "error_site_logo": "A logót nem sikerült használni. Próbálja PNG, WebP vagy JPG formátumban.",
+    "site_logo_link_label": "Logóhivatkozás",
+    "site_logo_link_hint": "Hová vezet a logóra kattintás, például a fő weboldalára (https://…). Ugyanabban az ablakban nyílik meg. Üresen = ennek a weboldalnak a kezdőlapja.",
+    "site_logo_link_save": "Hivatkozás mentése",
+    "site_logo_link_home": "A logó a weboldal kezdőlapjára vezet.",
+    "site_logo_link_to": "A logó ide vezet:",
+    "site_logo_link_reset": "Vissza a kezdőlapra",
+    "site_logo_link_summary": "hivatkozás: {link}",
+    "ok_site_logo_link": "Logóhivatkozás mentve.",
+    "ok_site_logo_link_removed": "A logó ismét a kezdőlapra vezet.",
+    "error_site_logo_link": "A hivatkozás nem érvényes. Adja meg a weboldal teljes, https:// kezdetű címét.",
+    "error_site_logo_no_plan": "Csak Pro előfizetéssel vagy saját domainnel."
   }
 }

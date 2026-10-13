@@ -4203,4 +4203,93 @@ begin
   update public.shops set site_logo_url = null, site_logo_width = null, site_logo_height = null where id = v_a;
 end $$;
 
+\echo '--- where the own domain''s header logo leads (update 32)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_i integer;
+begin
+  -- the address as typed, https:// in front when missing, http becomes https
+  assert public.owner_set_site_logo_link(v_a, '  www.potraviny-centrum.sk/o-nas ') = 'https://www.potraviny-centrum.sk/o-nas';
+  assert public.owner_set_site_logo_link(v_a, 'http://potraviny-centrum.sk') = 'https://potraviny-centrum.sk';
+  assert public.owner_set_site_logo_link(v_a, 'https://xn--potraviny-tka.sk:8443/?z=1#top') = 'https://xn--potraviny-tka.sk:8443/?z=1#top';
+  foreach v_i in array array[1, 2, 3, 4, 5, 6, 7] loop
+    begin
+      if v_i = 1 then perform public.owner_set_site_logo_link(v_a, 'javascript:alert(1)'); end if;
+      if v_i = 2 then perform public.owner_set_site_logo_link(v_a, 'https://localhost/'); end if;
+      if v_i = 3 then perform public.owner_set_site_logo_link(v_a, 'https://user@potraviny-centrum.sk/'); end if;
+      if v_i = 4 then perform public.owner_set_site_logo_link(v_a, 'https://potraviny centrum.sk/'); end if;
+      if v_i = 5 then perform public.owner_set_site_logo_link(v_a, 'https://potraviny-centrum.sk/"><script>'); end if;
+      if v_i = 6 then perform public.owner_set_site_logo_link(v_a, 'ftp://potraviny-centrum.sk/'); end if;
+      if v_i = 7 then perform public.owner_set_site_logo_link(v_a, 'https://potraviny-centrum.sk/' || repeat('a', 480)); end if;
+      raise exception 'a wrong logo link accepted (%)', v_i;
+    exception when invalid_parameter_value then assert sqlerrm = 'link', sqlerrm;
+    end;
+  end loop;
+  assert (select site_logo_link from public.shops where id = v_a) = 'https://xn--potraviny-tka.sk:8443/?z=1#top', 'a wrong link leaves the old one';
+  -- only through the owner function; not another shop's
+  begin
+    update public.shops set site_logo_link = 'https://evil.example/' where id = v_a;
+    raise exception 'logo link changed directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_site_logo_link(v_b, 'https://drogeria-kostolne.sk/');
+    raise exception 'owner A set shop B''s logo link';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the visitor's page reads it (a link alone is enough for a row: the header then shows the shop's logo or name)
+set role anon;
+do $$
+declare v_r record;
+begin
+  select * into v_r from public.shop_site_logo('potraviny-centrum');
+  assert v_r.url is null and v_r.link = 'https://xn--potraviny-tka.sk:8443/?z=1#top', 'the link without a header logo';
+  assert not exists (select 1 from public.shop_site_logo('drogeria-kostolne')), 'no logo and no link: no row';
+  begin
+    perform public.owner_set_site_logo_link((select id from public.shops where slug = 'potraviny-centrum'), null);
+    raise exception 'a visitor changed the logo link';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- a free shop without a domain of its own: no other address; the home page (empty) is always allowed
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  begin
+    perform public.owner_set_site_logo_link(v_b, 'https://drogeria-kostolne.sk/');
+    raise exception 'a free shop set a logo link';
+  exception when raise_exception then assert sqlerrm = 'no_plan', sqlerrm;
+  end;
+  assert public.owner_set_site_logo_link(v_b, '   ') is null;
+  assert public.owner_set_site_logo_link(v_b, null) is null;
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_url text := 'https://abc.supabase.co/storage/v1/object/public/logos/' || (select id from public.shops where slug = 'potraviny-centrum') || '/site-logo-1760000000000.png';
+begin
+  -- the header logo and its link together; removing the logo keeps the link, the empty link leads home again
+  perform public.owner_set_site_logo(v_a, v_url, 120, 120);
+  assert (select url || ' ' || link from public.shop_site_logo('potraviny-centrum')) = v_url || ' https://xn--potraviny-tka.sk:8443/?z=1#top';
+  perform public.owner_set_site_logo(v_a, null, null, null);
+  assert (select link from public.shop_site_logo('potraviny-centrum')) is not null, 'removing the logo keeps its link';
+  assert public.owner_set_site_logo_link(v_a, '') is null;
+  assert not exists (select 1 from public.shop_site_logo('potraviny-centrum')), 'home page again';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
 \echo 'ALL DATABASE CHECKS PASSED'

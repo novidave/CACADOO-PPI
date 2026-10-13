@@ -1204,7 +1204,7 @@
     "go_to_page": "Go to page {n}",
     "slider": "Page slider",
     "site_logo_title": "Website header logo",
-    "site_logo_intro": "A small logo at the top left of your website on your own domain; a click takes the visitor back to the start. SK · HU · EN is on the right. The shop's name and logo are on the page above its details.",
+    "site_logo_intro": "A small logo at the top left of your website on your own domain; a click takes the visitor back to the start (or to the logo link below). SK · HU · EN is on the right. The shop's name and logo are on the page above its details.",
     "site_logo_hint": "Good pictures: PNG or WebP with a transparent background (JPG works too), a wide or square logo, at least 120 px high. We make it 120 px high (at most 600 px wide); in the header it is 40 px high. Without one, the shop's logo is used.",
     "site_logo_upload": "Choose a logo",
     "site_logo_change": "Choose another logo",
@@ -1214,6 +1214,17 @@
     "site_logo_none": "The shop's logo is used",
     "ok_site_logo": "Header logo saved.",
     "ok_site_logo_removed": "Header logo removed.",
-    "error_site_logo": "The logo could not be used. Try PNG, WebP or JPG."
+    "error_site_logo": "The logo could not be used. Try PNG, WebP or JPG.",
+    "site_logo_link_label": "Logo link",
+    "site_logo_link_hint": "Where a click on the logo leads, for example your main website (https://…). It opens in the same window. Empty = the home page of this website.",
+    "site_logo_link_save": "Save link",
+    "site_logo_link_home": "The logo leads to the website's home page.",
+    "site_logo_link_to": "The logo leads to:",
+    "site_logo_link_reset": "Back to the home page",
+    "site_logo_link_summary": "link: {link}",
+    "ok_site_logo_link": "Logo link saved.",
+    "ok_site_logo_link_removed": "The logo leads to the home page again.",
+    "error_site_logo_link": "The link is not valid. Enter the full address of a website, starting with https://.",
+    "error_site_logo_no_plan": "Only with the Pro plan or a domain of your own."
   }
 }

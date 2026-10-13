@@ -267,9 +267,11 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   (`<details data-key-access>`, closed; open while a folder is unlocked; `FolderAccess inline`) → [sections
   "before_items"] → items → [sections "end"]; [sections "after_hours"] (update 31) sit right after the opening hours,
   before the assistant. The shop's own domain renders under `src/app/site/[lang]/[slug]/layout.tsx`: no Cacadoo
-  header; as before update 28, a small logo at the top left as a link home (`data-site-home`: `getSiteLogo` →
-  `shop_site_logo()`, update 31; else `shops.logo_url`; else the name; 36 / 40 px high, ≤ 200 px wide) and
-  `SiteLanguageSwitch` on the right, a thin line under them (the header picture of update 28 is no longer shown).
+  header; as before update 28, a small logo at the top left as a link home (`data-site-home="home"`: `getSiteLogo` →
+  `shop_site_logo()`, update 31; else `shops.logo_url`; else the name; 36 / 40 px high, ≤ 200 px wide), or a plain
+  `<a rel="noopener">` to the owner's "Odkaz loga" (`data-site-home="link"`, `shop_site_logo().link`, update 32; same
+  window; only an `https://` address is used), and `SiteLanguageSwitch` on the right, a thin line under them (the
+  header picture of update 28 is no longer shown).
 - **Page sections** (update 28, every shop since update 30; `lib/sections.ts`, `lib/sectionLimits.ts` for the browser:
   `POSITIONS`, `SectionLimits`, `PRO_BEFORE_30`): `getShopSections(slug, shopId)` → `shop_sections()` (only shown
   sections; a free shop's come with the position `before_items`, which on a free page is directly after the opening
@@ -786,6 +788,16 @@ the service role (owners may read their own shop's `subscriptions` row and impor
     name; every picture must open in the browser before a section is made), `lib/pdfRead` `picturePage()` draws each
     as 800 / 1600 px WebP on white (`createImageBitmap`, orientation from the picture); `sendPages()` is shared with
     PDFs; `PageSections` shows "Stiahnuť PDF" only for `source = 'pdf'`; the owner's row says "obrázky".
+- **Update 32** (`supabase/sql/32_site_logo_link.sql`): **"Odkaz loga"** — `shops.site_logo_link` (check: https of a
+  real host, ≤ 500, the booking link's pattern; NULL = the home page); `guard_shop_site_logo` also guards it;
+  `owner_set_site_logo_link(shop, link)` (member; `clean_contact` adds https:// and turns http into https; another
+  address needs `shop_stands_alone`, NULL / empty is always allowed; a wrong one → `link` 22023; returns what it
+  stored); `shop_site_logo(slug)` returns `link` too and has a row for a shop with only a link (url NULL: the header
+  shows the shop's logo or name). Website: `SiteLogoPanel` (`data-site-logo-link-panel`; "Logo vedie na: …", the
+  field with its hint, "Uložiť odkaz", "Späť na úvodnú stránku" whenever a link is set — also without the plan;
+  hidden before update 32: `loadSiteLogo` reads without the column on 42703), `saveSiteLogoLink` (as the booking
+  link: https only, no user or password, `new URL` → the database checks again; errors `sections_site_logo_link`,
+  `sections_site_logo_no_plan`), `resetSiteLogoLink`; `siteLogoSummary` adds "odkaz: …" to the closed section's line.
 
 ## 3. Main flows step by step
 
@@ -1058,6 +1070,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 29 | `supabase/sql/29_section_slider.sql` | "Zobrazenie strán": `shop_page_sections.page_layout` (slider / stacked), `owner_save_section(…, p_page_layout)`, `shop_sections` with it |
 | 30 | `supabase/sql/30_free_sections.sql` | sections for every shop: `section_limits` (+ `admin_save_section_limits`), `section_limits_for`, `owner_section_limits`, `section_visible` (the plan's first N), `section_for_assistant`, `owner_save_section`, `owner_section`, `sections_begin_upload`, `sections_claim_ai`, `sections_to_sync(…, p_shop_id)`, `shop_sections` (free: own place), `search_shop_docs` / `shop_docs_list` (plan only) |
 | 31 | `supabase/sql/31_site_logo_pictures.sql` | the own domain's header logo: `shops.site_logo_*` (+ check, `guard_shop_site_logo`), `owner_set_site_logo`, `shop_site_logo`; position `after_hours`; sections of pictures: `source` / `upload_source`, `sections_begin_upload(…, p_source)`, `sections_finish`, `shop_sections` (source), `shop_section_pdf` (PDF only), `section_visible` / `owner_save_section` with after_hours. Needs 30; safe to run twice |
+| 32 | `supabase/sql/32_site_logo_link.sql` | "Odkaz loga": `shops.site_logo_link` (+ check), `guard_shop_site_logo` with it, `owner_set_site_logo_link`, `shop_site_logo` (+ `link`; dropped and made again). Needs 31; safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
 | 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
 | 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
@@ -1306,7 +1319,14 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   page), the update-29/30 scripts updated for it (122 and 42 checks); Lighthouse mobile with update 31 (alternating,
   same build, two open sections, one right under the details): with sections median 94, without 93.5 — the first open
   section under the details asks for its first page with `fetchpriority=high` and an open slider loads its second page
-  only once it is near the screen (before that fix: 87 vs 95); those scripts are not part of the repository.
+  only once it is near the screen (before that fix: 87 vs 95); update 32 (32 checks: without a link the logo leads to
+  /hu on /hu; "Odkaz loga" with its hint and "Logo vedie na úvodnú stránku webu."; `www…/o-nas` stored with https://,
+  shown, "odkaz: …" in the closed line; on the own domain the logo — and the shop's name when there is no logo —
+  leads there in the same window (no popup), also on an item page, whose shop name still leads home, phone without
+  sideways scroll; `javascript:`, localhost, a password in it and ftp refused with the old link kept; http → https;
+  "Späť na úvodnú stránku" and an empty field lead home again; a free shop has no field, a link left from Pro is shown
+  with only the reset, which works; before update 32 the panel works without the field and the logo leads home), the
+  update-31 script again (35 checks); those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

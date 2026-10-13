@@ -1014,6 +1014,30 @@ No new secret. Do the steps in order.
 
 ---
 
+## Part Y — "Odkaz loga": where the header logo leads (14 October 2026)
+
+- Môj obchod → **Logo v hlavičke webu** gets a field **Odkaz loga**: the address a click on the
+  small logo at the top left of the shop's own domain opens (for example the shop's main website or e-shop). It opens
+  in the same window. Empty = the website's home page, as until now. **Späť na úvodnú stránku** removes the link.
+- Same rule as the logo: Pro or a domain of its own. Typed with or without https:// (http becomes https); wrong
+  addresses are refused ("Odkaz nie je platný …") and the old one stays.
+
+No new secret, no function to update. Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/32_site_logo_link.sql` → Run → "Success. No rows
+   returned" (the notice "… does not exist, skipping" is normal). Safe to run again. Check:
+   `select column_name from information_schema.columns where table_name = 'shops' and column_name = 'site_logo_link';`
+   → one row.
+2. **Merge the pull request** on GitHub → Vercel deploys. (Before step 1 the website simply shows no "Odkaz loga"
+   field and the logo leads home, so the order matters only for the field.)
+3. **Test:**
+   - Môj obchod → **Logo v hlavičke webu** → it says "Logo vedie na úvodnú stránku webu." → type your main website
+     (e.g. `www.vas-web.sk`) in **Odkaz loga** → **Uložiť odkaz** → "Odkaz loga uložený." and "Logo vedie na: …".
+   - Open your own domain → click the logo at the top left → your main website opens in the same tab.
+   - **Späť na úvodnú stránku** → the logo leads to the shop's home page again.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1052,3 +1076,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 20. "Zobrazenie strán" per section: slider (swipe, ‹ ›, keys, "2 / 5" + dots, no jumping, current + next page loaded) or "Pod sebou"; full-screen viewer with zoom and swipe; "Stiahnuť PDF" button | ✅ built — set up Part V |
 | 21. Page sections for free shops: limits per plan set by the admin (free 1 / 5 pages / 10 MB, Pro 10 / 20 / 10 MB), "Pre viac sekcií prejdite na Pro", after the opening hours on free pages, Pro → free shows the first one | ✅ built — set up Part W |
 | 22. Own domain header: small clickable logo ("Logo v hlavičke webu") + SK · HU · EN; section position "Za otváracími hodinami"; page sections from pictures (JPG, PNG, WebP) | ✅ built — set up Part X |
+| 23. "Odkaz loga": the own domain's header logo can lead to another address (e.g. the shop's main website) | ✅ built — set up Part Y |

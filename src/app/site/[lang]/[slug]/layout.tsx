@@ -11,7 +11,8 @@ import "../../../globals.css";
 /**
  * The layout of a shop's own domain (database update 25): no Cacadoo header. The shop's own
  * header, as before update 28: a small logo at the top left that leads to the shop's home page
- * (its header logo, database update 31; else the shop's logo; else its name) and the SK · HU · EN
+ * (its header logo, database update 31; else the shop's logo; else its name), or to the address
+ * the owner chose for it ("Odkaz loga", database update 32; same window), and the SK · HU · EN
  * switch on the right, a thin line under it. The shop's name and logo are also on the page itself,
  * above its details. Only src/proxy.ts sends visitors here (the page and its items).
  */
@@ -29,32 +30,38 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
   const homeLang = siteLang(shop.country);
   const siteLogo = await getSiteLogo(slug).catch(() => null);
   const logo = siteLogo?.url ?? shop.logo_url;
+  const own = Boolean(siteLogo?.url);
+  // The database checked the address (https of a real host); without one, the home page.
+  const link = siteLogo?.link?.startsWith("https://") ? siteLogo.link : null;
+  const content = logo ? (
+    // eslint-disable-next-line @next/next/no-img-element -- the shop's own small logo from Supabase Storage
+    <img
+      src={logo}
+      alt={shop.name}
+      width={own ? (siteLogo?.width ?? undefined) : undefined}
+      height={own ? (siteLogo?.height ?? undefined) : undefined}
+      className="h-9 w-auto max-w-[200px] object-contain sm:h-10"
+      data-site-logo={own ? "own" : "shop"}
+    />
+  ) : (
+    <span className="truncate text-lg font-semibold tracking-tight">{shop.name}</span>
+  );
+  const linkClass = "flex h-9 min-w-0 items-center overflow-hidden whitespace-nowrap sm:h-10";
 
   return (
     <html lang={lang} className="h-full antialiased">
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <header className="border-b border-line" data-site-header>
           <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3">
-            <Link
-              href={sitePath(lang, homeLang)}
-              className="flex h-9 min-w-0 items-center overflow-hidden whitespace-nowrap sm:h-10"
-              aria-label={shop.name}
-              data-site-home
-            >
-              {logo ? (
-                // eslint-disable-next-line @next/next/no-img-element -- the shop's own small logo from Supabase Storage
-                <img
-                  src={logo}
-                  alt={shop.name}
-                  width={siteLogo?.width}
-                  height={siteLogo?.height}
-                  className="h-9 w-auto max-w-[200px] object-contain sm:h-10"
-                  data-site-logo={siteLogo ? "own" : "shop"}
-                />
-              ) : (
-                <span className="truncate text-lg font-semibold tracking-tight">{shop.name}</span>
-              )}
-            </Link>
+            {link ? (
+              <a href={link} rel="noopener" className={linkClass} aria-label={shop.name} data-site-home="link">
+                {content}
+              </a>
+            ) : (
+              <Link href={sitePath(lang, homeLang)} className={linkClass} aria-label={shop.name} data-site-home="home">
+                {content}
+              </Link>
+            )}
             <SiteLanguageSwitch current={lang} homeLang={homeLang} />
           </div>
         </header>
