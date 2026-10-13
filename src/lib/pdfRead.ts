@@ -325,3 +325,34 @@ export async function sectionPage(
   page.cleanup();
   return { small: small.blob, large: large.blob, width: 1600, height: large.height, text };
 }
+
+/**
+ * A picture as one section page (database update 31): drawn 800 and 1600 px wide on white, like a
+ * PDF page (WebP 0.8, JPEG where the browser cannot write WebP). Redrawing also drops the photo's
+ * own data (place, camera). Throws when the browser cannot open the picture (e.g. HEIC outside Safari).
+ */
+export async function picturePage(file: Blob): Promise<{ small: Blob; large: Blob; width: number; height: number }> {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  try {
+    const draw = async (width: number) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = Math.max(1, Math.round((bitmap.height * width) / bitmap.width));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("The picture could not be drawn");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const encode = (type: string) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.8));
+      const webp = await encode("image/webp");
+      const blob = webp && webp.type === "image/webp" ? webp : await encode("image/jpeg");
+      if (!blob) throw new Error("The picture could not be drawn");
+      return { blob, height: canvas.height };
+    };
+    const large = await draw(1600);
+    const small = await draw(800);
+    return { small: small.blob, large: large.blob, width: 1600, height: large.height };
+  } finally {
+    bitmap.close();
+  }
+}

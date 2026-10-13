@@ -2,7 +2,8 @@
  * Page sections from PDFs (database updates 28–30): the rules the browser and the server share
  * (the database and the page-sections function check them again).
  */
-export const POSITIONS = ["after_details", "after_map", "before_items", "end"] as const;
+/** In their order on the page; after_hours (database update 31): between the opening hours and the assistant. */
+export const POSITIONS = ["after_details", "after_map", "after_hours", "before_items", "end"] as const;
 export type SectionPosition = (typeof POSITIONS)[number];
 
 /**

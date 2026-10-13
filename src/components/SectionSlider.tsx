@@ -37,14 +37,20 @@ export function SectionSlider({
   title,
   pages,
   eager,
+  priority = false,
   labels,
 }: {
   /** The section's id: the viewer moves through the pages of one group. */
   group: string;
   title: string;
   pages: SliderPage[];
-  /** An open section ("Vždy otvorené"): its first two pages load with the page. */
+  /**
+   * An open section ("Vždy otvorené"): its first page loads with the page (the next one as soon
+   * as the slider is near the screen, so it does not compete with the page's first load).
+   */
   eager: boolean;
+  /** The first section under the shop's details: its first page with fetchpriority high. */
+  priority?: boolean;
   labels: { prev_page: string; next_page: string; go_to_page: string; slider: string; zoom_page: string };
 }) {
   const region = useRef<HTMLDivElement>(null);
@@ -52,8 +58,8 @@ export function SectionSlider({
   const box = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(0);
   const near = useRef(false);
-  // The pages whose picture is in the page (an open section: the first two at once).
-  const [wanted, setWanted] = useState<ReadonlySet<number>>(() => new Set(eager ? [0, 1] : []));
+  // The pages whose picture is in the page (an open section: the first one at once).
+  const [wanted, setWanted] = useState<ReadonlySet<number>>(() => new Set(eager ? [0] : []));
   const total = pages.length;
   const want = (i: number) => setWanted((prev) => withNeighbours(prev, i, total));
   // One height for every page: the tallest proportions.
@@ -136,6 +142,7 @@ export function SectionSlider({
                 height={p.height}
                 alt={p.alt}
                 loading={wanted.has(i) ? "eager" : "lazy"}
+                fetchPriority={priority && i === 0 ? "high" : undefined}
                 decoding="async"
                 draggable={false}
                 className="h-full w-full object-contain"

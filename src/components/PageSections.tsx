@@ -13,7 +13,8 @@ const SIZES = "(min-width: 792px) 760px, calc(100vw - 32px)";
  * one-page section is just the page. Every page is a link to its 1600 px picture: SectionZoom
  * opens the full-screen viewer (without JavaScript the picture opens in a new tab). The text as
  * written is in the HTML under "Zobraziť text" (screen readers, search engines and AI read it).
- * The PDF itself is never loaded here; "Stiahnuť PDF" only when the owner allows it.
+ * The PDF itself is never loaded here; "Stiahnuť PDF" only when the owner allows it and the
+ * section is a PDF (a section of pictures, update 31, has none).
  */
 export function PageSections({
   sections,
@@ -30,16 +31,21 @@ export function PageSections({
   if (here.length === 0) return null;
   return (
     <div className="flex flex-col gap-4" data-sections={position}>
-      {here.map((section) => (
-        <PageSection key={section.id} section={section} slug={slug} dict={dict} />
+      {here.map((section, i) => (
+        <PageSection key={section.id} section={section} slug={slug} dict={dict} top={position === "after_details" && i === 0} />
       ))}
     </div>
   );
 }
 
-function PageSection({ section, slug, dict }: { section: ShownSection; slug: string; dict: Dictionary }) {
+/**
+ * `top`: the first section right under the shop's details — on a phone its first page is often the
+ * largest thing on the first screen, so an open one asks for it first (fetchpriority high).
+ */
+function PageSection({ section, slug, dict, top }: { section: ShownSection; slug: string; dict: Dictionary; top: boolean }) {
   const s = dict.sections;
   const open = section.display === "open";
+  const priority = open && top;
   const total = section.pages.length;
   const slider = section.page_layout === "slider" && total > 1;
   const pages = slider ? (
@@ -48,6 +54,7 @@ function PageSection({ section, slug, dict }: { section: ShownSection; slug: str
         group={section.id}
         title={section.title}
         eager={open}
+        priority={priority}
         pages={section.pages.map((p) => ({
           page: p.page,
           width: p.width,
@@ -84,6 +91,7 @@ function PageSection({ section, slug, dict }: { section: ShownSection; slug: str
                 height={p.height}
                 alt={t(s.page_alt, { title: section.title, n: p.page })}
                 loading={open && i === 0 ? "eager" : "lazy"}
+                fetchPriority={priority && i === 0 ? "high" : undefined}
                 decoding="async"
                 className="block h-auto w-full"
               />
@@ -97,7 +105,7 @@ function PageSection({ section, slug, dict }: { section: ShownSection; slug: str
     <div className="flex flex-col gap-3 pt-3">
       {pages}
       <div className="mx-auto flex w-full max-w-[760px] flex-col gap-2">
-        {section.allow_download && (
+        {section.allow_download && section.source === "pdf" && (
           <a
             href={`/api/shops/${slug}/sections/${section.id}/pdf`}
             className="self-start rounded border border-foreground px-4 py-2 font-medium"

@@ -198,7 +198,7 @@ behind the `Registrar` interface. Every step in `domain_orders.log`; never log k
 (Brevo, `live_email_at`), page countdown → `https://<domain>`. Renewal charged first, then Websupport renews;
 Pro ended → website back, auth code shown and e-mailed; **never hold a domain back**. `proxy.ts`: a host that is not
 PPI's own → `shop_for_host` → rewrite to `/site/[lang]/[slug]` (own root layout: no Cacadoo header, `SiteLanguageSwitch` +
-the shop's header picture (update 28); + items, `/api/site/[slug]/sitemap|robots`), www →
+the shop's small header logo as a link home (update 31); + items, `/api/site/[slug]/sitemap|robots`), www →
 bare; canonical = the own domain; payment never affects search ranking. `PlanDetails`/`DomainStatus` labels from the
 `domains` i18n namespace; admin texts `admin_domains`.
 
@@ -247,10 +247,11 @@ next_change} on every shop), JSON-LD `specialOpeningHoursSpecification`. Input =
 or shops_closed (closed by law, red "Zatvorené – štátny sviatok"; `closed_from` e.g. 24.12 12:00); `shops.auto_holidays` (`owner_set_auto_holidays()`, default on)
 — off = regular hours every day. Shop page order: name + logo with the details right under it, map, opening hours (today
 highlighted, status line, special days next 14 days), assistant (always open, own scroll), "Mám prístupový kľúč" (collapsed), items. On an own domain
-the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacadoo header; SK · HU · EN and the shop's
-header picture; the name and logo on the page itself, above the details). These are shop profile data, never stock.
+the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacadoo header; the shop's small logo as a
+link home + SK · HU · EN, update 31; the name and logo on the page itself, above the details). These are shop profile
+data, never stock.
 
-## Page sections from PDFs and the own domain's header picture (Pro, update 28; every shop since update 30)
+## Page sections from PDFs or pictures and the own domain's header logo (update 28; every shop since 30; 31)
 
 `supabase/sql/28_pdf_sections.sql` + `supabase/functions/page-sections` (one file, Verify JWT off) + shop-files
 `section_pdf` + dashboard `PageSectionsPanel.tsx` / `sectionActions.ts` / page `dashboard/sections/[id]` (preview) +
@@ -271,9 +272,16 @@ ended → hidden, never deleted. Visitors: four positions (after_details, after_
 open block, `<img srcset 800w/1600w>` straight from storage (never image optimisation, never the raw PDF), ≤ 760 px,
 12 px gap, page counter, `SectionZoom`, the text in the HTML under "Zobraziť text". Deleting removes every file in both
 buckets first; `owner_delete_shop` refuses while sections exist. Lighthouse mobile within 5 points with and without
-sections. Header picture of an own domain: `shops.header_*` only through `owner_set_header_picture()` (plan or own
-domain; URLs in the shop's `logos` folder), made 1600/800 px in the browser and checked with sharp on the server; shown
-only on the own domain (`shop_header_picture()`), never on PPI's pages.
+sections. **Own-domain header (update 31, `supabase/sql/31_site_logo_pictures.sql`), as before update 28:** a small
+logo at the top left as a link home + SK · HU · EN on the right (`src/app/site/[lang]/[slug]/layout.tsx`): the header
+logo `shops.site_logo_*` only through `owner_set_site_logo()` (plan or own domain; `site-logo-<ms>.webp|png` in the
+shop's `logos` folder; made ≤ 120 px high / 600 px wide in the browser by `@/components/SiteLogoInput`, checked with
+sharp in `uploadSiteLogo`; dashboard "Logo v hlavičke webu" = `SiteLogoPanel`, with the hint which pictures are fine),
+read by `shop_site_logo()`; without it the shop's logo, without that the name. The header picture of update 28
+(`shops.header_*`) is no longer shown or offered. Sections: position `after_hours` ("Za otváracími hodinami", between
+the hours and the assistant; a free shop's sections sit there); **pictures are fine** — `source` pdf|pictures, one
+picture (JPG/PNG/WebP) = one page, drawn 800/1600 px in the browser (`picturePage()`), no original and no PDF kept,
+the AI writes out their text, the function's `pictures` action within the plan's limits, "Stiahnuť PDF" only for a PDF.
 "Zobrazenie strán" (update 29, `supabase/sql/29_section_slider.sql`, `page_layout` slider|stacked, default slider; only
 through `owner_save_section(…, p_page_layout)`): slider = `@/components/SectionSlider` (scroll-snap, ‹ › with labels,
 ← →, "n / m" + dots, one box height = tallest page, ≤ 80vh; only the current page ± 1 gets an `<img>`, `<noscript>` for
