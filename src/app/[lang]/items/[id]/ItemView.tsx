@@ -149,7 +149,7 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
               }),
           ]}
           label={dict.shop.map}
-          legend={dict.status}
+          statusLabels={dict.status}
           renderedAt={renderedAt}
           className="h-56 md:h-72"
         />

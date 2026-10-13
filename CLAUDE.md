@@ -43,7 +43,7 @@ the blue "Select picture" link for shop logos, and the shop **status dots** — 
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
-with the legend in words under the map; always an extra — every page must work and show its data without it.
+with the status in words in each pin's tooltip (no legend under the map, at the owner's request); always an extra — every page must work and show its data without it.
 
 ## Commands
 
@@ -245,8 +245,8 @@ next_change} on every shop), JSON-LD `specialOpeningHoursSpecification`. Input =
 `public_holidays` (SK, HU, CZ; rows from `scripts/holidays.mjs` with date-holidays, `source` library|admin, admin wins,
 `admin_save_holiday()` on the admin page); `kind` day_off (yellow all day: "Štátny sviatok – overte otváracie hodiny")
 or shops_closed (closed by law, red "Zatvorené – štátny sviatok"; `closed_from` e.g. 24.12 12:00); `shops.auto_holidays` (`owner_set_auto_holidays()`, default on)
-— off = regular hours every day. Shop page order: name, map, opening hours (today highlighted, status line, special days
-next 14 days), details, assistant (always open, own scroll), "Mám prístupový kľúč" (collapsed), items. On an own domain
+— off = regular hours every day. Shop page order: name + logo with the details right under it, map, opening hours (today
+highlighted, status line, special days next 14 days), assistant (always open, own scroll), "Mám prístupový kľúč" (collapsed), items. On an own domain
 the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacadoo header). These are shop profile
 data, never stock.
 

@@ -858,11 +858,13 @@ the arrows (or a swipe) go through the last 10 files. No new secrets, no Edge Fu
 
 ## Part T — Open / break / closed / holiday status, holidays, Pro page layout (13 October 2026)
 
-Every shop now shows a **status dot with the status in words** (● Otvorené, ● Obedňajšia prestávka, ● Zatvorené,
-● Sviatok, ● Neuvedené) on the shop page, the search map and list, the product page, the API and the MCP server. Public
+Every shop now shows a **status dot with the status in words** (Otvorené, Obedňajšia prestávka, Zatvorené, Štátny
+sviatok, Otváracie hodiny neuvedené) on the shop page, the search list, the product page, the API and the MCP server;
+the map pins have the same colours (the words show when you point at a pin; no legend under the map). Public
 holidays of Slovakia, Hungary and Czechia (2026–2027) are in the database; each shop decides in Môj obchod →
 **Sviatky a mimoriadne zatvorenie** whether they apply and can add special days (closed, or other hours). The shop page
-has a new order (name, map, opening hours, details, assistant always open, "Mám prístupový kľúč", items) and on a
+has a new order (name and logo with the shop details under them, map, opening hours, assistant always open,
+"Mám prístupový kľúč", items) and on a
 shop's own domain there is no Cacadoo header — only the shop's name, logo and SK · HU · EN. No new secrets, no Edge
 Function changes. Do the steps in order.
 

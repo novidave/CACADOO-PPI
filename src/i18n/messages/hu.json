@@ -51,8 +51,7 @@
     "douchette": "Bidézuhany (douchette)",
     "card_terminal": "Bankkártyás fizetés (terminál)",
     "facebook": "Facebook",
-    "booking": "Időpontfoglalás",
-    "details": "Az üzlet adatai"
+    "booking": "Időpontfoglalás"
   },
   "item": {
     "brand": "Márka",
@@ -1038,12 +1037,6 @@
     "opens_day": "nyit: {day} {time}",
     "label_holiday": "ünnep",
     "label_special": "rendkívüli",
-    "legend": "Jelmagyarázat",
-    "legend_open": "Nyitva",
-    "legend_break": "Ebédszünet",
-    "legend_closed": "Zárva",
-    "legend_holiday": "Ünnep",
-    "legend_none": "Nincs megadva",
     "upcoming": "Ünnepek és rendkívüli napok (a következő 14 nap)",
     "closed_all_day": "Egész nap zárva",
     "check_hours": "ellenőrizze a nyitvatartást",

@@ -254,12 +254,15 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   daylight-saving days via `zonedToUtc`), `upcomingDays` the list under the hours, `specialOpeningHoursSpecification`
   the JSON-LD (special days and shops-closed days; days off left out). `components/ShopStatus.tsx`: `LiveStatus` (dot +
   words; first render with the server's `requestTime()` — `lib/requestTime.ts`, React `cache` — then the browser's clock
-  right after load and every minute), `StatusDot` (colours `STATUS_COLORS`, white outline + dark ring), `StatusLegend`.
-  `ShopMap` takes a status per shop and recolours the pins every minute, with the legend under the map. Used on the
+  right after load and every minute), `StatusDot` (colours `STATUS_COLORS`, white outline + dark ring).
+  `ShopMap` takes a status per shop and recolours the pins every minute; with `statusLabels` each pin's title and
+  `aria-label` say "<shop> · <status>" (no legend under the map). Used on the
   shop page, the item page (shop card, other shops, map), the search results and their map; the public API adds
   `status` to each shop (`apiStatus`, `listShops`, `getShop`, each search result's `shop`), `open_now` stays.
-- **Shop page layout** (Prompt 9A): name → map → hours (`HoursSection`: status line, week with today in bold, breaks
-  "8:00–12:00, 12:30–17:00", the next 14 days' holidays and special days) → details → [PDF sections, Phase B] →
+- **Shop page layout** (Prompt 9A): name (+ logo) with the details under it (`<header data-shop-details>`: address,
+  facilities, card payment, directions / phone / website / `ContactLinks`; on an own domain the name row is `sr-only`
+  and the site header shows it) → map → hours (`HoursSection`: status line, week with today in bold, breaks
+  "8:00–12:00, 12:30–17:00", the next 14 days' holidays and special days) → [PDF sections, Phase B] →
   `ShopChat` (always open, `data-assistant`; the conversation scrolls in `data-chat-log`, max 55vh / 65vh) →
   "Mám prístupový kľúč" (`<details data-key-access>`, closed; open while a folder is unlocked; `FolderAccess inline`)
   → items. The shop's own domain renders under `src/app/site/[lang]/[slug]/layout.tsx` (no Cacadoo header).
@@ -1125,7 +1128,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   one assistant, always open, its conversation scrolling on a phone; the key dropdown closed and unlocking as before,
   the key never in the conversation; every status with the database changed live — open, lunch break, a 3-hour gap,
   after closing, closed day, day off, shops closed (also from a time), a holiday with special hours and a break, a
-  special closed day, no hours, the switch off — page = API = MCP = map pin; legend, today, the coming special days,
+  special closed day, no hours, the switch off — page = API = MCP = map pin (and its tooltip); no legend, details under the name, today, the coming special days,
   JSON-LD; search results and map; "+ Obedňajšia prestávka", the switch, a date range, change, delete, the holiday
   buttons, a past date refused; the admin's "Sviatky": remove a library date, undo, add a date);
   those scripts are not part of the repository.
