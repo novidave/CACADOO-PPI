@@ -270,13 +270,24 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   (`getHeaderPicture` → `shop_header_picture()`, `<img srcset>` 800/1600 px, a link home; update 28).
 - **Page sections** (update 28, `lib/sections.ts`, `lib/sectionLimits.ts` for the browser): `getShopSections(slug,
   shopId)` → `shop_sections()` (only shown sections; none before update 28 or on any error); `components/PageSections`
-  (server: per position a `<details data-display=collapsed>` or `<section data-display=open>`; pages as
-  `<a href=1600 data-zoom><img srcset="800w, 1600w" sizes="(min-width: 792px) 760px, calc(100vw - 32px)" width height
-  loading>` — the first page of an open section eager, the rest lazy; no image optimisation; "Strana n / m"; "Stiahnuť
-  PDF" → `/api/shops/[slug]/sections/[id]/pdf` (→ shop-files `section_pdf`, 302 to a 10-minute signed address) only
-  with `allow_download`; the text as written under `<details data-section-text>` "Zobraziť text") and
-  `components/SectionZoom` (client, one document click listener for `a[data-zoom]` → `<dialog>` with the 1600 px
-  picture, fit / full size, Esc). Picture addresses: `${SUPABASE_URL}/storage/v1/object/public/shop-sections-public/
+  (server: per position a `<details data-display=collapsed>` or `<section data-display=open>`; every page is
+  `<a href=1600 data-zoom data-zoom-group=<section> data-zoom-index data-zoom-label><img srcset="800w, 1600w"
+  sizes="(min-width: 792px) 760px, calc(100vw - 32px)" width height>`, no image optimisation. `page_layout` (update
+  29) "slider" with more than one page → `components/SectionSlider` (client: a `role=region` with
+  `aria-roledescription`; a CSS scroll-snap track, so a swipe works natively; ‹ › `data-slider-prev/next` with labels,
+  ← → on the region, `data-slider-counter` "n / m" (`aria-live`), dot buttons `data-slider-dot`; the box's
+  `aspect-ratio` = the tallest page, `max-height: 80vh`, pages `object-contain`; a page's `<img>` is rendered only when
+  wanted — the current page ± 1 once an IntersectionObserver sees the box (rootMargin 300 px) or after a move, kept once
+  loaded; an open section's first two at once — otherwise `<noscript><img></noscript>`; focus moves to the region when
+  ‹ / › becomes disabled); otherwise `<ol data-stacked>` one under another, 12 px apart, "Strana n / m" (not for a
+  single page), the first page of an open section eager, the rest lazy. "Stiahnuť PDF" (a bordered button) →
+  `/api/shops/[slug]/sections/[id]/pdf` (→ shop-files `section_pdf`, 302 to a 10-minute signed address) only with
+  `allow_download`; the text as written under `<details data-section-text>` "Zobraziť text") and
+  `components/SectionZoom` (client, one document click listener for `a[data-zoom]` → a full-screen `<dialog>` with the
+  1600 px picture of that page and the other pages of its `data-zoom-group`; pointer events: one finger swipes (> 50 px)
+  or moves a zoomed page, two pinch (1–5×), a double tap toggles 2.5×; the wheel zooms; + / − buttons; ‹ ›; a document
+  keydown listener while open (← → + −, ignored once the dialog is closed); the next page's picture prefetched;
+  Zavrieť / Esc). Picture addresses: `${SUPABASE_URL}/storage/v1/object/public/shop-sections-public/
   <shop>/<section>/v<version>/<page>-<800|1600>.<webp|jpg>`.
 - **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
   `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
@@ -722,6 +733,11 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 - **Storage:** `shop-sections` (private) and `shop-sections-public` (public), no policies — only the function.
 - **Job:** `ppi-sections-hourly` (`7 * * * *`) calls `<Vault ppi_project_url>/functions/v1/page-sections` with
   `ppi_assistant_cron`.
+- **"Zobrazenie strán"** (update 29, `supabase/sql/29_section_slider.sql`): `shop_page_sections.page_layout` (`slider` /
+  `stacked`, default `slider`, check); `owner_save_section(…, p_page_layout text default null)` (a new section: given
+  or `slider`; an edit: unchanged when not sent; anything else → `bad`); `shop_sections()` also returns `page_layout`.
+  The website sends `p_page_layout` and retries without it on PGRST202, and `loadSections` falls back without the
+  column on 42703, so it works before update 29 (every section is then a slider).
 - **Header picture of an own domain:** `shops.header_url`, `header_small_url`, `header_width`, `header_height`
   (check: the shop's own `logos` folder, `header-<ms>.webp|jpg` and `-800`; guard trigger: only
   `owner_set_header_picture()`, which needs `shop_stands_alone`); the dashboard's `HeaderPictureInput` makes 1600 and
@@ -1210,7 +1226,19 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   files; "Vymazať" removes every file and the text; the header picture 1600/800 px on the own domain with SK · HU · EN,
   the logo and name on the page, removed again); Lighthouse mobile (lighthouse 12.6.1, the same local production
   build, alternating runs): without sections median 91, with two sections (one collapsed, one open) median 92;
-  those scripts are not part of the repository.
+  update 29 (the same script, now 128 checks: "Slider" preselected for a new section and in "Upraviť"; a closed slider
+  loads no picture before it is opened, then the current and the next page only, page 3 when on page 2; a labelled
+  region, "1 / 3", three dots, ‹ disabled on the first page, labels "Predchádzajúca strana" / "Ďalšia strana" /
+  "Prejsť na stranu 2"; desktop: the full 760 px column, an A4 page → the box at 80 % of the viewport and the page fits
+  inside; ›, → and ← keys, a dot; the box keeps its height and place on every page; the focus stays in the slider when
+  › becomes disabled; the full-screen viewer from page 2 with "Strana 2 / 3", ›, ← key, wheel zoom, moving with the
+  mouse, − and +, Esc, no keys after closing; a phone: full width minus the margins, the height = the page's
+  proportions under 80 %, a real touch swipe → "2 / 3", the viewer opened with a tap, a swipe → page 3, a two-finger
+  pinch, a finger moves the zoomed page, "Zavrieť"; one page → no slider controls; "Stiahnuť PDF" as a button only where
+  allowed; "Pod sebou" saved → 3 pages 12 px apart, first eager, the rest lazy, "Strana 2 / 3", the same viewer through
+  this section's pages only; English and Hungarian labels); Lighthouse mobile with update 29 (alternating, same build):
+  without sections median 93, with two slider sections (one collapsed, one open) median 92; those scripts are not part
+  of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

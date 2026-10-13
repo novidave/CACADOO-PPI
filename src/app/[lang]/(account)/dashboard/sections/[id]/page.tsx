@@ -26,6 +26,7 @@ interface Row {
   version: number;
   upload_version: number | null;
   upload_error: string | null;
+  page_layout?: "slider" | "stacked";
 }
 
 /**
@@ -42,7 +43,7 @@ export default async function SectionPreview({ params, searchParams }: PageProps
   const slugParam = Array.isArray(sp.shop) ? sp.shop[0] : sp.shop;
   const { data } = await session.supabase
     .from("shop_page_sections")
-    .select("id, shop_id, title, display, position, allow_download, published, hidden, version, upload_version, upload_error")
+    .select("*")
     .eq("id", id)
     .maybeSingle();
   const row = data as Row | null;
@@ -62,6 +63,7 @@ export default async function SectionPreview({ params, searchParams }: PageProps
     display: row.display,
     position: row.position,
     allow_download: false,
+    page_layout: row.page_layout === "stacked" ? "stacked" : "slider",
     pages: pages.map((p) => ({ ...p, ext: "webp" })),
   };
   const back = `/${lang}/dashboard?${new URLSearchParams({ shop: slug, at: "sections" })}#sections`;
@@ -75,7 +77,8 @@ export default async function SectionPreview({ params, searchParams }: PageProps
         <h1 className="text-2xl font-semibold tracking-tight">{t(s.preview_title, { title: row.title })}</h1>
         <p className="border border-line p-3 text-sm">{s.preview_note}</p>
         <p className="text-sm text-muted">
-          {s[`display_${row.display}`]} · {(s as Record<string, string>)[`position_${row.position}`]}
+          {s[`display_${row.display}`]} · {row.page_layout === "stacked" ? s.layout_stacked : s.layout_slider} ·{" "}
+          {(s as Record<string, string>)[`position_${row.position}`]}
           {row.allow_download ? ` · ${s.download_on}` : ""}
         </p>
       </header>

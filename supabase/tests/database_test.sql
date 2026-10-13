@@ -3781,4 +3781,60 @@ begin
   delete from public.shop_page_sections where shop_id = v_a;
 end $$;
 
+\echo '--- page sections: slider or one under another (update 29)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_s uuid;
+  v_t uuid;
+begin
+  -- a new section: the slider by default (also through the old eight-argument call)
+  v_s := public.owner_save_section(v_a, null, 'Slider', 'open', 'end', false, null, null);
+  assert (select page_layout from public.shop_page_sections where id = v_s) = 'slider', 'default slider';
+  v_t := public.owner_save_section(v_a, null, 'Pod sebou', 'open', 'end', false, null, null, 'stacked');
+  assert (select page_layout from public.shop_page_sections where id = v_t) = 'stacked';
+  -- saving without it keeps the choice; with it changes it
+  perform public.owner_save_section(v_a, v_t, 'Pod sebou', 'collapsed', 'end', false, null, null);
+  assert (select page_layout from public.shop_page_sections where id = v_t) = 'stacked', 'kept when not sent';
+  perform public.owner_save_section(v_a, v_t, 'Pod sebou', 'collapsed', 'end', false, null, null, 'slider');
+  assert (select page_layout from public.shop_page_sections where id = v_t) = 'slider';
+  begin
+    perform public.owner_save_section(v_a, v_t, 'x', 'open', 'end', false, null, null, 'carousel');
+    raise exception 'a wrong page layout accepted';
+  exception when raise_exception then assert sqlerrm = 'bad', sqlerrm;
+  end;
+  begin
+    update public.shop_page_sections set page_layout = 'stacked' where id = v_s;
+    raise exception 'page layout changed directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- visitors get it with the section (shown only)
+do $$
+declare v_s uuid := (select id from public.shop_page_sections where title = 'Slider');
+begin
+  perform public.sections_begin_upload(v_s, 1, 1000);
+  perform public.sections_page_stored(v_s, 1, 1, 800, 'webp', 100, 800, 1131);
+  perform public.sections_page_stored(v_s, 1, 1, 1600, 'webp', 200, 1600, 2263);
+  perform public.sections_save_text(v_s, 1, '[{"page":1,"text":"Strana"}]', 'sk');
+  perform public.sections_finish(v_s, 1);
+  update public.shop_page_sections set published = true where id = v_s;
+  perform public.sections_mark_public(v_s, 1);
+  assert (select page_layout from public.shop_sections('potraviny-centrum') where title = 'Slider') = 'slider';
+  assert not exists (select 1 from public.shop_sections('potraviny-centrum') where title = 'Pod sebou'), 'not shown without a PDF';
+end $$;
+do $$ begin
+  begin
+    update public.shop_page_sections set page_layout = 'grid';
+    raise exception 'a wrong page layout stored';
+  exception when check_violation then null;
+  end;
+  delete from public.shop_page_sections where title in ('Slider', 'Pod sebou');
+end $$;
+
 \echo 'ALL DATABASE CHECKS PASSED'

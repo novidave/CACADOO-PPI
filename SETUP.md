@@ -936,6 +936,28 @@ and logo are back on the page above its details. No new secrets. Do the steps in
 
 ---
 
+## Part V — "Zobrazenie strán": slider or one under another (13 October 2026)
+
+Each page section can now show its pages as a **slider** (one page at a time: swipe on a phone, ‹ › or the arrow keys
+on a computer, "2 / 5" and dots; the default for every section, also the existing ones) or **Pod sebou** (one under
+another, as before). A tap on a page opens it full screen (pinch or the mouse wheel to zoom, swipe to the next page).
+A one-page section shows just the page. "Stiahnuť PDF" is now a button. No new function or secret.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/29_section_slider.sql` → Run → "Success. No rows
+   returned" (notices "… already exists, skipping" / "… does not exist, skipping" are normal). Safe to run again.
+   Check: `select page_layout, count(*) from public.shop_page_sections group by 1;` → every existing section
+   `slider` (or no rows).
+2. **Merge the pull request** on GitHub → Vercel deploys. (Merged before step 1 the website still works: every
+   section is a slider and the "Zobrazenie strán" choice is not saved.)
+3. **Test** (a Pro shop with a section of 2 or more pages):
+   - The shop page: the section shows one page, "1 / 3" and dots; **›** or a swipe → "2 / 3"; the height stays the
+     same; tap the page → it opens full screen; pinch / wheel to zoom, swipe to the next page, **Zavrieť**.
+   - Môj obchod → **Sekcie stránky (PDF)** → **Upraviť** → **Zobrazenie strán: Pod sebou** → **Uložiť** → on the shop
+     page the pages are one under another again.
+   - A section with "Povoliť stiahnutie PDF" shows a **Stiahnuť PDF** button.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -971,3 +993,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 17. Booking link on the shop page (every shop); no other shops on product pages of shops with a domain of their own; quick view of the recently uploaded stock files | ✅ built — set up Part S |
 | 18. Open / lunch break / closed / holiday status (dots + words) everywhere, public holidays SK/HU/CZ, special days, "+ Obedňajšia prestávka"; Pro shop page order, assistant always open, no Cacadoo header on own domains | ✅ built — set up Part T |
 | 19. Page sections from PDFs (Pro): up to 10 per shop, cleaned on the server, pages with their text, collapsed or always open in four places, dates, preview, download on/off, the assistant names them; the header picture of an own domain, the name and logo back on the page | ✅ built — set up Part U |
+| 20. "Zobrazenie strán" per section: slider (swipe, ‹ ›, keys, "2 / 5" + dots, no jumping, current + next page loaded) or "Pod sebou"; full-screen viewer with zoom and swipe; "Stiahnuť PDF" button | ✅ built — set up Part V |

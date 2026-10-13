@@ -1,6 +1,7 @@
 import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { localDateTime } from "@/lib/hours";
+import { missingColumn } from "@/lib/missingColumn";
 import type { MyShop } from "@/lib/myShops";
 import { MAX_SECTIONS, POSITIONS, type SectionPosition } from "@/lib/sections";
 import { HeaderPictureInput } from "@/components/HeaderPictureInput";
@@ -26,6 +27,8 @@ interface Row {
   upload_version: number | null;
   upload_error: string | null;
   updated_at: string;
+  /** "Zobrazenie strán" (database update 29; "slider" before it). */
+  page_layout?: "slider" | "stacked";
 }
 
 export interface SectionsData {
@@ -36,14 +39,13 @@ export interface SectionsData {
 
 /** The shop's page sections (database update 28; null before it). */
 export async function loadSections(supabase: Supabase, shop: MyShop, plan: boolean): Promise<SectionsData | null> {
-  const { data, error } = await supabase
-    .from("shop_page_sections")
-    .select("id, title, display, position, sort, allow_download, visible_from, visible_until, hidden, published, version, pages, upload_version, upload_error, updated_at")
-    .eq("shop_id", shop.id)
-    .order("sort")
-    .order("created_at");
+  const columns =
+    "id, title, display, position, sort, allow_download, visible_from, visible_until, hidden, published, version, pages, upload_version, upload_error, updated_at";
+  const read = (cols: string) => supabase.from("shop_page_sections").select(cols).eq("shop_id", shop.id).order("sort").order("created_at");
+  let { data, error } = await read(`${columns}, page_layout`);
+  if (missingColumn(error, "page_layout")) ({ data, error } = await read(columns));
   if (error) return null;
-  return { rows: (data ?? []) as Row[], plan, today: localDateTime(new Date(), shop.timezone).date };
+  return { rows: (data ?? []) as unknown as Row[], plan, today: localDateTime(new Date(), shop.timezone).date };
 }
 
 export function sectionsSummary(data: SectionsData | null, dict: Dictionary): string {
@@ -105,6 +107,7 @@ export function PageSectionsPanel({
           : (s as Record<string, string>)[`state_${st.key}`];
     const details = [
       (s as Record<string, string>)[`display_${row.display}`],
+      row.page_layout === "stacked" ? s.layout_stacked : s.layout_slider,
       row.pages ? t(s.pages, { n: row.pages }) : null,
       row.allow_download ? s.download_on : null,
       row.upload_version && row.version > 0 && !row.upload_error ? s.state_processing : null,
@@ -162,6 +165,16 @@ export function PageSectionsPanel({
                 {s[`display_${d}`]}
               </label>
             ))}
+          </fieldset>
+          <fieldset className="flex flex-col gap-1">
+            <legend className="text-sm">{s.page_layout}</legend>
+            {(["slider", "stacked"] as const).map((l) => (
+              <label key={l} className="flex items-center gap-2">
+                <input type="radio" name="page_layout" value={l} defaultChecked={(edit.page_layout ?? "slider") === l} />
+                {s[`layout_${l}`]}
+              </label>
+            ))}
+            <span className="text-sm text-muted">{s.layout_hint}</span>
           </fieldset>
           <label className="flex flex-col gap-1">
             <span className="text-sm">{s.position}</span>

@@ -134,6 +134,7 @@ export function SectionUploader({
           allowDownload: data.get("allow_download") === "on",
           from: String(data.get("from") ?? "") || null,
           until: String(data.get("until") ?? "") || null,
+          pageLayout: String(data.get("page_layout") ?? "slider"),
         });
         if ("error" in created) throw new SectionError(created.error, created.error);
         id = created.id;
@@ -170,6 +171,18 @@ export function SectionUploader({
               <input type="radio" name="display" value="open" />
               {labels.display_open}
             </label>
+          </fieldset>
+          <fieldset className="flex flex-col gap-1">
+            <legend className="text-sm">{labels.page_layout}</legend>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="page_layout" value="slider" defaultChecked />
+              {labels.layout_slider}
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="page_layout" value="stacked" />
+              {labels.layout_stacked}
+            </label>
+            <span className="text-sm text-muted">{labels.layout_hint}</span>
           </fieldset>
           <label className="flex flex-col gap-1">
             <span className="text-sm">{labels.position}</span>
