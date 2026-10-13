@@ -25,12 +25,17 @@ export interface SectionPage {
   large: string;
 }
 
+/** "Zobrazenie strán" (database update 29): one page at a time, or the pages one under another. */
+export type PageLayout = "slider" | "stacked";
+
 export interface ShownSection {
   id: string;
   title: string;
   display: "collapsed" | "open";
   position: SectionPosition;
   allow_download: boolean;
+  /** "slider" before database update 29 too (the default). */
+  page_layout: PageLayout;
   pages: SectionPage[];
 }
 
@@ -43,6 +48,7 @@ interface Row {
   allow_download: boolean;
   version: number;
   pages: { page: number; width: number; height: number; ext: "webp" | "jpg"; text: string }[];
+  page_layout?: PageLayout | null;
 }
 
 /** The public address of a page picture: <shop>/<section>/v<version>/<page>-<800|1600>.<ext>. */
@@ -63,6 +69,7 @@ export const getShopSections = cache(async (slug: string, shopId: string): Promi
     display: row.display,
     position: row.position,
     allow_download: row.allow_download,
+    page_layout: row.page_layout === "stacked" ? "stacked" : "slider",
     pages: row.pages
       .filter((p) => p.width && p.height && p.ext)
       .map((p) => ({

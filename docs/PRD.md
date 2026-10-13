@@ -29,6 +29,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Booking link (every shop): "Rezervovať termín" link on the shop page, next to the e-mail and Facebook page, opening the shop's booking app; product pages of shops with a domain of their own show no other shops; quick view of the recently uploaded stock files | Built and tested; live after database update 26 and the merge (SETUP.md part S) |
 | Shop status and Pro page layout: open / lunch break / closed / holiday / no hours (dots on the maps and lists, API, MCP, JSON-LD), public holidays SK/HU/CZ, the owner's special days, "Automatické štátne sviatky"; new section order; the assistant always open; no Cacadoo header on own domains | Built and tested; live after database update 27 and the merge (SETUP.md part T) |
 | Page sections from PDFs (Pro): up to 10 per shop ("Novinky október", "Leták" …), shown as pages with their text, collapsed or always open, in four positions, with dates, preview and download on/off; the assistant uses them; the header picture of an own domain, the shop's name and logo back on its page | Built and tested; live after database update 28, the page-sections function, the updated shop-files function and the merge (SETUP.md part U) |
+| "Zobrazenie strán" per section: a slider (one page at a time, swipe, ‹ ›, keys, "2 / 5" and dots; the default) or "Pod sebou"; a full-screen viewer with pinch / wheel zoom and swipe; "Stiahnuť PDF" as a button | Built and tested; live after database update 29 and the merge (SETUP.md part V) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -724,13 +725,14 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
   `ALERT_EMAIL_FROM` nothing is sent, the log says so, and the flow goes on.
 - Payment never affects search ranking.
 
-### 6.14 Page sections from PDFs (Pro, database update 28)
+### 6.14 Page sections from PDFs (Pro, database updates 28–29)
 
 A shop with Pro puts its own PDFs on its page: news, a leaflet, a menu, "About us". **Môj obchod → Sekcie stránky
 (PDF)**:
 
 - **"Pridať sekciu"**: title (≤ 80, plain text), one PDF, **Zobrazenie** "Rozbaľovacie – zatvorené" (default) or "Vždy
-  otvorené", **Pozícia** after the shop details (default) / after the map / before the items / at the end, **"Povoliť
+  otvorené", **Zobrazenie strán** "Slider" (default) or "Pod sebou" (update 29; also under **Upraviť**), **Pozícia**
+  after the shop details (default) / after the map / before the items / at the end, **"Povoliť
   stiahnutie PDF"** (default off), optional **visible from / until** (the shop's own days). The form shows the
   recommended format: "Odporúčame A4 na výšku (210 × 297 mm), písmo min. 11 pt, obrázky min. 150 dpi, max 10 MB. Pre
   čítanie na mobile je ideálna 1 strana = 1 téma. Na šírku (A4 landscape) je možné, ale na mobile bude text menší."
@@ -755,25 +757,36 @@ A shop with Pro puts its own PDFs on its page: news, a leaflet, a menu, "About u
   hiding, the end date, the end of Pro and deleting remove them. An hourly job applies the dates and the plan. When Pro
   ends, sections are hidden, not deleted, and come back with Pro.
 - **On the page:** each section in its position as a titled dropdown or an open block, also on the own domain. Pages
-  are pictures one under another (column ≤ 760 px, the full width minus 16 px margins on a phone, own proportions,
-  12 px apart, "Strana n / m"), served with srcset 800 / 1600 px (no image optimisation); the first page of an open
-  section loads at once, the rest lazily. A tap opens the 1600 px picture over the page (pinch on a phone). The raw
-  PDF is never loaded in the page. Under each section a collapsed **"Zobraziť text"** holds the text in the HTML
-  (screen readers, search engines, AI crawlers; visible to anyone who opens it). **"Stiahnuť PDF"** only when allowed:
-  the cleaned PDF through shop-files, a 10-minute signed address.
+  are pictures in a column ≤ 760 px (the full width minus 16 px margins on a phone), served with srcset 800 / 1600 px
+  (no image optimisation). **"Zobrazenie strán"** (update 29):
+  - **Slider** (default): one page at a time at the full content width; swipe left / right on a touch screen, ‹ ›
+    buttons ("Predchádzajúca strana", "Ďalšia strana") and the ← → keys on a computer; "2 / 5" plus a dot per page
+    ("Prejsť na stranu n"). The box has one height for every page (the tallest page's proportions, at most 80 % of
+    the screen height; each page fits inside), so nothing jumps. The current and the next page load (once the slider
+    is near the screen or its dropdown is opened), the others only when they are next; a `<noscript>` copy keeps every
+    page visible without JavaScript.
+  - **Pod sebou**: the pages one under another, own proportions, 12 px apart, "Strana n / m", the first page of an open
+    section at once, the rest lazily.
+  - A section with **one page** shows just the page (no arrows, dots or counter), whatever the setting.
+  - A tap / click on a page opens the **full-screen viewer** at that page: the 1600 px picture, swipe or ‹ › / ← → through
+    the section's pages, pinch, the mouse wheel, + / − or a double tap to zoom, a finger or the mouse moves a zoomed
+    page, "Strana n / m", **Zavrieť** or Esc.
+  The raw PDF is never loaded in the page. Under each section a collapsed **"Zobraziť text"** holds the text in the HTML
+  (screen readers, search engines, AI crawlers; visible to anyone who opens it). **"Stiahnuť PDF"** (a button) only
+  when allowed: the cleaned PDF through shop-files, a 10-minute signed address.
 - **The assistant** uses the text of shown sections as public documents and names them ("Zdroj: Novinky október,
   strana 2"); hidden, expired or deleted sections leave the assistant at the same moment as the page.
 - **Performance:** Lighthouse mobile performance of the shop page with sections stays within 5 points of the same page
   without them (measured on the same production build; numbers in the pull request).
 
-## 7. Data model (after database update 28)
+## 7. Data model (after database update 29)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
 | `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `header_url` / `header_small_url` / `header_width` / `header_height` (the own domain's header picture in the shop's `logos` folder, update 28; only `owner_set_header_picture()`), `auto_holidays` (default true, update 27; only `owner_set_auto_holidays()`), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
 | `public_holidays` | `country`, `date`, `name_sk/hu/en`, `kind` (`day_off`, `shops_closed`, `removed` = an admin row taking a date away), `closed_from`, `source` (`library`/`admin`) | Update 27. Everyone reads; only the service role and the admin's functions write; an admin row always wins over the library's |
 | `shop_special_hours` | `shop_id`, `date`, `closed`, `ranges` (1–4, a break allowed, past midnight allowed), `note` (≤ 100, plain text) | Update 27. Read with the shop; written only through `owner_save_special_hours()` / `owner_delete_special_hours()` |
-| `shop_page_sections` | `id`, `shop_id`, `title` (≤ 80), `display` (`collapsed`/`open`), `position` (`after_details`/`after_map`/`before_items`/`end`), `sort`, `allow_download`, `visible_from`, `visible_until`, `hidden`, `published`, `version` (live PDF), `pdf_path`, `pdf_bytes`, `pages` (≤ 20), `lang`, `upload_version` / `upload_*` (a new PDF being made ready), `upload_error`, `public_version` (whose pictures are public) | Update 28. At most 10 per shop. Owners read their own; written only through `owner_*` functions and the page-sections function; visitors only through `shop_sections()` |
+| `shop_page_sections` | `id`, `shop_id`, `title` (≤ 80), `display` (`collapsed`/`open`), `position` (`after_details`/`after_map`/`before_items`/`end`), `sort`, `allow_download`, `visible_from`, `visible_until`, `hidden`, `published`, `version` (live PDF), `pdf_path`, `pdf_bytes`, `pages` (≤ 20), `lang`, `upload_version` / `upload_*` (a new PDF being made ready), `upload_error`, `public_version` (whose pictures are public), `page_layout` (`slider`/`stacked`, default `slider`, update 29) | Update 28. At most 10 per shop. Owners read their own; written only through `owner_*` functions and the page-sections function; visitors only through `shop_sections()` |
 | `shop_section_pages` | `section_id`, `shop_id`, `version`, `page`, `width`, `height`, `ext` (`webp`/`jpg`), `small_bytes`, `large_bytes`, `text` (as written, ≤ 20 000), `text_done`, `needs_ai`, `ai_attempts`, `lang`, `search` | Update 28. One row per page; the assistant searches the text of shown sections |
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
 | `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |

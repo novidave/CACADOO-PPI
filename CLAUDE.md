@@ -274,6 +274,11 @@ buckets first; `owner_delete_shop` refuses while sections exist. Lighthouse mobi
 sections. Header picture of an own domain: `shops.header_*` only through `owner_set_header_picture()` (plan or own
 domain; URLs in the shop's `logos` folder), made 1600/800 px in the browser and checked with sharp on the server; shown
 only on the own domain (`shop_header_picture()`), never on PPI's pages.
+"Zobrazenie strán" (update 29, `supabase/sql/29_section_slider.sql`, `page_layout` slider|stacked, default slider; only
+through `owner_save_section(…, p_page_layout)`): slider = `@/components/SectionSlider` (scroll-snap, ‹ › with labels,
+← →, "n / m" + dots, one box height = tallest page, ≤ 80vh; only the current page ± 1 gets an `<img>`, `<noscript>` for
+the rest); Pod sebou = one under another, 12 px, lazy; one page = just the page; `SectionZoom` = full-screen viewer
+(pinch / wheel / + − zoom, swipe, ← →, Esc) for both; "Stiahnuť PDF" a button.
 
 ## Stock upload
 

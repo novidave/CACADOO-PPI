@@ -34,6 +34,20 @@ async function start(formData: FormData, at: "sections" | "header") {
 const dateOrNull = (value: FormDataEntryValue | null) => (DATE.test(String(value ?? "")) ? String(value) : null);
 const position = (value: unknown): SectionPosition =>
   (POSITIONS as readonly string[]).includes(String(value)) ? (value as SectionPosition) : "after_details";
+const layout = (value: unknown) => (value === "stacked" ? "stacked" : "slider");
+
+type Rpc = NonNullable<Awaited<ReturnType<typeof getSession>>>["supabase"];
+
+/**
+ * owner_save_section with "Zobrazenie strán" (database update 29); before update 29 the same
+ * call without it (the database then has no such choice and every section is a slider).
+ */
+async function saveSection(supabase: Rpc, args: Record<string, unknown>, pageLayout: string) {
+  const result = await supabase.rpc("owner_save_section", { ...args, p_page_layout: pageLayout });
+  if (result.error?.code !== "PGRST202") return result;
+  return await supabase.rpc("owner_save_section", args);
+}
+
 const sectionError = (message: string) =>
   ["no_plan", "title", "dates", "limit", "empty", "bad"].includes(message) ? `sections_${message}` : message;
 
@@ -57,11 +71,12 @@ export async function createSection(input: {
   allowDownload: boolean;
   from: string | null;
   until: string | null;
+  pageLayout: string;
 }): Promise<{ id: string } | { error: string }> {
   const session = await getSession();
   if (!session) return { error: "login" };
   if (!UUID.test(input.shopId)) return { error: "bad" };
-  const { data, error } = await session.supabase.rpc("owner_save_section", {
+  const { data, error } = await saveSection(session.supabase, {
     p_shop_id: input.shopId,
     p_section_id: null,
     p_title: String(input.title ?? "").slice(0, 200),
@@ -70,17 +85,17 @@ export async function createSection(input: {
     p_allow_download: Boolean(input.allowDownload),
     p_from: DATE.test(input.from ?? "") ? input.from : null,
     p_until: DATE.test(input.until ?? "") ? input.until : null,
-  });
+  }, layout(input.pageLayout));
   if (error) return { error: error.message };
   return { id: String(data) };
 }
 
-/** "Upraviť": title, display, position, download, dates (a changed date may show or hide it). */
+/** "Upraviť": title, display, page layout, position, download, dates (a changed date may show or hide it). */
 export async function updateSection(formData: FormData) {
   const { session, shopId, back } = await start(formData, "sections");
   const sectionId = String(formData.get("section_id") ?? "");
   if (!UUID.test(sectionId)) back({ err: "bad" });
-  const { error } = await session.supabase.rpc("owner_save_section", {
+  const { error } = await saveSection(session.supabase, {
     p_shop_id: shopId,
     p_section_id: sectionId,
     p_title: String(formData.get("title") ?? "").slice(0, 200),
@@ -89,7 +104,7 @@ export async function updateSection(formData: FormData) {
     p_allow_download: formData.get("allow_download") === "on",
     p_from: dateOrNull(formData.get("from")),
     p_until: dateOrNull(formData.get("until")),
-  });
+  }, layout(formData.get("page_layout")));
   if (error) back({ err: sectionError(error.message), section: sectionId });
   await sync(session.supabase, sectionId);
   back({ ok: "section_saved" });
