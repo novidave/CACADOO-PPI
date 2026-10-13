@@ -35,8 +35,18 @@ export const PRIVATE = "shop-sections";
 export const PUBLIC = "shop-sections-public";
 const DEFAULT_MODEL = "claude-haiku-5-5";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The limits of a PDF: the shop's plan's, from the database (update 30: section_limits). */
+export interface Limits {
+  maxPages: number;
+  maxBytes: number;
+}
+/** Pro's limits before update 30 (the database then gives none). */
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 export const MAX_PAGES = 20;
+export const DEFAULT_LIMITS: Limits = { maxPages: MAX_PAGES, maxBytes: MAX_PDF_BYTES };
+/** Never more, whatever the settings say (the database allows the admin at most these). */
+export const CAP_PAGES = 50;
+export const CAP_BYTES = 20 * 1024 * 1024;
 export const MAX_PICTURE_BYTES = 5 * 1024 * 1024;
 export const SIZES = [800, 1600] as const;
 const SIGNED_SECONDS = 600;
@@ -103,14 +113,17 @@ export interface Cleaned {
   removed: string[];
 }
 
+const mb = (bytes: number) => Math.round(bytes / 1048576);
+
 /**
  * Checks and cleans a PDF: refuses what is not a PDF, too big, encrypted (password), unreadable
- * or longer than 20 pages; removes JavaScript, open and automatic actions, launch and other
- * unsafe actions, links to programs, embedded and attached files, media and XFA scripts. A PDF
- * where any of it is still found afterwards is refused.
+ * or longer than the plan allows (default: Pro's 20 pages, 10 MB); removes JavaScript, open and
+ * automatic actions, launch and other unsafe actions, links to programs, embedded and attached
+ * files, media and XFA scripts. A PDF where any of it is still found afterwards is refused.
  */
-export async function cleanPdf(input: Uint8Array): Promise<Cleaned> {
-  if (input.length > MAX_PDF_BYTES) throw new PdfRejected("too_big", "A PDF may have at most 10 MB");
+export async function cleanPdf(input: Uint8Array, limits: Limits = DEFAULT_LIMITS): Promise<Cleaned> {
+  const tooBig = () => new PdfRejected("too_big", `A PDF may have at most ${mb(limits.maxBytes)} MB`);
+  if (input.length > limits.maxBytes) throw tooBig();
   if (!looksLikePdf(input)) throw new PdfRejected("not_pdf", "This file is not a PDF");
   let doc: PDFDocument;
   try {
@@ -128,7 +141,7 @@ export async function cleanPdf(input: Uint8Array): Promise<Cleaned> {
     throw new PdfRejected("unreadable", "The PDF cannot be read");
   }
   if (pages < 1) throw new PdfRejected("unreadable", "The PDF has no pages");
-  if (pages > MAX_PAGES) throw new PdfRejected("too_many_pages", `A PDF may have at most ${MAX_PAGES} pages`);
+  if (pages > limits.maxPages) throw new PdfRejected("too_many_pages", `A PDF may have at most ${limits.maxPages} pages`);
 
   const ctx = doc.context;
   const removed = new Set<string>();
@@ -261,7 +274,7 @@ export async function cleanPdf(input: Uint8Array): Promise<Cleaned> {
   } catch {
     throw new PdfRejected("unclean", "The PDF could not be cleaned");
   }
-  if (bytes.length > MAX_PDF_BYTES) throw new PdfRejected("too_big", "A PDF may have at most 10 MB");
+  if (bytes.length > limits.maxBytes) throw tooBig();
   return { bytes, pages, removed: [...removed].sort() };
 }
 
@@ -427,6 +440,21 @@ interface Owned {
   upload_version: number | null;
   upload_pages: number | null;
   has_plan: boolean;
+  /** The shop's plan's limits (update 30; absent before it). */
+  plan?: string | null;
+  max_pages?: number | null;
+  max_bytes?: number | null;
+}
+
+/**
+ * The limits for this section's shop: its plan's from the database (every shop since update
+ * 30), within the caps; before update 30 only shops with the paid plan, with Pro's old limits.
+ */
+export function limitsOf(section: Pick<Owned, "has_plan" | "max_pages" | "max_bytes">): Limits | null {
+  if (section.max_pages && section.max_bytes) {
+    return { maxPages: Math.min(section.max_pages, CAP_PAGES), maxBytes: Math.min(section.max_bytes, CAP_BYTES) };
+  }
+  return section.has_plan ? DEFAULT_LIMITS : null;
 }
 
 function reply(status: number, body: unknown) {
@@ -481,16 +509,18 @@ const REJECT_STATUS: Record<RejectCode, number> = {
 async function receivePdf(req: Request, url: URL, deps: Deps) {
   const section = await owned(deps, url.searchParams.get("section_id"));
   if (!section) return notMember();
-  if (!section.has_plan) return reply(409, { error: "no_plan", message: "This shop has no paid plan" });
-  const body = await readBody(req, MAX_PDF_BYTES);
-  if (!body) return reply(413, { error: "too_big", message: "A PDF may have at most 10 MB" });
+  const limits = limitsOf(section);
+  if (!limits) return reply(409, { error: "no_plan", message: "This shop has no paid plan" });
+  const limitInfo = { max_pages: limits.maxPages, max_mb: mb(limits.maxBytes) };
+  const body = await readBody(req, limits.maxBytes);
+  if (!body) return reply(413, { error: "too_big", message: `A PDF may have at most ${mb(limits.maxBytes)} MB`, ...limitInfo });
   let cleaned: Cleaned;
   try {
-    cleaned = await cleanPdf(body);
+    cleaned = await cleanPdf(body, limits);
   } catch (e) {
     if (e instanceof PdfRejected) {
       await deps.db.rpc("sections_upload_failed", { p_section_id: section.id, p_error: e.code });
-      return reply(REJECT_STATUS[e.code], { error: e.code, message: e.message });
+      return reply(REJECT_STATUS[e.code], { error: e.code, message: e.message, ...limitInfo });
     }
     throw e;
   }
@@ -556,7 +586,7 @@ async function saveText(body: Body, deps: Deps) {
   }
   const raw = Array.isArray(body.pages) ? (body.pages as Body[]) : [];
   const pages: { page: number; text: string }[] = [];
-  for (const item of raw.slice(0, MAX_PAGES)) {
+  for (const item of raw.slice(0, CAP_PAGES)) {
     const page = int(item?.page);
     if (page === null || page < 1 || page > (section.upload_pages ?? 0)) continue;
     pages.push({ page, text: cleanText(typeof item?.text === "string" ? item.text : "").slice(0, 20000) });
@@ -595,9 +625,16 @@ async function publish(db: SupabaseClient, path: string, ext: string) {
   if (uploadError) throw new Error(`storage: ${uploadError.message}`);
 }
 
-/** Puts a section's pictures into (or takes them out of) the public bucket, as the database says. */
-export async function syncSections(deps: Deps, sectionId: string | null): Promise<{ published: number; removed: number }> {
-  const { data, error } = await deps.db.rpc("sections_to_sync", { p_section_id: sectionId });
+/**
+ * Puts sections' pictures into (or takes them out of) the public bucket, as the database says:
+ * every section (the job), or every section of one shop (after an owner's action: on a free shop
+ * one section's change can show or hide another; update 30), or one section (before update 30).
+ */
+export async function syncSections(deps: Deps, sectionId: string | null, shopId?: string): Promise<{ published: number; removed: number }> {
+  let { data, error } = shopId
+    ? await deps.db.rpc("sections_to_sync", { p_section_id: null, p_shop_id: shopId })
+    : await deps.db.rpc("sections_to_sync", { p_section_id: sectionId });
+  if (error && shopId) ({ data, error } = await deps.db.rpc("sections_to_sync", { p_section_id: sectionId }));
   if (error) throw new Error(error.message);
   let published = 0;
   let removed = 0;
@@ -633,7 +670,7 @@ async function finish(body: Body, deps: Deps) {
   const row = (data as { old_paths: string[]; old_public_paths: string[] }[])[0];
   await removeFiles(deps.db, PUBLIC, row.old_public_paths ?? []);
   await removeFiles(deps.db, PRIVATE, row.old_paths ?? []);
-  const synced = await syncSections(deps, section.id);
+  const synced = await syncSections(deps, section.id, section.shop_id);
   return reply(200, { ok: true, public: synced.published > 0 });
 }
 
@@ -680,7 +717,7 @@ async function work(body: Body, deps: Deps) {
 async function sync(body: Body, deps: Deps) {
   const section = await owned(deps, body.section_id);
   if (!section) return notMember();
-  return reply(200, await syncSections(deps, section.id));
+  return reply(200, await syncSections(deps, section.id, section.shop_id));
 }
 
 async function preview(body: Body, deps: Deps) {
@@ -709,8 +746,9 @@ async function preview(body: Body, deps: Deps) {
 }
 
 async function remove(body: Body, deps: Deps) {
-  const sectionId = uuidOrNull(body.section_id);
-  if (!sectionId) return notMember();
+  const section = await owned(deps, body.section_id);
+  if (!section) return notMember();
+  const sectionId = section.id;
   const { data, error } = await deps.asCaller.rpc("owner_section_files", { p_section_id: sectionId });
   if (error) return notMember();
   const files = (data ?? []) as { bucket: string; path: string }[];
@@ -719,6 +757,8 @@ async function remove(body: Body, deps: Deps) {
   }
   const { error: deleteError } = await deps.db.from("shop_page_sections").delete().eq("id", sectionId);
   if (deleteError) return reply(500, { error: "database", message: deleteError.message });
+  // On a free shop the next section may now be shown.
+  await syncSections(deps, null, section.shop_id).catch((e) => console.error("page-sections: sync", e instanceof Error ? e.message : String(e)));
   return reply(200, { deleted: files.length });
 }
 

@@ -6,11 +6,12 @@ import type { Dictionary } from "@/i18n/dictionaries";
 import { functionFailure } from "@/lib/functionError";
 import { createClient } from "@/lib/supabase/client";
 import { openPdf, sectionPage } from "@/lib/pdfRead";
-import { MAX_PDF_BYTES, MAX_PDF_PAGES, POSITIONS } from "@/lib/sectionLimits";
+import { POSITIONS, type SectionLimits } from "@/lib/sectionLimits";
 import { createSection } from "@/app/[lang]/(account)/dashboard/sectionActions";
 
 type Labels = Dictionary["sections"];
 type Supabase = ReturnType<typeof createClient>;
+type PdfDoc = Awaited<ReturnType<typeof openPdf>>["doc"];
 
 /** An answer of page-sections, or its reason as {error, message} (thrown). */
 class SectionError extends Error {
@@ -44,66 +45,71 @@ function errorText(labels: Labels, e: unknown): string {
  * "finish" (the new PDF goes live; until then visitors see the old one). Pages without text are
  * written out by the AI afterwards.
  */
-async function sendPdf(supabase: Supabase, sectionId: string, file: File, progress: (text: string) => void, labels: Labels) {
-  const { doc, close } = await openPdf(file);
-  try {
-    if (doc.numPages > MAX_PDF_PAGES) throw new SectionError("too_many_pages", "too many pages");
-    progress(labels.uploading);
-    const sent = await call<{ version: number; pages: number; removed: string[] }>(
-      supabase,
-      `page-sections?action=pdf&section_id=${sectionId}`,
-      file,
-      { "Content-Type": "application/pdf" },
-    );
-    const texts: { page: number; text: string }[] = [];
-    for (let n = 1; n <= sent.pages; n++) {
-      progress(labels.page_progress.replace("{n}", String(n)).replace("{total}", String(sent.pages)));
-      const page = await sectionPage(doc, n);
-      for (const [size, blob] of [[800, page.small], [1600, page.large]] as const) {
-        await call(supabase, `page-sections?action=page&section_id=${sectionId}&version=${sent.version}&page=${n}&size=${size}`, blob, {
-          "Content-Type": blob.type,
-        });
-      }
-      texts.push({ page: n, text: page.text });
+async function sendPdf(
+  supabase: Supabase,
+  sectionId: string,
+  file: File,
+  doc: PdfDoc,
+  progress: (text: string) => void,
+  labels: Labels,
+) {
+  progress(labels.uploading);
+  const sent = await call<{ version: number; pages: number; removed: string[] }>(
+    supabase,
+    `page-sections?action=pdf&section_id=${sectionId}`,
+    file,
+    { "Content-Type": "application/pdf" },
+  );
+  const texts: { page: number; text: string }[] = [];
+  for (let n = 1; n <= sent.pages; n++) {
+    progress(labels.page_progress.replace("{n}", String(n)).replace("{total}", String(sent.pages)));
+    const page = await sectionPage(doc, n);
+    for (const [size, blob] of [[800, page.small], [1600, page.large]] as const) {
+      await call(supabase, `page-sections?action=page&section_id=${sectionId}&version=${sent.version}&page=${n}&size=${size}`, blob, {
+        "Content-Type": blob.type,
+      });
     }
-    await call(supabase, "page-sections", { action: "text", section_id: sectionId, version: sent.version, pages: texts });
-    await call(supabase, "page-sections", { action: "finish", section_id: sectionId, version: sent.version });
-    // Pages without a text layer: the AI writes them out (as written), a few at a time.
-    let waiting = texts.filter((t) => !t.text.trim()).length;
-    for (let round = 0; waiting > 0 && round < 20; round++) {
-      progress(labels.reading_ai.replace("{n}", String(waiting)));
-      const work = await call<{ remaining: number; ai?: boolean }>(supabase, "page-sections", { action: "work", section_id: sectionId });
-      if (work.ai === false) break;
-      waiting = work.remaining;
-    }
-    return sent.removed.length > 0;
-  } finally {
-    await close();
+    texts.push({ page: n, text: page.text });
   }
+  await call(supabase, "page-sections", { action: "text", section_id: sectionId, version: sent.version, pages: texts });
+  await call(supabase, "page-sections", { action: "finish", section_id: sectionId, version: sent.version });
+  // Pages without a text layer: the AI writes them out (as written), a few at a time.
+  let waiting = texts.filter((t) => !t.text.trim()).length;
+  for (let round = 0; waiting > 0 && round < 20; round++) {
+    progress(labels.reading_ai.replace("{n}", String(waiting)));
+    const work = await call<{ remaining: number; ai?: boolean }>(supabase, "page-sections", { action: "work", section_id: sectionId });
+    if (work.ai === false) break;
+    waiting = work.remaining;
+  }
+  return sent.removed.length > 0;
 }
 
-/** First checks in the browser (the server checks again): a PDF, at most 10 MB. */
-function checkFile(file: File | null): string | null {
+/** First checks in the browser (the server checks again): a PDF, at most the plan's MB. */
+function checkFile(file: File | null, limits: SectionLimits): string | null {
   if (!file) return "not_pdf";
   if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) return "not_pdf";
-  if (file.size > MAX_PDF_BYTES) return "too_big";
+  if (file.size > limits.maxBytes) return "too_big";
   return null;
 }
 
 /**
  * "Pridať sekciu" (mode "new": the settings and the PDF) or "Nahradiť PDF" (mode "replace":
- * only a new PDF for an existing section; its settings and order stay).
+ * only a new PDF for an existing section; its settings and order stay). The limits are the
+ * shop's plan's (the admin's settings, database update 30); the labels come with their numbers
+ * filled in. A free shop chooses no position: its sections sit after the opening hours.
  */
 export function SectionUploader({
   mode,
   shopId,
   sectionId,
   labels,
+  limits,
 }: {
   mode: "new" | "replace";
   shopId: string;
   sectionId?: string;
   labels: Labels;
+  limits: SectionLimits;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -115,7 +121,7 @@ export function SectionUploader({
     const form = event.currentTarget;
     const data = new FormData(form);
     const file = data.get("pdf") instanceof File ? (data.get("pdf") as File) : null;
-    const bad = checkFile(file && file.size > 0 ? file : null);
+    const bad = checkFile(file && file.size > 0 ? file : null, limits);
     setProblem(null);
     setStatus(null);
     if (bad) {
@@ -123,10 +129,15 @@ export function SectionUploader({
       return;
     }
     setBusy(true);
+    let opened: Awaited<ReturnType<typeof openPdf>> | null = null;
+    let created: string | null = null;
     try {
+      // Read and count first: a PDF with a password or too many pages creates no section.
+      opened = await openPdf(file!);
+      if (opened.doc.numPages > limits.maxPages) throw new SectionError("too_many_pages", "too many pages");
       let id = sectionId ?? null;
       if (mode === "new") {
-        const created = await createSection({
+        const result = await createSection({
           shopId,
           title: String(data.get("title") ?? ""),
           display: String(data.get("display") ?? "collapsed"),
@@ -136,20 +147,42 @@ export function SectionUploader({
           until: String(data.get("until") ?? "") || null,
           pageLayout: String(data.get("page_layout") ?? "slider"),
         });
-        if ("error" in created) throw new SectionError(created.error, created.error);
-        id = created.id;
+        if ("error" in result) throw new SectionError(result.error, result.error);
+        id = created = result.id;
       }
-      const removed = await sendPdf(createClient(), id!, file!, setStatus, labels);
+      const removed = await sendPdf(createClient(), id!, file!, opened.doc, setStatus, labels);
+      if (mode === "new") {
+        // The list (and, at the plan's number of sections, the hint instead of this form) comes
+        // back with the message: it stays even when this form is no longer there.
+        backWith({ ok: removed ? "section_uploaded_removed" : "section_uploaded" });
+        return;
+      }
       setStatus(removed ? `${labels.done} ${labels.removed}` : labels.done);
       form.reset();
       router.refresh();
     } catch (e) {
+      if (created) {
+        backWith({ err: `sections_failed:${errorText(labels, e)}` });
+        return;
+      }
       setStatus(null);
       setProblem(errorText(labels, e));
       router.refresh();
     } finally {
+      await opened?.close();
       setBusy(false);
     }
+  }
+
+  /** The dashboard again, at "Sekcie stránky (PDF)", with ?ok= or ?err= (shown in the section). */
+  function backWith(query: Record<string, string>) {
+    const url = new URL(window.location.href);
+    for (const key of ["ok", "err", "section", "replace"]) url.searchParams.delete(key);
+    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+    url.searchParams.set("at", "sections");
+    url.hash = "sections";
+    router.replace(`${url.pathname}${url.search}${url.hash}`);
+    router.refresh();
   }
 
   const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
@@ -184,16 +217,20 @@ export function SectionUploader({
             </label>
             <span className="text-sm text-muted">{labels.layout_hint}</span>
           </fieldset>
-          <label className="flex flex-col gap-1">
-            <span className="text-sm">{labels.position}</span>
-            <select name="position" defaultValue="after_details" className={input}>
-              {POSITIONS.map((p) => (
-                <option key={p} value={p}>
-                  {(labels as Record<string, string>)[`position_${p}`]}
-                </option>
-              ))}
-            </select>
-          </label>
+          {limits.plan === "free" ? (
+            <input type="hidden" name="position" value="before_items" />
+          ) : (
+            <label className="flex flex-col gap-1">
+              <span className="text-sm">{labels.position}</span>
+              <select name="position" defaultValue="after_details" className={input}>
+                {POSITIONS.map((p) => (
+                  <option key={p} value={p}>
+                    {(labels as Record<string, string>)[`position_${p}`]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="flex items-center gap-2">
             <input type="checkbox" name="allow_download" />
             {labels.allow_download}

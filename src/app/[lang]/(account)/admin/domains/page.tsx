@@ -7,7 +7,7 @@ import { euros } from "@/lib/domains";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings } from "./actions";
+import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings, saveSectionLimits } from "./actions";
 import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/admin/domains">): Promise<Metadata> {
@@ -47,6 +47,14 @@ interface Overview {
   resolved_at: string | null;
   waiting_credit: boolean;
   renewal_state: string | null;
+}
+
+/** "Limity sekcií (PDF)" (database update 30): per plan. */
+interface LimitsRow {
+  plan: "free" | "pro";
+  max_sections: number;
+  max_pages: number;
+  max_mb: number;
 }
 
 interface PriceRow {
@@ -89,12 +97,14 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     hyear: String(hyear),
   })}`;
 
-  const [overview, stats, prices, holidays] = await Promise.all([
+  const [overview, stats, prices, holidays, sectionLimits] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
     session.supabase.rpc("admin_holidays", { p_country: hcountry, p_year: hyear }),
+    session.supabase.from("section_limits").select("plan, max_sections, max_pages, max_mb"),
   ]);
+  const limitRows = sectionLimits.error ? null : ((sectionLimits.data ?? []) as LimitsRow[]);
   if (overview.error) return <DbError message={overview.error.message} dict={dict} />;
   const rows = (overview.data ?? []) as Overview[];
   const s = (stats.data ?? {}) as Record<string, unknown>;
@@ -334,6 +344,44 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
             </div>
           ))}
         </div>
+      </section>
+
+      <section id="section-limits" className="flex flex-col gap-3" aria-labelledby="section-limits-heading">
+        <h2 id="section-limits-heading" className="text-lg font-semibold">
+          {a.limits_title}
+        </h2>
+        <p className="text-sm text-muted">{a.limits_hint}</p>
+        {!limitRows ? (
+          <p className="text-sm text-muted">{a.limits_unavailable}</p>
+        ) : (
+          <div className="flex flex-col gap-2 text-sm" data-section-limits>
+            {(["free", "pro"] as const).map((plan) => {
+              const row = limitRows.find((r) => r.plan === plan);
+              return (
+                <form key={plan} action={saveSectionLimits} className="flex flex-wrap items-end gap-2 border-b border-line pb-2" data-limits-plan={plan}>
+                  {hidden}
+                  <input type="hidden" name="plan" value={plan} />
+                  <span className="w-24 pb-1 font-medium">{plan === "pro" ? a.plan_pro : a.plan_free}</span>
+                  <label className="flex flex-col gap-1">
+                    <span>{a.limits_sections}</span>
+                    <input name="max_sections" type="number" min={0} max={50} required defaultValue={row?.max_sections ?? ""} className={`${input} w-20`} />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span>{a.limits_pages}</span>
+                    <input name="max_pages" type="number" min={1} max={50} required defaultValue={row?.max_pages ?? ""} className={`${input} w-20`} />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span>{a.limits_mb}</span>
+                    <input name="max_mb" type="number" min={1} max={20} required defaultValue={row?.max_mb ?? ""} className={`${input} w-20`} />
+                  </label>
+                  <button type="submit" className="rounded border border-foreground px-3 py-1 font-medium">
+                    {a.limits_save}
+                  </button>
+                </form>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <HolidaysAdmin

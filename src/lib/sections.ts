@@ -3,15 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 import { supabaseEnv } from "@/lib/supabase/env";
 
 /**
- * Page sections from PDFs (paid plan, database update 28). Visitors get only the sections the
- * database shows (shop_sections(): published, not hidden, inside their dates, the shop has the
- * plan, the pictures already public). The pictures are served straight from the public bucket
+ * Page sections from PDFs (database update 28; every shop since update 30). Visitors get only the
+ * sections the database shows (shop_sections(): published, not hidden, inside their dates, among
+ * the first ones the shop's plan allows, the pictures already public; a free shop's sections come
+ * back with the position before_items: after the opening hours, before the items). The pictures are served straight from the public bucket
  * with srcset (800 / 1600 px), never through image optimisation; the PDF is never loaded here.
  */
 
 import type { SectionPosition } from "./sectionLimits";
 
-export { MAX_PDF_BYTES, MAX_PDF_PAGES, MAX_SECTIONS, POSITIONS, type SectionPosition } from "./sectionLimits";
+export { megabytes, POSITIONS, PRO_BEFORE_30, type SectionLimits, type SectionPosition } from "./sectionLimits";
 export const PUBLIC_BUCKET = "shop-sections-public";
 
 export interface SectionPage {

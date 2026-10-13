@@ -99,6 +99,25 @@ export async function domainAction(formData: FormData) {
   back(error ? { err: error } : { ok: "done", ...(action === "auth" ? { code_for: id } : {}) });
 }
 
+/**
+ * "Limity sekcií (PDF)" (database update 30): the number of sections, pages and MB per PDF of
+ * one plan; admin_save_section_limits checks is_admin() and the ranges itself.
+ */
+export async function saveSectionLimits(formData: FormData) {
+  const { session, back } = await start(formData);
+  const whole = (name: string) => {
+    const n = Number(formData.get(name));
+    return Number.isInteger(n) ? n : null;
+  };
+  const { error } = await session.supabase.rpc("admin_save_section_limits", {
+    p_plan: String(formData.get("plan") ?? ""),
+    p_max_sections: whole("max_sections"),
+    p_max_pages: whole("max_pages"),
+    p_max_mb: whole("max_mb"),
+  });
+  back(error ? { err: error.message.slice(0, 200) } : { ok: "limits" }, "section-limits");
+}
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**

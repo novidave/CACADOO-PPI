@@ -3653,11 +3653,15 @@ begin
   assert (select count(*) from public.shop_sections('potraviny-centrum')) = 0, 'hidden';
   update public.shop_page_sections set hidden = false where id = v_s;
   assert (select count(*) from public.shop_sections('potraviny-centrum')) = 1;
-  -- the paid plan ends: hidden (not deleted), back when it returns
+  -- the paid plan ends: since update 30 a free shop keeps its first section (the free limit);
+  -- with no free sections allowed it is hidden (not deleted), and back when the plan returns
   update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = v_a;
-  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 0, 'plan ended: hidden';
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 1, 'plan ended: the first one stays';
+  update public.section_limits set max_sections = 0 where plan = 'free';
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 0, 'plan ended, no free sections: hidden';
   assert exists (select 1 from public.sections_to_sync(null) where id = v_s and not visible), 'plan ended: pictures leave';
   assert exists (select 1 from public.shop_page_sections where id = v_s), 'plan ended: not deleted';
+  update public.section_limits set max_sections = 1 where plan = 'free';
   update public.subscriptions set current_period_end = now() + interval '30 days' where shop_id = v_a;
   assert (select count(*) from public.shop_sections('potraviny-centrum')) = 1, 'plan back: shown again';
   -- a new PDF for the section: the live one stays until the new one is complete
@@ -3836,5 +3840,226 @@ do $$ begin
   end;
   delete from public.shop_page_sections where title in ('Slider', 'Pod sebou');
 end $$;
+
+\echo '--- page sections for free shops: limits per plan, the first one after Pro ends, the admin (update 30)'
+-- drogeria-kostolne (owner B) has no paid plan (canceled above)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_s uuid;
+  v_r record;
+begin
+  assert not public.shop_has_plan(v_b);
+  select * into v_r from public.owner_section_limits(v_b);
+  assert v_r.plan = 'free' and v_r.max_sections = 1 and v_r.max_pages = 5 and v_r.max_bytes = 10485760 and v_r.sections = 0,
+    'free defaults: 1 section, 5 pages, 10 MB';
+  -- a free shop adds one section, with every option; its place is before the items whatever the form sends
+  v_s := public.owner_save_section(v_b, null, 'Jedálny lístok', 'open', 'after_details', true, null, null, 'stacked');
+  assert (select position from public.shop_page_sections where id = v_s) = 'before_items', 'free: before the items';
+  perform public.owner_save_section(v_b, v_s, 'Jedálny lístok', 'collapsed', 'end', true, null, null, 'slider');
+  assert (select position || ' ' || display || ' ' || page_layout || ' ' || allow_download from public.shop_page_sections where id = v_s)
+    = 'before_items collapsed slider true', 'free: the settings change, the place stays';
+  -- the second one: 'limit' (Môj obchod shows "Pre viac sekcií prejdite na Pro" instead of the form)
+  begin
+    perform public.owner_save_section(v_b, null, 'Druhá', 'open', 'end', false, null, null);
+    raise exception 'a second section on a free shop';
+  exception when raise_exception then assert sqlerrm = 'limit', sqlerrm;
+  end;
+  assert (select sections from public.owner_section_limits(v_b)) = 1;
+  -- only the admin changes the limits; another shop's limits are not readable
+  begin
+    perform public.admin_save_section_limits('free', 5, 5, 10);
+    raise exception 'an owner changed the limits';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.section_limits set max_sections = 9;
+    raise exception 'limits changed directly';
+  exception when insufficient_privilege then null;
+  end;
+  assert (select count(*) from public.section_limits) = 2, 'owners read the limits';
+  begin
+    perform public.owner_section_limits((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'owner B read shop A''s limits';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the function's steps for the free shop: at most 5 pages and 10 MB; then shown, its text on the page only
+do $$
+declare
+  v_s uuid := (select id from public.shop_page_sections where title = 'Jedálny lístok');
+  v_i integer;
+begin
+  begin
+    perform public.sections_begin_upload(v_s, 6, 1000);
+    raise exception '6 pages on a free shop';
+  exception when raise_exception then assert sqlerrm = 'limits', sqlerrm;
+  end;
+  begin
+    perform public.sections_begin_upload(v_s, 2, 10485761);
+    raise exception 'more than 10 MB on a free shop';
+  exception when raise_exception then assert sqlerrm = 'limits', sqlerrm;
+  end;
+  perform public.sections_begin_upload(v_s, 5, 10485760);
+  perform public.sections_begin_upload(v_s, 2, 1000);
+  for v_i in 1..2 loop
+    perform public.sections_page_stored(v_s, 2, v_i, 800, 'webp', 100, 800, 1131);
+    perform public.sections_page_stored(v_s, 2, v_i, 1600, 'webp', 200, 1600, 2263);
+  end loop;
+  perform public.sections_save_text(v_s, 2, '[{"page":1,"text":"Polievka dňa 2,50 €"},{"page":2,"text":""}]', 'sk');
+  perform public.sections_finish(v_s, 2);
+  assert (select count(*) from public.sections_claim_ai(v_s, 5)) = 1, 'the AI writes out a page without text (free too)';
+  update public.shop_page_sections set published = true where id = v_s;
+  assert public.section_visible(v_s), 'a free shop''s first section is visible';
+  assert exists (select 1 from public.sections_to_sync(v_s) where visible), 'its pictures go public';
+  perform public.sections_mark_public(v_s, 2);
+  assert (select path from public.shop_section_pdf('drogeria-kostolne', v_s)) like '%/v2/section.pdf', 'download allowed: free too';
+end $$;
+
+set role anon;
+do $$
+declare v_r record;
+begin
+  select * into v_r from public.shop_sections('drogeria-kostolne');
+  assert v_r.title = 'Jedálny lístok' and v_r.position = 'before_items' and v_r.allow_download and v_r.page_layout = 'slider',
+    'the free page: after the opening hours, before the items';
+  assert (v_r.pages -> 0 ->> 'text') = 'Polievka dňa 2,50 €', 'its text on the page';
+  -- no assistant on free shops: the sections' text is not given to it
+  assert not exists (select 1 from public.search_shop_docs('drogeria-kostolne', 'polievka', null)), 'no assistant text for a free shop';
+  assert not exists (select 1 from public.shop_docs_list('drogeria-kostolne', null) where name = 'Jedálny lístok');
+end $$;
+reset role;
+
+-- the admin changes the limits: wrong values refused; a free shop then may add a second one
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare v_i integer;
+begin
+  perform public.admin_save_section_limits('free', 2, 6, 12);
+  assert (select max_sections || '/' || max_pages || '/' || max_mb from public.section_limits where plan = 'free') = '2/6/12';
+  foreach v_i in array array[1, 2, 3, 4, 5] loop
+    begin
+      if v_i = 1 then perform public.admin_save_section_limits('gold', 1, 5, 10); end if;
+      if v_i = 2 then perform public.admin_save_section_limits('free', 51, 5, 10); end if;
+      if v_i = 3 then perform public.admin_save_section_limits('pro', 10, 51, 10); end if;
+      if v_i = 4 then perform public.admin_save_section_limits('pro', 10, 20, 21); end if;
+      if v_i = 5 then perform public.admin_save_section_limits('pro', 10, 0, 10); end if;
+      raise exception 'wrong limits accepted (%)', v_i;
+    exception when raise_exception then assert sqlerrm = 'limits', sqlerrm;
+    end;
+  end loop;
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_r record;
+begin
+  select * into v_r from public.owner_section_limits(v_b);
+  assert v_r.max_sections = 2 and v_r.max_pages = 6 and v_r.max_bytes = 12 * 1048576, 'the admin''s new limits';
+  perform public.owner_save_section(v_b, null, 'Druhá', 'open', 'after_details', false, null, null);
+  assert (select count(*) from public.shop_page_sections where shop_id = v_b) = 2;
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$ begin
+  perform public.admin_save_section_limits('free', 1, 5, 10);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+do $$ begin
+  delete from public.shop_page_sections where title = 'Druhá';
+end $$;
+
+-- a Pro shop goes back to free: every section kept, only the first that could be shown is shown
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d uuid;
+  v_f uuid;
+  v_x uuid;
+  v_id uuid;
+  v_end timestamptz := (select current_period_end from public.subscriptions where shop_id = v_a);
+begin
+  delete from public.shop_page_sections where shop_id = v_a;
+  -- a draft without a PDF first in the list, then two shown sections
+  insert into public.shop_page_sections (shop_id, title, display, position, sort) values (v_a, 'Návrh', 'open', 'after_details', 0)
+  returning id into v_d;
+  insert into public.shop_page_sections (shop_id, title, display, position, sort) values (v_a, 'Prvá', 'open', 'after_details', 1)
+  returning id into v_f;
+  insert into public.shop_page_sections (shop_id, title, display, position, sort) values (v_a, 'Koniec', 'open', 'end', 0)
+  returning id into v_x;
+  foreach v_id in array array[v_f, v_x] loop
+    perform public.sections_begin_upload(v_id, 1, 1000);
+    perform public.sections_page_stored(v_id, 1, 1, 800, 'webp', 100, 800, 1131);
+    perform public.sections_page_stored(v_id, 1, 1, 1600, 'webp', 200, 1600, 2263);
+    perform public.sections_save_text(v_id, 1, '[{"page":1,"text":"Kyslá kapusta zo suda"}]', 'sk');
+    perform public.sections_finish(v_id, 1);
+    update public.shop_page_sections set published = true where id = v_id;
+    perform public.sections_mark_public(v_id, 1);
+  end loop;
+  assert (select string_agg(title, ',') from public.shop_sections('potraviny-centrum')) = 'Prvá,Koniec', 'Pro: both shown';
+  assert exists (select 1 from public.search_shop_docs('potraviny-centrum', 'kapusta', null)), 'Pro: the assistant has the text';
+  -- free again: the draft does not take the one place; the first that can be shown does, in the free page's place
+  update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = v_a;
+  assert (select string_agg(title, ',') from public.shop_sections('potraviny-centrum')) = 'Prvá', 'free again: only the first shown';
+  assert (select position from public.shop_sections('potraviny-centrum')) = 'before_items', 'in the free page''s place';
+  assert (select count(*) from public.shop_page_sections where shop_id = v_a) = 3, 'free again: every section kept';
+  assert exists (select 1 from public.sections_to_sync(null) where id = v_x and not visible), 'the hidden one''s pictures leave';
+  assert exists (select 1 from public.sections_to_sync(null, v_a) where id = v_x and not visible), 'one shop''s sync has it';
+  assert not exists (select 1 from public.sections_to_sync(null, (select id from public.shops where slug = 'drogeria-kostolne')) where id = v_x),
+    'another shop''s sync does not';
+  assert not exists (select 1 from public.search_shop_docs('potraviny-centrum', 'kapusta', null)), 'free again: no assistant text';
+  assert (select count(*) from public.shop_section_pdf('potraviny-centrum', v_x)) = 0, 'no download of a hidden one';
+  -- the owner hides the first one (or deletes it): the next one takes its place
+  update public.shop_page_sections set hidden = true where id = v_f;
+  assert (select string_agg(title, ',') from public.shop_sections('potraviny-centrum')) = 'Koniec', 'the next one that can be shown';
+  update public.shop_page_sections set hidden = false where id = v_f;
+  -- Pro again: all of them, in their own places
+  update public.subscriptions set current_period_end = v_end where shop_id = v_a;
+  assert (select string_agg(position, ',') from public.shop_sections('potraviny-centrum')) = 'after_details,end', 'Pro again: in their places';
+  assert exists (select 1 from public.search_shop_docs('potraviny-centrum', 'kapusta', null)), 'Pro again: the assistant has the text';
+  -- the admin lowers Pro's number: only the first ones show
+  update public.section_limits set max_sections = 1 where plan = 'pro';
+  assert (select string_agg(title, ',') from public.shop_sections('potraviny-centrum')) = 'Prvá', 'Pro over its limit: the first';
+  update public.section_limits set max_sections = 10 where plan = 'pro';
+end $$;
+-- a free shop with 3 kept sections cannot add a fourth
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  set role postgres;
+  update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = v_a;
+  set role authenticated;
+  begin
+    perform public.owner_save_section(v_a, null, 'Štvrtá', 'open', 'end', false, null, null);
+    raise exception 'a downgraded shop added a section';
+  exception when raise_exception then assert sqlerrm = 'limit', sqlerrm;
+  end;
+  assert (select plan from public.owner_section_limits(v_a)) = 'free';
+  set role postgres;
+  update public.subscriptions set current_period_end = now() + interval '30 days' where shop_id = v_a;
+  delete from public.shop_page_sections where shop_id = v_a;
+  set role authenticated;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare v_r record;
+begin
+  select * into v_r from public.owner_section_limits((select id from public.shops where slug = 'potraviny-centrum'));
+  assert v_r.plan = 'pro' and v_r.max_sections = 10 and v_r.max_pages = 20, 'Pro defaults: 10 sections, 20 pages';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
 
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -3,7 +3,7 @@ import { t, type Dictionary } from "@/i18n/dictionaries";
 import { localDateTime } from "@/lib/hours";
 import { missingColumn } from "@/lib/missingColumn";
 import type { MyShop } from "@/lib/myShops";
-import { MAX_SECTIONS, POSITIONS, type SectionPosition } from "@/lib/sections";
+import { megabytes, POSITIONS, PRO_BEFORE_30, type SectionLimits, type SectionPosition } from "@/lib/sections";
 import { HeaderPictureInput } from "@/components/HeaderPictureInput";
 import { PendingButton } from "@/components/PendingButton";
 import { SectionOrder, type OwnerSectionRow } from "@/components/SectionOrder";
@@ -27,6 +27,7 @@ interface Row {
   upload_version: number | null;
   upload_error: string | null;
   updated_at: string;
+  created_at: string;
   /** "Zobrazenie strán" (database update 29; "slider" before it). */
   page_layout?: "slider" | "stacked";
 }
@@ -35,24 +36,75 @@ export interface SectionsData {
   rows: Row[];
   plan: boolean;
   today: string;
+  /**
+   * The shop's plan's limits (database update 30: every shop, the admin's numbers). Before it:
+   * Pro's old limits for a shop with the plan, null for a free shop (no sections then).
+   */
+  limits: SectionLimits | null;
+  /** Sections that could be shown but are over the plan's number (the database hides them too). */
+  overLimit: Set<string>;
+}
+
+interface LimitsRow {
+  plan: "free" | "pro";
+  max_sections: number;
+  max_pages: number;
+  max_bytes: number;
 }
 
 /** The shop's page sections (database update 28; null before it). */
 export async function loadSections(supabase: Supabase, shop: MyShop, plan: boolean): Promise<SectionsData | null> {
   const columns =
-    "id, title, display, position, sort, allow_download, visible_from, visible_until, hidden, published, version, pages, upload_version, upload_error, updated_at";
+    "id, title, display, position, sort, allow_download, visible_from, visible_until, hidden, published, version, pages, upload_version, upload_error, updated_at, created_at";
   const read = (cols: string) => supabase.from("shop_page_sections").select(cols).eq("shop_id", shop.id).order("sort").order("created_at");
-  let { data, error } = await read(`${columns}, page_layout`);
+  const [first, limitsResult] = await Promise.all([
+    read(`${columns}, page_layout`),
+    supabase.rpc("owner_section_limits", { p_shop_id: shop.id }),
+  ]);
+  let { data, error } = first;
   if (missingColumn(error, "page_layout")) ({ data, error } = await read(columns));
   if (error) return null;
-  return { rows: (data ?? []) as unknown as Row[], plan, today: localDateTime(new Date(), shop.timezone).date };
+  const l = (limitsResult.data as LimitsRow[] | null)?.[0];
+  const limits: SectionLimits | null = l
+    ? { plan: l.plan === "pro" ? "pro" : "free", maxSections: l.max_sections, maxPages: l.max_pages, maxBytes: l.max_bytes }
+    : plan
+      ? PRO_BEFORE_30
+      : null;
+  const rows = (data ?? []) as unknown as Row[];
+  const today = localDateTime(new Date(), shop.timezone).date;
+  return { rows, plan, today, limits, overLimit: overTheLimit(rows, today, limits) };
+}
+
+/** Published, not hidden, a PDF, inside its dates: the sections that could be shown. */
+function couldShow(row: Row, today: string): boolean {
+  return row.version > 0 && row.published && !row.hidden &&
+    !(row.visible_from && row.visible_from > today) && !(row.visible_until && row.visible_until < today);
+}
+
+/**
+ * The sections over the plan's number, as section_visible() decides for visitors: of those that
+ * could be shown, the first N in the owner's order (the positions in their order on the page,
+ * then the order within each) are shown, the rest not.
+ */
+function overTheLimit(rows: Row[], today: string, limits: SectionLimits | null): Set<string> {
+  const ordered = rows
+    .filter((r) => couldShow(r, today))
+    .sort((a, b) =>
+      POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || a.sort - b.sort || a.created_at.localeCompare(b.created_at) ||
+      a.id.localeCompare(b.id));
+  return new Set(ordered.slice(limits ? limits.maxSections : 0).map((r) => r.id));
 }
 
 export function sectionsSummary(data: SectionsData | null, dict: Dictionary): string {
   const s = dict.sections;
   if (!data) return s.unavailable;
-  if (data.rows.length === 0) return data.plan ? s.summary_none : s.pro_only;
-  return t(s.summary, { n: data.rows.length, shown: data.rows.filter((r) => state(r, data).key === "live").length });
+  if (!data.limits) return s.pro_only;
+  if (data.rows.length === 0) return s.summary_none;
+  return t(s.summary, {
+    n: data.rows.length,
+    max: Math.max(data.limits.maxSections, data.rows.length),
+    shown: data.rows.filter((r) => state(r, data).key === "live").length,
+  });
 }
 
 /** What the owner reads next to a section (the database decides the same for visitors). */
@@ -61,9 +113,10 @@ function state(row: Row, data: SectionsData): { key: string; date?: string } {
   if (row.version === 0) return { key: row.upload_version ? "processing" : "empty" };
   if (!row.published) return { key: "draft" };
   if (row.hidden) return { key: "hidden" };
-  if (!data.plan) return { key: "no_plan" };
+  if (!data.limits) return { key: "no_plan" };
   if (row.visible_from && row.visible_from > data.today) return { key: "before", date: row.visible_from };
   if (row.visible_until && row.visible_until < data.today) return { key: "after", date: row.visible_until };
+  if (data.overLimit.has(row.id)) return { key: `over_limit_${data.limits.plan}` };
   return { key: "live" };
 }
 
@@ -95,6 +148,19 @@ export function PageSectionsPanel({
   const s = dict.sections;
   if (!data) return <p className="text-sm text-muted">{s.unavailable}</p>;
   const rows = data.rows;
+  const limits = data.limits;
+  // A free shop's sections have one place on its page (after the opening hours, before the items).
+  const free = limits?.plan === "free";
+  const fill = (text: string) =>
+    limits ? t(text, { max: limits.maxSections, pages: limits.maxPages, mb: megabytes(limits.maxBytes) }) : text;
+  const uploaderLabels = {
+    ...s,
+    format_hint: fill(s.format_hint),
+    error_too_big: fill(s.error_too_big),
+    error_too_many_pages: free ? `${fill(s.error_too_many_pages)} ${s.upgrade_pages}` : fill(s.error_too_many_pages),
+    error_limit: free ? s.upgrade_more : s.error_limit,
+  };
+  const planUrl = `/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
   const edit = rows.find((r) => r.id === editId) ?? null;
   const replace = rows.find((r) => r.id === replaceId) ?? null;
   const ownerRow = (row: Row): OwnerSectionRow => {
@@ -104,7 +170,7 @@ export function PageSectionsPanel({
         ? t(s.state_error, { reason: errorReason(dict, row.upload_error ?? "") })
         : st.date
           ? t((s as Record<string, string>)[`state_${st.key}`], { date: dateText(st.date, lang) })
-          : (s as Record<string, string>)[`state_${st.key}`];
+          : fill((s as Record<string, string>)[`state_${st.key}`]);
     const details = [
       (s as Record<string, string>)[`display_${row.display}`],
       row.page_layout === "stacked" ? s.layout_stacked : s.layout_slider,
@@ -128,7 +194,9 @@ export function PageSectionsPanel({
     <div className="flex flex-col gap-5" data-owner-sections>
       {notice}
       <p className="text-sm text-muted">{s.intro}</p>
-      {!data.plan && <p className="border border-line p-3 text-sm">{rows.length ? s.plan_ended : s.pro_only}</p>}
+      {!limits && <p className="border border-line p-3 text-sm">{s.pro_only}</p>}
+      {free && data.overLimit.size > 0 && <p className="border border-line p-3 text-sm" data-sections-downgraded>{s.plan_ended}</p>}
+      {free && <p className="text-sm text-muted" data-free-position>{s.free_position}</p>}
 
       {rows.length > 0 && (
         <div className="flex flex-col gap-4">
@@ -176,16 +244,20 @@ export function PageSectionsPanel({
             ))}
             <span className="text-sm text-muted">{s.layout_hint}</span>
           </fieldset>
-          <label className="flex flex-col gap-1">
-            <span className="text-sm">{s.position}</span>
-            <select name="position" defaultValue={edit.position} className={input}>
-              {POSITIONS.map((p) => (
-                <option key={p} value={p}>
-                  {(s as Record<string, string>)[`position_${p}`]}
-                </option>
-              ))}
-            </select>
-          </label>
+          {free ? (
+            <input type="hidden" name="position" value={edit.position} />
+          ) : (
+            <label className="flex flex-col gap-1">
+              <span className="text-sm">{s.position}</span>
+              <select name="position" defaultValue={edit.position} className={input}>
+                {POSITIONS.map((p) => (
+                  <option key={p} value={p}>
+                    {(s as Record<string, string>)[`position_${p}`]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="flex items-center gap-2">
             <input type="checkbox" name="allow_download" defaultChecked={edit.allow_download} />
             {s.allow_download}
@@ -209,22 +281,31 @@ export function PageSectionsPanel({
         </form>
       )}
 
-      {replace && data.plan && (
+      {replace && limits && (
         <div className="flex flex-col gap-2 border border-foreground p-3" id="section-replace">
           <h3 className="font-semibold">{t(s.replace_title, { title: replace.title })}</h3>
           <p className="text-sm text-muted">{s.replace_hint}</p>
-          <SectionUploader mode="replace" shopId={shop.id} sectionId={replace.id} labels={s} />
+          <SectionUploader mode="replace" shopId={shop.id} sectionId={replace.id} labels={uploaderLabels} limits={limits} />
         </div>
       )}
 
-      {data.plan &&
-        (rows.length < MAX_SECTIONS ? (
+      {limits &&
+        (rows.length < limits.maxSections ? (
           <div className="flex flex-col gap-2" id="section-add">
             <h3 className="font-semibold">{s.add}</h3>
-            <SectionUploader mode="new" shopId={shop.id} labels={s} />
+            <SectionUploader mode="new" shopId={shop.id} labels={uploaderLabels} limits={limits} />
           </div>
+        ) : free ? (
+          // The free number is reached: no error, the way to more.
+          <p data-sections-upgrade>
+            <a href={planUrl} className="underline underline-offset-4">
+              {s.upgrade_more}
+            </a>
+          </p>
         ) : (
-          <p className="text-sm text-muted">{s.limit_reached}</p>
+          <p className="text-sm text-muted" data-sections-limit>
+            {fill(s.limit_reached)}
+          </p>
         ))}
     </div>
   );

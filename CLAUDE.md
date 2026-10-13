@@ -250,7 +250,7 @@ highlighted, status line, special days next 14 days), assistant (always open, ow
 the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacadoo header; SK · HU · EN and the shop's
 header picture; the name and logo on the page itself, above the details). These are shop profile data, never stock.
 
-## Page sections from PDFs and the own domain's header picture (Pro, update 28)
+## Page sections from PDFs and the own domain's header picture (Pro, update 28; every shop since update 30)
 
 `supabase/sql/28_pdf_sections.sql` + `supabase/functions/page-sections` (one file, Verify JWT off) + shop-files
 `section_pdf` + dashboard `PageSectionsPanel.tsx` / `sectionActions.ts` / page `dashboard/sections/[id]` (preview) +
@@ -279,6 +279,14 @@ through `owner_save_section(…, p_page_layout)`): slider = `@/components/Sectio
 ← →, "n / m" + dots, one box height = tallest page, ≤ 80vh; only the current page ± 1 gets an `<img>`, `<noscript>` for
 the rest); Pod sebou = one under another, 12 px, lazy; one page = just the page; `SectionZoom` = full-screen viewer
 (pinch / wheel / + − zoom, swipe, ← →, Esc) for both; "Stiahnuť PDF" a button.
+**Free shops too (update 30, `supabase/sql/30_free_sections.sql`):** limits per plan are the admin's settings, never in
+the code: `section_limits` (free / pro: sections, pages, MB; defaults 1/5/10 and 10/20/10; only
+`admin_save_section_limits()`, admin page "Limity sekcií (PDF)") → `section_limits_for(shop)`, `owner_section_limits()`,
+`owner_section` (the function's `limitsOf()`, caps 50 pages / 20 MB). Visible = published, not hidden, in its dates and
+among the plan's first N in the owner's order (`section_visible()`; Pro → free keeps all, shows the first). Free:
+no position choice, `shop_sections()` gives `before_items` (= right after the opening hours on a free page); at the
+number "Pre viac sekcií prejdite na Pro" (no error); the assistant only with the plan (`section_for_assistant()`).
+Owner actions sync the whole shop's pictures (`sections_to_sync(p_section_id, p_shop_id)`).
 
 ## Stock upload
 

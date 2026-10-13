@@ -76,6 +76,8 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     holidays_auto: dict.holidays.saved,
     special_saved: dict.holidays.special_saved,
     special_deleted: dict.holidays.special_deleted,
+    section_uploaded: dict.sections.done,
+    section_uploaded_removed: `${dict.sections.done} ${dict.sections.removed}`,
     section_saved: dict.sections.ok_saved,
     section_published: dict.sections.ok_published,
     section_hidden: dict.sections.ok_hidden,

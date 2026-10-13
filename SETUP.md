@@ -958,6 +958,33 @@ A one-page section shows just the page. "Stiahnuť PDF" is now a button. No new 
 
 ---
 
+## Part W — Page sections for free shops too (13 October 2026)
+
+Every shop can now add PDF sections, not only Pro: the same upload and display options. The limits per plan are your
+settings on the admin page (defaults: **free 1 section, 5 pages, 10 MB; Pro 10 sections, 20 pages, 10 MB**). At the
+limit the shop sees "Pre viac sekcií prejdite na Pro". On a free shop's page the section sits right after the opening
+hours, before the items. A Pro shop that goes back to free keeps all its sections and shows only the first one. No new
+secret. Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/30_free_sections.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again. Check:
+   `select * from public.section_limits order by plan;` → `free 1 5 10` and `pro 10 20 10`.
+   (If you ever run file 29 again, run file 30 again after it.)
+2. **Update the function:** Edge Functions → `page-sections` → **Code** → replace everything with the new
+   `supabase/functions/page-sections/index.ts` → **Deploy** ("Verify JWT" stays off). Without it a free shop's upload
+   stops with "Sekcie stránky sú súčasťou predplatného Pro."
+3. **Merge the pull request** on GitHub → Vercel deploys. (Merged before step 1 the website still works as before:
+   sections only for Pro.)
+4. **Test:**
+   - A free shop: Môj obchod → **Sekcie stránky (PDF)** → the same "Pridať sekciu" form, without "Pozícia" → upload a
+     PDF of up to 5 pages → **Náhľad** → **Zverejniť** → on the shop page it is right after "Otváracie hodiny".
+     A PDF with 6 pages says "PDF môže mať najviac 5 strán. Pre viac strán prejdite na Pro."
+   - After the first section the form is replaced by **"Pre viac sekcií prejdite na Pro"**.
+   - Admin: **Predplatné a domény** → **Limity sekcií (PDF)** → change a number → **Uložiť** → the shop's form follows
+     at once (set it back afterwards).
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -994,3 +1021,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 18. Open / lunch break / closed / holiday status (dots + words) everywhere, public holidays SK/HU/CZ, special days, "+ Obedňajšia prestávka"; Pro shop page order, assistant always open, no Cacadoo header on own domains | ✅ built — set up Part T |
 | 19. Page sections from PDFs (Pro): up to 10 per shop, cleaned on the server, pages with their text, collapsed or always open in four places, dates, preview, download on/off, the assistant names them; the header picture of an own domain, the name and logo back on the page | ✅ built — set up Part U |
 | 20. "Zobrazenie strán" per section: slider (swipe, ‹ ›, keys, "2 / 5" + dots, no jumping, current + next page loaded) or "Pod sebou"; full-screen viewer with zoom and swipe; "Stiahnuť PDF" button | ✅ built — set up Part V |
+| 21. Page sections for free shops: limits per plan set by the admin (free 1 / 5 pages / 10 MB, Pro 10 / 20 / 10 MB), "Pre viac sekcií prejdite na Pro", after the opening hours on free pages, Pro → free shows the first one | ✅ built — set up Part W |
