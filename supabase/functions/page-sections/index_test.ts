@@ -3,7 +3,7 @@
 // Run: npm run test:functions
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from "npm:pdf-lib@1.17.1";
-import { cleanPdf, type Deps, handle, looksLikePdf, MAX_PDF_BYTES, PdfRejected, PRIVATE, PUBLIC, safeUri, sniffPicture } from "./index.ts";
+import { cleanPdf, type Deps, handle, limitsOf, looksLikePdf, MAX_PDF_BYTES, PdfRejected, PRIVATE, PUBLIC, safeUri, sniffPicture } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -65,9 +65,9 @@ function encryptedPdf(): Uint8Array {
   );
 }
 
-async function rejected(bytes: Uint8Array): Promise<string> {
+async function rejected(bytes: Uint8Array, limits?: Parameters<typeof cleanPdf>[1]): Promise<string> {
   try {
-    await cleanPdf(bytes);
+    await cleanPdf(bytes, limits);
   } catch (e) {
     if (e instanceof PdfRejected) return e.code;
     throw e;
@@ -84,6 +84,17 @@ Deno.test("PDF limits: not a PDF, too big, encrypted, more than 20 pages", async
   eq(await rejected(new TextEncoder().encode("%PDF-1.4\n%%EOF")), "unreadable", "no pages");
   const twenty = await cleanPdf(await plainPdf(20));
   eq(twenty.pages, 20, "20 pages are fine");
+});
+
+Deno.test("limits per plan from the database (update 30): free 5 pages, the admin's numbers, the caps", async () => {
+  const free = limitsOf({ has_plan: false, max_pages: 5, max_bytes: 10 * 1048576 })!;
+  eq(free, { maxPages: 5, maxBytes: 10 * 1048576 }, "a free shop's limits");
+  eq(await rejected(await plainPdf(6), free), "too_many_pages", "6 pages on a free shop");
+  eq((await cleanPdf(await plainPdf(5), free)).pages, 5, "5 pages are fine");
+  eq(await rejected(new Uint8Array(3 * 1048576 + 1), { maxPages: 5, maxBytes: 3 * 1048576 }), "too_big", "over the admin's 3 MB");
+  eq(limitsOf({ has_plan: true, max_pages: 500, max_bytes: 500 * 1048576 }), { maxPages: 50, maxBytes: 20 * 1048576 }, "never over the caps");
+  eq(limitsOf({ has_plan: true }), { maxPages: 20, maxBytes: MAX_PDF_BYTES }, "before update 30: Pro's old limits");
+  eq(limitsOf({ has_plan: false }), null, "before update 30: no sections without the plan");
 });
 
 Deno.test("cleaning removes JavaScript, actions, launch, links to programs and embedded files", async () => {
@@ -179,6 +190,8 @@ type Result = { data: unknown; error: { message: string; code?: string } | null 
 interface Setup {
   owner?: boolean;
   plan?: boolean;
+  /** The limits owner_section gives (update 30); absent: the database before it. */
+  limits?: { plan: string; max_pages: number; max_bytes: number };
   uploadVersion?: number | null;
   service?: (name: string, args: Record<string, unknown>) => Result | undefined;
   copyFails?: boolean;
@@ -195,7 +208,7 @@ function fakes(setup: Setup = {}) {
       log.push(`caller ${name}`);
       if (setup.owner === false) return Promise.resolve({ data: null, error: { message: "Not your shop", code: "42501" } });
       if (name === "owner_section") {
-        return Promise.resolve(ok([{ shop_id: SHOP, version: 1, upload_version: setup.uploadVersion === undefined ? 2 : setup.uploadVersion, upload_pages: 3, has_plan: setup.plan ?? true }]));
+        return Promise.resolve(ok([{ shop_id: SHOP, version: 1, upload_version: setup.uploadVersion === undefined ? 2 : setup.uploadVersion, upload_pages: 3, has_plan: setup.plan ?? true, ...setup.limits }]));
       }
       if (name === "owner_section_files") {
         return Promise.resolve(ok([
@@ -312,7 +325,20 @@ Deno.test("a PDF: refused when encrypted (noted for the owner), stored only clea
   ok(!bad.log.some((l) => l.startsWith("storage upload")), "nothing stored");
 
   const noPlan = fakes({ plan: false });
-  eq((await handle(binary(`action=pdf&section_id=${SECTION}`, await plainPdf(1)), noPlan.deps)).status, 409, "no paid plan");
+  eq((await handle(binary(`action=pdf&section_id=${SECTION}`, await plainPdf(1)), noPlan.deps)).status, 409, "no paid plan (before update 30)");
+
+  // update 30: a free shop takes a PDF within its plan's limits; over them it is refused, with the numbers
+  const free = { plan: "free", max_pages: 5, max_bytes: 10 * 1048576 };
+  const freeOk = fakes({ plan: false, limits: free });
+  eq((await handle(binary(`action=pdf&section_id=${SECTION}`, await plainPdf(5)), freeOk.deps)).status, 200, "free: 5 pages taken");
+  const freeLong = fakes({ plan: false, limits: free });
+  const long = await handle(binary(`action=pdf&section_id=${SECTION}`, await plainPdf(6)), freeLong.deps);
+  eq(long.status, 413, "free: 6 pages refused");
+  const longBody = await long.json();
+  eq([longBody.error, longBody.max_pages, longBody.max_mb], ["too_many_pages", 5, 10], "the reason and the free limits");
+  ok(!freeLong.log.some((l) => l.startsWith("storage upload")), "nothing stored");
+  const small = fakes({ plan: false, limits: { plan: "free", max_pages: 5, max_bytes: 1048576 } });
+  eq((await handle(binary(`action=pdf&section_id=${SECTION}`, new Uint8Array(1048577)), small.deps)).status, 413, "over the admin's 1 MB");
 
   const good = fakes();
   const stored = await handle(binary(`action=pdf&section_id=${SECTION}`, await dangerousPdf()), good.deps);
@@ -398,6 +424,16 @@ Deno.test("sync: hidden, expired or no plan → the pictures leave the public bu
   });
   await handle(json({ action: "sync", section_id: SECTION }), again.deps);
   ok(again.log.includes(`storage upload ${PUBLIC} ${SHOP}/${SECTION}/v2/1-1600.webp`), "uploaded instead of copied");
+
+  // update 30: an owner's action syncs the whole shop (on a free shop the next section may show)
+  ok(f.log.some((l) => l.startsWith("service sections_to_sync") && l.includes(`"p_shop_id":"${SHOP}"`)), "the whole shop");
+  // before update 30 (no p_shop_id): the one section
+  const old = fakes({
+    service: (name, args) =>
+      name === "sections_to_sync" && "p_shop_id" in args ? { data: null, error: { message: "Could not find the function", code: "PGRST202" } } : undefined,
+  });
+  eq((await handle(json({ action: "sync", section_id: SECTION }), old.deps)).status, 200, "synced before update 30");
+  ok(old.log.some((l) => l === `service sections_to_sync {"p_section_id":"${SECTION}"}`), "the one section");
 });
 
 Deno.test("the AI reads a page without text from its 1600 px picture; failures are noted", async () => {
@@ -438,6 +474,7 @@ Deno.test("delete: every file in both buckets first, then the section", async ()
   const privateAt = f.log.indexOf(`storage remove ${PRIVATE} ${SHOP}/${SECTION}/v1/section.pdf,${SHOP}/${SECTION}/v1/1-800.webp`);
   const rowAt = f.log.indexOf(`service delete shop_page_sections ${SECTION}`);
   ok(publicAt >= 0 && privateAt >= 0 && rowAt > privateAt && rowAt > publicAt, `files first (${f.log.join(" | ")})`);
+  ok(f.log.slice(rowAt).some((l) => l.startsWith("service sections_to_sync") && l.includes(`"p_shop_id":"${SHOP}"`)), "then the shop's pictures follow");
   const notOwner = fakes({ owner: false });
   eq((await handle(json({ action: "delete", section_id: SECTION }), notOwner.deps)).status, 403, "only the owner");
 });

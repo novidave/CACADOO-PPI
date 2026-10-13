@@ -10,7 +10,7 @@ import { POSITIONS, type SectionPosition } from "@/lib/sectionLimits";
 /**
  * Page sections from PDFs and the header picture of an own domain (database update 28). Every
  * change goes through an owner function that checks the caller owns the shop (and, for
- * sections, that it has the paid plan); after a change of what visitors see, the page-sections
+ * sections, its plan's limits: every shop since update 30); after a change of what visitors see, the page-sections
  * function moves the pictures in or out of the public bucket at once (the hourly job would too).
  */
 
@@ -132,6 +132,8 @@ export async function reorderSections(input: { shopId: string; position: string;
     p_position: position(input.position),
     p_ids: ids,
   });
+  // On a free shop the order decides which section is shown: the pictures follow.
+  if (!error && ids[0]) await sync(session.supabase, ids[0]);
   return !error;
 }
 

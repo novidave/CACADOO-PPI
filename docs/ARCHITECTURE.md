@@ -268,8 +268,10 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   "before_items"] → items → [sections "end"]. The shop's own domain renders under
   `src/app/site/[lang]/[slug]/layout.tsx`: no Cacadoo header; `SiteLanguageSwitch` and the shop's header picture
   (`getHeaderPicture` → `shop_header_picture()`, `<img srcset>` 800/1600 px, a link home; update 28).
-- **Page sections** (update 28, `lib/sections.ts`, `lib/sectionLimits.ts` for the browser): `getShopSections(slug,
-  shopId)` → `shop_sections()` (only shown sections; none before update 28 or on any error); `components/PageSections`
+- **Page sections** (update 28, every shop since update 30; `lib/sections.ts`, `lib/sectionLimits.ts` for the browser:
+  `POSITIONS`, `SectionLimits`, `PRO_BEFORE_30`): `getShopSections(slug, shopId)` → `shop_sections()` (only shown
+  sections; a free shop's come with the position `before_items`, which on a free page is directly after the opening
+  hours; none before update 28 or on any error); `components/PageSections`
   (server: per position a `<details data-display=collapsed>` or `<section data-display=open>`; every page is
   `<a href=1600 data-zoom data-zoom-group=<section> data-zoom-index data-zoom-label><img srcset="800w, 1600w"
   sizes="(min-width: 792px) 760px, calc(100vw - 32px)" width height>`, no image optimisation. `page_layout` (update
@@ -738,6 +740,28 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   or `slider`; an edit: unchanged when not sent; anything else → `bad`); `shop_sections()` also returns `page_layout`.
   The website sends `p_page_layout` and retries without it on PGRST202, and `loadSections` falls back without the
   column on 42703, so it works before update 29 (every section is then a slider).
+- **Free shops and limits per plan** (update 30, `supabase/sql/30_free_sections.sql`): `section_limits` (plan free /
+  pro: `max_sections` 0–50, `max_pages` 1–50, `max_mb` 1–20; defaults 1 / 5 / 10 and 10 / 20 / 10; RLS: signed-in users
+  read, only `admin_save_section_limits()` with `is_admin()` writes) → `section_limits_for(shop)` (by `shop_has_plan`).
+  `section_visible()` no longer asks for the plan: published, not hidden, a PDF, inside its dates, an active shop, and
+  among the first `max_sections` of those in the owner's order (`array_position` of the four positions, `sort`,
+  `created_at`) — a Pro shop that goes back to free shows its first one, keeps the rest. `owner_save_section` for every
+  shop (`limit` at the plan's number; a free shop's new section → `before_items`, its edits keep the position);
+  `owner_section_limits(shop)` (members: plan, numbers, count) for Môj obchod; `owner_section` also returns `plan`,
+  `max_pages`, `max_bytes`; `sections_begin_upload` checks them (`limits`); `sections_claim_ai` for every shop;
+  `sections_to_sync(p_section_id, p_shop_id)`; `shop_sections()` gives free shops `before_items`;
+  `section_for_assistant()` (shown + `shop_has_plan`) in `search_shop_docs` / `shop_docs_list`. Column checks: pages ≤ 50,
+  PDF ≤ 20 MB. The function reads the limits from `owner_section` (`limitsOf()`: the database's numbers within the caps
+  50 pages / 20 MB; before update 30 Pro's old 20 / 10 MB and 409 `no_plan` for free shops), answers 413 with
+  `max_pages` / `max_mb`, and after `sync`, `finish` and `delete` moves the pictures of the whole shop (one section's
+  change can show or hide another). Website: `loadSections` adds `owner_section_limits` (fallback before update 30:
+  Pro's old limits with the plan, none without) and mirrors the visibility rule for the row states
+  (`over_limit_free` / `over_limit_pro`); `PageSectionsPanel` gives the uploader the limits and the filled-in texts,
+  hides the position for free shops, shows "Pre viac sekcií prejdite na Pro" (a link to `dashboard/plan`) instead of
+  the form at the number; `SectionUploader` reads the PDF and counts its pages before `createSection`, and a new
+  section's result comes back as the dashboard's notice (`?ok=section_uploaded[_removed]` / `?err=sections_failed:…`), so
+  it stays when the form gives way to the hint; `reorderSections` syncs too. Admin: `admin/domains` → "Limity sekcií
+  (PDF)" (`saveSectionLimits`).
 - **Header picture of an own domain:** `shops.header_url`, `header_small_url`, `header_width`, `header_height`
   (check: the shop's own `logos` folder, `header-<ms>.webp|jpg` and `-800`; guard trigger: only
   `owner_set_header_picture()`, which needs `shop_stands_alone`); the dashboard's `HeaderPictureInput` makes 1600 and
@@ -1237,8 +1261,18 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   pinch, a finger moves the zoomed page, "Zavrieť"; one page → no slider controls; "Stiahnuť PDF" as a button only where
   allowed; "Pod sebou" saved → 3 pages 12 px apart, first eager, the rest lazy, "Strana 2 / 3", the same viewer through
   this section's pages only; English and Hungarian labels); Lighthouse mobile with update 29 (alternating, same build):
-  without sections median 93, with two slider sections (one collapsed, one open) median 92; those scripts are not part
-  of the repository.
+  without sections median 93, with two slider sections (one collapsed, one open) median 92; update 30 (free shops, 42
+  checks: the free uploader with the same options, no position, "najviac 5 strán, max 10 MB"; 6 pages refused before a
+  section is made, "Pre viac strán prejdite na Pro."; 3 pages taken, stored before the items, the AI writes out the
+  page without text; at 1 section "Pre viac sekcií prejdite na Pro" (a link, no error) and "1 z 1 sekcií"; the database
+  refuses a second; no position under "Upraviť"; the free page: directly after "Otváracie hodiny", before the items, no
+  assistant, "Stiahnuť PDF", the text in the HTML, a phone without sideways scroll; the admin's "Limity sekcií (PDF)"
+  1/5/10 and 10/20/10, saved 2 / 6 → the form back with "najviac 6 strán", 6 pages taken, 99 MB refused, back to 1 →
+  only the first shown, an owner gets no admin page; Pro takes 6 pages and chooses positions; Pro → free: only the
+  first (Leták) shown after the hours, the hourly job removes the other's pictures, nothing deleted, the row "Skryté –
+  bezplatný profil …", the explanation and the hint, hiding the first shows the next at once, Pro again → both in their
+  places), the update-29 script updated for it (128 checks); Lighthouse mobile of the free shop page (alternating, same
+  build): with its section median 93, without 93; those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).
