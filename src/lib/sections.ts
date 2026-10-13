@@ -3,10 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { supabaseEnv } from "@/lib/supabase/env";
 
 /**
- * Page sections from PDFs (database update 28; every shop since update 30). Visitors get only the
- * sections the database shows (shop_sections(): published, not hidden, inside their dates, among
- * the first ones the shop's plan allows, the pictures already public; a free shop's sections come
- * back with the position before_items: after the opening hours, before the items). The pictures are served straight from the public bucket
+ * Page sections from PDFs or pictures (database update 28; every shop since update 30; pictures
+ * since update 31). Visitors get only the sections the database shows (shop_sections():
+ * published, not hidden, inside their dates, among the first ones the shop's plan allows, the
+ * pictures already public; a free shop's sections come back with the position after_hours: after
+ * the opening hours, before the items). The pictures are served straight from the public bucket
  * with srcset (800 / 1600 px), never through image optimisation; the PDF is never loaded here.
  */
 
@@ -37,6 +38,8 @@ export interface ShownSection {
   allow_download: boolean;
   /** "slider" before database update 29 too (the default). */
   page_layout: PageLayout;
+  /** A PDF or pictures (database update 31; "pdf" before it): only a PDF can be downloaded. */
+  source: "pdf" | "pictures";
   pages: SectionPage[];
 }
 
@@ -50,6 +53,7 @@ interface Row {
   version: number;
   pages: { page: number; width: number; height: number; ext: "webp" | "jpg"; text: string }[];
   page_layout?: PageLayout | null;
+  source?: string | null;
 }
 
 /** The public address of a page picture: <shop>/<section>/v<version>/<page>-<800|1600>.<ext>. */
@@ -71,6 +75,7 @@ export const getShopSections = cache(async (slug: string, shopId: string): Promi
     position: row.position,
     allow_download: row.allow_download,
     page_layout: row.page_layout === "stacked" ? "stacked" : "slider",
+    source: row.source === "pictures" ? "pictures" : "pdf",
     pages: row.pages
       .filter((p) => p.width && p.height && p.ext)
       .map((p) => ({
@@ -81,18 +86,17 @@ export const getShopSections = cache(async (slug: string, shopId: string): Promi
   }));
 });
 
-/** The header picture of a shop's own domain (database update 28; none before it). */
-export interface HeaderPicture {
+/** The header logo of a shop's own domain (database update 31; none before it or without one). */
+export interface SiteLogo {
   url: string;
-  small_url: string;
   width: number;
   height: number;
 }
 
-export const getHeaderPicture = cache(async (slug: string): Promise<HeaderPicture | null> => {
+export const getSiteLogo = cache(async (slug: string): Promise<SiteLogo | null> => {
   const db = await createClient();
   if (!db) return null;
-  const { data, error } = await db.rpc("shop_header_picture", { p_slug: slug });
+  const { data, error } = await db.rpc("shop_site_logo", { p_slug: slug });
   if (error) return null;
-  return ((data ?? []) as HeaderPicture[])[0] ?? null;
+  return ((data ?? []) as SiteLogo[])[0] ?? null;
 });

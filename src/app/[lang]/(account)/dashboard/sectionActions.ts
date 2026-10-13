@@ -8,7 +8,7 @@ import { sectionUrl } from "@/lib/dashboardPages";
 import { POSITIONS, type SectionPosition } from "@/lib/sectionLimits";
 
 /**
- * Page sections from PDFs and the header picture of an own domain (database update 28). Every
+ * Page sections from PDFs and the header logo of an own domain (database updates 28–31). Every
  * change goes through an owner function that checks the caller owns the shop (and, for
  * sections, its plan's limits: every shop since update 30); after a change of what visitors see, the page-sections
  * function moves the pictures in or out of the public bucket at once (the hourly job would too).
@@ -16,8 +16,6 @@ import { POSITIONS, type SectionPosition } from "@/lib/sectionLimits";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const PICTURE_TYPES: Record<string, string> = { "image/webp": "webp", "image/jpeg": "jpg" };
-const MAX_PICTURE_BYTES = 1024 * 1024;
 
 async function start(formData: FormData, at: "sections" | "header") {
   const langValue = String(formData.get("lang") ?? "");
@@ -147,70 +145,64 @@ export async function deleteSection(formData: FormData) {
   back({ ok: "section_deleted" });
 }
 
-// ---------------------------------------------------------------- the header picture (own domain)
+// ---------------------------------------------------------------- the header logo (own domain)
 
-/** The storage path of a picture of this shop's folder in the public bucket "logos", or null. */
-function logoPath(url: string | null, shopId: string): string | null {
+const LOGO_TYPES: Record<string, string> = { "image/webp": "webp", "image/png": "png" };
+const MAX_LOGO_BYTES = 1024 * 1024;
+
+/** The storage path of this shop's header logo in the public bucket "logos", or null. */
+function siteLogoPath(url: string | null, shopId: string): string | null {
   const m = url?.match(/\/storage\/v1\/object\/public\/logos\/(.+)$/);
-  return m && m[1].startsWith(`${shopId}/header-`) ? decodeURIComponent(m[1]) : null;
+  return m && m[1].startsWith(`${shopId}/site-logo-`) ? decodeURIComponent(m[1]) : null;
 }
 
-async function oldHeader(supabase: Supabase, shopId: string): Promise<string[]> {
-  const { data } = await supabase.from("shops").select("header_url, header_small_url").eq("id", shopId).maybeSingle();
-  const row = data as { header_url: string | null; header_small_url: string | null } | null;
-  return [logoPath(row?.header_url ?? null, shopId), logoPath(row?.header_small_url ?? null, shopId)].filter((p): p is string => Boolean(p));
+async function oldSiteLogo(supabase: Supabase, shopId: string): Promise<string[]> {
+  const { data } = await supabase.from("shops").select("site_logo_url").eq("id", shopId).maybeSingle();
+  const path = siteLogoPath((data as { site_logo_url: string | null } | null)?.site_logo_url ?? null, shopId);
+  return path ? [path] : [];
 }
 
-/** "Vybrať obrázok": the 1600 px and 800 px versions made in the browser, checked again here. */
-export async function uploadHeaderPicture(formData: FormData) {
+/**
+ * "Vybrať logo" (database update 31): the logo made in the browser (at most 120 px high, WebP or
+ * PNG with its transparency), checked again here with sharp, stored in the shop's folder of the
+ * public bucket "logos"; owner_set_site_logo() decides (Pro or a domain of its own).
+ */
+export async function uploadSiteLogo(formData: FormData) {
   const { session, shopId, back } = await start(formData, "header");
-  const large = formData.get("header");
-  const small = formData.get("header_small");
-  const checked = async (file: FormDataEntryValue | null, width: number) => {
-    if (!(file instanceof File) || file.size === 0 || file.size > MAX_PICTURE_BYTES || !PICTURE_TYPES[file.type]) return null;
-    const bytes = Buffer.from(await file.arrayBuffer());
-    const meta = await sharp(bytes).metadata().catch(() => null);
-    const format = meta?.format === "jpeg" ? "image/jpeg" : meta?.format === "webp" ? "image/webp" : null;
-    if (!meta || format !== file.type || meta.width !== width || !meta.height || meta.height < 50 || meta.height > 4000) return null;
-    return { bytes, type: file.type, height: meta.height };
-  };
-  const [big, little] = await Promise.all([checked(large, 1600), checked(small, 800)]);
-  if (!big || !little || big.type !== little.type) back({ err: "header_picture" });
-  const ext = PICTURE_TYPES[big!.type];
-  const base = `${shopId}/header-${Date.now()}`;
-  const storage = session.supabase.storage.from("logos");
-  const old = await oldHeader(session.supabase, shopId);
-  for (const [path, file] of [[`${base}.${ext}`, big!], [`${base}-800.${ext}`, little!]] as const) {
-    const { error } = await storage.upload(path, file.bytes, { contentType: file.type, upsert: false });
-    if (error) back({ err: error.message });
+  const file = formData.get("site_logo");
+  if (!(file instanceof File) || file.size === 0 || file.size > MAX_LOGO_BYTES || !LOGO_TYPES[file.type]) back({ err: "site_logo" });
+  const bytes = Buffer.from(await (file as File).arrayBuffer());
+  const meta = await sharp(bytes).metadata().catch(() => null);
+  const format = meta?.format === "webp" ? "image/webp" : meta?.format === "png" ? "image/png" : null;
+  if (!meta || format !== (file as File).type || !meta.width || !meta.height || meta.width < 16 || meta.width > 1600 ||
+      meta.height < 16 || meta.height > 400) {
+    back({ err: "site_logo" });
   }
-  const { error } = await session.supabase.rpc("owner_set_header_picture", {
+  const path = `${shopId}/site-logo-${Date.now()}.${LOGO_TYPES[format!]}`;
+  const storage = session.supabase.storage.from("logos");
+  const old = await oldSiteLogo(session.supabase, shopId);
+  const { error: uploadError } = await storage.upload(path, bytes, { contentType: format!, upsert: false });
+  if (uploadError) back({ err: uploadError.message });
+  const { error } = await session.supabase.rpc("owner_set_site_logo", {
     p_shop_id: shopId,
-    p_url: storage.getPublicUrl(`${base}.${ext}`).data.publicUrl,
-    p_small_url: storage.getPublicUrl(`${base}-800.${ext}`).data.publicUrl,
-    p_width: 1600,
-    p_height: big!.height,
+    p_url: storage.getPublicUrl(path).data.publicUrl,
+    p_width: meta!.width,
+    p_height: meta!.height,
   });
   if (error) {
-    await storage.remove([`${base}.${ext}`, `${base}-800.${ext}`]);
-    back({ err: error.message === "no_plan" ? "sections_no_plan" : "header_picture" });
+    await storage.remove([path]);
+    back({ err: error.message === "no_plan" ? "sections_no_plan" : "site_logo" });
   }
   if (old.length) await storage.remove(old);
-  back({ ok: "header_saved" });
+  back({ ok: "site_logo_saved" });
 }
 
-/** "Odstrániť obrázok". */
-export async function removeHeaderPicture(formData: FormData) {
+/** "Odstrániť logo": the shop's own logo is used again. */
+export async function removeSiteLogo(formData: FormData) {
   const { session, shopId, back } = await start(formData, "header");
-  const old = await oldHeader(session.supabase, shopId);
-  const { error } = await session.supabase.rpc("owner_set_header_picture", {
-    p_shop_id: shopId,
-    p_url: null,
-    p_small_url: null,
-    p_width: null,
-    p_height: null,
-  });
+  const old = await oldSiteLogo(session.supabase, shopId);
+  const { error } = await session.supabase.rpc("owner_set_site_logo", { p_shop_id: shopId, p_url: null, p_width: null, p_height: null });
   if (error) back({ err: error.message });
   if (old.length) await session.supabase.storage.from("logos").remove(old);
-  back({ ok: "header_removed" });
+  back({ ok: "site_logo_removed" });
 }

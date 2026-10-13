@@ -577,6 +577,42 @@ async function receivePage(req: Request, url: URL, deps: Deps) {
   return reply(200, { ok: true });
 }
 
+/**
+ * A section made of pictures (update 31; JPG, PNG or WebP, one picture = one page): the browser
+ * says how many and the size of the largest, draws every picture as the page pictures (800 and
+ * 1600 px) and sends them like a PDF's pages; no PDF is stored, so there is nothing to clean or
+ * download. The plan's limits apply: pages = pictures, MB = each picture.
+ */
+async function startPictures(body: Body, deps: Deps) {
+  const section = await owned(deps, body.section_id);
+  if (!section) return notMember();
+  const limits = limitsOf(section);
+  if (!limits) return reply(409, { error: "no_plan", message: "This shop has no paid plan" });
+  const limitInfo = { max_pages: limits.maxPages, max_mb: mb(limits.maxBytes) };
+  const pages = int(body.pages);
+  const bytes = int(body.bytes);
+  if (pages === null || pages < 1 || pages > limits.maxPages) {
+    return reply(413, { error: "too_many_pages", message: `At most ${limits.maxPages} pictures`, ...limitInfo });
+  }
+  if (bytes === null || bytes < 1 || bytes > limits.maxBytes) {
+    return reply(413, { error: "too_big", message: `A picture may have at most ${mb(limits.maxBytes)} MB`, ...limitInfo });
+  }
+  const { data, error } = await deps.db.rpc("sections_begin_upload", {
+    p_section_id: section.id,
+    p_pages: pages,
+    p_bytes: bytes,
+    p_source: "pictures",
+  });
+  if (error) {
+    // Before update 31 the database takes PDFs only.
+    const old = error.code === "PGRST202" || /p_source|function/i.test(error.message);
+    return reply(409, old ? { error: "pictures_unavailable", message: "Pictures need database update 31" } : { error: error.message, message: "The section takes no pictures now" });
+  }
+  const row = (data as { version: number; pdf_path: string | null; stale_paths: string[] }[])[0];
+  if (row.stale_paths?.length) await removeFiles(deps.db, PRIVATE, row.stale_paths);
+  return reply(200, { version: row.version, pages });
+}
+
 async function saveText(body: Body, deps: Deps) {
   const section = await owned(deps, body.section_id);
   if (!section) return notMember();
@@ -763,6 +799,7 @@ async function remove(body: Body, deps: Deps) {
 }
 
 const JSON_ACTIONS: Record<string, (body: Body, deps: Deps) => Promise<Response>> = {
+  pictures: startPictures,
   text: saveText,
   finish,
   work,

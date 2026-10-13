@@ -27,6 +27,7 @@ interface Row {
   upload_version: number | null;
   upload_error: string | null;
   page_layout?: "slider" | "stacked";
+  source?: string;
 }
 
 /**
@@ -64,6 +65,7 @@ export default async function SectionPreview({ params, searchParams }: PageProps
     position: row.position,
     allow_download: false,
     page_layout: row.page_layout === "stacked" ? "stacked" : "slider",
+    source: row.source === "pictures" ? "pictures" : "pdf",
     pages: pages.map((p) => ({ ...p, ext: "webp" })),
   };
   const back = `/${lang}/dashboard?${new URLSearchParams({ shop: slug, at: "sections" })}#sections`;

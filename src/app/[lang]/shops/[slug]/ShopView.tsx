@@ -175,6 +175,9 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
       {/* 3. Opening hours: status line, the week (today marked, breaks in the row), the coming special days. */}
       <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} />
 
+      {/* Sections "Za otváracími hodinami" (update 31), and a free shop's: before the assistant. */}
+      <PageSections sections={sections} position="after_hours" slug={shop.slug} dict={dict} />
+
       {/* 4. and 5. The assistant (paid plan): always open; "Mám prístupový kľúč" as a closed dropdown under it. */}
       {assistant && (
         <ShopChat

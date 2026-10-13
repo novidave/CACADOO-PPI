@@ -4,11 +4,11 @@ import { localDateTime } from "@/lib/hours";
 import { missingColumn } from "@/lib/missingColumn";
 import type { MyShop } from "@/lib/myShops";
 import { megabytes, POSITIONS, PRO_BEFORE_30, type SectionLimits, type SectionPosition } from "@/lib/sections";
-import { HeaderPictureInput } from "@/components/HeaderPictureInput";
 import { PendingButton } from "@/components/PendingButton";
 import { SectionOrder, type OwnerSectionRow } from "@/components/SectionOrder";
 import { SectionUploader } from "@/components/SectionUploader";
-import { removeHeaderPicture, updateSection, uploadHeaderPicture } from "./sectionActions";
+import { SiteLogoInput } from "@/components/SiteLogoInput";
+import { removeSiteLogo, updateSection, uploadSiteLogo } from "./sectionActions";
 import type { Supabase } from "./ShopDocuments";
 
 interface Row {
@@ -30,6 +30,8 @@ interface Row {
   created_at: string;
   /** "Zobrazenie strán" (database update 29; "slider" before it). */
   page_layout?: "slider" | "stacked";
+  /** A PDF or pictures (database update 31; a PDF before it). */
+  source?: "pdf" | "pictures";
 }
 
 export interface SectionsData {
@@ -58,10 +60,12 @@ export async function loadSections(supabase: Supabase, shop: MyShop, plan: boole
     "id, title, display, position, sort, allow_download, visible_from, visible_until, hidden, published, version, pages, upload_version, upload_error, updated_at, created_at";
   const read = (cols: string) => supabase.from("shop_page_sections").select(cols).eq("shop_id", shop.id).order("sort").order("created_at");
   const [first, limitsResult] = await Promise.all([
-    read(`${columns}, page_layout`),
+    read(`${columns}, page_layout, source`),
     supabase.rpc("owner_section_limits", { p_shop_id: shop.id }),
   ]);
   let { data, error } = first;
+  // Before database updates 31 / 29 the newer columns are not there yet.
+  if (missingColumn(error, "source")) ({ data, error } = await read(`${columns}, page_layout`));
   if (missingColumn(error, "page_layout")) ({ data, error } = await read(columns));
   if (error) return null;
   const l = (limitsResult.data as LimitsRow[] | null)?.[0];
@@ -158,6 +162,7 @@ export function PageSectionsPanel({
     format_hint: fill(s.format_hint),
     error_too_big: fill(s.error_too_big),
     error_too_many_pages: free ? `${fill(s.error_too_many_pages)} ${s.upgrade_pages}` : fill(s.error_too_many_pages),
+    error_too_many_pictures: free ? `${fill(s.error_too_many_pictures)} ${s.upgrade_pages}` : fill(s.error_too_many_pictures),
     error_limit: free ? s.upgrade_more : s.error_limit,
   };
   const planUrl = `/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
@@ -174,6 +179,7 @@ export function PageSectionsPanel({
     const details = [
       (s as Record<string, string>)[`display_${row.display}`],
       row.page_layout === "stacked" ? s.layout_stacked : s.layout_slider,
+      row.source === "pictures" ? s.source_pictures : null,
       row.pages ? t(s.pages, { n: row.pages }) : null,
       row.allow_download ? s.download_on : null,
       row.upload_version && row.version > 0 && !row.upload_error ? s.state_processing : null,
@@ -311,57 +317,75 @@ export function PageSectionsPanel({
   );
 }
 
-/** The header picture of the shop's own domain (database update 28). */
-export interface HeaderData {
+/** The header logo of the shop's own domain (database update 31; null before it). */
+export interface SiteLogoData {
   url: string | null;
+  /** The shop's own logo: what the header shows without a header logo. */
+  shopLogo: string | null;
   allowed: boolean;
 }
 
-export async function loadHeader(supabase: Supabase, shop: MyShop): Promise<HeaderData | null> {
+export async function loadSiteLogo(supabase: Supabase, shop: MyShop): Promise<SiteLogoData | null> {
   const [{ data, error }, alone] = await Promise.all([
-    supabase.from("shops").select("header_url").eq("id", shop.id).maybeSingle(),
+    supabase.from("shops").select("site_logo_url, logo_url").eq("id", shop.id).maybeSingle(),
     supabase.rpc("shop_stands_alone", { p_shop_id: shop.id }),
   ]);
   if (error) return null;
-  return { url: (data as { header_url: string | null } | null)?.header_url ?? null, allowed: alone.data === true };
+  const row = data as { site_logo_url: string | null; logo_url: string | null } | null;
+  return { url: row?.site_logo_url ?? null, shopLogo: row?.logo_url ?? null, allowed: alone.data === true };
 }
 
-/** Môj obchod → "Obrázok v hlavičke webu". */
-export function HeaderPicturePanel({
+/**
+ * Môj obchod → "Logo v hlavičke webu" (Pro or a domain of its own): the small logo at the top
+ * left of the shop's own domain, a link to its home page; without one the shop's logo is used.
+ */
+export function SiteLogoPanel({
   data,
+  shopName,
   dict,
   hidden,
   notice,
 }: {
-  data: HeaderData | null;
+  data: SiteLogoData | null;
+  shopName: string;
   dict: Dictionary;
   hidden: (extra?: Record<string, string>) => React.ReactNode;
   notice: React.ReactNode;
 }) {
   const s = dict.sections;
   if (!data) return <p className="text-sm text-muted">{s.unavailable}</p>;
+  const shown = data.url ?? data.shopLogo;
   return (
-    <div className="flex flex-col gap-3" data-header-panel>
+    <div className="flex flex-col gap-3" data-site-logo-panel>
       {notice}
-      <p className="text-sm text-muted">{s.header_intro}</p>
-      {data.url && (
-        // eslint-disable-next-line @next/next/no-img-element -- the shop's own picture from Supabase Storage
-        <img src={data.url} alt="" className="h-auto max-h-48 w-full border border-line object-cover" data-header-current />
-      )}
+      <p className="text-sm text-muted">{s.site_logo_intro}</p>
+      {/* As in the header: 40 px high on a white bar with a thin line under it. */}
+      <div className="flex items-center justify-between gap-3 border border-line px-3 py-2" data-site-logo-preview>
+        {shown ? (
+          // eslint-disable-next-line @next/next/no-img-element -- the shop's own logo from Supabase Storage
+          <img src={shown} alt={shopName} className="h-10 w-auto max-w-[200px] object-contain" data-site-logo-current={data.url ? "own" : "shop"} />
+        ) : (
+          <span className="font-semibold">{shopName}</span>
+        )}
+        <span className="text-sm text-muted">SK · HU · EN</span>
+      </div>
+      <p className="text-sm text-muted">{data.url ? s.site_logo_set : s.site_logo_none}</p>
       {data.allowed ? (
-        <form action={uploadHeaderPicture} className="flex flex-col gap-2">
+        <form action={uploadSiteLogo} className="flex flex-col gap-2">
           {hidden({ at: "header" })}
-          <HeaderPictureInput label={data.url ? s.header_change : s.header_upload} busy={dict.owner.uploading} />
-          <p className="text-sm text-muted">{s.header_hint}</p>
+          <SiteLogoInput label={data.url ? s.site_logo_change : s.site_logo_upload} busy={dict.owner.uploading} />
+          <p className="text-sm text-muted" data-site-logo-hint>
+            {s.site_logo_hint}
+          </p>
         </form>
       ) : (
-        <p className="border border-line p-3 text-sm">{s.header_only_pro}</p>
+        <p className="border border-line p-3 text-sm">{s.site_logo_only_pro}</p>
       )}
       {data.url && (
-        <form action={removeHeaderPicture}>
+        <form action={removeSiteLogo}>
           {hidden({ at: "header" })}
-          <button type="submit" className="underline underline-offset-4" data-header-remove>
-            {s.header_remove}
+          <button type="submit" className="underline underline-offset-4" data-site-logo-remove>
+            {s.site_logo_remove}
           </button>
         </form>
       )}

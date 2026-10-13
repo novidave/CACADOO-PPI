@@ -265,9 +265,11 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   bold, breaks "8:00–12:00, 12:30–17:00", the next 14 days' holidays and special days) → `ShopChat` (always open,
   `data-assistant`; the conversation scrolls in `data-chat-log`, max 55vh / 65vh) → "Mám prístupový kľúč"
   (`<details data-key-access>`, closed; open while a folder is unlocked; `FolderAccess inline`) → [sections
-  "before_items"] → items → [sections "end"]. The shop's own domain renders under
-  `src/app/site/[lang]/[slug]/layout.tsx`: no Cacadoo header; `SiteLanguageSwitch` and the shop's header picture
-  (`getHeaderPicture` → `shop_header_picture()`, `<img srcset>` 800/1600 px, a link home; update 28).
+  "before_items"] → items → [sections "end"]; [sections "after_hours"] (update 31) sit right after the opening hours,
+  before the assistant. The shop's own domain renders under `src/app/site/[lang]/[slug]/layout.tsx`: no Cacadoo
+  header; as before update 28, a small logo at the top left as a link home (`data-site-home`: `getSiteLogo` →
+  `shop_site_logo()`, update 31; else `shops.logo_url`; else the name; 36 / 40 px high, ≤ 200 px wide) and
+  `SiteLanguageSwitch` on the right, a thin line under them (the header picture of update 28 is no longer shown).
 - **Page sections** (update 28, every shop since update 30; `lib/sections.ts`, `lib/sectionLimits.ts` for the browser:
   `POSITIONS`, `SectionLimits`, `PRO_BEFORE_30`): `getShopSections(slug, shopId)` → `shop_sections()` (only shown
   sections; a free shop's come with the position `before_items`, which on a free page is directly after the opening
@@ -686,7 +688,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   → Websupport renewal switched on; notices 30/7 days; failed → weekly reminders, at expiry `lapsed`).
 - **Website:** `proxy.ts` — a host that is not PPI's own (`NEXT_PUBLIC_SITE_URL`'s host, `www.` of it, localhost,
   `*.vercel.app`, `PPI_MAIN_HOSTS`) is looked up with `shop_for_host` (kept 60 s, unknown 20 s): `/` →
-  rewrite to `/site/{lang}/{slug}` (`src/app/site/[lang]/[slug]`: its own root layout without the Cacadoo header — `SiteLanguageSwitch` and the shop's header picture (update 28); the shop's name and logo on the page), `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml` and `/robots.txt` →
+  rewrite to `/site/{lang}/{slug}` (`src/app/site/[lang]/[slug]`: its own root layout without the Cacadoo header — the shop's small header logo as a link home and `SiteLanguageSwitch` (update 31); the shop's name and logo on the page), `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml` and `/robots.txt` →
   `/api/site/{slug}/…`, `www` → 308 bare, the shop's Cacadoo path → 308 to `/`, anything else → 307 to PPI's address,
   unknown → 404 page. On PPI's own host `/site/…` (and the old `/{lang}/site/…`) → 308 to the Cacadoo page. `ShopView` / `ItemView` render both
   (`onSite`: canonical and links on the own domain); the Cacadoo pages put `rel=canonical` on the own domain
@@ -762,11 +764,28 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   section's result comes back as the dashboard's notice (`?ok=section_uploaded[_removed]` / `?err=sections_failed:…`), so
   it stays when the form gives way to the hint; `reorderSections` syncs too. Admin: `admin/domains` → "Limity sekcií
   (PDF)" (`saveSectionLimits`).
-- **Header picture of an own domain:** `shops.header_url`, `header_small_url`, `header_width`, `header_height`
-  (check: the shop's own `logos` folder, `header-<ms>.webp|jpg` and `-800`; guard trigger: only
-  `owner_set_header_picture()`, which needs `shop_stands_alone`); the dashboard's `HeaderPictureInput` makes 1600 and
-  800 px in the browser, `uploadHeaderPicture` checks both with sharp (type, width 1600/800, height 50–4000, ≤ 1 MB),
-  uploads them with the owner's login, removes the old ones.
+- **Update 31** (`supabase/sql/31_site_logo_pictures.sql`):
+  - **Header logo of an own domain** (replaces the header picture of update 28, whose columns stay unused):
+    `shops.site_logo_url`, `site_logo_width`, `site_logo_height` (check: the shop's own `logos` folder,
+    `site-logo-<ms>.webp|png`, 16–1600 × 16–400 px; guard trigger: only `owner_set_site_logo()`, which needs
+    `shop_stands_alone`; removing is always allowed); `shop_site_logo(slug)` (public). Dashboard "Logo v hlavičke
+    webu" (`SiteLogoPanel`, `loadSiteLogo`; a preview as in the header; the hint which pictures are fine):
+    `components/SiteLogoInput` makes it at most 120 px high / 600 px wide in the browser (transparency kept, WebP, PNG
+    fallback), `uploadSiteLogo` checks it with sharp (type, 16–1600 × 16–400, ≤ 1 MB), uploads it with the owner's
+    login, removes the old one; `removeSiteLogo`.
+  - **Position `after_hours`** (check, `owner_save_section`, the order `after_details, after_map, after_hours,
+    before_items, end` in `section_visible` / `shop_sections` / `POSITIONS`); a free shop's new section is stored
+    there and `shop_sections()` gives free shops `after_hours`; `ShopView` renders it after `HoursSection`.
+  - **Sections of pictures:** `shop_page_sections.source` / `upload_source` (`pdf` / `pictures`; check: a live PDF
+    section has its `pdf_path`, a section of pictures none); `sections_begin_upload(…, p_source)` (pictures: no PDF path,
+    `p_bytes` = the largest picture, the plan's pages and MB), `sections_finish` keeps the source, `shop_sections()`
+    returns it, `shop_section_pdf` only for a PDF. The function's `pictures` action (owner's JWT: count and largest
+    size within `limitsOf()`; 413 with the numbers; 409 `pictures_unavailable` before update 31) begins the version;
+    then the same `page` / `text` / `finish` / `work` steps as a PDF (empty text → the AI writes it out). Website:
+    `SectionUploader` takes one PDF or several pictures (`checkFiles`: not mixed, the plan's numbers, sorted by file
+    name; every picture must open in the browser before a section is made), `lib/pdfRead` `picturePage()` draws each
+    as 800 / 1600 px WebP on white (`createImageBitmap`, orientation from the picture); `sendPages()` is shared with
+    PDFs; `PageSections` shows "Stiahnuť PDF" only for `source = 'pdf'`; the owner's row says "obrázky".
 
 ## 3. Main flows step by step
 
@@ -1036,6 +1055,9 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 24 | `supabase/sql/24_access_key_access.sql` | access keys for shoppers: `shop_folders.access_mode` + counts, `access` on documents and pictures (private documents already downloadable keep it), `folder_keys.folder_key`, `folder_sessions.downloads`, `shop_assistant_settings.shopper_pdf`, tables `shop_document_pages` and `folder_zip_tickets` (RLS), `unlock_shop_folders` (24 hours, counts), `shop_folder_session` (+ downloads left), `shop_folder_files`, `shop_view_file`, `shop_download_file`, `shop_zip_ticket`, `shop_zip_take`, `shop_file_path` (private files by the access rule), `docs_register_pages`, `docs_pages_uploaded`, `shop_docs_upload_allowed` and `owner_docs_files` (+ pages), `owner_set_folder_access`, `owner_set_file_access`, `owner_set_folder_key`, `owner_set_shopper_pdf`, `shopper_pdf_allowed`, `assistant_shopper_pdf_data`. Needs 20, 22 and 23; safe to run twice |
 | 23 | `supabase/sql/23_cloud_export.sql` | cloud folder: `cloud_connections`, `cloud_oauth_states`, `cloud_export_items` (RLS: members read, never the tokens), export columns and `shopper_deleted_at` on `assistant_conversations`, the `cloud_*` functions (service role), `owner_cloud_retry`, `owner_cloud_backfill`, `assistant_shopper_forget`; `assistant_pdf_done` (queues the copy, returns whether it did), `assistant_empty_ended` and `owner_assistant_conversations` replaced; pg_cron job `ppi-cloud-export-tick`. Safe to run twice |
 | 28 | `supabase/sql/28_pdf_sections.sql` | page sections from PDFs: `shop_page_sections`, `shop_section_pages` (RLS: members read; service role all), `shop_today`, `section_visible`, `section_shown`, `owner_save_section`, `owner_set_section_state`, `owner_reorder_sections`, `owner_section_files`, `owner_section`, the `sections_*` functions (service role), `shop_sections` (public), `shop_section_pdf` (service role), `search_shop_docs` and `shop_docs_list` with shown sections, `owner_delete_shop` (sections first), buckets `shop-sections` (private) and `shop-sections-public`, pg_cron job `ppi-sections-hourly`; the own domain's header picture: `shops.header_*` (+ check, `guard_shop_header_picture`), `owner_set_header_picture`, `shop_header_picture`. Needs 20, 22, 26 and 27; safe to run twice |
+| 29 | `supabase/sql/29_section_slider.sql` | "Zobrazenie strán": `shop_page_sections.page_layout` (slider / stacked), `owner_save_section(…, p_page_layout)`, `shop_sections` with it |
+| 30 | `supabase/sql/30_free_sections.sql` | sections for every shop: `section_limits` (+ `admin_save_section_limits`), `section_limits_for`, `owner_section_limits`, `section_visible` (the plan's first N), `section_for_assistant`, `owner_save_section`, `owner_section`, `sections_begin_upload`, `sections_claim_ai`, `sections_to_sync(…, p_shop_id)`, `shop_sections` (free: own place), `search_shop_docs` / `shop_docs_list` (plan only) |
+| 31 | `supabase/sql/31_site_logo_pictures.sql` | the own domain's header logo: `shops.site_logo_*` (+ check, `guard_shop_site_logo`), `owner_set_site_logo`, `shop_site_logo`; position `after_hours`; sections of pictures: `source` / `upload_source`, `sections_begin_upload(…, p_source)`, `sections_finish`, `shop_sections` (source), `shop_section_pdf` (PDF only), `section_visible` / `owner_save_section` with after_hours. Needs 30; safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
 | 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
 | 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
@@ -1272,7 +1294,19 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   first (Leták) shown after the hours, the hourly job removes the other's pictures, nothing deleted, the row "Skryté –
   bezplatný profil …", the explanation and the hint, hiding the first shows the next at once, Pro again → both in their
   places), the update-29 script updated for it (128 checks); Lighthouse mobile of the free shop page (alternating, same
-  build): with its section median 93, without 93; those scripts are not part of the repository.
+  build): with its section median 93, without 93; update 31 (35 checks: the own domain without a header picture, the
+  shop's logo top left as a link home, SK · HU · EN, name and logo above the details; "Logo v hlavičke webu" with the
+  hint which pictures are fine and a preview; a wide PNG → 360 × 120 WebP with alpha in the shop's folder; on the own
+  domain 40 px high (36 px on a phone, no sideways scroll), alt = the shop's name, a click on /hu leads to /hu; a free
+  shop gets "Len s predplatným Pro…"; "Za otváracími hodinami" offered and saved, on the Pro page between the hours and
+  the assistant; the pictures hint; a PDF + a picture refused before a section is made; JPG + PNG + WebP → 3 pages in
+  file-name order (1600 × 2133, 2133, 1000), only the page pictures kept, the AI's text, "obrázky" in the list, a
+  slider "1 / 3", no "Stiahnuť PDF" even with download on, then replaced by a PDF → download back; a free shop: 6
+  pictures refused with the upgrade hint, 2 taken and stored after the hours, right after "Otváracie hodiny" on its
+  page), the update-29/30 scripts updated for it (122 and 42 checks); Lighthouse mobile with update 31 (alternating,
+  same build, two open sections, one right under the details): with sections median 94, without 93.5 — the first open
+  section under the details asks for its first page with `fetchpriority=high` and an open slider loads its second page
+  only once it is near the screen (before that fix: 87 vs 95); those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

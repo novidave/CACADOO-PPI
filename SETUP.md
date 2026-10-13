@@ -985,6 +985,35 @@ secret. Do the steps in order.
 
 ---
 
+## Part X — Own-domain header logo, "Za otváracími hodinami", pictures in page sections (14 October 2026)
+
+- **Own domain:** the header is again as before the header picture — the shop's **small logo** at the top left (a
+  link to the shop's home page) and SK · HU · EN on the right. Môj obchod → **Logo v hlavičke webu** replaces
+  "Obrázok v hlavičke webu": upload a logo (PNG or WebP with a transparent background is best; JPG works too); without
+  one the shop's normal logo is used. The shop's name and logo stay on the page above its details.
+- **Page sections:** a new position **"Za otváracími hodinami"** (between the opening hours and the assistant), and
+  **pictures are fine**: instead of a PDF the shop can upload photos or pictures (JPG, PNG, WebP) — each picture is one
+  page; the AI reads their text; only a PDF can be downloaded.
+
+No new secret. Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/31_site_logo_pictures.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again. Check:
+   `select column_name from information_schema.columns where table_name = 'shops' and column_name like 'site_logo%';`
+   → three rows.
+2. **Update the function:** Edge Functions → `page-sections` → **Code** → replace everything with the new
+   `supabase/functions/page-sections/index.ts` → **Deploy** ("Verify JWT" stays off). Without it, pictures stop with
+   "Obrázky bude možné nahrať po aktualizácii databázy 31."
+3. **Merge the pull request** on GitHub → Vercel deploys.
+4. **Test:**
+   - Môj obchod → **Logo v hlavičke webu** → **Vybrať logo** → your own domain shows it small at the top left;
+     click it → the shop's home page. **Odstrániť logo** → the shop's logo again.
+   - Sekcie stránky → **Pridať sekciu** → Pozícia **Za otváracími hodinami** → on the shop page it is right under the
+     opening hours, above the assistant.
+   - Pridať sekciu with 2–3 photos (JPG/PNG) instead of a PDF → Náhľad → Zverejniť → the photos are the pages.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1022,3 +1051,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 19. Page sections from PDFs (Pro): up to 10 per shop, cleaned on the server, pages with their text, collapsed or always open in four places, dates, preview, download on/off, the assistant names them; the header picture of an own domain, the name and logo back on the page | ✅ built — set up Part U |
 | 20. "Zobrazenie strán" per section: slider (swipe, ‹ ›, keys, "2 / 5" + dots, no jumping, current + next page loaded) or "Pod sebou"; full-screen viewer with zoom and swipe; "Stiahnuť PDF" button | ✅ built — set up Part V |
 | 21. Page sections for free shops: limits per plan set by the admin (free 1 / 5 pages / 10 MB, Pro 10 / 20 / 10 MB), "Pre viac sekcií prejdite na Pro", after the opening hours on free pages, Pro → free shows the first one | ✅ built — set up Part W |
+| 22. Own domain header: small clickable logo ("Logo v hlavičke webu") + SK · HU · EN; section position "Za otváracími hodinami"; page sections from pictures (JPG, PNG, WebP) | ✅ built — set up Part X |

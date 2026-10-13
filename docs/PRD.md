@@ -31,6 +31,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Page sections from PDFs (Pro): up to 10 per shop ("Novinky október", "Leták" …), shown as pages with their text, collapsed or always open, in four positions, with dates, preview and download on/off; the assistant uses them; the header picture of an own domain, the shop's name and logo back on its page | Built and tested; live after database update 28, the page-sections function, the updated shop-files function and the merge (SETUP.md part U) |
 | "Zobrazenie strán" per section: a slider (one page at a time, swipe, ‹ ›, keys, "2 / 5" and dots; the default) or "Pod sebou"; a full-screen viewer with pinch / wheel zoom and swipe; "Stiahnuť PDF" as a button | Built and tested; live after database update 29 and the merge (SETUP.md part V) |
 | Page sections for free shops too: the same upload and display options; limits per plan set by the admin (default free 1 section, 5 pages, 10 MB; Pro 10, 20, 10 MB); "Pre viac sekcií prejdite na Pro" at the limit; on a free page after the opening hours; Pro → free keeps every section, shows the first one | Built and tested; live after database update 30, the updated page-sections function and the merge (SETUP.md part W) |
+| Own domain header as before update 28: a small clickable logo ("Logo v hlavičke webu" replaces the header picture) and SK · HU · EN; the section position "Za otváracími hodinami"; sections made of pictures (JPG, PNG, WebP; one picture = one page) | Built and tested; live after database update 31, the updated page-sections function and the merge (SETUP.md part X) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -168,13 +169,15 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   "mimoriadne" label for special hours), the week with today in bold, breaks in the day's row ("8:00–12:00,
   12:30–17:00"), then the holidays and special days of the next 14 days; 4) the **AI assistant**, shown directly and
   always open (paid plan); 5) **"Mám prístupový kľúč"** as a closed dropdown under it (paid plan); 6) the items, with
-  the stock freshness line. The shop's **page sections from PDFs** (6.14) sit where the owner put them:
-  after the details, after the map, before the items or at the end. Shops without the plan: the same without the
-  assistant and the key; their page sections (update 30) sit directly after the opening hours, before the items.
-- **On the shop's own domain** there is no Cacadoo header: the shop's own header has the SK · HU · EN switch and the
-  shop's **header picture** across the top (update 28, chosen in Môj obchod → "Obrázok v hlavičke webu"; without one
-  only the switch); the shop's name and logo are on the page itself, above its details, as on the Cacadoo address
-  ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
+  the stock freshness line. The shop's **page sections** (6.14) sit where the owner put them: after the details,
+  after the map, after the opening hours (between the hours and the assistant; update 31), before the items or at the
+  end. Shops without the plan: the same without the assistant and the key; their page sections (update 30) sit
+  directly after the opening hours, before the items.
+- **On the shop's own domain** there is no Cacadoo header: the shop's own header is as before update 28 — a **small
+  logo at the top left that leads to the shop's home page** (its "Logo v hlavičke webu", update 31; without one the
+  shop's logo; without a logo its name) and the SK · HU · EN switch on the right, a thin line under it (the header
+  picture of update 28 is no longer shown); the shop's name and logo are on the page itself, above its details, as
+  on the Cacadoo address ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
   with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
 - **Booking link** (update 26, every shop, optional): "Rezervovať termín" in the same row and style as the e-mail
@@ -292,10 +295,13 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   note (≤ 100, plain text), change and delete (past dates disappear after 7 days); the country's public holidays of
   the next 60 days (hidden when the switch is off) with one button each: "Otvorené ako zvyčajne" (that weekday's
   regular hours), "Zatvorené", "Iné hodiny" (the form with that date).
-- **Obrázok v hlavičke webu** (Pro or a domain of its own; update 28): one picture across the top of the shop's own
-  domain; made 1600 and 800 px wide in the browser (the photo's place data does not survive), checked again on the
-  server, stored in the shop's folder of the public `logos` bucket; "Odstrániť obrázok" removes it and its files.
-  Recommended 1600 × 400 px (4 : 1).
+- **Logo v hlavičke webu** (Pro or a domain of its own; update 31, replaces "Obrázok v hlavičke webu"): the small
+  logo at the top left of the shop's own domain, a link to its home page. The section explains which pictures are
+  fine: PNG or WebP with a transparent background (JPG too), a wide or square logo, at least 120 px high. The browser
+  makes it at most 120 px high and 600 px wide (transparency kept; WebP, PNG where the browser cannot write WebP; the
+  picture's own data does not survive), the server checks it again (sharp), it is stored in the shop's folder of the
+  public `logos` bucket and shown 40 px high (36 px on a phone). A preview shows it as in the header; "Odstrániť logo"
+  removes it and its file, and the shop's logo is used again.
 - **Sekcie stránky (PDF)** (every shop since update 30, limits per plan): see 6.14.
 - **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once,
   with a small PNG copy (256 px) for the conversation PDFs.
@@ -731,9 +737,19 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
 A shop puts its own PDFs on its page: news, a leaflet, a menu, "About us" (Pro only until update 30; now free shops
 too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 
-- **"Pridať sekciu"**: title (≤ 80, plain text), one PDF, **Zobrazenie** "Rozbaľovacie – zatvorené" (default) or "Vždy
+- **Pictures are fine too** (update 31): instead of one PDF the owner may choose pictures (JPG, PNG, WebP; several at
+  once, not mixed with a PDF). Each picture becomes one page, in the order of the file names; the plan's pages are the
+  number of pictures, its MB apply to each picture. The browser draws every picture as the page pictures (800 and
+  1600 px, on white; the photo's place data does not survive) — the originals are not kept, there is no PDF, so
+  "Stiahnuť PDF" is never shown for such a section. The AI writes out each picture's text (as written) for "Zobraziť
+  text", screen readers and search engines. The form says so: "Obrázky sú v poriadku: namiesto PDF môžete nahrať aj
+  fotky alebo obrázky (JPG, PNG, WebP) – každý obrázok bude jedna strana, v poradí podľa názvu súboru. Text z
+  obrázkov prečíta AI pre vyhľadávače a čítačky obrazovky. Stiahnuť sa dá len PDF." A section's PDF can be replaced
+  by pictures and back ("Nahradiť súbory").
+- **"Pridať sekciu"**: title (≤ 80, plain text), one PDF or pictures, **Zobrazenie** "Rozbaľovacie – zatvorené" (default) or "Vždy
   otvorené", **Zobrazenie strán** "Slider" (default) or "Pod sebou" (update 29; also under **Upraviť**), **Pozícia**
-  after the shop details (default) / after the map / before the items / at the end, **"Povoliť
+  after the shop details (default) / after the map / **after the opening hours** ("Za otváracími hodinami", between
+  the hours and the assistant; update 31) / before the items / at the end, **"Povoliť
   stiahnutie PDF"** (default off), optional **visible from / until** (the shop's own days). The form shows the
   recommended format with the plan's numbers: "Odporúčame A4 na výšku (210 × 297 mm), písmo min. 11 pt, obrázky min.
   150 dpi, najviac {pages} strán, max {mb} MB. Pre čítanie na mobile je ideálna 1 strana = 1 téma. Na šírku (A4
@@ -796,16 +812,18 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
   október, strana 2"); hidden, expired or deleted sections leave the assistant at the same moment as the page; a shop
   without the plan gives the assistant nothing (it has none).
 - **Performance:** Lighthouse mobile performance of the shop page with sections stays within 5 points of the same page
-  without them (measured on the same production build; numbers in the pull request).
+  without them (measured on the same production build; numbers in the pull request). The first open section right
+  under the shop's details asks for its first page first (`fetchpriority=high`); an open slider loads its second page
+  once it is near the screen.
 
 ## 7. Data model (after database update 30)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
-| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `header_url` / `header_small_url` / `header_width` / `header_height` (the own domain's header picture in the shop's `logos` folder, update 28; only `owner_set_header_picture()`), `auto_holidays` (default true, update 27; only `owner_set_auto_holidays()`), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
+| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `site_logo_url` / `site_logo_width` / `site_logo_height` (the own domain's header logo in the shop's `logos` folder, update 31; only `owner_set_site_logo()`), `header_url` / `header_small_url` / `header_width` / `header_height` (the header picture of update 28; no longer shown since update 31), `auto_holidays` (default true, update 27; only `owner_set_auto_holidays()`), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
 | `public_holidays` | `country`, `date`, `name_sk/hu/en`, `kind` (`day_off`, `shops_closed`, `removed` = an admin row taking a date away), `closed_from`, `source` (`library`/`admin`) | Update 27. Everyone reads; only the service role and the admin's functions write; an admin row always wins over the library's |
 | `shop_special_hours` | `shop_id`, `date`, `closed`, `ranges` (1–4, a break allowed, past midnight allowed), `note` (≤ 100, plain text) | Update 27. Read with the shop; written only through `owner_save_special_hours()` / `owner_delete_special_hours()` |
-| `shop_page_sections` | `id`, `shop_id`, `title` (≤ 80), `display` (`collapsed`/`open`), `position` (`after_details`/`after_map`/`before_items`/`end`), `sort`, `allow_download`, `visible_from`, `visible_until`, `hidden`, `published`, `version` (live PDF), `pdf_path`, `pdf_bytes`, `pages` (≤ 20), `lang`, `upload_version` / `upload_*` (a new PDF being made ready), `upload_error`, `public_version` (whose pictures are public), `page_layout` (`slider`/`stacked`, default `slider`, update 29); `pages` ≤ 50 since update 30 | Update 28. At most the plan's number per shop (`section_limits`, update 30). Owners read their own; written only through `owner_*` functions and the page-sections function; visitors only through `shop_sections()` |
+| `shop_page_sections` | `id`, `shop_id`, `title` (≤ 80), `display` (`collapsed`/`open`), `position` (`after_details`/`after_map`/`after_hours` (update 31)/`before_items`/`end`), `sort`, `allow_download`, `visible_from`, `visible_until`, `hidden`, `published`, `version` (live PDF), `pdf_path`, `pdf_bytes`, `pages` (≤ 20), `lang`, `upload_version` / `upload_*` (a new PDF being made ready), `upload_error`, `public_version` (whose pictures are public), `page_layout` (`slider`/`stacked`, default `slider`, update 29); `pages` ≤ 50 since update 30, `source` (`pdf`/`pictures`, update 31; pictures: no `pdf_path`) and `upload_source` | Update 28. At most the plan's number per shop (`section_limits`, update 30). Owners read their own; written only through `owner_*` functions and the page-sections function; visitors only through `shop_sections()` |
 | `shop_section_pages` | `section_id`, `shop_id`, `version`, `page`, `width`, `height`, `ext` (`webp`/`jpg`), `small_bytes`, `large_bytes`, `text` (as written, ≤ 20 000), `text_done`, `needs_ai`, `ai_attempts`, `lang`, `search` | Update 28. One row per page; the assistant searches the text of shown sections |
 | `section_limits` | `plan` (`free`/`pro`), `max_sections` (0–50), `max_pages` (1–50), `max_mb` (1–20), `updated_at` | Update 30. Defaults free 1 / 5 / 10, Pro 10 / 20 / 10. Signed-in users read; only `admin_save_section_limits()` (is_admin) writes |
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
@@ -905,8 +923,9 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
   blue #2F6FED lunch break, red #D64545 closed, yellow #F2B705 public holiday, grey #9AA5B1 no hours; always shown
   together with the status in words, never colour alone (on the page next to the shop; on a map pin in its tooltip
   and label — no legend under the maps, at the owner's request); on maps a white outline and a thin dark ring.
-- On a shop's own domain: no Cacadoo header; SK · HU · EN and the shop's own header picture at the top (its colours
-  are the shop's own picture); the shop's name and logo on the page above its details.
+- On a shop's own domain: no Cacadoo header; the shop's small logo at the top left (a link home; its colours are the
+  shop's own logo) and SK · HU · EN on the right, a thin line under them (update 31); the shop's name and logo on the
+  page above its details.
 - Language switch SK · HU · EN in the header; "For shops" link to the login.
 - App icon: black "PPI" letters on white.
 
@@ -1040,3 +1059,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-13 | Pro page layout and shop status: open / lunch break / closed / holiday / no hours with coloured dots on maps, lists, the shop page, API, MCP and JSON-LD; public holidays (SK, HU, CZ) and the owner's special days; "Automatické štátne sviatky"; new section order (details under the name), the assistant always open, "Mám prístupový kľúč" as a dropdown; no Cacadoo header on own domains |
 | 2026-10-13 | Page sections from PDFs (Pro): up to 10 per shop, cleaned on the server, pages as 800/1600 px pictures with their text, collapsed or always open in four positions, dates, preview, download on/off, the assistant names them; public pictures only while shown (hourly job); own domains get the shop's header picture, the name and logo back on the page |
 | 2026-10-13 | Page sections: "Zobrazenie strán" (slider or one under another), full-screen viewer; page sections for free shops too (limits per plan set by the admin, "Pre viac sekcií prejdite na Pro", after the opening hours on a free page, Pro → free shows the first one) |
+| 2026-10-14 | Own domain header back to a small clickable logo ("Logo v hlavičke webu" replaces the header picture) with SK · HU · EN; the section position "Za otváracími hodinami"; page sections made of pictures (JPG, PNG, WebP) |

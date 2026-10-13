@@ -3857,10 +3857,10 @@ begin
     'free defaults: 1 section, 5 pages, 10 MB';
   -- a free shop adds one section, with every option; its place is before the items whatever the form sends
   v_s := public.owner_save_section(v_b, null, 'Jedálny lístok', 'open', 'after_details', true, null, null, 'stacked');
-  assert (select position from public.shop_page_sections where id = v_s) = 'before_items', 'free: before the items';
+  assert (select position from public.shop_page_sections where id = v_s) = 'after_hours', 'free: after the opening hours (update 31; before_items in update 30)';
   perform public.owner_save_section(v_b, v_s, 'Jedálny lístok', 'collapsed', 'end', true, null, null, 'slider');
   assert (select position || ' ' || display || ' ' || page_layout || ' ' || allow_download from public.shop_page_sections where id = v_s)
-    = 'before_items collapsed slider true', 'free: the settings change, the place stays';
+    = 'after_hours collapsed slider true', 'free: the settings change, the place stays';
   -- the second one: 'limit' (Môj obchod shows "Pre viac sekcií prejdite na Pro" instead of the form)
   begin
     perform public.owner_save_section(v_b, null, 'Druhá', 'open', 'end', false, null, null);
@@ -3926,7 +3926,7 @@ do $$
 declare v_r record;
 begin
   select * into v_r from public.shop_sections('drogeria-kostolne');
-  assert v_r.title = 'Jedálny lístok' and v_r.position = 'before_items' and v_r.allow_download and v_r.page_layout = 'slider',
+  assert v_r.title = 'Jedálny lístok' and v_r.position = 'after_hours' and v_r.allow_download and v_r.page_layout = 'slider',
     'the free page: after the opening hours, before the items';
   assert (v_r.pages -> 0 ->> 'text') = 'Polievka dňa 2,50 €', 'its text on the page';
   -- no assistant on free shops: the sections' text is not given to it
@@ -4008,7 +4008,7 @@ begin
   -- free again: the draft does not take the one place; the first that can be shown does, in the free page's place
   update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = v_a;
   assert (select string_agg(title, ',') from public.shop_sections('potraviny-centrum')) = 'Prvá', 'free again: only the first shown';
-  assert (select position from public.shop_sections('potraviny-centrum')) = 'before_items', 'in the free page''s place';
+  assert (select position from public.shop_sections('potraviny-centrum')) = 'after_hours', 'in the free page''s place';
   assert (select count(*) from public.shop_page_sections where shop_id = v_a) = 3, 'free again: every section kept';
   assert exists (select 1 from public.sections_to_sync(null) where id = v_x and not visible), 'the hidden one''s pictures leave';
   assert exists (select 1 from public.sections_to_sync(null, v_a) where id = v_x and not visible), 'one shop''s sync has it';
@@ -4061,5 +4061,146 @@ begin
 end $$;
 reset role;
 reset request.jwt.claim.sub;
+
+\echo '--- own-domain header logo, the position after the opening hours, sections of pictures (update 31)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_url text := 'https://abc.supabase.co/storage/v1/object/public/logos/' || (select id from public.shops where slug = 'potraviny-centrum') || '/site-logo-1760000000000';
+  v_s uuid;
+  v_i integer;
+begin
+  -- the header logo: only through the owner function, only the shop's own folder, WebP or PNG
+  perform public.owner_set_site_logo(v_a, v_url || '.webp', 360, 120);
+  assert (select url || ' ' || width || 'x' || height from public.shop_site_logo('potraviny-centrum')) = v_url || '.webp 360x120';
+  perform public.owner_set_site_logo(v_a, v_url || '.png', 120, 120);
+  foreach v_i in array array[1, 2, 3, 4] loop
+    begin
+      if v_i = 1 then perform public.owner_set_site_logo(v_a, 'https://evil.example/site-logo-1760000000000.png', 120, 120); end if;
+      if v_i = 2 then perform public.owner_set_site_logo(v_a, v_url || '.jpg', 120, 120); end if;
+      if v_i = 3 then perform public.owner_set_site_logo(v_a, replace(v_url, 'site-logo', 'header') || '.webp', 120, 120); end if;
+      if v_i = 4 then perform public.owner_set_site_logo(v_a, v_url || '.png', 120, 900); end if;
+      raise exception 'a wrong header logo accepted (%)', v_i;
+    exception when invalid_parameter_value then assert sqlerrm = 'picture', sqlerrm;
+    end;
+  end loop;
+  begin
+    perform public.owner_set_site_logo(v_a, replace(v_url, v_a::text, v_b::text) || '.png', 120, 120);
+    raise exception 'another shop''s folder';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    update public.shops set site_logo_url = null, site_logo_width = null, site_logo_height = null where id = v_a;
+    raise exception 'header logo changed directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_site_logo(v_b, v_url || '.png', 120, 120);
+    raise exception 'owner A set shop B''s header logo';
+  exception when insufficient_privilege then null;
+  end;
+  -- the position after the opening hours (between the hours and the assistant)
+  v_s := public.owner_save_section(v_a, null, 'Za hodinami', 'open', 'after_hours', false, null, null);
+  assert (select position from public.shop_page_sections where id = v_s) = 'after_hours';
+  begin
+    perform public.owner_save_section(v_a, null, 'x', 'open', 'after_assistant', false, null, null);
+    raise exception 'an unknown position accepted';
+  exception when raise_exception then assert sqlerrm = 'bad', sqlerrm;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- a free shop without a domain of its own: no header logo (the page uses the shop's logo); removing is always allowed
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_url text := 'https://abc.supabase.co/storage/v1/object/public/logos/' || (select id from public.shops where slug = 'drogeria-kostolne') || '/site-logo-1760000000000.png';
+begin
+  begin
+    perform public.owner_set_site_logo(v_b, v_url, 120, 120);
+    raise exception 'a free shop set a header logo';
+  exception when raise_exception then assert sqlerrm = 'no_plan', sqlerrm;
+  end;
+  perform public.owner_set_site_logo(v_b, null, null, null);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- sections of pictures (one picture = one page; no PDF, nothing to download) and the order with after_hours
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_h uuid := (select id from public.shop_page_sections where title = 'Za hodinami');
+  v_m uuid;
+  v_r record;
+  v_i integer;
+begin
+  begin
+    perform public.sections_begin_upload(v_h, 2, 1000, 'gif');
+    raise exception 'an unknown source accepted';
+  exception when raise_exception then assert sqlerrm = 'bad', sqlerrm;
+  end;
+  begin
+    perform public.sections_begin_upload(v_h, 21, 1000, 'pictures');
+    raise exception '21 pictures on Pro (20 pages)';
+  exception when raise_exception then assert sqlerrm = 'limits', sqlerrm;
+  end;
+  select * into v_r from public.sections_begin_upload(v_h, 2, 3000000, 'pictures');
+  assert v_r.pdf_path is null, 'pictures: no PDF to store';
+  for v_i in 1..2 loop
+    perform public.sections_page_stored(v_h, v_r.version, v_i, 800, 'webp', 100, 800, 600);
+    perform public.sections_page_stored(v_h, v_r.version, v_i, 1600, 'webp', 200, 1600, 1200);
+  end loop;
+  perform public.sections_save_text(v_h, v_r.version, '[{"page":1,"text":""},{"page":2,"text":""}]', null);
+  perform public.sections_finish(v_h, v_r.version);
+  assert (select source || ' ' || coalesce(pdf_path, 'none') || ' ' || pages from public.shop_page_sections where id = v_h) = 'pictures none 2';
+  assert (select count(*) from public.sections_claim_ai(v_h, 5)) = 2, 'the AI writes out the pictures'' text';
+  update public.shop_page_sections set published = true, allow_download = true where id = v_h;
+  perform public.sections_mark_public(v_h, v_r.version);
+  -- a section after the map, to see the order
+  insert into public.shop_page_sections (shop_id, title, display, position, sort) values (v_a, 'Za mapou', 'open', 'after_map', 0)
+  returning id into v_m;
+  perform public.sections_begin_upload(v_m, 1, 1000);
+  perform public.sections_page_stored(v_m, 1, 1, 800, 'webp', 100, 800, 1131);
+  perform public.sections_page_stored(v_m, 1, 1, 1600, 'webp', 200, 1600, 2263);
+  perform public.sections_save_text(v_m, 1, '[{"page":1,"text":"Mapa"}]', 'sk');
+  perform public.sections_finish(v_m, 1);
+  update public.shop_page_sections set published = true where id = v_m;
+  perform public.sections_mark_public(v_m, 1);
+  assert (select string_agg(title || ':' || position || ':' || source, ',') from public.shop_sections('potraviny-centrum'))
+    = 'Za mapou:after_map:pdf,Za hodinami:after_hours:pictures', 'the order and the source';
+  assert (select count(*) from public.shop_section_pdf('potraviny-centrum', v_h)) = 0, 'pictures: nothing to download';
+  -- free again: the first in the owner's order (after_map before after_hours), in the free page's place
+  update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = v_a;
+  assert (select title || ':' || position from public.shop_sections('potraviny-centrum')) = 'Za mapou:after_hours';
+  update public.subscriptions set current_period_end = now() + interval '30 days' where shop_id = v_a;
+  -- pictures replaced by a PDF: a PDF again (and back)
+  select * into v_r from public.sections_begin_upload(v_h, 1, 1000, 'pdf');
+  perform public.sections_page_stored(v_h, v_r.version, 1, 800, 'webp', 100, 800, 1131);
+  perform public.sections_page_stored(v_h, v_r.version, 1, 1600, 'webp', 200, 1600, 2263);
+  perform public.sections_save_text(v_h, v_r.version, '[{"page":1,"text":"PDF"}]', 'sk');
+  perform public.sections_finish(v_h, v_r.version);
+  assert (select source from public.shop_page_sections where id = v_h) = 'pdf' and
+    (select pdf_path from public.shop_page_sections where id = v_h) like '%/section.pdf';
+  -- a live PDF section always has its PDF
+  begin
+    update public.shop_page_sections set pdf_path = null where id = v_h;
+    raise exception 'a PDF section without its PDF';
+  exception when check_violation then null;
+  end;
+  begin
+    update public.shop_page_sections set position = 'after_assistant' where id = v_h;
+    raise exception 'an unknown position stored';
+  exception when check_violation then null;
+  end;
+  delete from public.shop_page_sections where id in (v_h, v_m);
+  update public.shops set site_logo_url = null, site_logo_width = null, site_logo_height = null where id = v_a;
+end $$;
 
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -15,7 +15,7 @@ import { ShopForm } from "@/components/ShopForm";
 import { approveColumns, deleteShop, saveShop, saveTranslation, uploadLogo } from "./actions";
 import { errorText, hiddenFields, inputClass, messages, SubmitButton } from "./shared";
 import { Holidays, holidaysSummary, loadHolidays } from "./Holidays";
-import { HeaderPicturePanel, loadHeader, loadSections, PageSectionsPanel, sectionsSummary } from "./PageSectionsPanel";
+import { loadSections, loadSiteLogo, PageSectionsPanel, sectionsSummary, SiteLogoPanel } from "./PageSectionsPanel";
 
 const PAGE_SIZE = 50;
 
@@ -122,8 +122,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     supabase.from("shop_items").select("id", { count: "exact", head: true }).eq("shop_id", shop.id),
     // "Sviatky a mimoriadne zatvorenie" (database update 27; null before it).
     loadHolidays(supabase, shop),
-    // "Obrázok v hlavičke webu" (database update 28; null before it).
-    loadHeader(supabase, shop),
+    // "Logo v hlavičke webu" (database update 31; null before it).
+    loadSiteLogo(supabase, shop),
   ]);
   // The database decides whether the shop has the paid plan; before database update 18
   // the Plan section only says that paid plans are not available yet.
@@ -161,7 +161,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     details: addressLine(shop.address, shop.city) || shop.name,
     holidays: holidaysSummary(holidays, dict),
     logo: shop.logo_url ? d.summary_logo : d.summary_no_logo,
-    header: !header ? dict.sections.unavailable : header.url ? dict.sections.header_set : header.allowed ? dict.sections.header_none : dict.sections.header_only_pro,
+    header: !header ? dict.sections.unavailable : header.url ? dict.sections.site_logo_set : header.allowed ? dict.sections.site_logo_none : dict.sections.site_logo_only_pro,
     sections: sectionsSummary(sections, dict),
     items: productCount(products),
     plan: plan ? (plan.active ? dict.plan.pro : dict.plan.free) : dict.plan.unavailable,
@@ -287,8 +287,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           </form>
         </DashboardSection>
 
-        <DashboardSection {...section("header")} title={dict.sections.header_title} summary={summaries.header}>
-          <HeaderPicturePanel data={header} dict={dict} hidden={hidden} notice={notice("header")} />
+        <DashboardSection {...section("header")} title={dict.sections.site_logo_title} summary={summaries.header}>
+          <SiteLogoPanel data={header} shopName={shop.name} dict={dict} hidden={hidden} notice={notice("header")} />
         </DashboardSection>
 
         <DashboardSection {...section("sections")} title={dict.sections.title} summary={summaries.sections}>

@@ -352,6 +352,31 @@ Deno.test("a PDF: refused when encrypted (noted for the owner), stored only clea
   ok(!good.log.some((l) => l.includes(PUBLIC)), "never in the public bucket");
 });
 
+Deno.test("pictures instead of a PDF (update 31): within the plan's pictures and MB, no PDF stored", async () => {
+  const free = { plan: "free", max_pages: 5, max_bytes: 10 * 1048576 };
+  const f = fakes({ plan: false, limits: free });
+  const ok3 = await handle(json({ action: "pictures", section_id: SECTION, pages: 3, bytes: 2_000_000 }), f.deps);
+  eq(ok3.status, 200, "3 pictures taken");
+  eq((await ok3.json()).version, 2, "the new version");
+  ok(f.log.some((l) => l.startsWith("service sections_begin_upload") && l.includes('"p_source":"pictures"') && l.includes('"p_pages":3')), "begun as pictures");
+  ok(f.log.some((l) => l === `storage remove ${PRIVATE} ${SHOP}/${SECTION}/v2/old.pdf`), "a half-made upload is removed");
+  ok(!f.log.some((l) => l.startsWith("storage upload")), "no PDF stored");
+  const six = fakes({ plan: false, limits: free });
+  const r6 = await handle(json({ action: "pictures", section_id: SECTION, pages: 6, bytes: 1000 }), six.deps);
+  eq([r6.status, (await r6.json()).error], [413, "too_many_pages"], "6 pictures on a free shop");
+  const big = fakes({ plan: false, limits: free });
+  eq((await handle(json({ action: "pictures", section_id: SECTION, pages: 1, bytes: 10 * 1048576 + 1 }), big.deps)).status, 413, "a picture over 10 MB");
+  const none = fakes({ plan: false });
+  eq((await handle(json({ action: "pictures", section_id: SECTION, pages: 1, bytes: 1000 }), none.deps)).status, 409, "before update 30: no plan, no sections");
+  const old = fakes({
+    service: (name, args) =>
+      name === "sections_begin_upload" && "p_source" in args ? { data: null, error: { message: "Could not find the function", code: "PGRST202" } } : undefined,
+  });
+  const r = await handle(json({ action: "pictures", section_id: SECTION, pages: 1, bytes: 1000 }), old.deps);
+  eq([r.status, (await r.json()).error], [409, "pictures_unavailable"], "before update 31");
+  eq((await handle(json({ action: "pictures", section_id: SECTION, pages: 1, bytes: 1000 }), fakes({ owner: false }).deps)).status, 403, "only the owner");
+});
+
 Deno.test("page pictures: right width and type, of the PDF being uploaded", async () => {
   const q = (page: number, size: number, version = 2) => `action=page&section_id=${SECTION}&version=${version}&page=${page}&size=${size}`;
   const f = fakes();

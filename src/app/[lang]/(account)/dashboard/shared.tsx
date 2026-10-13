@@ -27,7 +27,7 @@ const ERRORS = [
 
 export function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
-  if (err === "header_picture") return dict.sections.error_header;
+  if (err === "site_logo") return dict.sections.error_site_logo;
   if (err.startsWith("sections_failed:")) return t(dict.sections.error_failed, { message: err.slice("sections_failed:".length) });
   if (err.startsWith("sections_")) {
     const text = (dict.sections as Record<string, string>)[`error_${err.slice("sections_".length)}`];
@@ -83,8 +83,8 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     section_hidden: dict.sections.ok_hidden,
     section_shown: dict.sections.ok_shown,
     section_deleted: dict.sections.ok_deleted,
-    header_saved: dict.sections.ok_header,
-    header_removed: dict.sections.ok_header_removed,
+    site_logo_saved: dict.sections.ok_site_logo,
+    site_logo_removed: dict.sections.ok_site_logo_removed,
   };
 }
 

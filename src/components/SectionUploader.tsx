@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { functionFailure } from "@/lib/functionError";
 import { createClient } from "@/lib/supabase/client";
-import { openPdf, sectionPage } from "@/lib/pdfRead";
+import { openPdf, picturePage, sectionPage } from "@/lib/pdfRead";
 import { POSITIONS, type SectionLimits } from "@/lib/sectionLimits";
 import { createSection } from "@/app/[lang]/(account)/dashboard/sectionActions";
 
@@ -32,48 +32,43 @@ async function call<T>(supabase: Supabase, name: string, body: unknown, headers?
 
 function errorText(labels: Labels, e: unknown): string {
   const code = e instanceof SectionError ? e.code : (e as { name?: string } | null)?.name === "PasswordException" ? "encrypted" : null;
+  if (code === "picture") return labels.error_picture.replace("{name}", (e as SectionError).message);
   const known = code ? (labels as Record<string, string>)[`error_${code}`] : null;
   if (known && !known.includes("{message}")) return known;
   if ((e as { name?: string } | null)?.name === "InvalidPDFException") return labels.error_not_pdf;
   return labels.error_failed.replace("{message}", e instanceof Error ? e.message : String(e));
 }
 
+type PagePictures = { small: Blob; large: Blob; text: string };
+
 /**
- * Reads the PDF in the owner's browser (pdf.js: Edge Functions cannot draw PDFs) and sends it to
- * page-sections step by step: the PDF (checked and cleaned there; only the cleaned file is
- * kept), every page as a picture 800 and 1600 px wide, the text of every page as written, then
- * "finish" (the new PDF goes live; until then visitors see the old one). Pages without text are
- * written out by the AI afterwards.
+ * Sends a new version's pages to page-sections: every page as a picture 800 and 1600 px wide, the
+ * text of every page as written, then "finish" (the new version goes live; until then visitors
+ * see the old one). Pages without text are written out by the AI afterwards.
  */
-async function sendPdf(
+async function sendPages(
   supabase: Supabase,
   sectionId: string,
-  file: File,
-  doc: PdfDoc,
+  version: number,
+  count: number,
+  draw: (n: number) => Promise<PagePictures>,
   progress: (text: string) => void,
   labels: Labels,
 ) {
-  progress(labels.uploading);
-  const sent = await call<{ version: number; pages: number; removed: string[] }>(
-    supabase,
-    `page-sections?action=pdf&section_id=${sectionId}`,
-    file,
-    { "Content-Type": "application/pdf" },
-  );
   const texts: { page: number; text: string }[] = [];
-  for (let n = 1; n <= sent.pages; n++) {
-    progress(labels.page_progress.replace("{n}", String(n)).replace("{total}", String(sent.pages)));
-    const page = await sectionPage(doc, n);
+  for (let n = 1; n <= count; n++) {
+    progress(labels.page_progress.replace("{n}", String(n)).replace("{total}", String(count)));
+    const page = await draw(n);
     for (const [size, blob] of [[800, page.small], [1600, page.large]] as const) {
-      await call(supabase, `page-sections?action=page&section_id=${sectionId}&version=${sent.version}&page=${n}&size=${size}`, blob, {
+      await call(supabase, `page-sections?action=page&section_id=${sectionId}&version=${version}&page=${n}&size=${size}`, blob, {
         "Content-Type": blob.type,
       });
     }
     texts.push({ page: n, text: page.text });
   }
-  await call(supabase, "page-sections", { action: "text", section_id: sectionId, version: sent.version, pages: texts });
-  await call(supabase, "page-sections", { action: "finish", section_id: sectionId, version: sent.version });
-  // Pages without a text layer: the AI writes them out (as written), a few at a time.
+  await call(supabase, "page-sections", { action: "text", section_id: sectionId, version, pages: texts });
+  await call(supabase, "page-sections", { action: "finish", section_id: sectionId, version });
+  // Pages without a text layer (and pictures): the AI writes them out (as written), a few at a time.
   let waiting = texts.filter((t) => !t.text.trim()).length;
   for (let round = 0; waiting > 0 && round < 20; round++) {
     progress(labels.reading_ai.replace("{n}", String(waiting)));
@@ -81,20 +76,77 @@ async function sendPdf(
     if (work.ai === false) break;
     waiting = work.remaining;
   }
-  return sent.removed.length > 0;
-}
-
-/** First checks in the browser (the server checks again): a PDF, at most the plan's MB. */
-function checkFile(file: File | null, limits: SectionLimits): string | null {
-  if (!file) return "not_pdf";
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) return "not_pdf";
-  if (file.size > limits.maxBytes) return "too_big";
-  return null;
 }
 
 /**
- * "Pridať sekciu" (mode "new": the settings and the PDF) or "Nahradiť PDF" (mode "replace":
- * only a new PDF for an existing section; its settings and order stay). The limits are the
+ * A PDF, read in the owner's browser (pdf.js: Edge Functions cannot draw PDFs): first the PDF
+ * itself (checked and cleaned by page-sections; only the cleaned file is kept), then its pages.
+ */
+async function sendPdf(supabase: Supabase, sectionId: string, file: File, doc: PdfDoc, progress: (text: string) => void, labels: Labels) {
+  progress(labels.uploading);
+  const sent = await call<{ version: number; pages: number; removed: string[] }>(
+    supabase,
+    `page-sections?action=pdf&section_id=${sectionId}`,
+    file,
+    { "Content-Type": "application/pdf" },
+  );
+  await sendPages(supabase, sectionId, sent.version, sent.pages, (n) => sectionPage(doc, n), progress, labels);
+  return sent.removed.length > 0;
+}
+
+/**
+ * Pictures (database update 31): one picture = one page, in the order of their file names. Only
+ * the page pictures drawn here are stored (no PDF; the photo's place data does not survive the
+ * redraw); the AI writes out their text for screen readers and search engines.
+ */
+async function sendPictures(supabase: Supabase, sectionId: string, files: File[], progress: (text: string) => void, labels: Labels) {
+  progress(labels.uploading);
+  const sent = await call<{ version: number; pages: number }>(supabase, "page-sections", {
+    action: "pictures",
+    section_id: sectionId,
+    pages: files.length,
+    bytes: Math.max(...files.map((f) => f.size)),
+  });
+  await sendPages(supabase, sectionId, sent.version, files.length, async (n) => ({ ...(await picturePage(files[n - 1])), text: "" }), progress, labels);
+}
+
+const PICTURE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const isPdf = (f: File) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
+const isPicture = (f: File) => PICTURE_TYPES.includes(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name);
+type Chosen = { kind: "pdf"; file: File } | { kind: "pictures"; files: File[] };
+
+/**
+ * First checks in the browser (the server checks again): one PDF, or pictures (JPG, PNG, WebP;
+ * not both), within the plan's pages and MB per file.
+ */
+function checkFiles(all: File[], limits: SectionLimits): { chosen: Chosen } | { error: string } {
+  const files = all.filter((f) => f.size > 0);
+  if (files.length === 0) return { error: "not_pdf" };
+  if (files.some(isPdf)) {
+    if (files.length > 1) return { error: "mixed" };
+    return files[0].size > limits.maxBytes ? { error: "too_big" } : { chosen: { kind: "pdf", file: files[0] } };
+  }
+  if (!files.every(isPicture)) return { error: "not_pdf" };
+  if (files.length > limits.maxPages) return { error: "too_many_pictures" };
+  if (files.some((f) => f.size > limits.maxBytes)) return { error: "too_big" };
+  const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  return { chosen: { kind: "pictures", files: sorted } };
+}
+
+/** Every picture must open in this browser (e.g. HEIC opens only in Safari): checked before a section is made. */
+async function checkPictures(files: File[]) {
+  for (const file of files) {
+    try {
+      (await createImageBitmap(file)).close();
+    } catch {
+      throw new SectionError("picture", file.name);
+    }
+  }
+}
+
+/**
+ * "Pridať sekciu" (mode "new": the settings and a PDF or pictures) or "Nahradiť" (mode "replace":
+ * only a new PDF or new pictures for an existing section; its settings and order stay). The limits are the
  * shop's plan's (the admin's settings, database update 30); the labels come with their numbers
  * filled in. A free shop chooses no position: its sections sit after the opening hours.
  */
@@ -120,21 +172,27 @@ export function SectionUploader({
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const file = data.get("pdf") instanceof File ? (data.get("pdf") as File) : null;
-    const bad = checkFile(file && file.size > 0 ? file : null, limits);
+    const files = data.getAll("pdf").filter((f): f is File => f instanceof File);
+    const checked = checkFiles(files, limits);
     setProblem(null);
     setStatus(null);
-    if (bad) {
-      setProblem((labels as Record<string, string>)[`error_${bad}`]);
+    if ("error" in checked) {
+      setProblem((labels as Record<string, string>)[`error_${checked.error}`]);
       return;
     }
+    const chosen = checked.chosen;
     setBusy(true);
     let opened: Awaited<ReturnType<typeof openPdf>> | null = null;
     let created: string | null = null;
     try {
-      // Read and count first: a PDF with a password or too many pages creates no section.
-      opened = await openPdf(file!);
-      if (opened.doc.numPages > limits.maxPages) throw new SectionError("too_many_pages", "too many pages");
+      // Read and count first: a PDF with a password or too many pages, or a picture this browser
+      // cannot open, creates no section.
+      if (chosen.kind === "pdf") {
+        opened = await openPdf(chosen.file);
+        if (opened.doc.numPages > limits.maxPages) throw new SectionError("too_many_pages", "too many pages");
+      } else {
+        await checkPictures(chosen.files);
+      }
       let id = sectionId ?? null;
       if (mode === "new") {
         const result = await createSection({
@@ -150,7 +208,10 @@ export function SectionUploader({
         if ("error" in result) throw new SectionError(result.error, result.error);
         id = created = result.id;
       }
-      const removed = await sendPdf(createClient(), id!, file!, opened.doc, setStatus, labels);
+      const removed =
+        chosen.kind === "pdf" && opened
+          ? await sendPdf(createClient(), id!, chosen.file, opened.doc, setStatus, labels)
+          : (await sendPictures(createClient(), id!, (chosen as { files: File[] }).files, setStatus, labels), false);
       if (mode === "new") {
         // The list (and, at the plan's number of sections, the hint instead of this form) comes
         // back with the message: it stays even when this form is no longer there.
@@ -218,7 +279,7 @@ export function SectionUploader({
             <span className="text-sm text-muted">{labels.layout_hint}</span>
           </fieldset>
           {limits.plan === "free" ? (
-            <input type="hidden" name="position" value="before_items" />
+            <input type="hidden" name="position" value="after_hours" />
           ) : (
             <label className="flex flex-col gap-1">
               <span className="text-sm">{labels.position}</span>
@@ -249,10 +310,20 @@ export function SectionUploader({
       )}
       <label className="flex flex-col gap-1">
         <span className="text-sm">{labels.file}</span>
-        <input type="file" name="pdf" accept="application/pdf,.pdf" required className="text-sm" />
+        <input
+          type="file"
+          name="pdf"
+          accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+          multiple
+          required
+          className="text-sm"
+        />
       </label>
       <p className="text-sm text-muted" data-format-hint>
         {labels.format_hint}
+      </p>
+      <p className="text-sm text-muted" data-pictures-hint>
+        {labels.pictures_hint}
       </p>
       <button type="submit" disabled={busy} className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:border-line disabled:text-muted">
         {busy ? labels.uploading : mode === "new" ? labels.save_upload : labels.replace}
