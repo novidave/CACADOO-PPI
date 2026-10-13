@@ -18,6 +18,9 @@
 //        "Stiahnuť celý priečinok (ZIP)": a single-use address for 10 minutes (counted once)
 //   GET  ?zip=<ticket>                                                 → the ZIP, streamed
 //        only the folder's downloadable files, stored as they are
+//   POST {action: "section_pdf", slug, section_id}                     → {url}
+//        "Stiahnuť PDF" of a page section (database update 28): the cleaned PDF, only while the
+//        section is shown and its owner allows the download (10-minute address, bucket "shop-sections")
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor → name
 // "shop-files" → paste this file → Deploy, then switch OFF "Verify JWT" (shoppers have
@@ -27,6 +30,8 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 export const BUCKET = "shop-docs";
+/** The page sections' private bucket (database update 28). */
+export const SECTIONS_BUCKET = "shop-sections";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const TICKET = /^[A-Z2-9]{32,64}$/;
@@ -139,6 +144,22 @@ async function download(t: Target, deps: Deps): Promise<Response> {
   const { data: signed, error: signError } = await deps.db.storage
     .from(BUCKET)
     .createSignedUrl(result.path, SIGNED_SECONDS, { download: zipName(result.name ?? "subor") });
+  if (signError || !signed?.signedUrl) return reply(404, { error: "not_found", message: "The file is missing" });
+  return reply(200, { url: signed.signedUrl, expires_in: SIGNED_SECONDS });
+}
+
+/** "Stiahnuť PDF" of a page section: the database decides (shown, download allowed, this shop). */
+async function sectionPdf(body: Json, deps: Deps): Promise<Response> {
+  const slug = String(body?.slug ?? "");
+  const id = String(body?.section_id ?? "");
+  if (!SLUG.test(slug) || !UUID.test(id)) return reply(400, { error: "bad_request", message: "slug and section_id are required" });
+  const { data, error } = await deps.db.rpc("shop_section_pdf", { p_slug: slug, p_section_id: id });
+  if (error) return reply(500, { error: "database", message: error.message });
+  const row = (data as { path: string; title: string }[] | null)?.[0];
+  if (!row?.path) return reply(404, { error: "not_found", message: "No such file for you" });
+  const { data: signed, error: signError } = await deps.db.storage
+    .from(SECTIONS_BUCKET)
+    .createSignedUrl(row.path, SIGNED_SECONDS, { download: `${zipName(row.title)}.pdf` });
   if (signError || !signed?.signedUrl) return reply(404, { error: "not_found", message: "The file is missing" });
   return reply(200, { url: signed.signedUrl, expires_in: SIGNED_SECONDS });
 }
@@ -336,6 +357,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   }
   try {
     if (body?.action === "zip") return await zipTicket(body, deps);
+    if (body?.action === "section_pdf") return await sectionPdf(body, deps);
     const t = target(body);
     if (!t) return reply(400, { error: "bad_request", message: "slug, kind and id are required" });
     if (body?.action === "view") return await view(t, body, deps);

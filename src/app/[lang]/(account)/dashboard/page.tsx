@@ -15,6 +15,7 @@ import { ShopForm } from "@/components/ShopForm";
 import { approveColumns, deleteShop, saveShop, saveTranslation, uploadLogo } from "./actions";
 import { errorText, hiddenFields, inputClass, messages, SubmitButton } from "./shared";
 import { Holidays, holidaysSummary, loadHolidays } from "./Holidays";
+import { HeaderPicturePanel, loadHeader, loadSections, PageSectionsPanel, sectionsSummary } from "./PageSectionsPanel";
 
 const PAGE_SIZE = 50;
 
@@ -110,7 +111,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
   const q = (first(sp.q) ?? "").trim();
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  const [{ data: itemRows, error: e3 }, planRow, hasPlan, itemCount, holidays] = await Promise.all([
+  const [{ data: itemRows, error: e3 }, planRow, hasPlan, itemCount, holidays, header] = await Promise.all([
     supabase.rpc("owner_items", { p_shop_id: shop.id, q: q || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE }),
     supabase
       .from("subscriptions")
@@ -121,11 +122,19 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     supabase.from("shop_items").select("id", { count: "exact", head: true }).eq("shop_id", shop.id),
     // "Sviatky a mimoriadne zatvorenie" (database update 27; null before it).
     loadHolidays(supabase, shop),
+    // "Obrázok v hlavičke webu" (database update 28; null before it).
+    loadHeader(supabase, shop),
   ]);
   // The database decides whether the shop has the paid plan; before database update 18
   // the Plan section only says that paid plans are not available yet.
   const plan = planRow.error || hasPlan.error ? null : { row: planRow.data as PlanRow | null, active: hasPlan.data === true };
   if (e3) return <DbError message={e3.message} dict={dict} />;
+  // "Sekcie stránky (PDF)" (database update 28; null before it).
+  const sections = await loadSections(supabase, shop, plan?.active === true);
+  const uuidParam = (key: string) => {
+    const v = first(sp[key]) ?? "";
+    return /^[0-9a-f-]{36}$/i.test(v) ? v : null;
+  };
   const items = (itemRows ?? []) as OwnerItem[];
   const total = Number(items[0]?.total_count ?? 0);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -152,6 +161,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     details: addressLine(shop.address, shop.city) || shop.name,
     holidays: holidaysSummary(holidays, dict),
     logo: shop.logo_url ? d.summary_logo : d.summary_no_logo,
+    header: !header ? dict.sections.unavailable : header.url ? dict.sections.header_set : header.allowed ? dict.sections.header_none : dict.sections.header_only_pro,
+    sections: sectionsSummary(sections, dict),
     items: productCount(products),
     plan: plan ? (plan.active ? dict.plan.pro : dict.plan.free) : dict.plan.unavailable,
   };
@@ -274,6 +285,23 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
             <LogoInput label={d.upload} busy={o.uploading} />
             <p className="text-sm text-muted">{d.logo_hint}</p>
           </form>
+        </DashboardSection>
+
+        <DashboardSection {...section("header")} title={dict.sections.header_title} summary={summaries.header}>
+          <HeaderPicturePanel data={header} dict={dict} hidden={hidden} notice={notice("header")} />
+        </DashboardSection>
+
+        <DashboardSection {...section("sections")} title={dict.sections.title} summary={summaries.sections}>
+          <PageSectionsPanel
+            data={sections}
+            shop={shop}
+            lang={lang}
+            dict={dict}
+            hidden={hidden}
+            notice={notice("sections")}
+            editId={uuidParam("section") && !first(sp.replace) ? uuidParam("section") : null}
+            replaceId={first(sp.replace) === "1" ? uuidParam("section") : null}
+          />
         </DashboardSection>
 
         <DashboardSection {...section("items")} title={d.items_title} summary={summaries.items}>

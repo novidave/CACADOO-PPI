@@ -290,3 +290,38 @@ export async function readPage(
   page.cleanup();
   return { page: pageNumber, text, pictures };
 }
+
+/**
+ * A page of a page section (database update 28): the whole page drawn exactly 800 and 1600 px
+ * wide (its own proportions, portrait or landscape), WebP at quality 0.8 (JPEG where the
+ * browser cannot write WebP), and its text as written.
+ */
+export async function sectionPage(
+  doc: Doc,
+  pageNumber: number,
+): Promise<{ small: Blob; large: Blob; width: number; height: number; text: string }> {
+  const page = await doc.getPage(pageNumber);
+  const base = page.getViewport({ scale: 1 });
+  const draw = async (width: number) => {
+    const viewport = page.getViewport({ scale: width / base.width });
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = Math.max(1, Math.round(viewport.height));
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    await page.render({ canvas, viewport }).promise;
+    const encode = (type: string) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.8));
+    const webp = await encode("image/webp");
+    const blob = webp && webp.type === "image/webp" ? webp : await encode("image/jpeg");
+    if (!blob) throw new Error("The page could not be drawn");
+    return { blob, height: canvas.height };
+  };
+  const large = await draw(1600);
+  const small = await draw(800);
+  const text = await pageText(page);
+  page.cleanup();
+  return { small: small.blob, large: large.blob, width: 1600, height: large.height, text };
+}

@@ -240,3 +240,21 @@ Deno.test("ZIP: a stream of many files keeps only one in memory and ends with a 
   eq([entries.length, reads], [30, 30], "every file once");
   eq(entries.every((e, i) => e.data.length === 1000 + i && e.data.every((b) => b === i)), true, "contents");
 });
+
+// ---------------------------------------------------------------- update 28: page sections
+
+Deno.test("Section PDF: only when the database allows it, from the sections' bucket, as a download", async () => {
+  const SECTION = "77777777-2222-4333-8444-555555555555";
+  const { deps, log } = fakes({ rpc: { shop_section_pdf: () => [{ path: "s/sec/v2/section.pdf", title: "Novinky: október" }] } });
+  eq(await post(deps, { action: "section_pdf", slug: "potraviny-centrum", section_id: SECTION }), [200, {
+    url: "https://p.supabase.co/sign/s/sec/v2/section.pdf?download",
+    expires_in: 600,
+  }], "signed for 10 minutes");
+  eq(log.at(-1), "sign shop-sections s/sec/v2/section.pdf 600 download=Novinky_ október.pdf", "the cleaned PDF, as a download");
+  const off = fakes({ rpc: { shop_section_pdf: () => [] } });
+  eq((await post(off.deps, { action: "section_pdf", slug: "potraviny-centrum", section_id: SECTION }))[0], 404, "download off, hidden or expired");
+  eq(off.log.some((l) => l.startsWith("sign")), false, "nothing signed");
+  const bad = fakes();
+  eq((await post(bad.deps, { action: "section_pdf", slug: "Potraviny Centrum", section_id: "x" }))[0], 400, "bad request");
+  eq(bad.log, [], "never reaches the database");
+});

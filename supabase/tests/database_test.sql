@@ -3412,4 +3412,373 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 
+\echo '--- page sections from PDFs and the header picture (update 28)'
+-- potraviny-centrum (owner A) with the paid plan; drogeria-kostolne (owner B) without
+do $$ begin
+  perform public.apply_stripe_subscription((select id from public.shops where slug = 'potraviny-centrum'),
+    'cus_A1', 'sub_A1', 'active', 'pro', now() + interval '30 days', null);
+  perform public.apply_stripe_subscription((select id from public.shops where slug = 'drogeria-kostolne'),
+    'cus_B1', 'sub_B1', 'canceled', 'pro', now() - interval '1 day', null);
+  assert public.shop_has_plan((select id from public.shops where slug = 'potraviny-centrum'));
+  assert not public.shop_has_plan((select id from public.shops where slug = 'drogeria-kostolne'));
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_s uuid;
+  v_t uuid;
+  v_i integer;
+begin
+  -- an owner adds a section (plain text title), at the end of its position
+  v_s := public.owner_save_section(v_a, null, '  <b>Novinky</b> október ', 'collapsed', 'after_details', false, null, null);
+  assert (select title from public.shop_page_sections where id = v_s) = 'Novinky október', 'plain text title';
+  v_t := public.owner_save_section(v_a, null, 'Leták', 'open', 'after_details', true, current_date - 1, current_date + 30);
+  assert (select sort from public.shop_page_sections where id = v_t) = 1 + (select sort from public.shop_page_sections where id = v_s);
+  -- wrong input
+  foreach v_i in array array[1, 2, 3] loop
+    begin
+      if v_i = 1 then perform public.owner_save_section(v_a, null, '   ', 'open', 'end', false, null, null); end if;
+      if v_i = 2 then perform public.owner_save_section(v_a, null, 'x', 'open', 'end', false, current_date, current_date - 1); end if;
+      if v_i = 3 then perform public.owner_save_section(v_a, null, 'x', 'wide', 'end', false, null, null); end if;
+      raise exception 'bad section accepted (%)', v_i;
+    exception when raise_exception then
+      assert sqlerrm in ('title', 'dates', 'bad'), sqlerrm;
+    end;
+  end loop;
+  -- another shop's sections: never
+  begin
+    perform public.owner_save_section(v_b, null, 'x', 'open', 'end', false, null, null);
+    raise exception 'owner A added a section to shop B';
+  exception when insufficient_privilege then null;
+  end;
+  -- no direct writes, no public reading of the tables
+  begin
+    update public.shop_page_sections set published = true where id = v_s;
+    raise exception 'section written directly';
+  exception when insufficient_privilege then null;
+  end;
+  -- publishing needs a PDF
+  begin
+    perform public.owner_set_section_state(v_s, 'publish');
+    raise exception 'published without a PDF';
+  exception when raise_exception then assert sqlerrm = 'empty', sqlerrm;
+  end;
+  -- at most 10 per shop
+  for v_i in 3..10 loop
+    perform public.owner_save_section(v_a, null, 'S' || v_i, 'collapsed', 'end', false, null, null);
+  end loop;
+  begin
+    perform public.owner_save_section(v_a, null, 'S11', 'collapsed', 'end', false, null, null);
+    raise exception 'an 11th section';
+  exception when raise_exception then assert sqlerrm = 'limit', sqlerrm;
+  end;
+  -- reorder within a position; moving to another position puts it last there
+  perform public.owner_reorder_sections(v_a, 'after_details', array[v_t, v_s]);
+  assert (select sort from public.shop_page_sections where id = v_t) = 0 and (select sort from public.shop_page_sections where id = v_s) = 1;
+  perform public.owner_save_section(v_a, v_s, 'Novinky október', 'collapsed', 'end', false, null, null);
+  assert (select sort from public.shop_page_sections where id = v_s) = 8, 'moved last into "end"';
+  perform public.owner_save_section(v_a, v_s, 'Novinky október', 'collapsed', 'after_details', false, null, null);
+  -- the files of a section are listed only for its owner
+  assert (select count(*) from public.owner_section_files(v_s)) = 0;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- owner B sees and touches nothing of shop A
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare v_s uuid := (select id from public.shop_page_sections where title = 'Novinky október' limit 1);
+begin
+  assert v_s is null, 'owner B reads shop A''s sections';
+  v_s := (select id from public.shop_page_sections limit 1);
+  assert v_s is null;
+end $$;
+do $$
+declare v_s uuid;
+begin
+  set role postgres;
+  v_s := (select id from public.shop_page_sections where title = 'Novinky október');
+  set role authenticated;
+  begin
+    perform public.owner_set_section_state(v_s, 'hide');
+    raise exception 'owner B hid shop A''s section';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_section_files(v_s);
+    raise exception 'owner B listed shop A''s files';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.sections_begin_upload(v_s, 3, 1000);
+    raise exception 'an owner called a function-only step';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the function's steps (service role): a 3-page PDF, pictures, text, live; then shown on the page
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_s uuid := (select id from public.shop_page_sections where title = 'Novinky október');
+  v_t uuid := (select id from public.shop_page_sections where title = 'Leták');
+  v_v integer;
+  v_r record;
+begin
+  delete from public.shop_page_sections where shop_id = v_a and title ~ '^S[0-9]+$';
+  select * into v_r from public.sections_begin_upload(v_s, 3, 250000);
+  v_v := v_r.version;
+  assert v_v = 1 and v_r.pdf_path = format('%s/%s/v1/section.pdf', v_a, v_s) and v_r.stale_paths = '{}';
+  assert (select count(*) from public.shop_section_pages where section_id = v_s and version = 1) = 3;
+  begin
+    perform public.sections_begin_upload(v_s, 21, 250000);
+    raise exception '21 pages accepted';
+  exception when raise_exception then assert sqlerrm = 'limits';
+  end;
+  -- not complete yet: no going live
+  begin
+    perform public.sections_finish(v_s, v_v);
+    raise exception 'finished without pictures';
+  exception when raise_exception then assert sqlerrm = 'incomplete';
+  end;
+  for i in 1..3 loop
+    perform public.sections_page_stored(v_s, v_v, i, 800, 'webp', 60000, 800, 1131);
+    perform public.sections_page_stored(v_s, v_v, i, 1600, 'webp', 200000, 1600, 2263);
+  end loop;
+  perform public.sections_save_text(v_s, v_v,
+    '[{"page":1,"text":"Novinky október: nové farby Primalex za 19,90 €"},{"page":2,"text":"Otváracie hodiny cez sviatky"},{"page":3,"text":""}]', 'sk');
+  assert (select needs_ai from public.shop_section_pages where section_id = v_s and page = 3), 'a page without text goes to the AI';
+  select * into v_r from public.sections_finish(v_s, v_v);
+  assert (select version from public.shop_page_sections where id = v_s) = 1;
+  assert (select pdf_path from public.shop_page_sections where id = v_s) = format('%s/%s/v1/section.pdf', v_a, v_s);
+  assert (select upload_version from public.shop_page_sections where id = v_s) is null;
+  -- the AI reads page 3
+  assert (select count(*) from public.sections_claim_ai(v_s, 5)) = 1;
+  perform public.sections_save_ai_text((select id from public.shop_section_pages where section_id = v_s and page = 3),
+    'Akcia: valček 4,50 €', null);
+  assert not (select needs_ai from public.shop_section_pages where section_id = v_s and page = 3);
+  -- not published yet: not visible, nothing to sync
+  assert not public.section_visible(v_s);
+  assert (select count(*) from public.sections_to_sync(v_s)) = 0;
+end $$;
+
+-- owner A publishes it (after the preview); the function moves the pictures; visitors see it
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare v_s uuid := (select id from public.shop_page_sections where title = 'Novinky október');
+begin
+  assert public.owner_set_section_state(v_s, 'publish'), 'published = visible now';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_s uuid := (select id from public.shop_page_sections where title = 'Novinky október');
+  v_r record;
+begin
+  select * into v_r from public.sections_to_sync(v_s);
+  assert v_r.visible and v_r.version = 1 and v_r.public_version is null and jsonb_array_length(v_r.pages) = 3;
+  -- before the pictures are public, visitors get nothing
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 0, 'not before the pictures are public';
+  perform public.sections_mark_public(v_s, 1);
+  assert (select count(*) from public.sections_to_sync(v_s)) = 0;
+end $$;
+
+set role anon;
+do $$
+declare v_r record;
+begin
+  select * into v_r from public.shop_sections('potraviny-centrum');
+  assert v_r.title = 'Novinky október' and v_r.display = 'collapsed' and v_r.position = 'after_details' and not v_r.allow_download;
+  assert jsonb_array_length(v_r.pages) = 3 and (v_r.pages -> 0 ->> 'width')::int = 1600 and (v_r.pages -> 0 ->> 'ext') = 'webp';
+  assert (v_r.pages -> 2 ->> 'text') = 'Akcia: valček 4,50 €', 'the text as written (AI page)';
+  -- the assistant finds it, named by the section's title, page by page
+  assert exists (select 1 from public.search_shop_docs('potraviny-centrum', 'primalex', null) where source = 'Novinky október' and page = 1),
+    'the assistant finds a shown section';
+  assert exists (select 1 from public.shop_docs_list('potraviny-centrum', null) where name = 'Novinky október' and pages = 3);
+  -- the tables themselves: not for visitors
+  begin
+    perform 1 from public.shop_page_sections;
+    raise exception 'a visitor read the sections table';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.shop_section_pdf('potraviny-centrum', v_r.id);
+    raise exception 'a visitor got a PDF path';
+  exception when insufficient_privilege then null;
+  end;
+  -- free shops: none
+  assert (select count(*) from public.shop_sections('drogeria-kostolne')) = 0;
+end $$;
+reset role;
+
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_s uuid := (select id from public.shop_page_sections where title = 'Novinky október');
+  v_r record;
+begin
+  -- download only when the owner allows it
+  assert (select count(*) from public.shop_section_pdf('potraviny-centrum', v_s)) = 0, 'download off';
+  update public.shop_page_sections set allow_download = true where id = v_s;
+  assert (select path from public.shop_section_pdf('potraviny-centrum', v_s)) = format('%s/%s/v1/section.pdf', v_a, v_s);
+  assert (select count(*) from public.shop_section_pdf('drogeria-kostolne', v_s)) = 0, 'only under its own shop';
+  -- visible until yesterday (the shop's day): gone from the page and the assistant at once, pictures must leave
+  update public.shop_page_sections set visible_until = public.shop_today(v_a) - 1, visible_from = null where id = v_s;
+  assert not public.section_visible(v_s);
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 0, 'expired: not on the page';
+  assert not exists (select 1 from public.search_shop_docs('potraviny-centrum', 'primalex', null)), 'expired: not for the assistant';
+  assert (select count(*) from public.shop_section_pdf('potraviny-centrum', v_s)) = 0, 'expired: no download';
+  select * into v_r from public.sections_to_sync(null) where id = v_s;
+  assert not v_r.visible and v_r.public_version = 1, 'the hourly job removes its pictures';
+  perform public.sections_mark_public(v_s, null);
+  -- visible from tomorrow: not yet
+  update public.shop_page_sections set visible_until = null, visible_from = public.shop_today(v_a) + 1 where id = v_s;
+  assert not public.section_visible(v_s);
+  update public.shop_page_sections set visible_from = public.shop_today(v_a) where id = v_s;
+  assert public.section_visible(v_s), 'from today: visible';
+  perform public.sections_mark_public(v_s, 1);
+  -- hidden: gone
+  update public.shop_page_sections set hidden = true where id = v_s;
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 0, 'hidden';
+  update public.shop_page_sections set hidden = false where id = v_s;
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 1;
+  -- the paid plan ends: hidden (not deleted), back when it returns
+  update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = v_a;
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 0, 'plan ended: hidden';
+  assert exists (select 1 from public.sections_to_sync(null) where id = v_s and not visible), 'plan ended: pictures leave';
+  assert exists (select 1 from public.shop_page_sections where id = v_s), 'plan ended: not deleted';
+  update public.subscriptions set current_period_end = now() + interval '30 days' where shop_id = v_a;
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 1, 'plan back: shown again';
+  -- a new PDF for the section: the live one stays until the new one is complete
+  select * into v_r from public.sections_begin_upload(v_s, 1, 90000);
+  assert v_r.version = 2;
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 1, 'the old PDF stays while the new one is made';
+  perform public.sections_page_stored(v_s, 2, 1, 800, 'jpg', 50000, 800, 566);
+  begin
+    perform public.sections_page_stored(v_s, 2, 1, 1600, 'webp', 50000, 1600, 1131);
+    raise exception 'two picture types on one page';
+  exception when raise_exception then assert sqlerrm = 'page';
+  end;
+  perform public.sections_page_stored(v_s, 2, 1, 1600, 'jpg', 150000, 1600, 1131);
+  perform public.sections_save_text(v_s, 2, '[{"page":1,"text":"Nový leták"}]', 'sk');
+  select * into v_r from public.sections_finish(v_s, 2);
+  assert format('%s/%s/v1/section.pdf', v_a, v_s) = any (v_r.old_paths) and array_length(v_r.old_paths, 1) = 7,
+    'the old PDF and its 6 pictures are removed';
+  assert array_length(v_r.old_public_paths, 1) = 6, 'and its public copies';
+  assert (select count(*) from public.shop_section_pages where section_id = v_s) = 1;
+  assert (select count(*) from public.shop_sections('potraviny-centrum')) = 0, 'shown again once the new pictures are public';
+  perform public.sections_mark_public(v_s, 2);
+  assert (select pages ->> 0 from public.shop_sections('potraviny-centrum')) is not null;
+end $$;
+
+-- deleting: files listed for the owner; a shop with sections cannot be deleted before them
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_s uuid := (select id from public.shop_page_sections where title = 'Novinky október');
+begin
+  assert (select count(*) from public.owner_section_files(v_s)) = 5, 'PDF + 2 pictures in each bucket';
+  assert exists (select 1 from public.owner_section_files(v_s) where bucket = 'shop-sections-public' and path like '%/v2/1-1600.jpg');
+  assert (select count(*) from public.shop_page_sections) = 2, 'the owner reads only their own sections';
+  assert (select count(*) from public.shop_section_pages) = 1;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the header picture of an own domain: only through the owner function, only the shop's own folder
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_url text := 'https://abc.supabase.co/storage/v1/object/public/logos/' || (select id from public.shops where slug = 'potraviny-centrum') || '/header-1760000000000';
+begin
+  perform public.owner_set_header_picture(v_a, v_url || '.webp', v_url || '-800.webp', 1600, 400);
+  assert (select width from public.shop_header_picture('potraviny-centrum')) = 1600;
+  begin
+    perform public.owner_set_header_picture(v_a, 'https://evil.example/x.webp', v_url || '-800.webp', 1600, 400);
+    raise exception 'a picture from elsewhere';
+  exception when invalid_parameter_value then assert sqlerrm = 'picture';
+  end;
+  begin
+    perform public.owner_set_header_picture(v_a, replace(v_url, v_a::text, v_b::text) || '.webp',
+      replace(v_url, v_a::text, v_b::text) || '-800.webp', 1600, 400);
+    raise exception 'another shop''s folder';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    update public.shops set header_url = null, header_small_url = null, header_width = null, header_height = null where id = v_a;
+    raise exception 'header picture changed directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_header_picture(v_b, v_url || '.webp', v_url || '-800.webp', 1600, 400);
+    raise exception 'owner A set shop B''s header';
+  exception when insufficient_privilege then null;
+  end;
+  perform public.owner_set_header_picture(v_a, null, null, null, null);
+  assert (select count(*) from public.shop_header_picture('potraviny-centrum')) = 0;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_url text := 'https://abc.supabase.co/storage/v1/object/public/logos/' || (select id from public.shops where slug = 'drogeria-kostolne') || '/header-1760000000000';
+begin
+  begin
+    perform public.owner_set_header_picture(v_b, v_url || '.webp', v_url || '-800.webp', 1600, 400);
+    raise exception 'a free shop without a domain set a header picture';
+  exception when raise_exception then assert sqlerrm = 'no_plan';
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the function (service role) may delete a section; owners only through it
+do $$ begin
+  assert has_table_privilege('service_role', 'public.shop_page_sections', 'DELETE');
+  assert has_table_privilege('service_role', 'public.shop_section_pages', 'SELECT');
+  assert not has_table_privilege('authenticated', 'public.shop_page_sections', 'DELETE');
+  assert not has_table_privilege('anon', 'public.shop_page_sections', 'SELECT');
+end $$;
+
+-- the hourly job is scheduled
+do $$ begin
+  assert exists (select 1 from cron.job where jobname = 'ppi-sections-hourly' and schedule = '7 * * * *'
+                 and command like '%/functions/v1/page-sections%' and command like '%tick%');
+end $$;
+
+-- leave shop A as it was for the checks below
+do $$
+declare v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  set role authenticated;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', true);
+  begin
+    perform public.owner_delete_shop(v_a);
+    raise exception 'a shop with a plan or sections deleted';
+  exception when others then
+    assert sqlstate in ('55000', '55006'), sqlerrm;
+  end;
+  reset role;
+  delete from public.shop_page_sections where shop_id = v_a;
+end $$;
+
 \echo 'ALL DATABASE CHECKS PASSED'

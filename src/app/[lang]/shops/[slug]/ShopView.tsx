@@ -26,9 +26,12 @@ import { requestTime } from "@/lib/requestTime";
 import { statusInput } from "@/lib/shopCalendar";
 import { shopChatEnabled } from "@/lib/shopChat";
 import { pageAlternates, siteUrl } from "@/lib/site";
+import { getShopSections } from "@/lib/sections";
 import { freshnessText } from "@/lib/stock";
 import { ContactLinks } from "@/components/ContactLinks";
 import { JsonLd } from "@/components/JsonLd";
+import { PageSections } from "@/components/PageSections";
+import { SectionZoom } from "@/components/SectionZoom";
 import { ShopChat } from "@/components/ShopChat";
 import { ShopMap } from "@/components/ShopMap";
 import { LiveStatus } from "@/components/ShopStatus";
@@ -67,11 +70,13 @@ export async function shopMetadata(lang: Locale, slug: string): Promise<Metadata
 }
 
 /**
- * The shop's page: on its Cacadoo address, or on its own domain (onSite: the domain's own header
- * shows the name, the links stay on the domain, "/" is the shop's language). Both say the same
- * and point to one canonical. Order: name, map with the status dot, opening hours (status line,
- * today, breaks, the coming special days), the shop's details, then — with the paid plan — the
- * assistant (always open) and "Mám prístupový kľúč", then the items.
+ * The shop's page: on its Cacadoo address, or on its own domain (onSite: under the domain's own
+ * header with its picture; the links stay on the domain, "/" is the shop's language). Both say
+ * the same and point to one canonical. Order: name and logo with the shop's details, map with the
+ * status dot, opening hours (status line, today, breaks, the coming special days), then — with
+ * the paid plan — the assistant (always open) and "Mám prístupový kľúč", then the items. The
+ * shop's page sections from PDFs (paid plan, update 28) sit where the owner put them: after the
+ * details, after the map, before the items or at the end.
  */
 export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug: string; sp: SearchParams; onSite: boolean }) {
   const [dict, shop] = await Promise.all([getDictionary(lang), getShop(slug)]);
@@ -83,13 +88,15 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const q = (first(sp.q) ?? "").trim();
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // The AI assistant is a paid feature: shown only when the database says the shop has the plan.
-  const [{ items, total }, assistant, shopperPdf, calendars] = await Promise.all([
+  const [{ items, total }, assistant, shopperPdf, calendars, sections] = await Promise.all([
     getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
     shopChatEnabled() ? shopHasPlan(shop.id) : Promise.resolve(false),
     // "Stiahnuť túto konverzáciu (PDF)" (database update 24): only with the archive on.
     archiveEnabled() ? shopperPdfAllowed(shop.slug).catch(() => false) : Promise.resolve(false),
     // Special days and holidays (database update 27): the status and the next 60 days.
     getShopCalendars([shop.id], 60).catch(() => new Map()),
+    // Page sections from PDFs (database update 28): only the ones the database shows.
+    getShopSections(shop.slug, shop.id).catch(() => []),
   ]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(requestedPage, pages);
@@ -105,10 +112,10 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <JsonLd data={localBusiness(shop, lang, host, input)} />
 
-      {/* 1. The shop's name and logo (on its own domain the header above shows them), its details under them. */}
+      {/* 1. The shop's name and logo, its details under them (on its own domain too). */}
       <header className="flex flex-col gap-2" data-shop-details>
-        <div className={onSite ? "sr-only" : "flex items-center gap-3"}>
-          {shop.logo_url && !onSite && (
+        <div className="flex items-center gap-3">
+          {shop.logo_url && (
             // eslint-disable-next-line @next/next/no-img-element -- logos come from Supabase Storage
             <img src={shop.logo_url} alt="" width={48} height={48} className="h-12 w-12 border border-line object-contain" />
           )}
@@ -150,6 +157,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         </p>
       </header>
 
+      <PageSections sections={sections} position="after_details" slug={shop.slug} dict={dict} />
+
       {/* 2. The map with the shop's status dot (an extra: the page works without it). */}
       {hasLocation && (
         <ShopMap
@@ -160,6 +169,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           renderedAt={renderedAt}
         />
       )}
+
+      <PageSections sections={sections} position="after_map" slug={shop.slug} dict={dict} />
 
       {/* 3. Opening hours: status line, the week (today marked, breaks in the row), the coming special days. */}
       <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} />
@@ -179,6 +190,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           shopperPdf={shopperPdf}
         />
       )}
+
+      <PageSections sections={sections} position="before_items" slug={shop.slug} dict={dict} />
 
       {/* 6. The items. */}
       <section className="flex flex-col gap-3" aria-labelledby="items-heading">
@@ -249,6 +262,9 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           </nav>
         )}
       </section>
+
+      <PageSections sections={sections} position="end" slug={shop.slug} dict={dict} />
+      {sections.length > 0 && <SectionZoom labels={dict.sections} />}
     </div>
   );
 }

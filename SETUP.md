@@ -895,6 +895,47 @@ Function changes. Do the steps in order.
 
 ---
 
+## Part U — Page sections from PDFs (Pro) and the header picture of your own domain (13 October 2026)
+
+A shop with Pro can put up to 10 of its own PDFs on its page ("Novinky október", "Leták", "Jedálny lístok" …): each
+page is shown as a picture with its text, collapsed or always open, in one of four places, with optional dates and a
+download button. Before storing, PPI removes anything dangerous from the PDF (scripts, automatic actions, attached
+files). On a shop's own domain the header now has a picture the shop chooses (with SK · HU · EN), and the shop's name
+and logo are back on the page above its details. No new secrets. Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/28_pdf_sections.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again. Check:
+   `select id, public from storage.buckets where id like 'shop-sections%';` → `shop-sections` false and
+   `shop-sections-public` true; `select jobname, schedule from cron.job where jobname = 'ppi-sections-hourly';` →
+   one row `7 * * * *` (if not: switch on pg_cron and pg_net in Database → Extensions and run the file again).
+2. **New function:** Edge Functions → **Deploy a new function** → **Via Editor** → name `page-sections` → paste the
+   whole file `supabase/functions/page-sections/index.ts` → **Deploy** → open its settings and switch **OFF "Verify
+   JWT"**. It uses the secrets you already have (`ANTHROPIC_API_KEY`, optional `AI_MODEL`).
+3. **Update shop-files:** Edge Functions → `shop-files` → **Code** → replace everything with the new
+   `supabase/functions/shop-files/index.ts` → **Deploy** ("Verify JWT" stays off). Without it "Stiahnuť PDF" answers 404.
+4. **Merge the pull request** on GitHub → Vercel deploys. (Merged before step 1 the website still works: Môj obchod
+   says "Táto časť bude dostupná po aktualizácii databázy 28" and shop pages have no sections.)
+5. **Test the sections** (on the Cacadoo Paint shop or another Pro shop):
+   - Môj obchod → **Sekcie stránky (PDF)** → **Pridať sekciu**: title `Novinky október`, a 3-page A4 PDF, "Rozbaľovacie –
+     zatvorené", "Za údajmi obchodu" → **Pridať a nahrať PDF** → wait for "Hotovo. Pozrite si náhľad a sekciu
+     zverejnite." (a PDF with a password, more than 20 pages or over 10 MB is refused with a message).
+   - **Náhľad** → the pages as visitors will see them (only you see this) → **Zverejniť**.
+   - The shop page: "Novinky október" as a closed dropdown under the shop's details; open it → the 3 pages, "Strana 1 /
+     3"; tap a page → it opens large; **Zobraziť text** shows the text.
+   - **Upraviť** → "Vždy otvorené" → **Uložiť** → on the shop page the pages are shown directly.
+   - **Upraviť** → "Zobrazovať do" = yesterday → **Uložiť** → the section is gone from the page (the row says
+     "Skončené – zobrazovalo sa do …"). Set it empty again to bring it back.
+   - Optional: "Povoliť stiahnutie PDF" → a **Stiahnuť PDF** link under the section; drag a row (or ↑ ↓) to change
+     the order; **Nahradiť PDF**; **Skryť** / **Zobraziť**; **Vymazať**.
+   - The shop's AI assistant: ask about something in the PDF → the answer names "Zdroj: Novinky október, strana 1".
+6. **Header picture of your own domain:** Môj obchod → **Obrázok v hlavičke webu** → **Vybrať obrázok** (best 1600 ×
+   400 px) → your domain (e.g. davide.sk) shows it across the top, with SK · HU · EN; the shop's name and logo are on
+   the page above its details. **Odstrániť obrázok** removes it.
+7. If an upload stops with "page-sections HTTP 404" the function is not deployed under that name; "HTTP 401" means
+   "Verify JWT" is still on (step 2).
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -929,3 +970,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 16. Own domains (Pro): buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one; the shop page on its own domain; renewals, transfer code; admin page "Predplatné a domény" | ✅ built (test mode) — set up Part R |
 | 17. Booking link on the shop page (every shop); no other shops on product pages of shops with a domain of their own; quick view of the recently uploaded stock files | ✅ built — set up Part S |
 | 18. Open / lunch break / closed / holiday status (dots + words) everywhere, public holidays SK/HU/CZ, special days, "+ Obedňajšia prestávka"; Pro shop page order, assistant always open, no Cacadoo header on own domains | ✅ built — set up Part T |
+| 19. Page sections from PDFs (Pro): up to 10 per shop, cleaned on the server, pages with their text, collapsed or always open in four places, dates, preview, download on/off, the assistant names them; the header picture of an own domain, the name and logo back on the page | ✅ built — set up Part U |
