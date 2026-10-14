@@ -136,7 +136,10 @@ conversation's token (kept as SHA-256): real type by content (JPEG/PNG/WebP/HEIC
 `ppi_project_url` + `ppi_assistant_cron`) or when the shopper closes the box / starts a new one / leaves the page;
 then one PDF (pdf-lib + DejaVu Sans subset in the file: `<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`, footer "Vytvorené
 Cacadoo PPI · konverzácia <id> · strana X/Y"). Keep time 30/90/365 days (default 90), daily job. "Konverzácie asistenta"
-(dashboard `Conversations.tsx`, page `dashboard/conversations/[id]`) is view only: no download buttons. Logos get a PNG
+(dashboard `Conversations.tsx`, page `dashboard/conversations/[id]`): read, delete and, since 2026-10-14, **"Stiahnuť
+PDF"** (finished conversations only; `owner_pdfs` in the function, RLS decides; `/api/owner/conversations/[id]/pdf`) and
+ticks + "Stiahnuť vybrané" (`ConversationDownloadBar`, each conversation its own PDF, no ZIP); the PDF shows the
+shopper's pictures large. Logos get a PNG
 twin (`logo-<time>.png`) for the PDFs. Never put purchase prices, suppliers, margins, invoice numbers, access keys or
 other shops' data into conversations, PDFs or exports. No local/PC folder sync or polling for exports: the cloud
 folder (below) is a push from our server when a conversation ends.

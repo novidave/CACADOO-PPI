@@ -18,6 +18,8 @@
 //             conversation; GPS and place data are removed from pictures before storing.
 //   The shop's owners (their login):
 //     owner_links  {conversation_id} → 10-minute addresses of its pictures and files (to view)
+//     owner_pdfs   {conversation_ids} → 10-minute download addresses of their PDFs ("Stiahnuť PDF";
+//                  only conversations the caller may read, at most 50, only finished PDFs)
 //     owner_delete {conversation_id}
 //   The jobs (pg_cron + pg_net, header x-ppi-cron = the Vault secret ppi_assistant_cron):
 //     tick        every 5 minutes: end conversations idle for 30 minutes, make missing PDFs,
@@ -467,6 +469,8 @@ const MARGIN = 48;
 const TOP = PAGE[1] - 52;
 const BOTTOM = 56;
 const WIDTH = PAGE[0] - 2 * MARGIN;
+/** A shopper's picture in the PDF: at most about half a page high. */
+const PICTURE_HEIGHT = 360;
 const INK = rgb(0, 0, 0);
 const GREY = rgb(0.42, 0.42, 0.42);
 const LINE = rgb(0.82, 0.82, 0.82);
@@ -745,25 +749,19 @@ export async function buildPdf(data: PdfData, assets: PdfAssets, options: { shop
     for (const a of list) shown.add(a.id);
     const pictures = list.filter((a) => images.get(a.id));
     const others = list.filter((a) => !images.get(a.id));
-    const box = 110;
-    const gap = 12;
-    for (let row = 0; row < pictures.length; row += 4) {
-      w.room(box + 18);
+    // Each picture large, right where the shopper sent it: across the text width, at most about
+    // half a page high, never bigger than the picture itself (1 pixel = 1 point at most).
+    for (const a of pictures) {
+      const image = images.get(a.id)!;
+      const scale = Math.min(WIDTH / image.width, PICTURE_HEIGHT / image.height, 1);
+      const width = image.width * scale;
+      const height = image.height * scale;
+      w.room(height + 20);
       const top = w.y;
-      pictures.slice(row, row + 4).forEach((a, k) => {
-        const image = images.get(a.id)!;
-        const scale = Math.min(box / image.width, box / image.height);
-        const x = MARGIN + k * (box + gap);
-        w.page.drawImage(image, {
-          x: x + (box - image.width * scale) / 2,
-          y: top - box + (box - image.height * scale) / 2,
-          width: image.width * scale,
-          height: image.height * scale,
-        });
-        w.page.drawRectangle({ x, y: top - box, width: box, height: box, borderColor: LINE, borderWidth: 0.5 });
-        w.page.drawText(w.fit(a.name, regular, 7.5, box), { x, y: top - box - 10, size: 7.5, font: regular, color: GREY });
-      });
-      w.y = top - box - 18;
+      w.page.drawImage(image, { x: MARGIN, y: top - height, width, height });
+      w.page.drawRectangle({ x: MARGIN, y: top - height, width, height, borderColor: LINE, borderWidth: 0.5 });
+      w.page.drawText(w.fit(a.name, regular, 7.5, WIDTH), { x: MARGIN, y: top - height - 10, size: 7.5, font: regular, color: GREY });
+      w.y = top - height - 20;
     }
     for (const a of others) {
       const note = a.kind !== "pdf" ? ` – ${TEXTS.noPreview}` : "";
@@ -1153,6 +1151,44 @@ async function ownerLinks(authorization: string, body: Json, deps: Deps) {
   return reply(200, { files });
 }
 
+/** At most this many conversations' PDFs in one "Stiahnuť vybrané". */
+export const MAX_PDF_LINKS = 50;
+
+/**
+ * "Stiahnuť PDF" / "Stiahnuť vybrané": 10-minute download addresses of the conversations' PDFs
+ * (the file name the PDF was made with). Only conversations the caller may read (RLS, their
+ * own login) and only finished PDFs; the others come back in `missing`.
+ */
+async function ownerPdfs(authorization: string, body: Json, deps: Deps) {
+  const asked = Array.isArray(body.conversation_ids) ? body.conversation_ids.map(String) : [];
+  const ids = [...new Set(asked)].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  if (ids.length === 0 || ids.length > MAX_PDF_LINKS || ids.length !== asked.length) return reply(400, { error: "bad_request" });
+  const { data: mine, error: readError } = await deps.asCaller(authorization).from("assistant_conversations").select("id").in("id", ids);
+  if (readError) return reply(500, { error: "failed" });
+  const readable = new Set(((mine ?? []) as { id: string }[]).map((r) => r.id));
+  if (readable.size === 0) return reply(403, { error: "not_member" });
+  const { data, error } = await deps.db
+    .from("assistant_conversations")
+    .select("id, pdf_status, pdf_path, pdf_name")
+    .in("id", [...readable]);
+  if (error) return reply(500, { error: "failed" });
+  const rows = new Map(((data ?? []) as { id: string; pdf_status: string; pdf_path: string | null; pdf_name: string | null }[]).map((r) => [r.id, r]));
+  const files: { id: string; url: string; name: string }[] = [];
+  const missing: string[] = [];
+  for (const id of ids) {
+    const row = rows.get(id);
+    if (!row || !readable.has(id) || row.pdf_status !== "ready" || !row.pdf_path) {
+      missing.push(id);
+      continue;
+    }
+    const name = row.pdf_name || `${shortId(id)}.pdf`;
+    const { data: signed } = await deps.db.storage.from(BUCKET).createSignedUrl(row.pdf_path, SIGNED_SECONDS, { download: name });
+    if (signed?.signedUrl) files.push({ id, url: signed.signedUrl, name });
+    else missing.push(id);
+  }
+  return reply(200, { files, missing });
+}
+
 async function ownerDelete(authorization: string, body: Json, deps: Deps) {
   const id = String(body.conversation_id ?? "");
   if (!(await ownConversation(authorization, id, deps))) return reply(403, { error: "not_member" });
@@ -1211,12 +1247,14 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
       if (action === "discard") return await discard(body, deps);
       return await shopperDelete(body, deps);
     }
-    if (action === "owner_links" || action === "owner_delete") {
+    if (action === "owner_links" || action === "owner_pdfs" || action === "owner_delete") {
       const authorization = req.headers.get("Authorization") ?? "";
       const token = authorization.replace(/^Bearer\s+/i, "").trim();
       const { data: auth } = token ? await deps.asCaller(authorization).auth.getUser(token) : { data: null };
       if (!auth?.user) return reply(401, { error: "login" });
-      return action === "owner_links" ? await ownerLinks(authorization, body, deps) : await ownerDelete(authorization, body, deps);
+      if (action === "owner_links") return await ownerLinks(authorization, body, deps);
+      if (action === "owner_pdfs") return await ownerPdfs(authorization, body, deps);
+      return await ownerDelete(authorization, body, deps);
     }
     return reply(400, { error: "bad_request" });
   } catch (e) {

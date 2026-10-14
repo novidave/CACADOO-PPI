@@ -5,6 +5,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream } from "npm:pdf-lib@1.17.1";
 import {
   blankXmpPlaces,
+  BUCKET,
   buildPdf,
   crc32,
   type Deps,
@@ -498,6 +499,50 @@ Deno.test("PDF: a long conversation runs over pages, each with 'strana X/Y'", as
   console.log(`    PDF: ${pages.length} pages, ${bytes.length} bytes, ${ms.toFixed(0)} ms`);
 });
 
+/** The same JPEG with other dimensions in its header (pdf-lib reads only the header). */
+function withSize(jpeg: Uint8Array, width: number, height: number): Uint8Array {
+  const out = jpeg.slice();
+  for (let i = 2; i + 8 < out.length; i++) {
+    if (out[i] === 0xff && out[i + 1] === 0xc0) {
+      out[i + 5] = height >> 8;
+      out[i + 6] = height & 255;
+      out[i + 7] = width >> 8;
+      out[i + 8] = width & 255;
+      return out;
+    }
+  }
+  throw new Error("no SOF0");
+}
+
+Deno.test("PDF: the shopper's pictures are large, where they were sent: the text width or half a page, never enlarged", async () => {
+  const WIDE = "aaaaaaaa-0000-4000-8000-000000000011";
+  const TALL = "aaaaaaaa-0000-4000-8000-000000000012";
+  const base = pdfData();
+  const data: PdfData = {
+    ...base,
+    messages: [{ ...base.messages[0], attachment_ids: [WIDE, TALL, IMG] }],
+    attachments: [
+      { id: WIDE, name: "regal.jpg", kind: "jpeg", bytes: 1, path: "x/w.jpg", preview_path: "x/w.preview.jpg" },
+      { id: TALL, name: "etiketa.jpg", kind: "jpeg", bytes: 1, path: "x/t.jpg", preview_path: "x/t.preview.jpg" },
+      { id: IMG, name: "male.jpg", kind: "jpeg", bytes: 1, path: "x/i.jpg", preview_path: "x/i.preview.jpg" },
+    ],
+  };
+  const previews = new Map([[WIDE, withSize(TINY_JPEG, 800, 400)], [TALL, withSize(TINY_JPEG, 600, 800)], [IMG, TINY_JPEG]]);
+  const bytes = await buildPdf(data, { previews, logo: null });
+  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const drawn: string[] = [];
+  for (const page of doc.getPages()) {
+    const contents = page.node.Contents();
+    const streams = contents instanceof PDFArray ? contents.asArray().map((r) => doc.context.lookup(r)) : [contents];
+    const content = streams.map((obj) => (obj instanceof PDFRawStream ? text(decodePDFRawStream(obj).decode()) : "")).join("\n");
+    // pdf-lib: q, move, rotate, "<width> 0 0 <height> 0 0 cm", skew, Do
+    for (const m of content.matchAll(/([\d.]+) 0 0 ([\d.]+) 0 0 cm\s+1 0 0 1 0 0 cm\s+\/\S+ Do/g)) drawn.push(`${Math.round(+m[1])}x${Math.round(+m[2])}`);
+  }
+  eq(drawn, ["499x250", "270x360", "32x24"], "wide: the text width; tall: half a page; small: its own size");
+  const all = (await readPdf(bytes)).pages.join("\n");
+  for (const name of ["regal.jpg", "etiketa.jpg", "male.jpg"]) assert(all.includes(name), `the picture's name ${name}`);
+});
+
 // ---------------------------------------------------------------- the function: fakes
 
 type Result = { data: unknown; error: { message: string; code?: string } | null };
@@ -510,6 +555,10 @@ interface World {
   uploadError?: string;
   removeError?: string;
   attachments?: { id: string; kind: string; storage_path: string; preview_path: string | null }[];
+  /** Conversations as the service role reads them (owner_pdfs). */
+  conversations?: { id: string; pdf_status: string; pdf_path: string | null; pdf_name: string | null }[];
+  /** The conversations the caller may read (RLS); default: CONV when a member. */
+  readable?: string[];
   websiteSecret?: string | null;
   pushFails?: boolean;
 }
@@ -529,6 +578,10 @@ function fakes(world: World = {}) {
         eq: (_column: string, id: string) => {
           log.push(`read ${table} ${id}`);
           return Promise.resolve(ok((world.attachments ?? []).filter(() => id === CONV)));
+        },
+        in: (_column: string, ids: string[]) => {
+          log.push(`read ${table} ${ids.length}`);
+          return Promise.resolve(ok((world.conversations ?? []).filter((c) => ids.includes(c.id))));
         },
       }),
     }),
@@ -551,6 +604,10 @@ function fakes(world: World = {}) {
           for (const p of paths) files.delete(`${bucket}/${p}`);
           return Promise.resolve(ok([]));
         },
+        createSignedUrl: (path: string, seconds: number, options?: { download?: string }) => {
+          log.push(`sign ${bucket} ${path} ${seconds}s ${options?.download ?? ""}`);
+          return Promise.resolve(ok({ signedUrl: `https://signed/${path}?s=${seconds}&download=${encodeURIComponent(options?.download ?? "")}` }));
+        },
         createSignedUrls: (paths: string[], seconds: number) => {
           log.push(`sign ${bucket} ${paths.length} ${seconds}s`);
           return Promise.resolve(ok(paths.map((p) => ({ path: p, signedUrl: `https://signed/${p}?s=${seconds}` }))));
@@ -568,6 +625,11 @@ function fakes(world: World = {}) {
             return Promise.resolve(ok(world.member !== false && id === CONV ? { id } : null));
           },
         }),
+        in: (_column: string, ids: string[]) => {
+          log.push(`caller read ${table} ${ids.length}`);
+          const readable = world.member === false ? [] : (world.readable ?? [CONV]);
+          return Promise.resolve(ok(ids.filter((id) => readable.includes(id)).map((id) => ({ id }))));
+        },
       }),
     }),
   };
@@ -854,6 +916,45 @@ Deno.test("Owners: login needed; only members of the shop get 10-minute links or
   }], "links");
   eq(await call(deps, { action: "owner_delete", conversation_id: CONV }, { Authorization: "Bearer owner-jwt" }), [200, { deleted: true }], "deleted");
   assert(log.some((l) => l.startsWith("rpc assistant_forget")), "forgotten");
+});
+
+Deno.test("'Stiahnuť PDF': login needed; only conversations the owner may read, only finished PDFs, 10-minute download links", async () => {
+  const OTHER = "bbbbbbbb-0000-4000-8000-000000000009";
+  const RUNNING = "cccccccc-0000-4000-8000-000000000010";
+  const world: World = {
+    readable: [CONV, RUNNING],
+    conversations: [
+      { id: CONV, pdf_status: "ready", pdf_path: `${SHOP}/${CONV}/2026-10-10_14-05_3f2a9c1b.pdf`, pdf_name: "2026-10-10_14-05_3f2a9c1b.pdf" },
+      { id: RUNNING, pdf_status: "none", pdf_path: null, pdf_name: null },
+      { id: OTHER, pdf_status: "ready", pdf_path: `other/${OTHER}/x.pdf`, pdf_name: "x.pdf" },
+    ],
+  };
+  const owner = { Authorization: "Bearer owner-jwt" };
+  {
+    const { deps, log } = fakes(world);
+    eq(await call(deps, { action: "owner_pdfs", conversation_ids: [CONV] }, {}), [401, { error: "login" }], "no login");
+    eq(await call(deps, { action: "owner_pdfs", conversation_ids: [] }, owner), [400, { error: "bad_request" }], "nothing asked");
+    eq(await call(deps, { action: "owner_pdfs", conversation_ids: ["../x"] }, owner), [400, { error: "bad_request" }], "not an id");
+    const many = Array.from({ length: 51 }, (_, i) => `aaaaaaaa-0000-4000-8000-${String(i).padStart(12, "0")}`);
+    eq(await call(deps, { action: "owner_pdfs", conversation_ids: many }, owner), [400, { error: "bad_request" }], "more than 50");
+    assert(!log.some((l) => l.startsWith("sign")), "nothing signed");
+  }
+  {
+    const { deps, log } = fakes({ ...world, member: false });
+    eq(await call(deps, { action: "owner_pdfs", conversation_ids: [CONV] }, owner), [403, { error: "not_member" }], "another shop's");
+    assert(!log.some((l) => l.startsWith("sign")), "nothing signed");
+  }
+  const { deps, log } = fakes(world);
+  eq(await call(deps, { action: "owner_pdfs", conversation_ids: [CONV, RUNNING, OTHER] }, owner), [200, {
+    files: [{
+      id: CONV,
+      url: `https://signed/${SHOP}/${CONV}/2026-10-10_14-05_3f2a9c1b.pdf?s=600&download=2026-10-10_14-05_3f2a9c1b.pdf`,
+      name: "2026-10-10_14-05_3f2a9c1b.pdf",
+    }],
+    missing: [RUNNING, OTHER],
+  }], "the finished one; still running and another shop's left out");
+  eq(log.filter((l) => l.startsWith("sign")), [`sign ${BUCKET} ${SHOP}/${CONV}/2026-10-10_14-05_3f2a9c1b.pdf 600s 2026-10-10_14-05_3f2a9c1b.pdf`], "one link, 10 minutes, as a download");
+  assert(!log.some((l) => l.includes("other/")), "another shop's PDF never signed");
 });
 
 // ---------------------------------------------------------------- the jobs

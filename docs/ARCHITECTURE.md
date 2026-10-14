@@ -548,8 +548,9 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 - **PDF** (pdf-lib 1.17.1 + fontkit; DejaVu Sans and Bold subset to Latin, Latin Extended-A, Greek, Cyrillic and
   punctuation, embedded as base64 with the Bitstream Vera license): A4, the logo (PNG twin of the shop's WebP logo, or a
   PNG/JPEG logo) and the shop's name, start and end, the shopper's and page language (`Intl.DisplayNames` in Slovak),
-  each message with its time and role, the Slovak version smaller and grey, the cards as a table, picture previews as
-  110 pt thumbnails four to a row with their names, other files listed, unlinked files under "Ďalšie súbory", the
+  each message with its time and role, the Slovak version smaller and grey, the cards as a table, picture previews
+  large where they were sent (one per row, across the text width, at most 360 pt high, never above 1 px = 1 pt; before
+  2026-10-14: 110 pt thumbnails four to a row) with their names, other files listed, unlinked files under "Ďalšie súbory", the
   footer centred on every page. About 0.1–0.2 s of CPU for a long conversation. Stored as
   `<shop>/<conversation>/<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`.
 - **Website:** `lib/assistantArchive.ts` (server only: `archiveEnabled()`, calls with the secret, `uploadUrl()` =
@@ -558,7 +559,15 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   that ended meanwhile is followed by a new one, which the reply names), `ShopChat` (files chosen → previews and AI
   copies made in the browser → upload straight to the function → send; close, "New conversation", unmount and
   `pagehide` end it with `sendBeacon`), the dashboard section `Conversations.tsx` and the page
-  `dashboard/conversations/[id]` (RLS reads + `owner_links`; no download buttons).
+  `dashboard/conversations/[id]` (RLS reads + `owner_links`). **Downloads (2026-10-14):** the function's `owner_pdfs
+  {conversation_ids}` (the owner's login; 1–50 ids; only those the caller reads through RLS, only `pdf_status = ready`
+  with a path; `createSignedUrl(path, 600, {download: pdf_name})`; the rest in `missing`) ← `lib/conversationPdfs.ts`
+  ← `GET /api/owner/conversations/[id]/pdf` (302 to the address; 404 / 401 otherwise) for "Stiahnuť PDF" in the list
+  and on the conversation page, and `POST /api/owner/conversations/pdf {ids}` (JSON) for
+  `components/ConversationDownloadBar` (ticks `form="conversation-pdfs"`, black `accent-foreground`; `useTicks` /
+  `SelectAllBox` shared with `BulkSelectBar`): every file downloaded with a hidden link, 0.7 s apart, each its own PDF
+  (no ZIP); the browser may ask once to allow several downloads. Each row's link is a named hover group
+  (`group/conv`): the section's `<details class="group">` no longer underlines every question.
 - **Jobs:** `ppi-assistant-tick` (`*/5 * * * *`) and `ppi-assistant-retention` (`17 3 * * *`) call
   `<Vault ppi_project_url>/functions/v1/assistant-archive` with `net.http_post` and the Vault secret
   `ppi_assistant_cron`.
@@ -1339,8 +1348,15 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   those three deleted, "Vybrať všetko" on and off, a day's own "Vymazať", nothing ticked → "Vyberte aspoň jeden deň.",
   phone and HU/EN texts, all deleted → no list; the link in the shop logo's blue and underlined, the browser's box
   hidden, no file → the message and no section, the chooser with several files, the names, a PDF uploaded through it,
-  the same link in "Nahradiť súbory", "Choose file", a long name on a phone), the update-27/29/30/31 scripts again; those
-  scripts are not part of the repository.
+  the same link in "Nahradiť súbory", "Choose file", a long name on a phone), the update-27/29/30/31 scripts again;
+  conversation downloads (22 checks against the archive function running locally with real conversations made
+  through the website — a photo pair, a text one, a running one: ticks and "Stiahnuť PDF" only on finished ones, the
+  bar off at 0, hovering one row underlines only its question, the intro without "Len na čítanie"; one PDF downloaded
+  under its own name with both photos inside at about 120/160 ppi instead of 524, the text and the photos' names;
+  "Stiahnuť vybrané (2)" → two separate PDFs and "Hotovo – …", one without a PDF → the other plus "1 z vybraných …";
+  the conversation page's link, none while running; another shop's conversation 404 / not in the answer, more than 50
+  or not ids 400, logged out 401; English; a phone), plus 2 new Deno tests (`owner_pdfs`, the pictures' size) and the
+  logo-in-PDF script again; those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

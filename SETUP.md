@@ -1055,6 +1055,26 @@ No database change, no new secret, no function to update.
 
 ---
 
+## Part AA — Download assistant conversations as PDF (14 October 2026)
+
+- AI asistent → **Konverzácie asistenta**: every finished conversation has **Stiahnuť PDF** (also on the conversation's
+  own page) — the PDF goes straight to the PC (folder "Stiahnuté súbory"), under its own name, e.g.
+  `2026-10-14_15-30_3f2a9c1b.pdf`. Ticks with **Vybrať všetko** and **Stiahnuť vybrané (n)** download several at once,
+  each as its own PDF (the browser may ask once: "Povoliť stiahnutie viacerých súborov" → Allow).
+- The shopper's pictures are now **large** in the PDF (where they were sent). Conversations that ended before the
+  update keep their PDF with small pictures.
+
+No database change, no new secret. Do the steps in order.
+
+1. **Update the function:** Supabase → Edge Functions → `assistant-archive` → **Code** → replace everything with the
+   new `supabase/functions/assistant-archive/index.ts` → **Deploy** ("Verify JWT" stays off). Without it, "Stiahnuť
+   PDF" answers "Not found" and the bar says "Stiahnutie sa nepodarilo".
+2. **Merge the pull request** on GitHub → Vercel deploys.
+3. **Test:** AI asistent → Konverzácie asistenta → **Stiahnuť PDF** on one conversation → the PDF is in Downloads;
+   tick two → **Stiahnuť vybrané (2)** → two PDFs. A new conversation with a photo → its PDF shows the photo large.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1095,3 +1115,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 22. Own domain header: small clickable logo ("Logo v hlavičke webu") + SK · HU · EN; section position "Za otváracími hodinami"; page sections from pictures (JPG, PNG, WebP) | ✅ built — set up Part X |
 | 23. "Odkaz loga": the own domain's header logo can lead to another address (e.g. the shop's main website) | ✅ built — set up Part Y |
 | 24. Ticks on "Vaše mimoriadne dni" (delete several at once); blue "Vybrať súbor" link in page sections | ✅ built — set up Part Z |
+| 25. Assistant conversations as PDF straight to the PC ("Stiahnuť PDF", "Stiahnuť vybrané"); pictures large in the PDF | ✅ built — set up Part AA |
