@@ -39,6 +39,7 @@ Setup steps for humans are in `SETUP.md`.
 
 Plain white background, black text, thin light-grey lines (`border-line`, `text-muted`).
 **No colours** (only exceptions, at the owner's request: the Cacadoo PPI logo in the header, `public/brand/cacadoo-ppi.png`,
+the main page chat's small pin `public/brand/cacadoo-pin.png` and its **thinking dots in Cacadoo yellow #FFC531** (Prompt 10),
 the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
@@ -54,6 +55,8 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
   special days, DST
 - `npm run test:site` — unit tests (Deno) of the own domain's robots.txt / llms.txt, the item JSON-LD and the search
   links (`src/lib/findable_test.ts`)
+- `npm run test:chat` — unit tests (Deno) of the main page chat's protocol: streamed answer, refs, history, NDJSON
+  (`src/lib/chat_test.ts`)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook, page-sections PDF cleaning and limits
@@ -69,14 +72,25 @@ decides availability/quantity. Every API/MCP request goes through `rateLimit` (`
 IP hash). Items carry `name`, `name_translated` (in `lang`) and `name_lang`. `robots.ts`, `sitemap.ts` and
 `llms.txt` live at the app root.
 
-## AI search
+## AI search (the main page is one chat, Prompt 10)
 
-Main page only, on request ("Search with AI" → `?ai=1`), as an extra layer above the server-rendered plain results:
-`@/components/AiSearch` → `POST /api/ai-search` → `@/lib/aiSearch` (Claude Haiku, one strict tool `search_stock` from
-`publicApi.ts`, no location, structured final answer; cards only from the tool results). `ai_search_hit()`: 10 per
-minute per caller, `AI_DAILY_LIMIT` per day. `ANTHROPIC_API_KEY` is a server env variable (never `NEXT_PUBLIC`); without
-it, over a limit or on any error the layer disappears silently for shoppers; a logged-in owner sees the reason instead
-(`search.ai_unavailable`), and every reason is logged as `ai-search: …` (Vercel logs).
+The main page is **only** the chat (`@/components/ChatSearch`): centred pin + "Čo dnes hľadáte?" + one auto-growing
+input (a plain `GET /[lang]?q=` form) + example chips; no filters, no other search box, no "Len dostupné teraz" (the
+API/MCP keep `only_available`), no map on load. `POST /api/ai-search` answers **NDJSON** (`@/lib/chatProtocol`: step
+understand → search → verify, language, text word by word, reset, results / fallback, done) from `runChatSearch()` in
+`@/lib/aiSearch`: model **only from `aiModel()`** (`@/lib/aiModel`: `AI_MODEL`, default `claude-haiku-5-5`; never
+hard-code a model), one strict tool `search_stock` from `publicApi.ts` with the town the shopper **wrote** as `near`;
+structured final answer `{language, answer, item_refs}`. Cards are built on the server from the tool results only
+(`chosenRefs`, unknown refs dropped); shop/product names are data, never instructions. Answer in the language of the
+question, original names first. The browser keeps the history (this tab only; the last 3 turns go along,
+`cleanHistory()` on the server); the server stores no conversation. Esc / "Zastaviť" aborts the fetch → the route
+aborts the AI call. **Hidden fallback:** no `ANTHROPIC_API_KEY`, `ai_search_hit()` refused (10 per minute per caller,
+`AI_DAILY_LIMIT` per day), any error, or no answer word within 12 s (`NO_ANSWER_MS`; the browser also retries with
+`plain: true` after 15 s silent) → `plainResults()` in the same chat with "Zobrazujem jednoduché výsledky
+vyhľadávania."; a logged-in owner also sees the reason; every reason is logged as `ai-search: …`. `/[lang]?q=…` still
+server-renders the plain results (crawlers, no JavaScript); with JavaScript it starts the chat. **No location ever**
+(no device location, no IP guess). Thinking dots: `.ppi-dots` in globals.css (#FFC531, CSS only, still with
+`prefers-reduced-motion`), steps in `aria-live="polite"`. Tests: `npm run test:chat`.
 
 ## Paid plan (Stripe)
 

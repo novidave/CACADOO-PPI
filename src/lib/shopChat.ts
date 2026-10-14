@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
+import { aiModel } from "./aiModel";
 import { callerHash } from "./apiHttp";
 import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
@@ -28,9 +29,8 @@ import { createPublicClient } from "./supabase/public";
  * gives the message and the answer in Slovak for the shop's archive.
  */
 
-const DEFAULT_MODEL = "claude-haiku-5-5";
-/** AI_MODEL (server env) chooses the model; default Claude Haiku. */
-const model = () => process.env.AI_MODEL?.trim() || DEFAULT_MODEL;
+/** AI_MODEL (server env) chooses the model (src/lib/aiModel.ts). */
+const model = aiModel;
 /** Earlier messages sent along (the newest ones), and their length. */
 export const MAX_HISTORY = 8;
 export const MAX_TEXT = 1500;
