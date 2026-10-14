@@ -1487,8 +1487,8 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   no geolocation and no IP lookup requested; `?q=` without JavaScript → the plain results in the HTML, with
   JavaScript → the chat; no "Len dostupné teraz" in sk/hu/en while the API and MCP keep `only_available`; reduced motion
   → still dots; `aria-live`; Hungarian and English labels; a phone without sideways scroll); Lighthouse mobile of the
-  main page (same local build, 3 runs each): before 80 performance (`?q=farba` 83), after 99 (`?q=farba` 98), no map
-  and 215 KB on load; those scripts are not part of the repository.
+  main page (same local build, 3 runs each, performance): before 80 / 99 / 99 (`?q=farba` 83 / 91 / 91, with the map,
+  650 KB), after 99 / 99 / 99 (`?q=farba` 98 / 98 / 98, no map, about 215 KB); those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).
