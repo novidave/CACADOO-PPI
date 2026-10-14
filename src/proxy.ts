@@ -73,10 +73,13 @@ const NOT_CONNECTED =
   '<meta name="robots" content="noindex"><title>Cacadoo PPI</title></head><body style="font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem">' +
   "<h1>Táto doména zatiaľ nie je pripojená</h1><p>This domain is not connected (yet).</p></body></html>";
 
+/** The IndexNow key file: "/<key>.txt" (8–128 letters, digits or dashes). */
+const KEY_FILE = /^\/([A-Za-z0-9-]{8,128})\.txt$/;
+
 /**
  * A shop's own domain: its Pro page is served directly (no redirect): "/" in the shop's
  * language, "/{lang}" in the others, "/{lang}/items/{id}" its items, and its own
- * sitemap.xml and robots.txt. One primary host (bare); www redirects to it. Anything else
+ * sitemap.xml, robots.txt, llms.txt and IndexNow key file. One primary host (bare); www redirects to it. Anything else
  * (login, other shops…) goes to PPI's own address.
  */
 async function shopDomain(request: NextRequest, host: string): Promise<NextResponse> {
@@ -92,6 +95,10 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
 
   if (pathname === "/sitemap.xml") return to(`/api/site/${site.slug}/sitemap`);
   if (pathname === "/robots.txt") return to(`/api/site/${site.slug}/robots`);
+  // For AI assistants, and the IndexNow key file (update 33).
+  if (pathname === "/llms.txt") return to(`/api/site/${site.slug}/llms`);
+  const keyFile = KEY_FILE.exec(pathname);
+  if (keyFile) return to(`/api/site/${site.slug}/indexnow/${keyFile[1]}`);
   // The domain's own pages: src/app/site/[lang]/[slug] (their own layout, no Cacadoo header).
   if (parts.length === 0) return to(`/site/${site.lang}/${site.slug}`);
   const [first, second, third] = parts;
@@ -111,8 +118,8 @@ export async function proxy(request: NextRequest) {
   if (!isMainHost(host)) return await shopDomain(request, host);
 
   const { pathname } = request.nextUrl;
-  // PPI's own sitemap.xml and robots.txt (matched only for shops' domains).
-  if (pathname === "/sitemap.xml" || pathname === "/robots.txt") return NextResponse.next();
+  // PPI's own sitemap.xml, robots.txt and llms.txt (matched only for shops' domains).
+  if (pathname === "/sitemap.xml" || pathname === "/robots.txt" || pathname === "/llms.txt" || KEY_FILE.test(pathname)) return NextResponse.next();
   const segment = pathname.split("/")[1];
 
   // A shop's domain page asked for on PPI's own address (/site/{lang}/{slug}…): the Cacadoo page.
@@ -146,7 +153,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip Next internals, API/MCP routes and files with an extension (llms.txt...), except
-  // sitemap.xml and robots.txt (a shop's own domain has its own).
-  matcher: ["/((?!_next/|api/|mcp|auth/|.*\\..*).*)", "/sitemap.xml", "/robots.txt"],
+  // Skip Next internals, API/MCP routes and files with an extension, except sitemap.xml,
+  // robots.txt, llms.txt and the IndexNow key file (a shop's own domain has its own).
+  matcher: ["/((?!_next/|api/|mcp|auth/|.*\\..*).*)", "/sitemap.xml", "/robots.txt", "/llms.txt", "/:file([A-Za-z0-9-]{8,128}\\.txt)"],
 };

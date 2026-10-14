@@ -4292,4 +4292,200 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 
+\echo '--- own domains easy to find: Search Console value, IndexNow once per upload, categories (update 33)'
+-- one IndexNow key, public by design (the domain serves it as /<key>.txt)
+set role anon;
+do $$ begin
+  assert public.indexnow_key() ~ '^[a-f0-9]{32}$', 'a random 32-character key';
+  begin
+    perform public.indexnow_claim((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'a visitor claimed an IndexNow ping';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.shop_has_plan(v_a), 'shop A has the plan here';
+  -- no own domain yet: nothing to announce
+  assert public.indexnow_claim(v_a) is null, 'no live domain: no ping';
+  insert into public.domain_orders (shop_id, kind, hostname, site_host, status, live_at)
+  values (v_a, 'connected', 'potraviny33.sk', 'potraviny33.sk', 'waiting_dns', null);
+  assert public.indexnow_claim(v_a) is null, 'not live yet: no ping';
+  update public.domain_orders set status = 'live', live_at = now() where hostname = 'potraviny33.sk';
+end $$;
+
+-- upload 1 (its own transaction, like every stock upload)
+do $$ begin perform public.apply_stock_file((select id from public.shops where slug = 'potraviny-centrum'), '[
+  {"source_code":"P001","name":"Káva zrnková 1 kg","ean":"8000070012345","brand":"Lavazza","quantity":7,"price":19.5},
+  {"source_code":"P003","name":"Mlieko polotučné 1 l","brand":"Rajo","quantity":40,"price":1.09},
+  {"source_code":"P004","name":"Chlieb konzumný 1 kg","quantity":5,"price":1.89},
+  {"source_code":"P005","name":"Maslo 250 g","brand":"Tami","quantity":6,"price":2.79},
+  {"source_code":"P100","name":"Kakao 100 g","ean":"5900000000001","quantity":3,"price":2.2}
+]', now(), null); end $$;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c jsonb := public.indexnow_claim(v_a);
+begin
+  assert v_c ->> 'host' = 'potraviny33.sk' and v_c ->> 'lang' = 'sk' and v_c ->> 'key' = public.indexnow_key(), v_c::text;
+  assert jsonb_array_length(v_c -> 'items') >= 1, 'upload 1 changed something';
+  assert public.indexnow_claim(v_a) is null, 'once per upload';
+  perform public.indexnow_sent((v_c ->> 'order_id')::uuid, (v_c ->> 'upload_at')::timestamptz, 3, '202');
+  assert (select indexnow_urls || ' ' || indexnow_result from public.domain_orders where hostname = 'potraviny33.sk') = '3 202';
+  -- a late answer for an older upload changes nothing
+  perform public.indexnow_sent((v_c ->> 'order_id')::uuid, (v_c ->> 'upload_at')::timestamptz - interval '1 hour', 9, '500');
+  assert (select indexnow_result from public.domain_orders where hostname = 'potraviny33.sk') = '202';
+end $$;
+
+-- upload 2: P001 price, P003 quantity, P004 name changed; P200 new; P100 missing (sold out); P005 the same
+do $$ begin perform public.apply_stock_file((select id from public.shops where slug = 'potraviny-centrum'), '[
+  {"source_code":"P001","name":"Káva zrnková 1 kg","ean":"8000070012345","brand":"Lavazza","quantity":7,"price":18.9},
+  {"source_code":"P003","name":"Mlieko polotučné 1 l","brand":"Rajo","quantity":39,"price":1.09},
+  {"source_code":"P004","name":"Chlieb konzumný 1,2 kg","quantity":5,"price":1.89},
+  {"source_code":"P005","name":"Maslo 250 g","brand":"Tami","quantity":6,"price":2.79},
+  {"source_code":"P200","name":"Med kvetový 500 g","quantity":2,"price":6.5}
+]', now(), null); end $$;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c jsonb := public.indexnow_claim(v_a);
+begin
+  assert (select array_agg(si.source_code order by si.source_code) from public.shop_items si
+          where si.id::text in (select jsonb_array_elements_text(v_c -> 'items')))
+         = array['P001', 'P003', 'P004', 'P100', 'P200'], 'only the items that changed: ' || (v_c -> 'items')::text;
+  assert (select i.changed_at < i.received_at from public.inventory i join public.shop_items si on si.id = i.shop_item_id
+          where si.shop_id = v_a and si.source_code = 'P005'), 'an unchanged row keeps its time';
+  assert public.indexnow_claim(v_a) is null, 'once per upload';
+  assert public.indexnow_claim(v_a, 2) is null;
+end $$;
+
+-- upload 3: the same file again: nothing changed, nothing to send
+do $$ begin perform public.apply_stock_file((select id from public.shops where slug = 'potraviny-centrum'), '[
+  {"source_code":"P001","name":"Káva zrnková 1 kg","ean":"8000070012345","brand":"Lavazza","quantity":7,"price":18.9},
+  {"source_code":"P003","name":"Mlieko polotučné 1 l","brand":"Rajo","quantity":39,"price":1.09},
+  {"source_code":"P004","name":"Chlieb konzumný 1,2 kg","quantity":5,"price":1.89},
+  {"source_code":"P005","name":"Maslo 250 g","brand":"Tami","quantity":6,"price":2.79},
+  {"source_code":"P200","name":"Med kvetový 500 g","quantity":2,"price":6.5}
+]', now(), null); end $$;
+do $$ begin
+  assert public.indexnow_claim((select id from public.shops where slug = 'potraviny-centrum')) -> 'items' = '[]'::jsonb, 'an identical file: no address';
+end $$;
+
+-- upload 4 after the plan ended: the domain is no longer served, no ping; never another shop's domain
+update public.subscriptions set current_period_end = now() - interval '1 minute' where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+do $$ begin perform public.apply_stock_file((select id from public.shops where slug = 'potraviny-centrum'), '[
+  {"source_code":"P001","name":"Káva zrnková 1 kg","ean":"8000070012345","brand":"Lavazza","quantity":6,"price":18.9}
+]', now(), null); end $$;
+do $$ begin
+  assert public.indexnow_claim((select id from public.shops where slug = 'potraviny-centrum')) is null, 'plan ended: no ping';
+  assert public.indexnow_claim((select id from public.shops where slug = 'drogeria-kostolne')) is null, 'shop B has no domain';
+end $$;
+update public.subscriptions set current_period_end = now() + interval '30 days' where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+
+-- the Search Console value: only google-site-verification=<token>, always with its state
+do $$
+declare v_o uuid := (select id from public.domain_orders where hostname = 'potraviny33.sk');
+begin
+  begin
+    update public.domain_orders set google_verification = 'google-site-verification=short', google_verification_state = 'manual' where id = v_o;
+    raise exception 'a wrong verification value stored';
+  exception when check_violation then null;
+  end;
+  begin
+    update public.domain_orders set google_verification = 'v=spf1 include:evil ~all', google_verification_state = 'added' where id = v_o;
+    raise exception 'another TXT value stored as the Google one';
+  exception when check_violation then null;
+  end;
+  begin
+    update public.domain_orders set google_verification = 'google-site-verification=AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789-abcd' where id = v_o;
+    raise exception 'a value without its state';
+  exception when check_violation then null;
+  end;
+  update public.domain_orders
+  set google_verification = 'google-site-verification=AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789-abcd', google_verification_state = 'manual',
+      google_verification_at = now()
+  where id = v_o;
+end $$;
+reset role;
+
+-- owners read their own value and IndexNow answer, and change neither
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  assert (select google_verification_state || ' ' || (indexnow_upload_at is not null) from public.domain_orders where hostname = 'potraviny33.sk')
+    = 'manual true', 'the owner reads the value and the IndexNow bookkeeping';
+  begin
+    update public.domain_orders set google_verification = null, google_verification_state = null where hostname = 'potraviny33.sk';
+    raise exception 'an owner changed the order';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.indexnow_claim(v_a);
+    raise exception 'an owner claimed a ping';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- "Kategórie tovaru": plain text, commas, semicolons or lines, duplicates once
+  assert public.owner_set_categories(v_a, E'Potraviny, Drogéria; káva\n<b>Pečivo</b>, potraviny , https://evil.example,,')
+    = array['Potraviny', 'Drogéria', 'káva', 'Pečivo'], 'cleaned categories';
+  begin
+    perform public.owner_set_categories(v_a, 'a,b,c,d,e,f,g,h,i,j,k,l,m');
+    raise exception 'thirteen categories';
+  exception when invalid_parameter_value then assert sqlerrm = 'categories', sqlerrm;
+  end;
+  begin
+    perform public.owner_set_categories(v_a, repeat('x', 41));
+    raise exception 'a category over 40 characters';
+  exception when invalid_parameter_value then assert sqlerrm = 'categories', sqlerrm;
+  end;
+  assert (select product_categories from public.shops where id = v_a) = array['Potraviny', 'Drogéria', 'káva', 'Pečivo'], 'a refused list keeps the old one';
+  begin
+    update public.shops set product_categories = array['Lacné lieky'] where id = v_a;
+    raise exception 'categories changed directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_set_categories(v_b, 'Drogéria');
+    raise exception 'owner A set shop B''s categories';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$
+declare v_f jsonb := public.shop_llms_facts('potraviny-centrum');
+begin
+  assert v_f -> 'categories' = '["Potraviny", "Drogéria", "káva", "Pečivo"]'::jsonb, v_f::text;
+  assert v_f -> 'brands' ? 'Lavazza' and v_f -> 'brands' ? 'Tami', 'brands from the stock file';
+  assert (v_f ->> 'items')::int >= 5;
+  assert public.shop_llms_facts('drogeria-kostolne') -> 'categories' = '[]'::jsonb, 'none written: empty';
+  assert public.shop_llms_facts('no-such-shop') is null;
+  begin
+    perform public.owner_set_categories((select id from public.shops where slug = 'potraviny-centrum'), 'x');
+    raise exception 'a visitor set categories';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  assert public.owner_set_categories((select id from public.shops where slug = 'potraviny-centrum'), '  ') is null, 'empty = none';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+delete from public.domain_orders where hostname = 'potraviny33.sk';
+
 \echo 'ALL DATABASE CHECKS PASSED'

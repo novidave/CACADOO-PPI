@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import { loadLiveSites } from "./customDomain";
 import type { CalendarDay } from "./hours";
 import { missingColumn } from "./missingColumn";
 import { loadCalendars } from "./shopCalendar";
@@ -147,6 +148,15 @@ export async function shopSiteHost(slug: string): Promise<string | null> {
   const { data, error } = await (await client()).rpc("shop_site", { p_slug: slug });
   return !error && typeof data === "string" && data ? data : null;
 }
+
+/** Shops whose own domain is live: slug → host, once per request (search results link there). */
+export const getLiveSites = cache(async (): Promise<Map<string, string>> => {
+  try {
+    return await loadLiveSites(await client());
+  } catch {
+    return new Map();
+  }
+});
 
 /** An item as visitors may see it (public_stock), or null. */
 export const getItem = cache(async (id: string): Promise<StockRow | null> => {

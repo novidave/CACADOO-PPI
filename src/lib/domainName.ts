@@ -50,3 +50,13 @@ export function validSkIco(value: string): boolean {
   for (let i = 0; i < 7; i++) sum += Number(n[i]) * (8 - i);
   return (11 - (sum % 11)) % 10 === Number(n[7]);
 }
+
+/**
+ * A DNS record's name for a host at the shop's own registrar: "@" for the domain itself, else the
+ * labels in front of it ("eshop" for eshop.davide.sk) — the same as manualRecordName() in the
+ * domains function (its Deno tests compare them).
+ */
+export function recordName(host: string): string {
+  const labels = host.split(".");
+  return labels.length <= 2 ? "@" : labels.slice(0, -2).join(".");
+}

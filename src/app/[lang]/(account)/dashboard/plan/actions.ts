@@ -148,3 +148,28 @@ export async function requestAuthCode(formData: FormData) {
   if (error) back({ err: "auth" }, "transfer");
   back({ ok: data?.auth_code ? "auth" : "auth_requested" }, "transfer");
 }
+
+/** "Overiť v Google Search Console": the TXT value into the domain's DNS, or the record to add by hand. */
+export async function verifyGoogle(formData: FormData) {
+  const { session, back } = await start(formData);
+  const { data, error } = await callDomains<{ state?: string }>(session.supabase, {
+    action: "google_verify",
+    order_id: String(formData.get("order_id") ?? ""),
+    value: String(formData.get("value") ?? "").slice(0, 300),
+  });
+  if (error === "too_soon") back({ err: "google_too_soon" }, "findable");
+  if (error) back({ err: "error" }, "findable");
+  const state = data?.state;
+  if (state === "added" || state === "manual") back({ ok: `google_${state}` }, "findable");
+  back({ err: state === "too_many" ? "google_too_many" : "google_invalid" }, "findable");
+}
+
+/** "Kategórie tovaru" for the domain's llms.txt (owner_set_categories: plain text, at most 12). */
+export async function saveCategories(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const { error } = await session.supabase.rpc("owner_set_categories", {
+    p_shop_id: shopId,
+    p_categories: String(formData.get("categories") ?? "").slice(0, 1000),
+  });
+  back(error ? { err: "categories" } : { ok: "categories" }, "findable");
+}

@@ -21,6 +21,9 @@
 //   6. after the reply, in the background: names without a translation (or renamed) get
 //      their Slovak, Hungarian and English names from Claude Haiku; never touches stock,
 //      and whatever fails is tried again with the next file
+//   7. also in the background (update 33): a shop whose own domain is live tells IndexNow
+//      (Bing, Seznam, Yandex… share it) the addresses on that domain that this upload
+//      changed — one request per upload at most (indexnow_claim), only the changed items
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor →
 // name "stock-pull" → paste this file → Deploy, then switch OFF "Verify JWT"
@@ -565,6 +568,76 @@ function inBackground(task: Promise<unknown>): void {
   else task.catch(() => {});
 }
 
+// ---------------------------------------------------------------- IndexNow (update 33)
+
+/** The shared IndexNow endpoint: one request reaches every search engine that takes part. */
+export const INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow";
+const INDEXNOW_MAX_URLS = 10_000;
+const SITE_LANGS = ["sk", "hu", "en"];
+
+/** What indexnow_claim() gives once per upload: the live own domain and the items that changed. */
+export interface IndexNowClaim {
+  order_id: string;
+  host: string;
+  /** The domain's own language ("/" is in it). */
+  lang: string;
+  key: string;
+  upload_at: string;
+  items: string[];
+}
+
+/**
+ * The changed addresses on the shop's own domain (the same as its sitemap.xml): its page, then
+ * every changed item in the domain's language, then in the other languages; at most 10 000.
+ */
+export function indexNowUrls(claim: IndexNowClaim): string[] {
+  if (!claim.items.length) return [];
+  const base = `https://${claim.host}`;
+  const others = SITE_LANGS.filter((l) => l !== claim.lang);
+  const urls = [`${base}/`, ...others.map((l) => `${base}/${l}`)];
+  for (const lang of [claim.lang, ...others]) {
+    for (const id of claim.items) urls.push(`${base}/${lang}/items/${id}`);
+  }
+  return urls.slice(0, INDEXNOW_MAX_URLS);
+}
+
+/**
+ * After an upload that was applied: one IndexNow request with the addresses it changed, only for
+ * a shop whose own domain is live (indexnow_claim decides, and only once per upload). The key is
+ * public (the domain serves it as /<key>.txt) but is still never logged.
+ */
+export async function pingIndexNow(
+  db: SupabaseClient,
+  shopId: string,
+  f: typeof fetch = fetch,
+  endpoint = INDEXNOW_ENDPOINT,
+): Promise<{ sent: number; status: number | null }> {
+  const { data, error } = await db.rpc("indexnow_claim", { p_shop_id: shopId });
+  if (error || !data) return { sent: 0, status: null };
+  const claim = data as IndexNowClaim;
+  const urls = indexNowUrls(claim);
+  // Nothing changed in this upload: no request (the owner still sees the last one).
+  if (!urls.length) return { sent: 0, status: null };
+  let status: number | null = null;
+  let result: string;
+  try {
+    const res = await f(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ host: claim.host, key: claim.key, keyLocation: `https://${claim.host}/${claim.key}.txt`, urlList: urls }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    status = res.status;
+    await res.body?.cancel().catch(() => {});
+    result = String(res.status);
+  } catch (e) {
+    result = `failed: ${e instanceof Error ? e.name : "error"}`;
+  }
+  await db.rpc("indexnow_sent", { p_order_id: claim.order_id, p_upload_at: claim.upload_at, p_urls: urls.length, p_result: result });
+  if (status === null || status >= 400) console.error(`stock-pull: IndexNow answered ${result} for ${claim.host}`);
+  return { sent: urls.length, status };
+}
+
 // ---------------------------------------------------------------- one shop
 
 interface Source {
@@ -791,7 +864,12 @@ export async function receiveUpload(
   params: URLSearchParams,
   asCaller: SupabaseClient,
   db: SupabaseClient,
-  options: { translate?: Translator; background?: (task: Promise<unknown>) => void } = {},
+  options: {
+    translate?: Translator;
+    background?: (task: Promise<unknown>) => void;
+    /** Tests only: where the IndexNow request goes. */
+    indexnow?: { fetch?: typeof fetch; endpoint?: string };
+  } = {},
 ) {
   const shopId = params.get("shop_id") ?? "";
   if (!UUID.test(shopId)) return reply(400, { error: "shop_id is missing" });
@@ -828,8 +906,12 @@ export async function receiveUpload(
     result = await failed(update, e);
   }
   await recordImport(db, shopId, fileName, fileTime, result);
-  // The new stock is saved; names are translated after the reply, so this never delays it.
-  if (result.status === "updated") (options.background ?? inBackground)(translateShopItems(db, shopId, options.translate));
+  // The new stock is saved; IndexNow is told and names are translated after the reply, so neither delays it.
+  if (result.status === "updated") {
+    const later = options.background ?? inBackground;
+    later(pingIndexNow(db, shopId, options.indexnow?.fetch, options.indexnow?.endpoint).catch(() => ({ sent: 0, status: null })));
+    later(translateShopItems(db, shopId, options.translate));
+  }
   return reply(200, { result: publicResult(result) });
 }
 

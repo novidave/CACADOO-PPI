@@ -3,14 +3,18 @@ import * as XLSX from "npm:@e965/xlsx@0.20.3";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
   applyMapping, approvalSample, batches, columnSamples, currencyForCountry, decodeText, detectFormat, guessMapping,
-  importReport, isPrivateColumn, mappedColumns, onlyColumns, parseFile, parseNumber, readTranslations, receiveUpload,
-  type Mapping, type NameTranslation, type Translator,
+  importReport, indexNowUrls, isPrivateColumn, mappedColumns, onlyColumns, parseFile, parseNumber, pingIndexNow, readTranslations,
+  receiveUpload, type IndexNowClaim, type Mapping, type NameTranslation, type Translator,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
   const e = JSON.stringify(expected);
   if (a !== e) throw new Error(`${label}\n  expected ${e}\n  got      ${a}`);
+}
+
+function assert(condition: unknown, label: string) {
+  if (!condition) throw new Error(label);
 }
 
 Deno.test("numbers in European and English formats", () => {
@@ -119,7 +123,7 @@ const SHOP = "00000000-0000-4000-8000-000000000001";
 const CSV = "Kod;Nazov;Mnozstvo;Cena\nC1;Farba fas. biela 5L;4;24,90\nC2;Valcek 25 cm;3;6,90\n";
 
 /** Just enough of the Supabase client for one upload; records every database call. */
-function fakeSupabase(override: Partial<{ field_mapping: Mapping | null; mapping_status: string }> = {}) {
+function fakeSupabase(override: Partial<{ field_mapping: Mapping | null; mapping_status: string; latest_file_time: string | null }> = {}, claim: IndexNowClaim | null = null) {
   const rpc: { name: string; args: Record<string, unknown> }[] = [];
   const updates: Record<string, unknown>[] = [];
   const source = {
@@ -137,6 +141,8 @@ function fakeSupabase(override: Partial<{ field_mapping: Mapping | null; mapping
       if (name === "apply_stock_file") return Promise.resolve({ data: { items: (args.p_rows as unknown[]).length, zeroed: 0 }, error: null });
       if (name === "items_to_translate") return Promise.resolve({ data: [{ item_id: "item-1", name: "Farba fas. biela 5L" }], error: null });
       if (name === "apply_item_translations") return Promise.resolve({ data: (args.p_items as unknown[]).length, error: null });
+      // Once per upload, like the database: the second call gets nothing.
+      if (name === "indexnow_claim") return Promise.resolve({ data: rpc.filter((c) => c.name === name).length === 1 ? claim : null, error: null });
       return Promise.resolve({ data: null, error: null });
     },
     from: () => ({
@@ -158,13 +164,19 @@ function fakeSupabase(override: Partial<{ field_mapping: Mapping | null; mapping
   return { db: db as unknown as SupabaseClient, asCaller: asCaller as unknown as SupabaseClient, rpc, updates };
 }
 
-async function upload(translate: Translator, csv = CSV, override: Parameters<typeof fakeSupabase>[0] = {}) {
-  const { db, asCaller, rpc, updates } = fakeSupabase(override);
+async function upload(
+  translate: Translator,
+  csv = CSV,
+  override: Parameters<typeof fakeSupabase>[0] = {},
+  indexnow: { claim: IndexNowClaim; fetch: typeof fetch } | null = null,
+) {
+  const { db, asCaller, rpc, updates } = fakeSupabase(override, indexnow?.claim ?? null);
   const tasks: Promise<unknown>[] = [];
   const url = new URL(`http://localhost/stock-pull?shop_id=${SHOP}&file_time=2026-10-08T10:15:00Z&file_name=stock.csv`);
   const response = await receiveUpload(new Request(url, { method: "POST", body: csv }), url.searchParams, asCaller, db, {
     translate,
     background: (task) => tasks.push(task),
+    ...(indexnow ? { indexnow: { fetch: indexnow.fetch, endpoint: "https://indexnow.test/indexnow" } } : {}),
   });
   const body = await response.json();
   const background = await Promise.all(tasks);
@@ -177,8 +189,8 @@ async function upload(translate: Translator, csv = CSV, override: Parameters<typ
 Deno.test("a failed translation leaves the stock applied", async () => {
   const { body, background, calls, lastError } = await upload(() => Promise.reject(new Error("Claude is unavailable")));
   eq(body.result, { status: "updated", items: 2, zeroed: 0, skipped: 0 }, "stock applied");
-  eq(calls, ["apply_stock_file", "record_stock_import", "items_to_translate"], "translations not saved");
-  eq(background, [{ saved: 0, failed: 1 }], "failure caught in the background");
+  eq(calls, ["apply_stock_file", "record_stock_import", "indexnow_claim", "items_to_translate"], "translations not saved");
+  eq(background, [{ sent: 0, status: null }, { saved: 0, failed: 1 }], "failure caught in the background");
   eq(lastError, "Item names could not be translated (the stock is fine): Claude is unavailable", "the owner sees why");
 });
 
@@ -187,9 +199,105 @@ Deno.test("translations are saved after the stock, in the background", async () 
     Promise.resolve(batch.map((b) => ({ item_id: b.item_id, source: b.name, lang: "sk", sk: "Fasádna farba biela 5 l", hu: "Homlokzatfesték fehér 5 l", en: "White facade paint 5 l" }))),
   );
   eq(body.result.status, "updated", "stock applied");
-  eq(calls, ["apply_stock_file", "record_stock_import", "items_to_translate", "apply_item_translations"], "order of database calls");
-  eq((rpc[3].args.p_items as NameTranslation[])[0].en, "White facade paint 5 l", "saved translation");
-  eq(background, [{ saved: 1, failed: 0 }], "one item translated");
+  eq(calls, ["apply_stock_file", "record_stock_import", "indexnow_claim", "items_to_translate", "apply_item_translations"], "order of database calls");
+  eq((rpc[4].args.p_items as NameTranslation[])[0].en, "White facade paint 5 l", "saved translation");
+  eq(background, [{ sent: 0, status: null }, { saved: 1, failed: 0 }], "one item translated (no own domain: no IndexNow)");
+});
+
+// ---------------------------------------------------------------- IndexNow (update 33)
+
+const ITEM_A = "11111111-1111-4111-8111-111111111111";
+const ITEM_B = "22222222-2222-4222-8222-222222222222";
+const KEY = "0123456789abcdef0123456789abcdef";
+const CLAIM: IndexNowClaim = {
+  order_id: "33333333-3333-4333-8333-333333333333", host: "potraviny.sk", lang: "sk", key: KEY,
+  upload_at: "2026-10-14T08:00:00.123456+00:00", items: [ITEM_A, ITEM_B],
+};
+
+/** Records every IndexNow request; answers with the given status (or fails like a network error). */
+function fakeIndexNow(status: number | "fail" = 202) {
+  const sent: { url: string; body: Record<string, unknown> }[] = [];
+  const f = ((url: string, init: RequestInit) => {
+    sent.push({ url, body: JSON.parse(String(init.body)) });
+    return status === "fail" ? Promise.reject(new TypeError("connection refused")) : Promise.resolve(new Response(null, { status }));
+  }) as unknown as typeof fetch;
+  return { f, sent };
+}
+
+Deno.test("IndexNow: the changed addresses on the own domain, the domain's language first, at most 10 000", () => {
+  eq(indexNowUrls(CLAIM), [
+    "https://potraviny.sk/", "https://potraviny.sk/hu", "https://potraviny.sk/en",
+    `https://potraviny.sk/sk/items/${ITEM_A}`, `https://potraviny.sk/sk/items/${ITEM_B}`,
+    `https://potraviny.sk/hu/items/${ITEM_A}`, `https://potraviny.sk/hu/items/${ITEM_B}`,
+    `https://potraviny.sk/en/items/${ITEM_A}`, `https://potraviny.sk/en/items/${ITEM_B}`,
+  ], "the shop's page and each changed item");
+  eq(indexNowUrls({ ...CLAIM, lang: "hu", items: [ITEM_A] }).slice(0, 4),
+    ["https://potraviny.sk/", "https://potraviny.sk/sk", "https://potraviny.sk/en", `https://potraviny.sk/hu/items/${ITEM_A}`], "a Hungarian domain");
+  eq(indexNowUrls({ ...CLAIM, items: [] }), [], "nothing changed: no address");
+  const many = Array.from({ length: 5000 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+  eq(indexNowUrls({ ...CLAIM, items: many }).length, 10_000, "one request holds at most 10 000");
+});
+
+Deno.test("IndexNow: one request after an applied upload, with the key file on the domain; the answer is noted", async () => {
+  const net = fakeIndexNow(202);
+  const { body, background, calls, rpc } = await upload(() => Promise.resolve([]), CSV, {}, { claim: CLAIM, fetch: net.f });
+  eq(body.result.status, "updated", "stock applied");
+  eq(net.sent.length, 1, "exactly one request");
+  eq(net.sent[0].url, "https://indexnow.test/indexnow", "to the endpoint");
+  eq([net.sent[0].body.host, net.sent[0].body.key, net.sent[0].body.keyLocation], ["potraviny.sk", KEY, `https://potraviny.sk/${KEY}.txt`], "host and key");
+  eq((net.sent[0].body.urlList as string[]).length, 9, "only the changed addresses");
+  assert((net.sent[0].body.urlList as string[]).every((u) => u.startsWith("https://potraviny.sk/")), "all on the own domain");
+  const noted = rpc.find((c) => c.name === "indexnow_sent")!;
+  eq([noted.args.p_order_id, noted.args.p_upload_at, noted.args.p_urls, noted.args.p_result], [CLAIM.order_id, CLAIM.upload_at, 9, "202"], "the answer noted");
+  eq(background[0], { sent: 9, status: 202 }, "in the background");
+  eq(calls.filter((c) => c === "indexnow_claim").length, 1, "claimed once");
+});
+
+Deno.test("IndexNow: nothing for a file already applied, a claim already used or an upload that changed nothing", async () => {
+  const net = fakeIndexNow();
+  const same = await upload(() => Promise.resolve([]), CSV, { latest_file_time: "2026-10-08T10:15:00Z" }, { claim: CLAIM, fetch: net.f });
+  eq(same.body.result.status, "unchanged", "the same file again");
+  eq([net.sent.length, same.calls.includes("indexnow_claim")], [0, false], "no claim, no request");
+
+  // the database already gave this upload away (a second call): nothing sent
+  const db = { rpc: () => Promise.resolve({ data: null, error: null }) } as unknown as SupabaseClient;
+  eq(await pingIndexNow(db, SHOP, net.f), { sent: 0, status: null }, "no claim");
+  // before database update 33 the function does not exist: nothing happens
+  const old = { rpc: () => Promise.resolve({ data: null, error: { code: "PGRST202", message: "not found" } }) } as unknown as SupabaseClient;
+  eq(await pingIndexNow(old, SHOP, net.f), { sent: 0, status: null }, "no update 33");
+  eq(net.sent.length, 0, "never a request");
+
+  const results: unknown[] = [];
+  const empty = { rpc: (name: string, args: Record<string, unknown>) => {
+    if (name === "indexnow_claim") return Promise.resolve({ data: { ...CLAIM, items: [] }, error: null });
+    results.push(args);
+    return Promise.resolve({ data: null, error: null });
+  } } as unknown as SupabaseClient;
+  eq(await pingIndexNow(empty, SHOP, net.f), { sent: 0, status: null }, "nothing changed");
+  eq([net.sent.length, results.length], [0, 0], "no request, the last answer stays");
+});
+
+Deno.test("IndexNow: a refusal or a network error is noted and never breaks the upload; the key is never logged", async () => {
+  const logged: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => logged.push(args.join(" "));
+  try {
+    for (const answer of [422, "fail"] as const) {
+      const results: Record<string, unknown>[] = [];
+      const db = { rpc: (name: string, args: Record<string, unknown>) => {
+        if (name === "indexnow_claim") return Promise.resolve({ data: CLAIM, error: null });
+        results.push(args);
+        return Promise.resolve({ data: null, error: null });
+      } } as unknown as SupabaseClient;
+      const out = await pingIndexNow(db, SHOP, fakeIndexNow(answer).f);
+      eq(out, { sent: 9, status: answer === "fail" ? null : 422 }, `answer ${answer}`);
+      eq(results[0].p_result, answer === "fail" ? "failed: TypeError" : "422", "noted");
+    }
+  } finally {
+    console.error = original;
+  }
+  eq(logged.length, 2, "both logged");
+  assert(logged.every((l) => !l.includes(KEY)), "no key in the log");
 });
 
 // ---------------------------------------------------------------- private columns and import reports

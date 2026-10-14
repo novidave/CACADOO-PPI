@@ -3,14 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { locales, type Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
-import { siteItemUrl, siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getItem, getOtherOffers, getShop, getShopCalendars, getShopsByIds, shopSiteHost, shopStandsAlone } from "@/lib/data";
+import { itemHref, siteItemUrl, siteLang, sitePath } from "@/lib/customDomain";
+import { getItem, getLiveSites, getOtherOffers, getShop, getShopCalendars, getShopsByIds, shopSiteHost, shopStandsAlone } from "@/lib/data";
 import { addressLine, directionsUrl, formatDistance, formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
 import { requestTime } from "@/lib/requestTime";
 import { statusInput } from "@/lib/shopCalendar";
+import { itemJsonLd } from "@/lib/jsonLd";
 import { pageAlternates, siteUrl } from "@/lib/site";
-import type { StockRow } from "@/lib/stock";
 import { JsonLd } from "@/components/JsonLd";
 import { ShopMap } from "@/components/ShopMap";
 import { LiveStatus } from "@/components/ShopStatus";
@@ -58,10 +58,12 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
   const alone = await shopStandsAlone(item.shop_id);
 
   const [shop, others] = await Promise.all([getShop(item.shop_slug), alone ? Promise.resolve([]) : getOtherOffers(item, near)]);
-  const [otherShops, calendars] = await Promise.all([
+  const [otherShops, calendars, sites] = await Promise.all([
     getShopsByIds([...new Set(others.map((o) => o.shop_id))]),
     // Special days and holidays for the status of each shop (database update 27).
     getShopCalendars([item.shop_id, ...others.map((o) => o.shop_id)]).catch(() => new Map()),
+    // Other shops with a live own domain are linked there (their canonical address).
+    others.length ? getLiveSites() : Promise.resolve(new Map<string, string>()),
   ]);
   const renderedAt = requestTime();
   const hasLocation = item.shop_lat !== null && item.shop_lng !== null;
@@ -70,7 +72,7 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <JsonLd data={product(item, lang, host)} />
+      <JsonLd data={itemJsonLd(item, shop, lang, host, shop ? statusInput(shop, calendars) : null, siteUrl())} />
 
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">{item.item_name}</h1>
@@ -143,7 +145,7 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
                   name: o.shop_name,
                   lat: o.shop_lat!,
                   lng: o.shop_lng!,
-                  href: `/${lang}/items/${o.item_id}`,
+                  href: itemHref(sites, lang, o.shop_slug, o.item_id),
                   ...(other ? { status: statusInput(other, calendars) } : {}),
                 };
               }),
@@ -169,7 +171,7 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
                 return (
                   <li key={o.item_id} data-shop={o.shop_slug} className="flex flex-col gap-1 py-3">
                     <div className="flex items-baseline justify-between gap-3">
-                      <Link href={`/${lang}/items/${o.item_id}`} className="font-medium hover:underline">
+                      <Link href={itemHref(sites, lang, o.shop_slug, o.item_id)} className="font-medium hover:underline">
                         {o.shop_name}
                       </Link>
                       <span className="whitespace-nowrap font-medium">{formatPrice(o.price, lang, o.currency)}</span>
@@ -194,50 +196,4 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
       )}
     </div>
   );
-}
-
-const SCHEMA_AVAILABILITY: Record<string, string> = {
-  in_stock_count: "https://schema.org/InStock",
-  out_of_stock: "https://schema.org/OutOfStock",
-};
-
-/** schema.org Product + Offer. The offer is left out entirely when the shop's stock data is stale. */
-function product(item: StockRow, lang: Locale, host: string | null) {
-  const url = host ? siteItemUrl(host, lang, item.item_id) : `${siteUrl()}/${lang}/items/${item.item_id}`;
-  const shopUrl = host ? siteShopUrl(host, lang, siteLang(item.shop_country)) : `${siteUrl()}/${lang}/shops/${item.shop_slug}`;
-  const alternateName = translatedName(item.item_name, item.item_name_i18n, lang);
-  const offer =
-    item.freshness_state !== "stale" && item.price !== null && item.availability
-      ? {
-          offers: {
-            "@type": "Offer",
-            url,
-            price: Number(item.price).toFixed(2),
-            priceCurrency: item.currency,
-            availability: SCHEMA_AVAILABILITY[item.availability],
-            seller: {
-              "@type": "Store",
-              "@id": shopUrl,
-              name: item.shop_name,
-              address: {
-                "@type": "PostalAddress",
-                ...(item.shop_address ? { streetAddress: item.shop_address } : {}),
-                ...(item.shop_city ? { addressLocality: item.shop_city } : {}),
-                ...(item.shop_country ? { addressCountry: item.shop_country } : {}),
-              },
-            },
-          },
-        }
-      : {};
-  return {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    "@id": url,
-    name: item.item_name,
-    ...(alternateName ? { alternateName } : {}),
-    url,
-    ...(item.brand ? { brand: { "@type": "Brand", name: item.brand } } : {}),
-    ...(item.ean ? { gtin: item.ean } : {}),
-    ...offer,
-  };
 }
