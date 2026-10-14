@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 3.0 · status 14 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 3.1 · status 15 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -21,6 +21,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Item names in Slovak, Hungarian and English; search across the three languages | Built and tested; live after migration 17, the new stock function and the Anthropic key in Supabase |
 | AI search on the main page (Claude Haiku) | Built and tested; switched on by the Anthropic key in Vercel |
 | The main page as one AI chat (Prompt 10): "Čo dnes hľadáte?" with one centred input and example questions; thinking dots and the real steps, the answer streamed word by word, result cards from the search with freshness and status, follow-up questions, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page | Built and tested against a Claude stand-in; live after the merge, no database change (SETUP.md part AD) |
+| The chat finds products in layers (Prompt 11, phase A): Cacadoo first; with fewer than 3 good Cacadoo results and a town the shopper wrote, also shops of the right kind nearby (OpenStreetMap, optionally Google Places; "Môže mať", stock not verified) and offers on allowed shop websites (Claude's web search; "Z webu", price as the page shows it) with links to each shop's own search; groups "Overené v Cacadoo" / "Obchody v okolí (neoverené)" / "Na webe"; anything not about finding a product is declined; admin: switches, allowed domains, search links, calls and estimated cost per day | Built and tested against stand-ins for Claude, Nominatim, Overpass and Google; live after database update 34, the product-sources function, its secrets and the merge (SETUP.md part AE) |
 | Paid plan per shop (Stripe: monthly subscription, VAT invoices) | Built and tested against a Stripe stand-in; Stripe **test mode** first (SETUP.md part K) |
 | AI assistant on the shop page (paid plan only, Claude Haiku) | Built and tested against a Claude stand-in; live after migration 19 (SETUP.md part L) |
 | Documents and pictures for the assistant; private folders with access keys (paid plan only) | Built and tested against Claude and Storage stand-ins; live after migration 20 and two new functions (SETUP.md part M) |
@@ -67,7 +68,8 @@ Center.
 | AI assistant / tool | Any program | Read the same public data through the API, the MCP server and the pages |
 
 **Self-service:** there is no approval step by the operator and no admin area for shops or stock. The only operator page
-is "Predplatné a domény" (`/[lang]/admin/domains`, own domains, update 25; only for accounts with `profiles.is_admin`).
+is "Predplatné a domény" (`/[lang]/admin/domains`, own domains, update 25; only for accounts with `profiles.is_admin`); since
+update 34 it also holds "Vyhľadávanie mimo Cacadoo" and the allowed web domains of the main chat's search (6.5).
 The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 ## 3. Scope
@@ -84,6 +86,8 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   background, correctable by the owner), so a search in any of the three languages finds it
 - The main page is one AI chat search (Prompt 10); the plain database search is its hidden fallback and the first
   HTML of `/[lang]?q=…`
+- The main chat's search in layers (Prompt 11): Cacadoo, then shops nearby (OpenStreetMap, optionally Google Places) and
+  offers on larger shops' websites, only when Cacadoo has too little and the shopper wrote a town
 - Paid plan per shop: a monthly Stripe subscription (Stripe Checkout to subscribe, the Stripe customer portal to
   cancel or change the card), invoices with VAT; one database function says whether a shop has it
 - AI assistant on the shop page (the first paid feature): questions about the shop's items, prices and availability,
@@ -189,6 +193,33 @@ The main page is **one AI chat** (Prompt 10), like Perplexity or Claude: nothing
   JavaScript; with JavaScript such a link starts the chat with that question. The input is a plain form (`GET
   /[lang]?q=…`), so it also works without JavaScript.
 - "Opýtajte sa obchodov" and "Upozorniť ma" are not shown: they do not exist yet.
+
+**Search in layers (Prompt 11, phase A).** The chat has one job: help a shopper find a product in a town — who has it,
+where, at what price and how fresh that is. Anything else gets "Pomáham len s hľadaním produktov v obchodoch v okolí."
+(in the language of the question) and no search.
+
+- **Layer 1 – Cacadoo** (always first): the shops' own stock files, with the freshness badges and status dots above.
+- **Layer 3 – shops nearby** (only when Cacadoo gave fewer than 3 good results — current or recent data, not sold out,
+  around the town — and the shopper wrote a town): shops of the right kind around the town's centre from OpenStreetMap
+  (the AI picks 1–3 kinds of shop for the product, e.g. AdBlue → čerpacie stanice, autodiely). A card: "Môže mať ·
+  Turista Michalovce", the kind, street, "180 m od centra Michalovce", the opening hours from OpenStreetMap as text
+  ("otvorené do 17:00 (podľa OpenStreetMap)", nothing when OpenStreetMap has none), **zásoby neoverené**, buttons
+  Zavolať (only with a phone in the data) and Navigovať, the shop on OpenStreetMap, "údaje z OpenStreetMap (pred 3 h)";
+  "© OpenStreetMap contributors" under the list. A shop that is already in Cacadoo is not repeated. With Google Places
+  switched on, a second list from Google Maps (with "Google Maps" under it; never on the map, never seen by the AI).
+- **Layer 4 – the web**: the product on the larger shops' websites the admin allowed (Decathlon, dm, Exisport,
+  Intersport, Action …), searched by Claude's web search for a shopper in that town. A card: "Z webu · Decathlon", the
+  page's title (link to the page), "cena podľa webu: 39,99 €" (only when the page's own text shows a price), "overte
+  dostupnosť na stránke →", "zistené (práve teraz)". Never a store stock claim. Under them "Hľadať priamo v e-shope:"
+  with a link to each shop's own search for the product (the admin's search address).
+- **Order and groups:** Overené v Cacadoo (current, then recent, then stale) → [Partneri, phase B] → Obchody v okolí
+  (neoverené) → Na webe. The thinking line follows the real steps ("Hľadám v obchodoch…", "Hľadám obchody v okolí…",
+  "Hľadám na webe…"). Only Cacadoo shops go on "Ukázať na mape".
+- **No town** in the question and too little in Cacadoo: the answer shows what Cacadoo has and asks "V ktorom meste
+  hľadáte?"; the follow-up ("v Michalovciach") searches nearby and on the web for the same product.
+- **Nothing anywhere:** the answer says so and shows what was searched. "Opýtajte sa obchodov" / "Upozorniť ma" do not
+  exist yet. When the day's limit of outside searches is used up: "Prehľadali sme len ponuky v Cacadoo."
+- A link "Súkromie a zdroje" under the outside results leads to the list of services on the privacy page.
 
 ### 5.2 Shop page (`/[lang]/shops/{slug}`)
 
@@ -517,6 +548,41 @@ choose "exact number / in stock–low stock / available" and hide items; migrati
   reason (to test it), and every reason is written to the Vercel log as `ai-search: …`.
 - "Zastaviť" / Esc stops the AI call on the server too. The server keeps no conversation and logs no question.
 - Crawlers are kept away from it (robots.txt); the main page itself loads no map and no heavy script.
+
+### 6.5a Outside sources (Prompt 11, phase A)
+
+- **Only through the product-sources Edge Function.** The website asks it with `EXTERNAL_SEARCH_SECRET`; it keeps the
+  caches, the daily limit, the switches and the outside keys. Only the product and the town go out — nothing about the
+  visitor; distances are from the town's centre. No scraping of any website or internal API: only OpenStreetMap
+  (Nominatim, Overpass API), Google Places (API, optional) and Claude's web search.
+- **The server decides the order**, not the AI: shops nearby and the web are refused unless Cacadoo was searched first in
+  that question, while it has fewer than 3 good results, and with a town the shopper wrote (the town must appear in the
+  shopper's own words, bent or not: "v Michalovciach" = Michalovce). Each is asked at most once per question.
+- **OpenStreetMap:** a town is geocoded with Nominatim once and kept for good (a town not found: asked again after 30
+  days); shops come from the Overpass API by shop type within 7 km of the centre, kept 24 hours per town and kind; at
+  most one Nominatim request per second for the whole site; every request carries a User-Agent with `ADMIN_EMAIL` (no
+  contact address: OpenStreetMap is not asked); short timeouts. Opening hours read with the opening_hours library in the
+  town's own time zone (looked up from the town's centre).
+- **Google Places** (optional): only when `GOOGLE_PLACES_ENABLED=true`, `GOOGLE_PLACES_API_KEY` is set and the admin's
+  switch is on. Nearby Search (New) with a field mask of only the fields shown (id, name, address, location, Google Maps
+  link); Google's results only in their own list with Google's attribution, never on our map and never sent to the AI;
+  nothing of Google is stored (not even place ids).
+- **Web:** Claude's web search (`web_search_20250305`, the model from `AI_MODEL`) with `allowed_domains` = the admin's
+  enabled domains, `max_uses` 3 and `user_location` = the town and its country; the cards are the pages it found and
+  cited on those domains (checked again on our side), with their title and link (the citation); a price only from the
+  cited text of the page. Web results are not stored anywhere; they live only in the chat in the browser.
+- **Cards only from the tool results** (as in Prompt 10): the AI's refs only choose and order them. Text from shops,
+  maps and web pages is data, never instructions (the system prompts say so; the web search's own text is never shown).
+- **Cost and limits:** `EXTERNAL_SEARCH_DAILY_LIMIT` (default 300) counts every outside call of the day together; over
+  it, shops nearby and the web are skipped (even what is cached) and the answer says only Cacadoo was searched. Every
+  call is counted per day, layer and service with its estimated cost (web search $10 per 1,000 searches plus the
+  model's tokens; Google per the admin's price per call), shown to the admin. A layer runs only when its environment
+  switch (`WEB_SEARCH_ENABLED`, `GOOGLE_PLACES_ENABLED`) and the admin's switch are both on. The per-visitor limits of
+  the AI search stay. Ranking never depends on payment or affiliate commission.
+- **Admin** ("Predplatné a domény" → "Vyhľadávanie mimo Cacadoo"): a switch per layer next to the environment's state,
+  the estimated prices, the allowed web domains (ASCII only, no wildcard) with their search addresses (https on the
+  shop's own host, `{query}` once), today's calls and the calls and cost per day and layer. Every read and write is
+  checked by `is_admin()` in the database.
 
 ### 6.6 Status: open / lunch break / closed / holiday / no hours
 
@@ -928,7 +994,7 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
   under the shop's details asks for its first page first (`fetchpriority=high`); an open slider loads its second page
   once it is near the screen.
 
-## 7. Data model (after database update 33)
+## 7. Data model (after database update 34)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -946,6 +1012,12 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 | `stock_imports` | `shop_id`, `file_name`, `file_time`, `received_at`, `status` (`ok`/`errors`/`waiting`), `total_rows`, `imported`, `zeroed`, `skipped`, `error`, `columns`, `preview` | Import report per received file, the last 10 per shop; written only by stock-pull (`record_stock_import()`), read only by the shop's owners; the preview holds only approved columns |
 | `profiles` | `user_id`, `display_name`, `language`, `is_admin` | One per account, created automatically |
 | `api_usage` | `ip_hash`, `endpoint`, `created_at` | API/MCP, AI search (`ai-search`) and shop assistant (`shop-chat`) rate limit log; no IP addresses; older than 30 days removed |
+| `search_layers` | `layer` (`osm`/`google_places`/`web`), `enabled`, `cost_per_call_usd`, `input_usd_per_mtok`, `output_usd_per_mtok` | Update 34. The admin's switch and estimated prices per outside layer; only `admin_save_search_layer()` (is_admin) writes; no grant for visitors or owners |
+| `web_search_domains` | `domain` (ASCII, optional path, no wildcard), `label`, `search_url` (https on that host with `{query}` once), `enabled`, `sort_order` | Update 34. The web search's allowed domains and the deep links; ≤ 50; only the admin (`admin_save_web_domain()`, `admin_delete_web_domain()`) |
+| `external_search_usage` | `day` (UTC), `layer` (`geocode`/`osm`/`google_places`/`web`), `service`, `calls`, `cost_usd` | Update 34. Every outside call, counted before it goes out (`external_search_claim()`, the daily limit), its cost added after (`external_search_cost()`); the admin reads it through `admin_search_settings()` |
+| `town_geocodes` | `key` (the town without accents), `query`, `name`, `lat`, `lng`, `country_code`, `found`, `fetched_at` | Update 34. Nominatim's answer, kept for good (not found: asked again after 30 days); only the function |
+| `osm_shop_cache` | `town_key`, `category`, `radius_m`, `results` (the shops' names, kinds, addresses, phone, opening hours, distance), `fetched_at` | Update 34. Overpass's answer per town and kind, used for 24 hours, cleared after 7 days (`osm_cache_put()`); only the function |
+| `external_throttle` | `service`, `next_at` | Update 34. One Nominatim request per second for the whole site (`external_slot()`) |
 | `subscriptions` | `shop_id` (key: one row per shop), `stripe_customer_id`, `stripe_subscription_id`, `status` (`none` = customer only, else Stripe's status), `plan`, `current_period_end`, `cancel_at`, `updated_at` | Paid plan; written only by the Stripe functions (service role), read by the shop's owners |
 | `shop_chat_usage` | `shop_id`, `month`, `messages` | Shop assistant messages per shop per calendar month (UTC), for the monthly cap; no client access |
 | `shop_folders` | `id`, `shop_id`, `name`, `is_public`; update 24: `access_mode` (`view`/`download`), `unlocks`, `views`, `downloads` | One Public folder per shop (made automatically) and private folders |
@@ -1023,6 +1095,14 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
   on the website uses them; `is_admin` is used again since update 25, only for "Predplatné a domény" and the domain
   functions (`admin_shops()` and `admin_save_shop()` were dropped by migration
   21 with the display columns they set).
+
+**Outside sources (update 34).** The main chat's search sends only the product and the town to OpenStreetMap
+(Nominatim, Overpass API), Google Places (when switched on) and Anthropic (Claude and its web search) — never anything
+about the visitor, never a location. The new tables have RLS on and no grant for visitors or owners; the product-sources
+function (service role) reads and writes them, the admin only through `admin_*` functions. Nothing from Google and no
+web result is stored; OpenStreetMap answers are kept as caches. The website reaches the function only with
+`EXTERNAL_SEARCH_SECRET` (server-only, Vercel Sensitive + Supabase secret). The privacy page lists the services (a TODO
+line until the legal text is final).
 
 ## 9. Design
 
@@ -1113,6 +1193,12 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   are done; anything left over continues the next time the owner opens the dashboard, and an upload left unfinished
   for an hour shows as an error to delete and upload again.
 - The wrong-key counter is kept like the other limits (the website calls it with the public key).
+- **Outside sources (update 34).** The deep links need the admin's search addresses (none are set for the five domains
+  of the brief: their search pages could not be checked from here). OpenStreetMap is only as complete as its volunteers
+  made it: a town may show few shops, or ones that have closed. The web search runs on the model in `AI_MODEL`; the
+  Anthropic organisation must allow web search (Claude Console) and its allowed domains must include the admin's
+  domains, otherwise the web layer quietly finds nothing. "Good result" also needs the item not to be sold out (a sold-out
+  item does not answer "who has it"). The opening_hours library is LGPL-3.0 and runs only on the server.
 
 ## 12. Launch checklist
 
@@ -1149,6 +1235,9 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] Every public page checked with JavaScript turned off
 - [x] Service role key only in Supabase function secrets
 - [x] Stale shops show no stock on every page, in the API and in MCP
+- [ ] `ADMIN_EMAIL` set in Supabase (OpenStreetMap needs a contact); `EXTERNAL_SEARCH_DAILY_LIMIT` chosen; the web domains
+      and their search addresses checked on the admin page; Google Places only after reading Google's terms
+- [ ] Privacy page: the legal text for the outside services replaces the TODO line
 
 ## 13. History
 
@@ -1181,3 +1270,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-14 | "Konverzácie do počítača": each finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open) |
 | 2026-10-14 | Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS only by adding, or shown to add), "Odoslať sitemap", llms.txt and robots.txt per own domain with "Kategórie tovaru", IndexNow once per upload with only the changed pages, Product/Offer + Store JSON-LD on own-domain item pages, search results linking to the own domain |
 | 2026-10-14 | The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots in Cacadoo yellow with the real steps, the answer streamed word by word, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page (the API and MCP keep `only_available`) |
+| 2026-10-15 | The chat finds products in layers: Cacadoo first, then shops nearby (OpenStreetMap, optionally Google Places) and offers on allowed shop websites (Claude's web search) with deep links, only when Cacadoo has fewer than 3 good results and the shopper wrote a town; other questions declined; admin switches, allowed domains, calls and cost per day |

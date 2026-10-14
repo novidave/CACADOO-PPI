@@ -55,8 +55,8 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
   special days, DST
 - `npm run test:site` — unit tests (Deno) of the own domain's robots.txt / llms.txt, the item JSON-LD and the search
   links (`src/lib/findable_test.ts`)
-- `npm run test:chat` — unit tests (Deno) of the main page chat's protocol: streamed answer, refs, history, NDJSON
-  (`src/lib/chat_test.ts`)
+- `npm run test:chat` — unit tests (Deno) of the main page chat's protocol: streamed answer, refs, history, NDJSON, the
+  layers' rules (town from the shopper's words, good results, OpenStreetMap hours) (`src/lib/chat_test.ts`)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook, page-sections PDF cleaning and limits
@@ -91,6 +91,28 @@ vyhľadávania."; a logged-in owner also sees the reason; every reason is logged
 server-renders the plain results (crawlers, no JavaScript); with JavaScript it starts the chat. **No location ever**
 (no device location, no IP guess). Thinking dots: `.ppi-dots` in globals.css (#FFC531, CSS only, still with
 `prefers-reduced-motion`), steps in `aria-live="polite"`. Tests: `npm run test:chat`.
+
+## Search in layers (Prompt 11 phase A, update 34)
+
+`supabase/sql/34_layered_search.sql` + `supabase/functions/product-sources` (one file, Verify JWT off) + `@/lib/sources`
+(shared rules) / `@/lib/productSources` / `@/lib/osmHours` + `admin/domains/ExternalSearchAdmin.tsx`. The chat's one job
+is finding a product in a town; anything else → `off_topic` → "Pomáham len s hľadaním produktov v obchodoch v okolí."
+Tools: `search_stock` (layer 1) always; `search_nearby_shops` (layer 3, OpenStreetMap; optional Google Places) and
+`search_web` (layer 4, Claude's web search on the admin's allowed domains) only with `EXTERNAL_SEARCH_SECRET`. **The
+server enforces the order** (`refusal()` in `runChatSearch`): Cacadoo first in the question, fewer than `GOOD_ENOUGH` (3)
+good results (`isGoodResult`), a town from the shopper's own words (`townInWords`; never a guess, never the visitor's
+location → "V ktorom meste hľadáte?" via `ask_town`), each outside layer once. Groups: Overené v Cacadoo → [Partneri,
+phase B] → Obchody v okolí (neoverené) → Na webe; every card carries `source`, a checked-at text and `confidence`; cards
+only from tool results (refs `r`/`n`/`w` only choose). **Never** present layer 3/4 as stock, never scrape (only
+Nominatim, Overpass, Google Places API, web search), never put Google content in a model request, on our map or in the
+database, never store web results. product-sources: `x-ppi-sources` secret; daily limit (`EXTERNAL_SEARCH_DAILY_LIMIT`,
+`external_search_claim` before every outside call, skipped as a whole — cache too — once reached); a layer runs only if
+its env switch (`WEB_SEARCH_ENABLED`, `GOOGLE_PLACES_ENABLED`) and the admin's `search_layers` switch are on; Nominatim
+once per town (`town_geocodes`), 1/s (`external_slot`), User-Agent + `ADMIN_EMAIL`; Overpass cached 24 h per town and
+kind; "© OpenStreetMap contributors" / "Google Maps" with their lists; Google field mask = only the fields shown; web:
+`web_search_20250305`, `max_uses` 3, `allowed_domains`, `user_location` = town + country, price only from cited text,
+deep links `{query}` URL-encoded, new tab `rel="noopener noreferrer"`. Only the product and the town go out (privacy
+page lists the services). Admin texts `admin_search`; every admin read/write via `admin_*` SQL (`is_admin()`).
 
 ## Paid plan (Stripe)
 
@@ -369,7 +391,7 @@ hand, any browser, same POST). Guide: `docs/SHOP_PC_SETUP.md`.
 ## Auth
 
 Self-service, shop owners only — **no admin area on the website** except "Predplatné a domény" (`/[lang]/admin/domains`,
-own domains; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
+own domains and, since update 34, "Vyhľadávanie mimo Cacadoo"; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
 sends a confirmation e-mail), `/login`, `/forgot` (reset e-mail → `/auth/confirm` → `/[lang]/password`). `/auth/confirm`
 handles `token_hash` (templates in SETUP.md E3), `code` (default templates) and `#access_token` (→ `/[lang]/login/finish`).
 Owners create/edit shops via `owner_save_shop()`, read them via `my_shops()`, approve columns via `owner_set_mapping()`,

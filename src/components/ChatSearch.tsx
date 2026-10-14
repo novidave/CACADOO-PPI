@@ -10,8 +10,12 @@ import {
   type ChatShop,
   type ChatStep,
   type ChatTurn,
+  type DeepLink,
+  type GoogleCard,
   MAX_QUESTION,
+  type NearbyCard,
   readEvents,
+  type WebCard,
 } from "@/lib/chatProtocol";
 import type { StatusLabels } from "@/lib/hours";
 import { LiveStatus } from "./ShopStatus";
@@ -47,6 +51,22 @@ export interface ChatLabels {
   results: string;
   map: string;
   keyboard_hint: string;
+  step_nearby: string;
+  step_web: string;
+  group_cacadoo: string;
+  group_nearby: string;
+  group_web: string;
+  may_have: string;
+  call: string;
+  navigate: string;
+  osm_link: string;
+  osm_attribution: string;
+  google_attribution: string;
+  google_open: string;
+  web_from: string;
+  deep_links: string;
+  only_cacadoo: string;
+  privacy_link: string;
 }
 
 interface Turn {
@@ -136,7 +156,11 @@ export function ChatSearch({
             else if (event.type === "language") update(id, () => ({ language: event.language }));
             else if (event.type === "text") update(id, (turn) => ({ answer: turn.answer + event.text }));
             else if (event.type === "reset") update(id, () => ({ answer: "" }));
-            else if (event.type === "results") update(id, () => ({ results: { cards: event.cards, shops: event.shops, searched: event.searched } }));
+            else if (event.type === "results") {
+              const { type: _type, ...results } = event;
+              void _type;
+              update(id, () => ({ results }));
+            }
             else if (event.type === "fallback") {
               update(id, () => ({
                 answer: "",
@@ -169,7 +193,7 @@ export function ChatSearch({
         .slice(-3)
         .flatMap((turn) => [
           { role: "user" as const, text: turn.question },
-          { role: "assistant" as const, text: answerForHistory(turn.answer || "(plain search results)", turn.results?.cards ?? []) },
+          { role: "assistant" as const, text: answerForHistory(turn.answer || "(plain search results)", turn.results?.cards ?? [], turn.results ?? {}) },
         ]);
       setTurns((all) => [
         ...all,
@@ -423,10 +447,22 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
   const [more, setMore] = useState(false);
   const [map, setMap] = useState(false);
   const [renderedAt] = useState(() => Date.now());
-  const stepText = turn.step === "search" ? labels.step_search : turn.step === "verify" ? labels.step_verify : labels.step_understand;
+  const stepText = {
+    understand: labels.step_understand,
+    search: labels.step_search,
+    nearby: labels.step_nearby,
+    web: labels.step_web,
+    verify: labels.step_verify,
+  }[turn.step ?? "understand"];
   const cards = turn.results?.cards ?? [];
+  const nearby = turn.results?.nearby ?? [];
+  const google = turn.results?.google ?? [];
+  const web = turn.results?.web ?? [];
+  const deepLinks = turn.results?.deepLinks ?? [];
+  const anything = cards.length + nearby.length + google.length + web.length + deepLinks.length > 0;
   const shown = more ? cards : cards.slice(0, CARDS_SHOWN);
-  const waitingCards = turn.state === "running" && !turn.results && (turn.step === "search" || turn.step === "verify" || turn.answer);
+  const waitingCards = turn.state === "running" && !turn.results && (turn.step !== "understand" || turn.answer);
+  // Only Cacadoo shops go on our map (OpenStreetMap shops have no verified data; Google's never go there).
   const pins = Object.entries(turn.results?.shops ?? {}).filter(([, shop]) => shop.lat !== null && shop.lng !== null);
 
   return (
@@ -451,7 +487,13 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
 
       {waitingCards && <Skeletons />}
 
-      {turn.results && cards.length === 0 && (turn.state !== "running" || turn.fallback) && (
+      {turn.results?.notes?.includes("only_cacadoo") && (
+        <p className="text-sm text-muted" data-only-cacadoo>
+          {labels.only_cacadoo}
+        </p>
+      )}
+
+      {turn.results && !anything && (turn.state !== "running" || turn.fallback) && (
         <div className="text-sm" data-nothing-found>
           {!turn.answer && <p>{labels.nothing_found}</p>}
           {turn.results.searched.length > 0 && <p className="text-muted">{labels.searched.replace("{terms}", turn.results.searched.join(", "))}</p>}
@@ -459,7 +501,8 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
       )}
 
       {cards.length > 0 && (
-        <>
+        <section className="flex flex-col gap-2" aria-label={labels.group_cacadoo} data-group="cacadoo">
+          <h3 className="text-sm font-semibold">{labels.group_cacadoo}</h3>
           <ul className="flex flex-col divide-y divide-line border-y border-line" data-chat-cards>
             {shown.map((card) => (
               <Card key={card.id} card={card} shop={turn.results!.shops[card.shopSlug]} statusLabels={statusLabels} lang={lang} />
@@ -487,9 +530,172 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
               className="h-56 md:h-72"
             />
           )}
-        </>
+        </section>
+      )}
+
+      {(nearby.length > 0 || google.length > 0) && (
+        <section className="flex flex-col gap-2" aria-label={labels.group_nearby} data-group="nearby">
+          <h3 className="text-sm font-semibold">{labels.group_nearby}</h3>
+          {nearby.length > 0 && (
+            <>
+              <ul className="flex flex-col divide-y divide-line border-y border-line" data-nearby-cards>
+                {nearby.map((card) => (
+                  <Nearby key={card.id} card={card} labels={labels} />
+                ))}
+              </ul>
+              <p className="text-xs text-muted" data-osm-attribution>
+                <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="hover:underline">
+                  {labels.osm_attribution}
+                </a>
+              </p>
+            </>
+          )}
+          {google.length > 0 && (
+            <>
+              {/* Google's results only in this list (never on our map), with Google's attribution. */}
+              <ul className="flex flex-col divide-y divide-line border-y border-line" data-google-cards>
+                {google.map((card) => (
+                  <Google key={card.id} card={card} labels={labels} />
+                ))}
+              </ul>
+              <p className="text-xs text-muted" data-google-attribution>
+                {labels.google_attribution}
+              </p>
+            </>
+          )}
+        </section>
+      )}
+
+      {(web.length > 0 || deepLinks.length > 0) && (
+        <section className="flex flex-col gap-2" aria-label={labels.group_web} data-group="web">
+          <h3 className="text-sm font-semibold">{labels.group_web}</h3>
+          {web.length > 0 && (
+            <ul className="flex flex-col divide-y divide-line border-y border-line" data-web-cards>
+              {web.map((card) => (
+                <Web key={card.id} card={card} labels={labels} />
+              ))}
+            </ul>
+          )}
+          {deepLinks.length > 0 && <DeepLinks links={deepLinks} label={labels.deep_links} />}
+        </section>
+      )}
+
+      {(nearby.length > 0 || google.length > 0 || web.length > 0) && (
+        <p className="text-xs text-muted">
+          <a href={`/${lang}/sukromie-asistent#hladanie-mimo-cacadoo`} className="underline underline-offset-4">
+            {labels.privacy_link}
+          </a>
+        </p>
       )}
     </div>
+  );
+}
+
+const pill = "rounded-full border border-line px-3 py-1 hover:border-foreground";
+
+/** Layer 3: "Môže mať · <shop>" — never a stock claim. */
+function Nearby({ card, labels }: { card: NearbyCard; labels: ChatLabels }) {
+  return (
+    <li className="flex flex-col gap-1 py-3" data-nearby-card data-source={card.source}>
+      <p>
+        <span className="text-muted">{labels.may_have} · </span>
+        <span className="font-medium">{card.name}</span>
+      </p>
+      <p className="text-sm text-muted">
+        {card.kind}
+        {card.place && ` · ${card.place}`}
+        <span data-card-distance>{` · ${card.distance}`}</span>
+      </p>
+      <p className="flex flex-wrap gap-x-3 text-sm">
+        {card.hours && <span data-osm-hours>{card.hours}</span>}
+        <span className="font-semibold" data-confidence>
+          {card.confidence}
+        </span>
+      </p>
+      <div className="flex flex-wrap items-center gap-2 pt-1 text-sm">
+        {card.phoneHref && (
+          <a href={card.phoneHref} className={pill} data-call>
+            {labels.call}
+          </a>
+        )}
+        <a href={card.navigateHref} target="_blank" rel="noopener noreferrer" className={pill} data-navigate>
+          {labels.navigate}
+        </a>
+        <a href={card.sourceHref} target="_blank" rel="noopener noreferrer" className="text-xs text-muted underline underline-offset-4">
+          {labels.osm_link}
+        </a>
+      </div>
+      <p className="text-xs text-muted" data-checked>
+        {card.checkedAt}
+      </p>
+    </li>
+  );
+}
+
+function Google({ card, labels }: { card: GoogleCard; labels: ChatLabels }) {
+  return (
+    <li className="flex flex-col gap-1 py-3" data-google-card data-source={card.source}>
+      <p>
+        <span className="text-muted">{labels.may_have} · </span>
+        <span className="font-medium">{card.name}</span>
+      </p>
+      <p className="text-sm text-muted">
+        {card.place && `${card.place} · `}
+        {card.distance}
+      </p>
+      <p className="text-sm font-semibold" data-confidence>
+        {card.confidence}
+      </p>
+      <div className="flex flex-wrap items-center gap-2 pt-1 text-sm">
+        {card.mapsHref && (
+          <a href={card.mapsHref} target="_blank" rel="noopener noreferrer" className={pill}>
+            {labels.google_open}
+          </a>
+        )}
+        <a href={card.navigateHref} target="_blank" rel="noopener noreferrer" className={pill} data-navigate>
+          {labels.navigate}
+        </a>
+      </div>
+      <p className="text-xs text-muted" data-checked>
+        {card.checkedAt}
+      </p>
+    </li>
+  );
+}
+
+/** Layer 4: "Z webu · <shop> · cena podľa webu: … · overte dostupnosť na stránke →" (the page's own link). */
+function Web({ card, labels }: { card: WebCard; labels: ChatLabels }) {
+  return (
+    <li className="flex flex-col gap-1 py-3" data-web-card data-source={card.source}>
+      <p className="text-sm text-muted">
+        {labels.web_from} · {card.retailer}
+      </p>
+      <a href={card.href} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline" data-web-title>
+        {card.title}
+      </a>
+      <p className="flex flex-wrap gap-x-3 text-sm">
+        {card.price && <span data-web-price>{card.price}</span>}
+        <a href={card.href} target="_blank" rel="noopener noreferrer" className="font-semibold underline underline-offset-4" data-confidence>
+          {card.confidence}
+        </a>
+      </p>
+      <p className="text-xs text-muted" data-checked>
+        {card.checkedAt}
+      </p>
+    </li>
+  );
+}
+
+function DeepLinks({ links, label }: { links: DeepLink[]; label: string }) {
+  return (
+    <p className="flex flex-wrap items-center gap-2 text-sm" data-deep-links>
+      <span className="text-muted">{label}</span>
+      {links.map((link) => (
+        <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" className={pill} data-deep-link>
+          {link.retailer}
+        </a>
+      ))}
+    </p>
   );
 }
 
@@ -523,6 +729,11 @@ function Card({ card, shop, statusLabels, lang }: { card: ChatCard; shop: ChatSh
         <span className="rounded border border-line px-1.5 text-xs" data-freshness={card.freshnessState}>
           {card.freshness}
         </span>
+        {card.confidence && (
+          <span className="text-xs text-muted" data-confidence>
+            {card.confidence}
+          </span>
+        )}
         {shop && <LiveStatus input={shop.status} labels={statusLabels} lang={lang} renderedAt={renderedAt} />}
       </div>
     </li>

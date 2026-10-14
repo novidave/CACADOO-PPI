@@ -66,6 +66,22 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
     results: s.results,
     map: dict.shop.map,
     keyboard_hint: s.keyboard_hint,
+    step_nearby: s.step_nearby,
+    step_web: s.step_web,
+    group_cacadoo: s.group_cacadoo,
+    group_nearby: s.group_nearby,
+    group_web: s.group_web,
+    may_have: s.may_have,
+    call: s.call,
+    navigate: s.navigate,
+    osm_link: s.osm_link,
+    osm_attribution: s.osm_attribution,
+    google_attribution: s.google_attribution,
+    google_open: s.google_open,
+    web_from: s.web_from,
+    deep_links: s.deep_links,
+    only_cacadoo: s.only_cacadoo,
+    privacy_link: s.privacy_link,
   };
 
   return (

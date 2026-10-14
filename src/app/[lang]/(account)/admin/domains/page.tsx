@@ -9,6 +9,8 @@ import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings, saveSectionLimits } from "./actions";
 import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
+import { ExternalSearchAdmin, type SearchSettings, type SourcesEnv } from "./ExternalSearchAdmin";
+import { outsideSearchEnabled, sourcesStatus } from "@/lib/productSources";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/admin/domains">): Promise<Metadata> {
   const { lang } = await params;
@@ -97,12 +99,15 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     hyear: String(hyear),
   })}`;
 
-  const [overview, stats, prices, holidays, sectionLimits] = await Promise.all([
+  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
     session.supabase.rpc("admin_holidays", { p_country: hcountry, p_year: hyear }),
     session.supabase.from("section_limits").select("plan, max_sections, max_pages, max_mb"),
+    // "Vyhľadávanie mimo Cacadoo" (database update 34) and the product-sources function's switches.
+    session.supabase.rpc("admin_search_settings"),
+    sourcesStatus(session.supabase),
   ]);
   const limitRows = sectionLimits.error ? null : ((sectionLimits.data ?? []) as LimitsRow[]);
   if (overview.error) return <DbError message={overview.error.message} dict={dict} />;
@@ -115,6 +120,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     : null;
   const ok = first(sp.ok);
   const err = first(sp.err);
+  const searchErr = err?.startsWith("search_") ? (dict.admin_search as Record<string, string>)[`err_${err.slice(7)}`] : undefined;
   const credit = s.credit_eur === null || s.credit_eur === undefined ? null : Number(s.credit_eur);
   const low = Number(s.low_credit_eur ?? 0);
   const hidden = (
@@ -130,7 +136,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">{a.title}</h1>
         {ok && <p role="status" className="border border-foreground p-3 font-medium">{a.done}</p>}
-        {err && <p role="alert" className="border border-line p-3">{t(a.failed, { message: err })}</p>}
+        {err && <p role="alert" className="border border-line p-3">{searchErr ?? t(a.failed, { message: err })}</p>}
       </header>
 
       <section id="credit" className="flex flex-col gap-2" aria-label={a.credit_refresh}>
@@ -383,6 +389,14 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
           </div>
         )}
       </section>
+
+      <ExternalSearchAdmin
+        settings={searchSettings.error ? null : (searchSettings.data as SearchSettings)}
+        env={sourcesEnv as SourcesEnv | null}
+        websiteSecret={outsideSearchEnabled()}
+        dict={dict}
+        hidden={hidden}
+      />
 
       <HolidaysAdmin
         rows={holidays.error ? null : ((holidays.data ?? []) as AdminHoliday[])}
