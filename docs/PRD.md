@@ -35,6 +35,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Odkaz loga": where a click on the own domain's header logo leads (e.g. the shop's main website; empty = the home page) | Built and tested; live after database update 32 and the merge (SETUP.md part Y) |
 | Ticks on "Vaše mimoriadne dni" (delete several at once, "Vybrať všetko"); a blue "Vybrať súbor" link instead of the browser's file box in page sections | Built and tested; live after the merge, no database change (SETUP.md part Z) |
 | Assistant conversations as PDF straight to the PC: "Stiahnuť PDF" on each, ticks + "Stiahnuť vybrané"; the shopper's pictures large in the PDF | Built and tested; live after the updated assistant-archive function and the merge (SETUP.md part AA) |
+| "Konverzácie do počítača": every finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open; never replaces anything) | Built and tested; live after the merge, no database change (SETUP.md part AB) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -278,6 +279,18 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - **Files in private folders** (page Export folder; owner only): every PDF and picture of the shop's private folders with its name,
   upload date, folder and "Access key: on/off" (on = a valid key opens that folder), **Open** (a 10-minute link, new
   tab) and **Delete** (as in Documents for the assistant).
+- **Konverzácie do počítača** (page Export folder; paid plan; since 2026-10-14): the owner picks a folder on the shop PC
+  once (Edge or Chrome on a computer, like the export folder; remembered in that browser; "Povoliť ukladanie do
+  priečinka" when the browser asks again after a restart). While the page is open, every 5 minutes each finished
+  conversation of the shop's assistant is saved there as its PDF (with the shopper's pictures):
+  `<YYYY-MM>/<YYYY-MM-DD_HH-MM_id>.pdf`. From the moment the folder is chosen (looking back 45 minutes, so a
+  conversation going on then is saved however it ends); **Uložiť aj staršie konverzácie** saves every one still kept.
+  **Nothing in the folder is ever replaced or deleted** (a file of the same name stays as it is); what was saved is
+  remembered in the browser, so a PDF the owner moves away is not saved again. One window per shop saves (a second one
+  waits). Shown: the folder, how many were saved on this computer, last and next check, the result ("Uložené nové
+  konverzácie: n." / "Žiadne nové konverzácie." / the PDF still being made / an error, tried again). **Zmeniť
+  priečinok**, **Prestať ukladať** (forgets the folder; the files stay). Firefox and Safari get a message pointing to
+  "Stiahnuť PDF".
 - **Recently uploaded files** (page Export folder): a card per received stock file, the last 10 (swipe on a phone, arrows on a computer):
   file name, date and time, products imported, rows skipped, status (OK / errors / waiting for column approval) and
   the first 5 rows exactly as in the file — approved columns only, never a private column (no preview before the
@@ -1087,3 +1100,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-14 | "Odkaz loga": the own domain's header logo can lead to another address (e.g. the shop's main website) instead of the home page |
 | 2026-10-14 | Ticks on "Vaše mimoriadne dni" to delete several days at once ("Vybrať všetko", "Vymazať vybrané"); page sections choose their file with a blue "Vybrať súbor" link |
 | 2026-10-14 | Assistant conversations: "Stiahnuť PDF" and "Stiahnuť vybrané" (each its own PDF, straight to the PC); the shopper's pictures large in the PDF |
+| 2026-10-14 | "Konverzácie do počítača": each finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open) |

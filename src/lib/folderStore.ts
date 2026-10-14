@@ -91,3 +91,46 @@ export async function compress(data: ArrayBuffer): Promise<{ body: Blob; gzip: b
   const stream = new Blob([data]).stream().pipeThrough(new CompressionStream("gzip"));
   return { body: await new Response(stream).blob(), gzip: true };
 }
+
+// ---- A folder PPI writes to (the assistant's conversations as PDFs; Edge and Chrome on a computer)
+
+export type WritePermission = "granted" | "denied" | "prompt";
+
+export interface WritableFile {
+  createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }>;
+}
+
+export interface WritableFolder {
+  kind: "directory";
+  name: string;
+  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<WritableFolder>;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<WritableFile>;
+  queryPermission(options: { mode: "readwrite" }): Promise<WritePermission>;
+  requestPermission(options: { mode: "readwrite" }): Promise<WritePermission>;
+}
+
+/** A folder for the conversations' PDFs (its own remembered place in the picker). */
+export function pickWritableFolder(): Promise<WritableFolder> {
+  const picker = (window as Window & { showDirectoryPicker?: (options?: object) => Promise<WritableFolder> }).showDirectoryPicker;
+  if (!picker) return Promise.reject(new Error("Folder picker not supported"));
+  return picker.call(window, { id: "ppi-conversations", mode: "readwrite", startIn: "documents" });
+}
+
+/**
+ * Writes `data` as <folder>/<sub>/<name> unless that file is already there: never replaces
+ * or deletes anything. Returns false when the file existed (it is left as it is).
+ */
+export async function writeNewFile(folder: WritableFolder, sub: string, name: string, data: Blob): Promise<boolean> {
+  const dir = await folder.getDirectoryHandle(sub, { create: true });
+  try {
+    await dir.getFileHandle(name);
+    return false;
+  } catch (e) {
+    if (!(e instanceof DOMException) || e.name !== "NotFoundError") throw e;
+  }
+  const file = await dir.getFileHandle(name, { create: true });
+  const writable = await file.createWritable();
+  await writable.write(data);
+  await writable.close();
+  return true;
+}
