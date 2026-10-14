@@ -52,6 +52,8 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
 - `npm run test:db` — applies all migrations + seed to a throwaway local Postgres/PostGIS and runs the RLS and stock-logic checks
 - `npm run test:status` — unit tests of `shopStatus()` in `src/lib/hours.ts` (Deno): breaks, past midnight, holidays,
   special days, DST
+- `npm run test:site` — unit tests (Deno) of the own domain's robots.txt / llms.txt, the item JSON-LD and the search
+  links (`src/lib/findable_test.ts`)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook, page-sections PDF cleaning and limits
@@ -206,6 +208,26 @@ PPI's own → `shop_for_host` → rewrite to `/site/[lang]/[slug]` (own root lay
 the shop's small header logo as a link home (update 31); + items, `/api/site/[slug]/sitemap|robots`), www →
 bare; canonical = the own domain; payment never affects search ranking. `PlanDetails`/`DomainStatus` labels from the
 `domains` i18n namespace; admin texts `admin_domains`.
+
+## Own domains easy to find (Pro, update 33)
+
+`supabase/sql/33_domain_findable.sql`. "Aby vás našli Google a AI asistenti" on `dashboard/plan` (`FindableSection`,
+live orders only; hidden before update 33): **"Overiť v Google Search Console"** → domains action `google_verify`
+(owner, live): the pasted `google-site-verification=…` (or its token) is **only added** as one TXT `@` through
+`registrar.addRecord` when we run the zone (`registrar_service_id`), never twice, ≤ 5 Google values, never
+`deleteRecord` or any other record; else the record to add by hand (`recordName()` = `manualRecordName()`); stored in
+`domain_orders.google_verification*`. "Odoslať sitemap: https://<doména>/sitemap.xml" steps. Per own domain
+(`src/proxy.ts` → `/api/site/[slug]/robots|llms|indexnow/[key]`, only while `shop_site()`): robots.txt from
+`@/lib/siteFiles` (`AI_BOTS` shared with `app/robots.ts`; never `/api/`, `/auth/`, login pages), llms.txt (English, the
+shop's data as written, `shop_llms_facts()`: the owner's "Kategórie tovaru" `shops.product_categories` only through
+`owner_set_categories()` — never invented — and the stock file's brands; the page's own stock words), the IndexNow
+key file (`indexnow_key()`, public). **IndexNow:** stock-pull after `updated`, in the background, `pingIndexNow()` →
+`indexnow_claim()` (live own domain, **once per upload**, only items whose `inventory.changed_at` /
+`shop_items.changed_at` — set by triggers — equal the upload's `received_at`) → one POST to api.indexnow.org with
+`indexNowUrls()` (≤ 10 000), nothing when nothing changed, `indexnow_sent()`; never log the key. Item pages:
+`@/lib/jsonLd` `itemJsonLd` (`@graph`: Product + Offer only when not stale + the shop's Store, `storeJsonLd` shared with
+the shop page), canonical on the own domain. Main search rows, map pins, AI cards and other offers link a shop with a
+live own domain there (`loadLiveSites()` / `getLiveSites()` → `shopHref()` / `itemHref()` in `@/lib/customDomain`).
 
 ## Shop page and My shop (migration 21, update 26)
 

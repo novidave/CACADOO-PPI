@@ -1094,6 +1094,50 @@ No database change, no new secret, no function to update (it uses the assistant-
 
 ---
 
+## Part AC — Shops on their own domains easy to find: Google, AI assistants, IndexNow (14 October 2026)
+
+- **Predplatné a doména** gets, under a live own domain, **Aby vás našli Google a AI asistenti**:
+  - **Overiť v Google Search Console**: the owner adds the domain in Search Console (Pridať vlastníctvo → Doména),
+    copies the TXT value `google-site-verification=…` and pastes it. A domain bought through PPI (or an own domain in
+    our Websupport account): **Zapísať do DNS** — Cacadoo adds that one TXT record through the Websupport DNS API and
+    never changes or removes any other record (MX, SPF, DKIM, DMARC, other TXT). An own domain at another registrar:
+    **Zobraziť záznam** shows the record to add there. Then **Overiť** in Search Console.
+  - **Odoslať sitemap: https://<doména>/sitemap.xml** — the steps in Search Console.
+  - **AI asistenti**: the domain's `llms.txt` and `robots.txt` and **Kategórie tovaru (do llms.txt)**.
+  - **IndexNow**: after every stock upload Bing, Seznam, Yandex and others are told which product pages changed
+    (once per upload, only the changed pages); the box shows the last time.
+- Every own domain has its own `https://<doména>/llms.txt` (name, address, hours, categories, sitemap, how to read the
+  stock), a `robots.txt` that lets search engines and AI crawlers read the public pages (never Môj obchod, private
+  folders or access-key content) and the IndexNow key file.
+- Item pages on the own domain: Product + Offer (only while the stock data is fresh) + Store (LocalBusiness) JSON-LD,
+  canonical on the own domain; the main Cacadoo search, its map and the AI search link these shops to their own domain.
+
+No new secret. Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/33_domain_findable.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again; the IndexNow key is made only once.
+   Check: `select indexnow_key from public.domain_settings;` → 32 letters and digits.
+2. **Update two functions** (Supabase → Edge Functions → the function → **Code** → replace everything → **Deploy**;
+   "Verify JWT" stays off):
+   - `domains` ← `supabase/functions/domains/index.ts` (the Search Console action).
+   - `stock-pull` ← `supabase/functions/stock-pull/index.ts` (the IndexNow ping after an upload).
+3. **Merge the pull request** on GitHub → Vercel deploys. (Before step 1 the website shows no new box and llms.txt
+   says "Not listed by the shop."; before step 2 "Zapísať do DNS" fails and nothing is sent to IndexNow.)
+4. **Test** (a shop whose own domain is live):
+   - `https://<doména>/robots.txt` → "User-agent: GPTBot" … and "Disallow: /api/"; `https://<doména>/llms.txt` → the
+     shop's name, address and opening hours; `https://<doména>/<key from step 1>.txt` → the key.
+   - Predplatné a doména → **Overiť v Google Search Console** → follow the steps → paste the value → **Zapísať do DNS**
+     → "Záznam TXT je zapísaný …" → in Search Console **Overiť** (a few minutes later if it says not found). For an own
+     domain elsewhere add the shown record at the registrar first. Then **Súbory Sitemap** → `sitemap.xml` →
+     **Odoslať**.
+   - Type a few categories → **Uložiť kategórie** → they appear in `llms.txt`.
+   - Upload a stock file in which something changed → reload the page → **Naposledy oznámené …: n stránok.** (an
+     answer other than 200/202 is shown there too; it is tried again with the next upload).
+   - Search on PPI's main page for one of the shop's items → the result and the shop link open the own domain.
+   - Optional: Bing Webmaster Tools → add the domain → it can import it from Search Console.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1136,3 +1180,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 24. Ticks on "Vaše mimoriadne dni" (delete several at once); blue "Vybrať súbor" link in page sections | ✅ built — set up Part Z |
 | 25. Assistant conversations as PDF straight to the PC ("Stiahnuť PDF", "Stiahnuť vybrané"); pictures large in the PDF | ✅ built — set up Part AA |
 | 26. "Konverzácie do počítača": finished conversations saved by themselves as PDFs into a folder on the shop PC | ✅ built — set up Part AB |
+| 27. Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS, only added), "Odoslať sitemap", llms.txt and robots.txt per domain with "Kategórie tovaru", IndexNow after each upload (only changed pages), Product/Offer + Store JSON-LD, search results linking to the own domain | ✅ built — set up Part AC |

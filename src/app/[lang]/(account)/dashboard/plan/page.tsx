@@ -1,18 +1,30 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { isLocale } from "@/i18n/config";
-import { getDictionary, t } from "@/i18n/dictionaries";
+import { isLocale, type Locale } from "@/i18n/config";
+import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import { callDomains, type DomainOrder, euros, loadDomainPage, OPEN_STATUSES, OWNER_FIELDS, refusedFields } from "@/lib/domains";
-import { formatDate } from "@/lib/format";
+import { callDomains, type DomainOrder, euros, type Findable, loadDomainPage, loadFindable, OPEN_STATUSES, OWNER_FIELDS, refusedFields } from "@/lib/domains";
+import { recordName } from "@/lib/domainName";
+import { formatDate, formatDateTime } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
+import { CopyButton } from "@/components/CopyButton";
 import { DbError } from "@/components/DbError";
 import { DomainStatus, type DomainView } from "@/components/DomainStatus";
 import { DomainWizard, type WizardCheck } from "@/components/DomainWizard";
 import { PendingButton } from "@/components/PendingButton";
 import { PlanDetails, type PlanRow } from "../PlanDetails";
-import { cancelDomainPayment, checkDomain, connectDomain, disconnectDomain, payDomain, requestAuthCode, saveLegal } from "./actions";
+import {
+  cancelDomainPayment,
+  checkDomain,
+  connectDomain,
+  disconnectDomain,
+  payDomain,
+  requestAuthCode,
+  saveCategories,
+  saveLegal,
+  verifyGoogle,
+} from "./actions";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/plan">): Promise<Metadata> {
   const { lang } = await params;
@@ -86,6 +98,8 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
   const paidNow = first(sp.domain) === "paid";
   const current = domains?.current ?? null;
   const open = current && OPEN_STATUSES.includes(current.status) ? current : null;
+  // Search Console, llms.txt categories and IndexNow on a live domain (database update 33).
+  const findable = open?.status === "live" ? await loadFindable(supabase, open.id, shop.id).catch(() => null) : null;
   const hidden = (
     <>
       <input type="hidden" name="lang" value={lang} />
@@ -285,6 +299,9 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
                 )}
               </div>
             )}
+            {findable && (
+              <FindableSection order={open} findable={findable} hidden={hidden} lang={lang} timeZone={shop.timezone} d={d} ok={ok} err={err} />
+            )}
             {open.kind === "connected" && (
               <details className="text-sm">
                 <summary className="cursor-pointer underline underline-offset-4">{d.disconnect}</summary>
@@ -408,5 +425,188 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
         )}
       </section>
     </div>
+  );
+}
+
+const SEARCH_CONSOLE_URL = "https://search.google.com/search-console";
+
+/**
+ * "Aby vás našli Google a AI asistenti" (database update 33), on a live domain: "Overiť v Google
+ * Search Console" (the TXT value goes into DNS when Cacadoo runs the domain's DNS, else the record
+ * to add by hand), "Odoslať sitemap", llms.txt and robots.txt with the categories for llms.txt,
+ * and the last IndexNow ping.
+ */
+function FindableSection({
+  order,
+  findable,
+  hidden,
+  lang,
+  timeZone,
+  d,
+  ok,
+  err,
+}: {
+  order: DomainOrder;
+  findable: Findable;
+  hidden: React.ReactNode;
+  lang: Locale;
+  timeZone: string;
+  d: Dictionary["domains"];
+  /** The answer of the last action, shown next to its form (the page comes back at #findable). */
+  ok: string | undefined;
+  err: string | undefined;
+}) {
+  const host = order.site_host ?? order.hostname;
+  const base = `https://${host}`;
+  // Cacadoo writes the record when it runs the domain's DNS (a domain bought here, or one in our Websupport account).
+  const auto = Boolean(order.registrar_service_id);
+  const value = findable.google_verification;
+  const okResult = /^2\d\d$/.test(findable.indexnow_result ?? "");
+  const copy = { copy: d.dns_copy, copied: d.dns_copied };
+  const googleError = ({ google_invalid: d.google_invalid, google_too_many: d.google_too_many, google_too_soon: d.google_too_soon } as Record<string, string>)[err ?? ""];
+  return (
+    <section id="findable" className="flex flex-col gap-4 border-t border-line pt-4" aria-labelledby="findable-heading" data-findable>
+      <h3 id="findable-heading" className="font-semibold">
+        {d.findable_title}
+      </h3>
+      <p className="text-sm text-muted">{t(d.findable_intro, { domain: host })}</p>
+
+      <div className="flex flex-col gap-3 border border-line p-4" data-google>
+        <h4 className="font-semibold">{d.google_title}</h4>
+        <ol className="flex list-decimal flex-col gap-1 pl-6 text-sm">
+          <li>
+            {t(d.google_step1, { domain: host })}{" "}
+            <a href={SEARCH_CONSOLE_URL} target="_blank" rel="noopener" className="underline underline-offset-4">
+              {d.google_open}
+            </a>
+          </li>
+          <li>{d.google_step2}</li>
+          <li>{d.google_step3}</li>
+        </ol>
+        <form action={verifyGoogle} className="flex flex-col gap-2" data-google-form>
+          {hidden}
+          <input type="hidden" name="order_id" value={order.id} />
+          <label className="flex flex-col gap-1">
+            <span className="text-sm">{d.google_label}</span>
+            <input
+              name="value"
+              required
+              maxLength={300}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              defaultValue={value ?? ""}
+              placeholder="google-site-verification=…"
+              className="rounded border border-line px-3 py-2 font-mono text-sm outline-none focus:border-foreground"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <PendingButton pending={d.checking}>{auto ? d.google_button_auto : d.google_button_manual}</PendingButton>
+          </div>
+          <p className="text-xs text-muted">{auto ? d.google_auto_note : d.google_manual_note}</p>
+          {googleError && (
+            <p role="alert" className="border border-line p-3 text-sm" data-google-error>
+              {googleError}
+            </p>
+          )}
+        </form>
+        {value && findable.google_verification_state === "added" && (
+          <p role="status" className="border border-foreground p-3 text-sm font-medium" data-google-added>
+            {t(d.google_added, { domain: host })}
+          </p>
+        )}
+        {value && findable.google_verification_state === "manual" && (
+          <div className="flex flex-col gap-2 border border-foreground p-3 text-sm" data-google-record>
+            <p className="font-medium">{t(d.google_manual, { domain: host })}</p>
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-line text-left text-muted">
+                  <th className="py-1 pr-3 font-normal">{d.dns_type}</th>
+                  <th className="py-1 pr-3 font-normal">{d.dns_name}</th>
+                  <th className="py-1 pr-3 font-normal">{d.dns_value}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-line">
+                  <td className="py-1 pr-3 font-mono">TXT</td>
+                  <td className="py-1 pr-3 font-mono">{recordName(host)}</td>
+                  <td className="break-all py-1 pr-3 font-mono">{value}</td>
+                  <td className="py-1 text-right">
+                    <CopyButton text={value} labels={copy} />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p className="font-semibold">{d.google_manual_keep}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2 border border-line p-4" data-sitemap>
+        <h4 className="break-all font-semibold">{t(d.sitemap_title, { url: `${base}/sitemap.xml` })}</h4>
+        <ol className="flex list-decimal flex-col gap-1 pl-6 text-sm">
+          <li>{d.sitemap_step1}</li>
+          <li>{d.sitemap_step2}</li>
+          <li>{d.sitemap_step3}</li>
+        </ol>
+        <p className="flex flex-wrap items-center gap-3 text-sm">
+          <a href={`${base}/sitemap.xml`} target="_blank" rel="noopener" className="break-all font-mono underline underline-offset-4">
+            {base}/sitemap.xml
+          </a>
+          <CopyButton text={`${base}/sitemap.xml`} labels={copy} />
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2 border border-line p-4" data-ai-files>
+        <h4 className="font-semibold">{d.ai_title}</h4>
+        <p className="text-sm">{d.ai_text}</p>
+        <p className="flex flex-wrap gap-x-4 text-sm">
+          <a href={`${base}/llms.txt`} target="_blank" rel="noopener" className="font-mono underline underline-offset-4">
+            llms.txt
+          </a>
+          <a href={`${base}/robots.txt`} target="_blank" rel="noopener" className="font-mono underline underline-offset-4">
+            robots.txt
+          </a>
+        </p>
+        <form action={saveCategories} className="flex flex-col gap-2" data-categories>
+          {hidden}
+          <label className="flex flex-col gap-1">
+            <span className="text-sm">{d.categories_label}</span>
+            <textarea
+              name="categories"
+              rows={2}
+              maxLength={1000}
+              defaultValue={findable.categories.join(", ")}
+              className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-foreground"
+            />
+          </label>
+          <p className="text-xs text-muted">{d.categories_hint}</p>
+          <PendingButton pending={d.checking}>{d.categories_button}</PendingButton>
+          {ok === "categories" && (
+            <p role="status" className="border border-foreground p-3 text-sm font-medium" data-categories-notice>
+              {d.categories_saved}
+            </p>
+          )}
+          {err === "categories" && (
+            <p role="alert" className="border border-line p-3 text-sm" data-categories-notice>
+              {d.categories_error}
+            </p>
+          )}
+        </form>
+      </div>
+
+      <div className="flex flex-col gap-1 border border-line p-4 text-sm" data-indexnow>
+        <h4 className="font-semibold">{d.indexnow_title}</h4>
+        <p>{d.indexnow_text}</p>
+        <p className="text-muted" data-indexnow-last>
+          {!findable.indexnow_at
+            ? d.indexnow_none
+            : okResult
+              ? t(d.indexnow_last, { time: formatDateTime(findable.indexnow_at, lang, timeZone), n: String(findable.indexnow_urls ?? 0) })
+              : t(d.indexnow_failed, { time: formatDateTime(findable.indexnow_at, lang, timeZone), result: findable.indexnow_result ?? "" })}
+        </p>
+      </div>
+    </section>
   );
 }

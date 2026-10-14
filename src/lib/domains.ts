@@ -128,6 +128,31 @@ export async function loadDomainPage(supabase: SupabaseClient, shopId: string): 
   };
 }
 
+/** "Aby vás našli Google a AI asistenti" on a live domain (database update 33). */
+export interface Findable {
+  google_verification: string | null;
+  google_verification_state: "added" | "manual" | null;
+  google_verification_at: string | null;
+  indexnow_at: string | null;
+  indexnow_urls: number | null;
+  indexnow_result: string | null;
+  categories: string[];
+}
+
+/** The Search Console value, the last IndexNow ping and the categories; null before update 33. */
+export async function loadFindable(supabase: SupabaseClient, orderId: string, shopId: string): Promise<Findable | null> {
+  const [order, shop] = await Promise.all([
+    supabase
+      .from("domain_orders")
+      .select("google_verification, google_verification_state, google_verification_at, indexnow_at, indexnow_urls, indexnow_result")
+      .eq("id", orderId)
+      .maybeSingle(),
+    supabase.from("shops").select("product_categories").eq("id", shopId).maybeSingle(),
+  ]);
+  if (order.error || shop.error || !order.data) return null;
+  return { ...(order.data as Omit<Findable, "categories">), categories: ((shop.data?.product_categories as string[] | null) ?? []) };
+}
+
 /** The domains Edge Function with the caller's own login: its answer, or its reason code. */
 export async function callDomains<T>(
   supabase: SupabaseClient,

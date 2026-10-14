@@ -11,9 +11,12 @@
 //      in our Websupport account).
 // Live: "Vaša stránka beží na <doména>" e-mail once; renewal from our credit only after the
 // shop's Stripe renewal succeeded; never a domain held back (auth code on cancellation).
+// Update 33, "Overiť v Google Search Console": the pasted TXT value is added to the domain's DNS
+// when we run it (only added; no record is ever replaced or removed), else shown to add by hand.
 //
 // Who calls it:
-//   - the website with the owner's login: check, pay, cancel_payment, connect, recheck, disconnect, auth_code, pro_price
+//   - the website with the owner's login: check, pay, cancel_payment, connect, recheck, disconnect, auth_code, pro_price,
+//     google_verify
 //   - the website with the admin's login: admin_retry, admin_email, admin_auth_code,
 //     admin_save_auth_code, admin_credit
 //   - stripe-webhook (service role key): run (a payment was confirmed)
@@ -647,6 +650,10 @@ export interface Order {
   last_error: string | null;
   last_check_at: string | null;
   created_at: string;
+  /** Update 33: the Search Console value the owner pasted, and whether we wrote it into DNS. */
+  google_verification?: string | null;
+  google_verification_state?: "added" | "manual" | null;
+  google_verification_at?: string | null;
 }
 
 export interface Deps {
@@ -1877,6 +1884,67 @@ async function authCodeAction(deps: Deps, who: { authorization: string }, body: 
   return reply(200, { auth_code: null, requested: true });
 }
 
+// ---------------------------------------------------------------- Google Search Console (update 33)
+
+const GOOGLE_PREFIX = "google-site-verification=";
+/** At most this many Search Console values on one domain (several Google accounts may verify it). */
+export const MAX_GOOGLE_RECORDS = 5;
+
+/**
+ * The TXT value Search Console shows ("google-site-verification=…"), as pasted: the whole value
+ * or just its token, quotes and spaces around it allowed. Anything else (an HTML tag, an SPF
+ * record…) → null.
+ */
+export function googleVerification(input: unknown): string | null {
+  const text = String(input ?? "").trim().replace(/^["'\u201c\u201d\u201e]+|["'\u201c\u201d\u201e]+$/g, "").trim();
+  const match = /^(?:google-site-verification\s*=\s*)?([A-Za-z0-9_-]{20,100})$/i.exec(text);
+  return match ? `${GOOGLE_PREFIX}${match[1]}` : null;
+}
+
+/** The record's name for a host at the shop's own registrar: "@" for the domain itself, else its first labels. */
+export function manualRecordName(host: string): string {
+  if (isApex(host)) return "@";
+  const apex = host.split(".").slice(-2).join(".");
+  return host.slice(0, -apex.length - 1);
+}
+
+const unquoted = (value: string) => value.trim().replace(/^"(.*)"$/s, "$1").replace(/"\s*"/g, "");
+
+/**
+ * "Overiť v Google Search Console" (live domains): the value goes into the domain's DNS as a TXT
+ * record at the domain itself when Cacadoo runs its DNS (a domain bought here, or an own domain in
+ * our Websupport account) — only added, never replacing or removing a record (MX, SPF, DKIM, DMARC
+ * and every other TXT stay as they are). Otherwise the owner gets the record to add at their own
+ * registrar.
+ */
+async function googleVerifyAction(deps: Deps, who: { authorization: string }, body: Json): Promise<Response> {
+  const id = String(body.order_id ?? "");
+  const o = UUID.test(id) ? await load(deps, id) : null;
+  if (!o || !(await member(deps, who.authorization, o.shop_id))) return reply(404, { error: "not_found" });
+  if (o.status !== "live") return reply(409, { error: "state" });
+  const value = googleVerification(body.value);
+  if (!value) return reply(200, { state: "invalid" });
+  if (o.google_verification_at && deps.now() - Date.parse(o.google_verification_at) < 10_000) return reply(429, { error: "too_soon" });
+  const host = o.site_host ?? o.hostname;
+
+  if (o.registrar_service_id && deps.registrar) {
+    const records = await deps.registrar.records(o.registrar_service_id);
+    const google = records.filter(
+      (r) => r.type.toUpperCase() === "TXT" && bareName(r.name, host) === "@" && unquoted(r.content).startsWith(GOOGLE_PREFIX),
+    );
+    const present = google.some((r) => unquoted(r.content) === value);
+    if (!present && google.length >= MAX_GOOGLE_RECORDS) return reply(200, { state: "too_many", host });
+    if (!present) await deps.registrar.addRecord(o.registrar_service_id, { type: "TXT", name: "@", value });
+    await patch(deps, o.id, { google_verification: value, google_verification_state: "added", google_verification_at: iso(deps) });
+    await log(deps, o.id, "google", true, present ? "Search Console TXT record already in DNS" : "Search Console TXT record added to DNS");
+    return reply(200, { state: "added", host, record: { type: "TXT", name: "@", value } });
+  }
+
+  await patch(deps, o.id, { google_verification: value, google_verification_state: "manual", google_verification_at: iso(deps) });
+  await log(deps, o.id, "google", true, "Search Console TXT record shown to add at the registrar");
+  return reply(200, { state: "manual", host, record: { type: "TXT", name: manualRecordName(host), value } });
+}
+
 /** The Pro price (from Stripe, STRIPE_PRICE_PRO), shown next to the domain to a shop without Pro. */
 async function proPriceAction(deps: Deps, who: { authorization: string }, body: Json): Promise<Response> {
   if (!(await member(deps, who.authorization, String(body.shop_id ?? "")))) return reply(403, { error: "not_member" });
@@ -1985,6 +2053,8 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
         return await proPriceAction(deps, who, body);
       case "cancel_payment":
         return await cancelPaymentAction(deps, who, body);
+      case "google_verify":
+        return await googleVerifyAction(deps, who, body);
     }
     return reply(400, { error: "bad_request" });
   } catch (e) {

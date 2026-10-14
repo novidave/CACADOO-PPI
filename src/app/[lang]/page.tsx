@@ -4,7 +4,8 @@ import { getDictionary, type Dictionary } from "@/i18n/dictionaries";
 import Link from "next/link";
 import { aiSearchEnabled } from "@/lib/aiSearch";
 import { createClient } from "@/lib/supabase/server";
-import { getShopCalendars, getShopsByIds, type PublicShop } from "@/lib/data";
+import { itemHref, shopHref } from "@/lib/customDomain";
+import { getLiveSites, getShopCalendars, getShopsByIds, type PublicShop } from "@/lib/data";
 import { missingSupabaseEnv, supabaseEnv } from "@/lib/supabase/env";
 import { formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
@@ -38,6 +39,8 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
   let rows: StockRow[] = [];
   let shops = new Map<string, PublicShop>();
   let calendars = new Map<string, CalendarDay[]>();
+  // Shops with a live own domain: their results link there (the canonical address).
+  let sites = new Map<string, string>();
   let error: string | null = null;
 
   try {
@@ -55,7 +58,7 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
       // Opening hours, special days and holidays for each shop's status: two queries for all result shops.
       if (!result.error) {
         const ids = [...new Set(rows.map((r) => r.shop_id))];
-        [shops, calendars] = await Promise.all([getShopsByIds(ids), getShopCalendars(ids).catch(() => new Map())]);
+        [shops, calendars, sites] = await Promise.all([getShopsByIds(ids), getShopCalendars(ids).catch(() => new Map()), getLiveSites()]);
       }
     }
   } catch (e) {
@@ -127,7 +130,7 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
                       name: r.shop_name,
                       lat: r.shop_lat!,
                       lng: r.shop_lng!,
-                      href: `/${lang}/shops/${r.shop_slug}`,
+                      href: shopHref(sites, lang, r.shop_slug, r.shop_country),
                       ...(shop ? { status: statusInput(shop, calendars) } : {}),
                     };
                   })}
@@ -143,6 +146,7 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
                     row={row}
                     shop={shops.get(row.shop_id)}
                     calendars={calendars}
+                    sites={sites}
                     renderedAt={renderedAt}
                     lang={lang}
                     dict={dict}
@@ -161,6 +165,7 @@ function ResultRow({
   row,
   shop,
   calendars,
+  sites,
   renderedAt,
   lang,
   dict,
@@ -168,6 +173,7 @@ function ResultRow({
   row: StockRow;
   shop: PublicShop | undefined;
   calendars: Map<string, CalendarDay[]>;
+  sites: Map<string, string>;
   renderedAt: number;
   lang: Locale;
   dict: Dictionary;
@@ -177,7 +183,7 @@ function ResultRow({
     <li data-shop={row.shop_slug} className="flex flex-col gap-1 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
-          <Link href={`/${lang}/items/${row.item_id}`} className="font-medium hover:underline">
+          <Link href={itemHref(sites, lang, row.shop_slug, row.item_id)} className="font-medium hover:underline">
             {row.item_name}
           </Link>
           {translated && <p className="text-sm text-muted">{translated}</p>}
@@ -185,7 +191,7 @@ function ResultRow({
         <span className="whitespace-nowrap font-medium">{formatPrice(row.price, lang, row.currency)}</span>
       </div>
       <div className="text-sm text-muted">
-        <Link href={`/${lang}/shops/${row.shop_slug}`} className="hover:underline">
+        <Link href={shopHref(sites, lang, row.shop_slug, row.shop_country)} className="hover:underline">
           {row.shop_name}
         </Link>
         {[row.shop_address, row.shop_city].filter(Boolean).map((part) => ` · ${part}`)}

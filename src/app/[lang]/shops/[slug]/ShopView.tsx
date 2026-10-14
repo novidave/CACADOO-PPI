@@ -15,9 +15,7 @@ import {
   displayTime,
   hasHours,
   localDateTime,
-  openingHoursSpecification,
   rangesFor,
-  specialOpeningHoursSpecification,
   type StatusInput,
   upcomingDays,
   weekdayOf,
@@ -25,6 +23,7 @@ import {
 import { requestTime } from "@/lib/requestTime";
 import { statusInput } from "@/lib/shopCalendar";
 import { shopChatEnabled } from "@/lib/shopChat";
+import { storeJsonLd } from "@/lib/jsonLd";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { getShopSections } from "@/lib/sections";
 import { freshnessText } from "@/lib/stock";
@@ -110,7 +109,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <JsonLd data={localBusiness(shop, lang, host, input)} />
+      <JsonLd data={{ "@context": "https://schema.org", ...storeJsonLd(shop, lang, host, input, siteUrl()) }} />
 
       {/* 1. The shop's name and logo, its details under them (on its own domain too). */}
       <header className="flex flex-col gap-2" data-shop-details>
@@ -349,55 +348,4 @@ function HoursSection({
       )}
     </section>
   );
-}
-
-/** schema.org LocalBusiness: what AI assistants and search engines read (the canonical address). */
-function localBusiness(shop: PublicShop, lang: Locale, host: string | null, input: StatusInput) {
-  const special = specialOpeningHoursSpecification(input, new Date(), 60);
-  const url = host ? siteShopUrl(host, lang, siteLang(shop.country)) : `${siteUrl()}/${lang}/shops/${shop.slug}`;
-  return {
-    "@context": "https://schema.org",
-    "@type": "Store",
-    "@id": url,
-    name: shop.name,
-    url,
-    ...(shop.logo_url ? { logo: shop.logo_url, image: shop.logo_url } : {}),
-    ...(shop.phone ? { telephone: shop.phone } : {}),
-    ...(shop.email ? { email: shop.email } : {}),
-    ...(shop.website || shop.facebook_url ? { sameAs: [shop.website, shop.facebook_url].filter(Boolean) } : {}),
-    address: {
-      "@type": "PostalAddress",
-      ...(shop.address ? { streetAddress: shop.address } : {}),
-      ...(shop.city ? { addressLocality: shop.city } : {}),
-      ...(shop.country ? { addressCountry: shop.country } : {}),
-    },
-    ...(shop.lat !== null && shop.lng !== null
-      ? { geo: { "@type": "GeoCoordinates", latitude: shop.lat, longitude: shop.lng } }
-      : {}),
-    ...(hasHours(shop.opening_hours) ? { openingHoursSpecification: openingHoursSpecification(shop.opening_hours) } : {}),
-    // The owner's special days and the days shops must close by law (public days off: hours unknown, left out).
-    ...(special.length ? { specialOpeningHoursSpecification: special } : {}),
-    ...(shop.has_card_terminal ? { paymentAccepted: "Cash, Credit Card, Debit Card" } : {}),
-    // The shop's booking app (the owner's link).
-    ...(shop.booking_url
-      ? {
-          potentialAction: {
-            "@type": "ReserveAction",
-            target: {
-              "@type": "EntryPoint",
-              urlTemplate: shop.booking_url,
-              actionPlatform: ["https://schema.org/DesktopWebPlatform", "https://schema.org/MobileWebPlatform"],
-            },
-          },
-        }
-      : {}),
-    ...(shop.has_toilet || shop.has_douchette
-      ? {
-          amenityFeature: [
-            ...(shop.has_toilet ? [{ "@type": "LocationFeatureSpecification", name: "Customer toilet", value: true }] : []),
-            ...(shop.has_douchette ? [{ "@type": "LocationFeatureSpecification", name: "Douchette (bidet shower)", value: true }] : []),
-          ],
-        }
-      : {}),
-  };
 }

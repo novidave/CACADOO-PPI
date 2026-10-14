@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
 import { callerHash } from "./apiHttp";
+import { itemHref, loadLiveSites, shopHref } from "./customDomain";
 import { formatPrice } from "./format";
 import { translatedName } from "./names";
 import { apiItem, searchStock } from "./publicApi";
@@ -206,15 +207,16 @@ export async function runAiSearch(question: string, lang: Locale, onlyAvailable:
 
 /** The result cards, in the page language, from the search results only. */
 async function toCards(items: FoundItem[], lang: Locale): Promise<AiCard[]> {
-  const dict = await getDictionary(lang);
+  // Shops with a live own domain: the cards link there (the canonical address).
+  const [dict, sites] = await Promise.all([getDictionary(lang), items.length ? loadLiveSites(createPublicClient()).catch(() => new Map<string, string>()) : new Map<string, string>()]);
   return items.map((item) => ({
-    href: `/${lang}/items/${item.id}`,
+    href: itemHref(sites, lang, item.shop.slug, item.id),
     name: item.name,
     translated: translatedName(item.name, { [lang]: item.name_translated ?? undefined }, lang),
     brand: item.brand,
     price: formatPrice(item.price, lang, item.currency),
     shop: item.shop.name,
-    shopHref: `/${lang}/shops/${item.shop.slug}`,
+    shopHref: shopHref(sites, lang, item.shop.slug, item.shop.country),
     place: [item.shop.address, item.shop.city].filter(Boolean).join(", "),
     availability: availabilityText(dict, item.availability, item.quantity, lang),
     freshness: freshnessText(dict, item.freshness.state, item.freshness.age_minutes, item.freshness.updated_at, item.shop.timezone),

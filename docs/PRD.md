@@ -36,6 +36,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Ticks on "Vaše mimoriadne dni" (delete several at once, "Vybrať všetko"); a blue "Vybrať súbor" link instead of the browser's file box in page sections | Built and tested; live after the merge, no database change (SETUP.md part Z) |
 | Assistant conversations as PDF straight to the PC: "Stiahnuť PDF" on each, ticks + "Stiahnuť vybrané"; the shopper's pictures large in the PDF | Built and tested; live after the updated assistant-archive function and the merge (SETUP.md part AA) |
 | "Konverzácie do počítača": every finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open; never replaces anything) | Built and tested; live after the merge, no database change (SETUP.md part AB) |
+| Own domains easy to find: "Overiť v Google Search Console" (the TXT record written into DNS for domains Cacadoo runs, shown to add by hand otherwise) and "Odoslať sitemap"; llms.txt and robots.txt per own domain (with "Kategórie tovaru"); IndexNow after every stock upload (only changed pages); search results, map pins and AI cards link to the own domain; item pages carry Product/Offer + Store JSON-LD | Built and tested; live after database update 33, the updated domains and stock-pull functions and the merge (SETUP.md part AC) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -742,10 +743,53 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
   orders twice; every step is written to the order's log. `REGISTRAR_MODE=test` (the default): Websupport orders are
   dry runs, nothing is paid from the credit, and the website goes on the admin's **test domain**.
 - **The shop's own domain serves its Pro page directly** (no redirect): `/` in the shop's language (SK → sk, HU → hu,
-  else en), `/hu`, `/en`, items at `/{lang}/items/{id}`, its own `sitemap.xml` and `robots.txt`; `www` → 308 to the bare
+  else en), `/hu`, `/en`, items at `/{lang}/items/{id}`, its own `sitemap.xml`, `robots.txt`, `llms.txt` and IndexNow
+  key file (update 33, below); `www` → 308 to the bare
   domain; anything else (login, other shops) → PPI's own address; an unknown host → "Táto doména zatiaľ nie je
   pripojená". Canonical = the own domain; the Cacadoo shop and item pages point their canonical there, and the main
   sitemap leaves them out. JSON-LD stays honest (the shop's own data); Pro product pages show no other shops (6.7).
+- **Easy to find (update 33).** Under the live domain on "Predplatné a doména", the box **"Aby vás našli Google a AI
+  asistenti"**:
+  - **"Overiť v Google Search Console"**: three steps (open Search Console → Pridať vlastníctvo → Doména → the domain;
+    copy the TXT value "google-site-verification=…"; click Overiť), a field for the value (the whole value or only its
+    token, quotes allowed; an HTML tag or any other text is refused: "Toto nie je hodnota TXT zo Search Console …").
+    A domain whose DNS Cacadoo runs (bought here, or an own domain in PPI's Websupport account): **"Zapísať do DNS"**
+    adds one TXT record at the domain itself through the Websupport DNS API — **only added**: no record is ever
+    replaced or removed (MX, SPF, DKIM, DMARC and every other TXT stay), the same value is never added twice, at most
+    5 Google values per domain ("Doména už má 5 overovacích záznamov Google …"), at most once in 10 seconds ("Chvíľu
+    počkajte …"); "Záznam TXT je zapísaný v DNS domény … V Search Console kliknite na Overiť". An own domain elsewhere:
+    **"Zobraziť záznam"** shows the record to add (TXT · `@` or the subdomain's name · the value, "Kopírovať") with
+    "Existujúce záznamy nemeňte ani nemažte (najmä MX, SPF, DKIM a DMARC) …". The value and how it was handled stay on
+    the order (`google_verification`, `_state` added|manual), every try in its log.
+  - **"Odoslať sitemap: https://<doména>/sitemap.xml"**: Súbory Sitemap → "sitemap.xml" → Odoslať, the address with
+    "Kopírovať".
+  - **AI asistenti**: links to the domain's `llms.txt` and `robots.txt` and **"Kategórie tovaru (do llms.txt)"**
+    (the owner's own words, comma separated, at most 12, each at most 40 characters, plain text; empty = none;
+    `owner_set_categories()`). PPI never invents categories: without them llms.txt says "Not listed by the shop.".
+  - **IndexNow**: "Po každom nahratí skladu oznámime vyhľadávačom Bing, Seznam, Yandex a ďalším, ktoré produkty sa
+    zmenili …" and the last ping ("Naposledy oznámené …: n stránok." / the search engine's answer when it refused).
+- **robots.txt of an own domain**: every search engine and the AI crawlers by name (GPTBot, OAI-SearchBot,
+  ChatGPT-User, ClaudeBot, Claude-User, Claude-SearchBot, PerplexityBot, Perplexity-User, Google-Extended,
+  Applebot-Extended, CCBot) may read the public pages; never `/api/` (the assistant, private folders, access keys and
+  their files), `/auth/`, Môj obchod and the other login pages; the sitemap and llms.txt on the domain.
+- **llms.txt of an own domain** (English, the shop's data as written): name, address, place, contact links, opening
+  hours in the shop's time zone and the special days of the next 14 days, "Kategórie tovaru", the brands most often in
+  the stock file and the number of items, the sitemap and the page addresses, and "How to read the stock" in the page's
+  own words ("12 ks na sklade", "Vypredané", "Aktualizované pred 8 min", "Informácia o zásobe momentálne nie je
+  dostupná" = never say it is in stock). Nothing of private folders, keys or the assistant.
+- **IndexNow** (Bing, Seznam, Yandex, Naver… share one endpoint): after each stock upload that the database applied,
+  in the background, **one request at most per upload** (`indexnow_claim()`), with **only the changed pages** on the
+  own domain: the shop's home page (three languages) and every item whose quantity, price, currency, name, EAN or brand
+  changed in that upload (each language; ≤ 10 000 addresses). An upload that changed nothing sends nothing. Only for a
+  live own domain of a shop with the plan. One random key for PPI, served on every own domain as `/<key>.txt`.
+- **Item pages on the own domain**: canonical = the own domain (also on the Cacadoo address); JSON-LD `@graph` of a
+  Product (name, brand, GTIN, the address on the domain) with an **Offer** (price, currency, InStock / OutOfStock,
+  `seller` and `availableAtOrFrom` = the shop) **only while the stock data is not stale** — exactly when the page shows
+  the quantity — and the shop as a **Store** (a LocalBusiness: address, place, opening hours, special days, contact
+  links, facilities; the same node as on the shop page).
+- **Main Cacadoo search** (results, map pins, the AI search cards) and the "Dostupné aj v" list link a shop with a
+  live own domain straight to it (its item `https://<doména>/<lang>/items/<id>` and its home page); other shops stay on
+  PPI's pages. Payment never affects the order of the results.
 - **Renewal and cancellation.** 30 days before expiry the renewal is charged to the saved card (a Stripe invoice); only
   after it is paid does Websupport renew from PPI's credit. E-mails 30 and 7 days before expiry; a failed renewal: a
   reminder every week with the payment link, then at expiry the domain lapses and the page is back on its Cacadoo
@@ -852,11 +896,11 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
   under the shop's details asks for its first page first (`fetchpriority=high`); an open slider loads its second page
   once it is near the screen.
 
-## 7. Data model (after database update 30)
+## 7. Data model (after database update 33)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
-| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `site_logo_url` / `site_logo_width` / `site_logo_height` (the own domain's header logo in the shop's `logos` folder, update 31; only `owner_set_site_logo()`), `site_logo_link` (where the logo leads: https of a real host, ≤ 500; NULL = the home page; update 32, only `owner_set_site_logo_link()`), `header_url` / `header_small_url` / `header_width` / `header_height` (the header picture of update 28; no longer shown since update 31), `auto_holidays` (default true, update 27; only `owner_set_auto_holidays()`), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
+| `shops` | `id`, `slug` (unique), `name`, `ico`, `address`, `city`, `country` (ISO 2 letters), `timezone` (IANA), `location` (PostGIS point), `phone`, `website`, `opening_hours` (jsonb), `email`, `facebook_url` (facebook.com / fb.com), `booking_url` (https, ≤ 500, update 26), `site_logo_url` / `site_logo_width` / `site_logo_height` (the own domain's header logo in the shop's `logos` folder, update 31; only `owner_set_site_logo()`), `site_logo_link` (where the logo leads: https of a real host, ≤ 500; NULL = the home page; update 32, only `owner_set_site_logo_link()`), `product_categories` ("Kategórie tovaru" for the own domain's llms.txt: ≤ 12, each ≤ 40, plain text; update 33, only `owner_set_categories()`), `header_url` / `header_small_url` / `header_width` / `header_height` (the header picture of update 28; no longer shown since update 31), `auto_holidays` (default true, update 27; only `owner_set_auto_holidays()`), `assistant_label` (≤ 40), `assistant_welcome` (≤ 300, plain text, paid plan), `logo_url`, `is_active`, `has_toilet`, `has_douchette`, `has_card_terminal`, `created_at` | Visitors see only active shops. The display columns `visibility_mode` and `low_stock_threshold` were dropped by migration 21 |
 | `public_holidays` | `country`, `date`, `name_sk/hu/en`, `kind` (`day_off`, `shops_closed`, `removed` = an admin row taking a date away), `closed_from`, `source` (`library`/`admin`) | Update 27. Everyone reads; only the service role and the admin's functions write; an admin row always wins over the library's |
 | `shop_special_hours` | `shop_id`, `date`, `closed`, `ranges` (1–4, a break allowed, past midnight allowed), `note` (≤ 100, plain text) | Update 27. Read with the shop; written only through `owner_save_special_hours()` / `owner_delete_special_hours()` |
 | `shop_page_sections` | `id`, `shop_id`, `title` (≤ 80), `display` (`collapsed`/`open`), `position` (`after_details`/`after_map`/`after_hours` (update 31)/`before_items`/`end`), `sort`, `allow_download`, `visible_from`, `visible_until`, `hidden`, `published`, `version` (live PDF), `pdf_path`, `pdf_bytes`, `pages` (≤ 20), `lang`, `upload_version` / `upload_*` (a new PDF being made ready), `upload_error`, `public_version` (whose pictures are public), `page_layout` (`slider`/`stacked`, default `slider`, update 29); `pages` ≤ 50 since update 30, `source` (`pdf`/`pictures`, update 31; pictures: no `pdf_path`) and `upload_source` | Update 28. At most the plan's number per shop (`section_limits`, update 30). Owners read their own; written only through `owner_*` functions and the page-sections function; visitors only through `shop_sections()` |
@@ -864,8 +908,8 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 | `section_limits` | `plan` (`free`/`pro`), `max_sections` (0–50), `max_pages` (1–50), `max_mb` (1–20), `updated_at` | Update 30. Defaults free 1 / 5 / 10, Pro 10 / 20 / 10. Signed-in users read; only `admin_save_section_limits()` (is_admin) writes |
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
 | `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |
-| `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `updated_at`, `name_lang`, `name_i18n` (`{"sk","hu","en"}`), `translated_name_source`, `name_i18n_by_owner` | Unique per shop + code; names searchable through one trigram index over the original and the three translations. Every item of an active shop is public (`is_public` dropped by migration 21) |
-| `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at` | Written only by the stock-pull function |
+| `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `updated_at`, `name_lang`, `name_i18n` (`{"sk","hu","en"}`), `translated_name_source`, `name_i18n_by_owner`, `changed_at` (update 33: when name, EAN or brand last changed; a trigger) | Unique per shop + code; names searchable through one trigram index over the original and the three translations. Every item of an active shop is public (`is_public` dropped by migration 21) |
+| `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at`, `changed_at` (update 33: when quantity, price or currency last really changed; a trigger) | Written only by the stock-pull function |
 | `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows` (never private columns: 3 rows without purchase price / supplier / margin / invoice columns before approval, only the approved columns after), `file_columns` (every column name of the latest file), `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name` | One per shop: how its stock file is read and the latest upload. A leftover `file_url` column is unused |
 | `stock_imports` | `shop_id`, `file_name`, `file_time`, `received_at`, `status` (`ok`/`errors`/`waiting`), `total_rows`, `imported`, `zeroed`, `skipped`, `error`, `columns`, `preview` | Import report per received file, the last 10 per shop; written only by stock-pull (`record_stock_import()`), read only by the shop's owners; the preview holds only approved columns |
 | `profiles` | `user_id`, `display_name`, `language`, `is_admin` | One per account, created automatically |
@@ -887,10 +931,10 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 | `cloud_connections` | `shop_id` (key: one per shop), `provider` (`onedrive`/`dropbox`), `account_name`, `account_email`, `folder_path`, `access_token_enc`, `refresh_token_enc`, `access_expires_at`, `scope`, `site_url`, `status` (`ok`/`expired`/`error`), `last_error`, `connected_by`, `connected_at`, `last_success_at`, `failing_since`, `alert_sent_at` | The shop's cloud (update 23); written only by cloud-export; owners read everything except the tokens |
 | `cloud_oauth_states` | `state_hash`, `shop_id`, `provider`, `user_id`, `verifier`, `folder_path`, `return_url`, `expires_at` | One OAuth round trip (SHA-256 of the state, 10 minutes, single use); no client access |
 | `cloud_export_items` | `conversation_id`, `shop_id`, `item_key` (`pdf` or the attachment id), `remote_path`, `remote_id`, `bytes`, `uploaded_at` | What was copied (unique per conversation and item); owners read |
-| `domain_settings` | one row: `search_url` (https), `same_price_as_registrar`, `low_credit_eur`, `test_domain`, `credit_eur`, `credit_checked_at`, `credit_alert_at` | Update 25; only the admin (owners read the search address and the switch through `domain_shop_settings()`) |
+| `domain_settings` | one row: `search_url` (https), `same_price_as_registrar`, `low_credit_eur`, `test_domain`, `credit_eur`, `credit_checked_at`, `credit_alert_at`, `indexnow_key` (update 33: random; public through `indexnow_key()`, served as `/<key>.txt`) | Update 25; only the admin (owners read the search address and the switch through `domain_shop_settings()`) |
 | `domain_prices` | `tld` (key), `price_cents`, `renewal_cents`, `vat_included`, `currency` (EUR), `sort_order`, `active` | The admin's price table; everyone reads active rows |
 | `shop_legal` | `shop_id` (key), `company_name`, `contact_name`, `street`, `city`, `zip`, `country`, `ico`, `dic`, `ic_dph`, `email`, `phone` | The domain owner's details; members and the admin read, owners write through `owner_save_legal()` |
-| `domain_orders` | `shop_id`, `kind` (`bought`/`connected`), `hostname`, `site_host`, `www`, `status` (quoted → checkout → paid → registering → configuring → securing → live; waiting_dns → verified; taken, failed, dns_timeout, lapsed, ended, canceled), the frozen price, Stripe session/invoice/payment/refund, Websupport profile/order/service, `test_mode`, `waiting_credit`, `dns_records`, checks, tries, `live_at`, `live_email_at`, `expires_at`, renewal state and notices, `auth_code`, `last_error`, `needs_admin`, `log` | One open domain per shop and per host; members and the admin read; only the domains and Stripe functions write |
+| `domain_orders` | `shop_id`, `kind` (`bought`/`connected`), `hostname`, `site_host`, `www`, `status` (quoted → checkout → paid → registering → configuring → securing → live; waiting_dns → verified; taken, failed, dns_timeout, lapsed, ended, canceled), the frozen price, Stripe session/invoice/payment/refund, Websupport profile/order/service, `test_mode`, `waiting_credit`, `dns_records`, checks, tries, `live_at`, `live_email_at`, `expires_at`, renewal state and notices, `auth_code`, `last_error`, `needs_admin`, `log`; update 33: `google_verification` (`google-site-verification=…`), `google_verification_state` (added/manual), `google_verification_at`, `indexnow_upload_at` (the upload last announced), `indexnow_at`, `indexnow_urls`, `indexnow_result` | One open domain per shop and per host; members and the admin read; only the domains and Stripe functions write |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
 Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop), `raw-files` (private, last raw files kept
@@ -1101,3 +1145,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-14 | Ticks on "Vaše mimoriadne dni" to delete several days at once ("Vybrať všetko", "Vymazať vybrané"); page sections choose their file with a blue "Vybrať súbor" link |
 | 2026-10-14 | Assistant conversations: "Stiahnuť PDF" and "Stiahnuť vybrané" (each its own PDF, straight to the PC); the shopper's pictures large in the PDF |
 | 2026-10-14 | "Konverzácie do počítača": each finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open) |
+| 2026-10-14 | Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS only by adding, or shown to add), "Odoslať sitemap", llms.txt and robots.txt per own domain with "Kategórie tovaru", IndexNow once per upload with only the changed pages, Product/Offer + Store JSON-LD on own-domain item pages, search results linking to the own domain |
