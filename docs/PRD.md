@@ -34,6 +34,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Own domain header as before update 28: a small clickable logo ("Logo v hlavičke webu" replaces the header picture) and SK · HU · EN; the section position "Za otváracími hodinami"; sections made of pictures (JPG, PNG, WebP; one picture = one page) | Built and tested; live after database update 31, the updated page-sections function and the merge (SETUP.md part X) |
 | "Odkaz loga": where a click on the own domain's header logo leads (e.g. the shop's main website; empty = the home page) | Built and tested; live after database update 32 and the merge (SETUP.md part Y) |
 | Ticks on "Vaše mimoriadne dni" (delete several at once, "Vybrať všetko"); a blue "Vybrať súbor" link instead of the browser's file box in page sections | Built and tested; live after the merge, no database change (SETUP.md part Z) |
+| Assistant conversations as PDF straight to the PC: "Stiahnuť PDF" on each, ticks + "Stiahnuť vybrané"; the shopper's pictures large in the PDF | Built and tested; live after the updated assistant-archive function and the merge (SETUP.md part AA) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -325,13 +326,17 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - **Shop assistant** (page AI Assistant; paid plan): the button label (up to 40 characters) and the welcome message shown when the
   assistant opens (up to 300). Plain text only: HTML, links and e-mail addresses are removed (the owner is told);
   empty = the default texts in the page language. Without the plan the section only says it is part of the plan.
-- **Konverzácie asistenta** (page AI Assistant; paid plan; owners only, view only; see 6.10): how long conversations are kept (30, 90 or
+- **Konverzácie asistenta** (page AI Assistant; paid plan; owners only; see 6.10): how long conversations are kept (30, 90 or
   365 days, default 90); search words (any message or its Slovak version) and a date range (in the shop's time zone);
   the list, newest first: date and time, the shopper's language, number of messages, a paperclip with the number of
   files, the first question; 20 per page. **Open** shows the whole conversation: every message with its time and
   "Zákazník"/"Asistent", the Slovak version in grey under a foreign message, the item cards as the shopper saw them
   (name, price, availability, "Údaje k <time>"), the shopper's photos (shown in the browser, larger in a new tab) and
-  files ("Zobraziť", a 10-minute link); no download buttons. **Delete** (with a confirmation tick) removes the
+  files ("Zobraziť", a 10-minute link). **Stiahnuť PDF** (since 2026-10-14) on every finished conversation, in the list and
+  on its page, saves its PDF (with the shopper's pictures) straight to the PC under its own name; ticks with **Vybrať
+  všetko** and **Stiahnuť vybrané (n)** download each ticked conversation as its own PDF, one after another (no ZIP;
+  "Hotovo – PDF sú v priečinku Stiahnuté súbory.", or how many have no PDF yet); a running conversation has no tick
+  and no button yet. **Delete** (with a confirmation tick) removes the
   conversation, its files and its PDF.
 - **Plan:** current plan (Free or Pro), the subscription's state (Active, Trial, Payment failed, Cancelled, …) and
   "Renews on" or "Ends on" with the date in the shop's time zone. **Upgrade** opens the Stripe payment page; **Manage
@@ -581,10 +586,11 @@ all as days off (shops-closed rules there depend on the shop's size and type; th
 - **PDF per conversation**, made on the server when it ends (tried 3 times): `<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`
   (start time in the shop's time zone, first 8 characters of the id) with the shop's logo and name, date and times,
   the shopper's language, every message with its time and "Zákazník"/"Asistent", foreign messages with a smaller grey
-  Slovak version, each answer's cards as a table (Tovar, Cena, Dostupnosť, Údaje k), photos as thumbnails with their
-  names, other files listed, and on every page "Vytvorené Cacadoo PPI · konverzácia <id> · strana X/Y". The font
+  Slovak version, each answer's cards as a table (Tovar, Cena, Dostupnosť, Údaje k), the shopper's photos large where
+  they were sent (across the text width, at most about half a page high, never enlarged; since 2026-10-14 — earlier
+  PDFs keep their small thumbnails) with their names, other files listed, and on every page "Vytvorené Cacadoo PPI · konverzácia <id> · strana X/Y". The font
   (DejaVu Sans) covers every Central European letter, Greek and Cyrillic; anything else (emoji) shows as "?". Kept in
-  the same private folder; the owner's way to take it home is the cloud folder (6.11).
+  the same private folder; the owner takes it home with "Stiahnuť PDF" or through the cloud folder (6.11).
 - **Who sees it:** only the shop's owners (RLS), in "Konverzácie asistenta"; never shoppers, other shops, pages, the
   API, MCP or the AI search. Conversation tokens are kept as hashes; access keys never reach a conversation.
 - **Keep time:** 30, 90 or 365 days after the last message (the owner chooses; default 90); a daily job deletes older
@@ -1080,3 +1086,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-14 | Own domain header back to a small clickable logo ("Logo v hlavičke webu" replaces the header picture) with SK · HU · EN; the section position "Za otváracími hodinami"; page sections made of pictures (JPG, PNG, WebP) |
 | 2026-10-14 | "Odkaz loga": the own domain's header logo can lead to another address (e.g. the shop's main website) instead of the home page |
 | 2026-10-14 | Ticks on "Vaše mimoriadne dni" to delete several days at once ("Vybrať všetko", "Vymazať vybrané"); page sections choose their file with a blue "Vybrať súbor" link |
+| 2026-10-14 | Assistant conversations: "Stiahnuť PDF" and "Stiahnuť vybrané" (each its own PDF, straight to the PC); the shopper's pictures large in the PDF |

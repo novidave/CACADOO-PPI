@@ -9,7 +9,7 @@ import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteConversation } from "../../conversationActions";
-import { countText, ExportState, languageName, type ExportStatus } from "../../Conversations";
+import { conversationPdfUrl, countText, ExportState, languageName, type ExportStatus } from "../../Conversations";
 
 export const metadata: Metadata = { robots: { index: false } };
 
@@ -53,7 +53,8 @@ const size = (bytes: number, lang: Locale) =>
  * One conversation of the shop's assistant, for the shop's owners only (RLS): every message
  * with its time, the Slovak version of foreign messages, the item cards as the shopper saw
  * them and the shopper's files (pictures shown here; files open in the browser through
- * 10-minute links). View only: no download buttons; the owner can delete it.
+ * 10-minute links). "Stiahnuť PDF" downloads its PDF (with the shopper's pictures) once the
+ * conversation has ended; the owner can delete it.
  */
 export default async function ConversationPage({ params, searchParams }: PageProps<"/[lang]/dashboard/conversations/[id]">) {
   const { lang, id } = await params;
@@ -142,7 +143,14 @@ export default async function ConversationPage({ params, searchParams }: PagePro
           <dt className="text-muted">{c.page_language}</dt>
           <dd>{languageName(conv.page_lang, lang, c.unknown)}</dd>
           <dt className="text-muted">{dict.conversations.pdf}</dt>
-          <dd>{pdfText}</dd>
+          <dd className="flex flex-wrap gap-x-3">
+            <span>{pdfText}</span>
+            {conv.pdf_status === "ready" && (
+              <a href={conversationPdfUrl(conv.id)} download className="underline underline-offset-4" data-conversation-pdf={conv.id}>
+                {c.download_pdf}
+              </a>
+            )}
+          </dd>
           {exported && exported.export_status !== "none" && (
             <>
               <dt className="text-muted">{c.export}</dt>

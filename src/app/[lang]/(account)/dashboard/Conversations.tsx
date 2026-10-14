@@ -3,6 +3,7 @@ import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { formatDateTime } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
+import { ConversationDownloadBar } from "@/components/ConversationDownloadBar";
 import { PendingButton } from "@/components/PendingButton";
 import { retryCloudExport } from "./cloudActions";
 import { deleteConversation, saveAssistantRetention, saveShopperPdf } from "./conversationActions";
@@ -162,9 +163,13 @@ export function conversationsSummary(data: ConversationsData | null, dict: Dicti
   return t(c.summary, { count: countText(c, "count", data.all, lang), days: data.retention });
 }
 
+/** Where "Stiahnuť PDF" of one conversation leads (a 10-minute download address of its PDF). */
+export const conversationPdfUrl = (id: string) => `/api/owner/conversations/${id}/pdf`;
+
 /**
  * "Konverzácie asistenta" in Môj obchod: how long they are kept, search and days, the list
- * (newest first) and a link to read each one. View only: nothing here downloads a file.
+ * (newest first) with a link to read each one, "Stiahnuť PDF" for every finished one and ticks
+ * with "Stiahnuť vybrané" (each conversation its own PDF, with the shopper's pictures).
  */
 export function Conversations({
   data,
@@ -267,52 +272,88 @@ export function Conversations({
       {data.rows.length === 0 ? (
         <p className="text-sm text-muted">{filtered ? c.none_found : c.none}</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-line border-y border-line" data-conversations>
-          {data.rows.map((row) =>
-            row.shopper_deleted_at ? (
-              <li key={row.id} className="flex flex-col gap-1 py-3" data-conversation={row.id} data-shopper-deleted>
-                <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                  <span className="font-semibold">{formatDateTime(row.started_at, lang, shop.timezone)}</span>
-                  <span className="font-semibold">{c.shopper_deleted}</span>
-                </span>
-                {row.export_path && <span className="break-all text-sm">{t(c.shopper_deleted_hint, { path: row.export_path })}</span>}
-                <form action={deleteConversation}>
-                  {hidden({ at: "conversations", conversation_id: row.id, confirm: "on" })}
-                  <button type="submit" className="text-sm underline underline-offset-4">
-                    {c.stub_remove}
-                  </button>
-                </form>
-              </li>
-            ) : (
-              <li key={row.id} className="flex flex-col gap-1 py-3">
-                <Link href={`/${lang}/dashboard/conversations/${row.id}`} className="group flex flex-col gap-1" data-conversation={row.id}>
+        <>
+          {data.rows.some((row) => !row.shopper_deleted_at && row.pdf_status === "ready") && (
+            <ConversationDownloadBar
+              formId="conversation-pdfs"
+              labels={{
+                select_all: c.select_all,
+                download_selected: c.download_selected,
+                downloading: c.downloading,
+                download_done: c.download_done,
+                download_missing: c.download_missing,
+                download_failed: c.download_failed,
+              }}
+            />
+          )}
+          <ul className="flex flex-col divide-y divide-line border-y border-line" data-conversations>
+            {data.rows.map((row) =>
+              row.shopper_deleted_at ? (
+                <li key={row.id} className="flex flex-col gap-1 py-3" data-conversation={row.id} data-shopper-deleted>
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                     <span className="font-semibold">{formatDateTime(row.started_at, lang, shop.timezone)}</span>
-                    <span>{languageName(row.shopper_lang ?? row.page_lang, lang, c.unknown)}</span>
-                    <span className="text-muted">{countText(c, "messages", row.message_count, lang)}</span>
-                    {row.attachment_count > 0 && (
-                      <span className="inline-flex items-center gap-1 text-muted" title={t(c.files, { n: row.attachment_count })}>
-                        <PaperclipIcon />
-                        <span className="sr-only">{t(c.files, { n: row.attachment_count })}</span>
-                        <span aria-hidden="true">{row.attachment_count}</span>
-                      </span>
-                    )}
-                    {!row.ended_at && <span className="text-muted">{c.running}</span>}
+                    <span className="font-semibold">{c.shopper_deleted}</span>
                   </span>
-                  <span className="line-clamp-2 break-words group-hover:underline">{row.first_question || c.no_text}</span>
-                </Link>
-                <ExportState
-                  status={row.export_status}
-                  error={row.export_error}
-                  path={row.export_path}
-                  canRetry={cloudConnected && hasPlan}
-                  hidden={hidden({ at: "conversations", conversation_id: row.id })}
-                  dict={dict}
-                />
-              </li>
-            ),
-          )}
-        </ul>
+                  {row.export_path && <span className="break-all text-sm">{t(c.shopper_deleted_hint, { path: row.export_path })}</span>}
+                  <form action={deleteConversation}>
+                    {hidden({ at: "conversations", conversation_id: row.id, confirm: "on" })}
+                    <button type="submit" className="text-sm underline underline-offset-4">
+                      {c.stub_remove}
+                    </button>
+                  </form>
+                </li>
+              ) : (
+                <li key={row.id} className="flex gap-3 py-3">
+                  {/* A tick only for a finished PDF (a running conversation has none yet). */}
+                  <span className="w-4 shrink-0 pt-0.5">
+                    {row.pdf_status === "ready" && (
+                      <input
+                        type="checkbox"
+                        name="ids"
+                        value={row.id}
+                        form="conversation-pdfs"
+                        aria-label={t(c.select_conversation, { date: formatDateTime(row.started_at, lang, shop.timezone) })}
+                        className="h-4 w-4 accent-foreground"
+                        data-conversation-tick={row.id}
+                      />
+                    )}
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <Link href={`/${lang}/dashboard/conversations/${row.id}`} className="group/conv flex flex-col gap-1" data-conversation={row.id}>
+                      <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                        <span className="font-semibold">{formatDateTime(row.started_at, lang, shop.timezone)}</span>
+                        <span>{languageName(row.shopper_lang ?? row.page_lang, lang, c.unknown)}</span>
+                        <span className="text-muted">{countText(c, "messages", row.message_count, lang)}</span>
+                        {row.attachment_count > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted" title={t(c.files, { n: row.attachment_count })}>
+                            <PaperclipIcon />
+                            <span className="sr-only">{t(c.files, { n: row.attachment_count })}</span>
+                            <span aria-hidden="true">{row.attachment_count}</span>
+                          </span>
+                        )}
+                        {!row.ended_at && <span className="text-muted">{c.running}</span>}
+                      </span>
+                      <span className="line-clamp-2 break-words group-hover/conv:underline">{row.first_question || c.no_text}</span>
+                    </Link>
+                    <ExportState
+                      status={row.export_status}
+                      error={row.export_error}
+                      path={row.export_path}
+                      canRetry={cloudConnected && hasPlan}
+                      hidden={hidden({ at: "conversations", conversation_id: row.id })}
+                      dict={dict}
+                    />
+                    {row.pdf_status === "ready" && (
+                      <a href={conversationPdfUrl(row.id)} download className="self-start text-sm underline underline-offset-4" data-conversation-pdf={row.id}>
+                        {c.download_pdf}
+                      </a>
+                    )}
+                  </span>
+                </li>
+              ),
+            )}
+          </ul>
+        </>
       )}
 
       {pages > 1 && (

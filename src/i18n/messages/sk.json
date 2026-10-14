@@ -627,7 +627,7 @@
   },
   "conversations": {
     "title": "Konverzácie asistenta",
-    "intro": "Konverzácie zákazníkov s asistentom vášho obchodu: časy, ukázaný tovar a poslané súbory. Len na čítanie; vidia ich len majitelia obchodu.",
+    "intro": "Konverzácie zákazníkov s asistentom vášho obchodu: časy, ukázaný tovar a poslané súbory. Každú skončenú konverzáciu si môžete stiahnuť ako PDF (aj s obrázkami od zákazníka); vidia ich len majitelia obchodu.",
     "count_one": "{n} konverzácia",
     "count_few": "{n} konverzácie",
     "count_other": "{n} konverzácií",
@@ -694,7 +694,15 @@
     "stub_remove": "Odstrániť zo zoznamu",
     "shopper_pdf": "Zákazníci si môžu stiahnuť svoju konverzáciu (PDF)",
     "shopper_pdf_hint": "Tlačidlo „Stiahnuť túto konverzáciu (PDF)“ v chate: zákazník dostane len svoj vlastný rozhovor.",
-    "shopper_pdf_saved": "Uložené."
+    "shopper_pdf_saved": "Uložené.",
+    "download_pdf": "Stiahnuť PDF",
+    "select_all": "Vybrať všetko",
+    "select_conversation": "Vybrať konverzáciu z {date}",
+    "download_selected": "Stiahnuť vybrané ({n})",
+    "downloading": "Sťahujem PDF ({n})…",
+    "download_done": "Hotovo – PDF sú v priečinku Stiahnuté súbory.",
+    "download_missing": "Hotovo. {n} z vybraných konverzácií ešte nemá PDF (prebiehajú alebo sa pripravujú).",
+    "download_failed": "Stiahnutie sa nepodarilo. Skúste to znova."
   },
   "cloud": {
     "title": "Cloudový priečinok",

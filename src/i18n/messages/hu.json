@@ -627,7 +627,7 @@
   },
   "conversations": {
     "title": "Az asszisztens beszélgetései",
-    "intro": "Az ügyfelek beszélgetései az üzlet asszisztensével: időpontok, megmutatott termékek és küldött fájlok. Csak olvasható; csak az üzlet tulajdonosai látják.",
+    "intro": "Az ügyfelek beszélgetései az üzlet asszisztensével: időpontok, megmutatott termékek és küldött fájlok. Minden befejezett beszélgetés letölthető PDF-ként (az ügyfél képeivel együtt); csak az üzlet tulajdonosai látják.",
     "count_one": "{n} beszélgetés",
     "count_few": "{n} beszélgetés",
     "count_other": "{n} beszélgetés",
@@ -694,7 +694,15 @@
     "stub_remove": "Eltávolítás a listából",
     "shopper_pdf": "Az ügyfelek letölthetik a saját beszélgetésüket (PDF)",
     "shopper_pdf_hint": "„A beszélgetés letöltése (PDF)” gomb a csevegésben: az ügyfél csak a saját beszélgetését kapja meg.",
-    "shopper_pdf_saved": "Mentve."
+    "shopper_pdf_saved": "Mentve.",
+    "download_pdf": "PDF letöltése",
+    "select_all": "Összes kijelölése",
+    "select_conversation": "A(z) {date} beszélgetés kijelölése",
+    "download_selected": "Kijelöltek letöltése ({n})",
+    "downloading": "PDF-ek letöltése ({n})…",
+    "download_done": "Kész – a PDF-ek a Letöltések mappában vannak.",
+    "download_missing": "Kész. A kijelölt beszélgetések közül {n} még nem rendelkezik PDF-fel (folyamatban vagy készül).",
+    "download_failed": "A letöltés nem sikerült. Próbálja újra."
   },
   "cloud": {
     "title": "Felhőmappa",

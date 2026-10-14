@@ -5,19 +5,10 @@ import { useEffect, useRef, useState } from "react";
 const boxesOf = (formId: string) => Array.from(document.querySelectorAll<HTMLInputElement>(`input[type="checkbox"][form="${formId}"]`));
 
 /**
- * A bar above a list of ticks (checkboxes with form={formId}): "Vybrať všetko" and a button that
- * sends the ticked rows to that form, after a confirmation. The button stays off until a row is
- * ticked; the rows' own buttons work without it.
+ * The ticks of a list (checkboxes with form={formId}): how many there are, how many are
+ * ticked, their values, and "Vybrať všetko".
  */
-export function BulkSelectBar({
-  formId,
-  labels,
-}: {
-  formId: string;
-  /** delete_selected and confirm contain {n}, the number of ticked rows. */
-  labels: { select_all: string; delete_selected: string; confirm: string };
-}) {
-  const all = useRef<HTMLInputElement>(null);
+export function useTicks(formId: string) {
   const [count, setCount] = useState(0);
   const [total, setTotal] = useState(0);
 
@@ -32,28 +23,61 @@ export function BulkSelectBar({
     return () => document.removeEventListener("change", update);
   }, [formId]);
 
+  return {
+    count,
+    total,
+    values: () => boxesOf(formId).filter((b) => b.checked).map((b) => b.value),
+    setAll: (on: boolean) => {
+      for (const box of boxesOf(formId)) box.checked = on;
+      setCount(on ? boxesOf(formId).length : 0);
+    },
+  };
+}
+
+/** "Vybrať všetko": ticked when every row is, half when some are. */
+export function SelectAllBox({ ticks, label }: { ticks: ReturnType<typeof useTicks>; label: string }) {
+  const all = useRef<HTMLInputElement>(null);
+  const { count, total } = ticks;
+
   useEffect(() => {
     if (all.current) all.current.indeterminate = count > 0 && count < total;
   }, [count, total]);
 
   return (
+    <label className="flex items-center gap-2">
+      <input
+        ref={all}
+        type="checkbox"
+        checked={total > 0 && count === total}
+        disabled={total === 0}
+        className="h-4 w-4 accent-foreground"
+        onChange={(event) => ticks.setAll(event.currentTarget.checked)}
+        data-bulk-all
+      />
+      {label}
+    </label>
+  );
+}
+
+/**
+ * A bar above a list of ticks (checkboxes with form={formId}): "Vybrať všetko" and a button that
+ * sends the ticked rows to that form, after a confirmation. The button stays off until a row is
+ * ticked; the rows' own buttons work without it.
+ */
+export function BulkSelectBar({
+  formId,
+  labels,
+}: {
+  formId: string;
+  /** delete_selected and confirm contain {n}, the number of ticked rows. */
+  labels: { select_all: string; delete_selected: string; confirm: string };
+}) {
+  const ticks = useTicks(formId);
+  const { count } = ticks;
+
+  return (
     <div className="flex flex-wrap items-center justify-between gap-2 text-sm" data-bulk-bar={formId}>
-      <label className="flex items-center gap-2">
-        <input
-          ref={all}
-          type="checkbox"
-          checked={total > 0 && count === total}
-          disabled={total === 0}
-          className="h-4 w-4 accent-foreground"
-          onChange={(event) => {
-            const on = event.currentTarget.checked;
-            for (const box of boxesOf(formId)) box.checked = on;
-            setCount(on ? total : 0);
-          }}
-          data-bulk-all
-        />
-        {labels.select_all}
-      </label>
+      <SelectAllBox ticks={ticks} label={labels.select_all} />
       <button
         type="submit"
         form={formId}

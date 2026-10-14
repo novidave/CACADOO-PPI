@@ -627,7 +627,7 @@
   },
   "conversations": {
     "title": "Assistant conversations",
-    "intro": "Your shoppers' conversations with your shop's assistant: times, items shown and files sent. Read only; only the shop's owners see them.",
+    "intro": "Your shoppers' conversations with your shop's assistant: times, items shown and files sent. Every finished conversation can be downloaded as a PDF (with the shopper's pictures); only the shop's owners see them.",
     "count_one": "{n} conversation",
     "count_few": "{n} conversations",
     "count_other": "{n} conversations",
@@ -694,7 +694,15 @@
     "stub_remove": "Remove from the list",
     "shopper_pdf": "Shoppers may download their own conversation (PDF)",
     "shopper_pdf_hint": "The “Download this conversation (PDF)” button in the chat: shoppers get only their own conversation.",
-    "shopper_pdf_saved": "Saved."
+    "shopper_pdf_saved": "Saved.",
+    "download_pdf": "Download PDF",
+    "select_all": "Select all",
+    "select_conversation": "Select the conversation of {date}",
+    "download_selected": "Download selected ({n})",
+    "downloading": "Downloading PDFs ({n})…",
+    "download_done": "Done – the PDFs are in your Downloads folder.",
+    "download_missing": "Done. {n} of the selected conversations have no PDF yet (still running or being made).",
+    "download_failed": "The download did not work. Please try again."
   },
   "cloud": {
     "title": "Cloud folder",
