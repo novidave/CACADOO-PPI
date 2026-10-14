@@ -4488,4 +4488,215 @@ reset role;
 reset request.jwt.claim.sub;
 delete from public.domain_orders where hostname = 'potraviny33.sk';
 
+\echo '--- layered search: outside layers, allowed web domains, daily limit, OSM caches, Nominatim slot (update 34)'
+-- visitors and owners see none of it and call none of the function's helpers
+set role anon;
+do $$
+declare v_table text;
+begin
+  foreach v_table in array array['search_layers', 'web_search_domains', 'external_search_usage', 'town_geocodes', 'osm_shop_cache', 'external_throttle'] loop
+    begin
+      execute format('select count(*) from public.%I', v_table);
+      raise exception 'a visitor read %', v_table;
+    exception when insufficient_privilege then null;
+    end;
+  end loop;
+  begin
+    perform public.external_search_claim('web', 'web_search', 1000);
+    raise exception 'a visitor claimed an outside call';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.external_slot('nominatim', 1000, 3000);
+    raise exception 'a visitor took a Nominatim slot';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.osm_cache_put('x', 'hardware', 5000, '[]');
+    raise exception 'a visitor wrote the OSM cache';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.cacadoo_shops_near(48.75, 21.92, 5);
+    raise exception 'a visitor called cacadoo_shops_near';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_search_settings();
+    raise exception 'a visitor read the admin settings';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin
+    perform count(*) from public.web_search_domains;
+    raise exception 'an owner read the web domains';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_search_settings();
+    raise exception 'an owner read the admin settings';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_save_search_layer('web', false, 0.01, 0.1, 0.5);
+    raise exception 'an owner switched a layer';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_save_web_domain('evil.example', 'Evil', null, true, 1);
+    raise exception 'an owner added a web domain';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the function (service role): the daily limit counts every layer together; costs are added; one Nominatim per second
+set role service_role;
+do $$
+declare
+  v_wait integer;
+begin
+  delete from public.external_search_usage;
+  assert public.external_search_claim('geocode', 'nominatim', 3);
+  assert public.external_search_claim('osm', 'overpass', 3);
+  assert public.external_search_claim('web', 'web_search', 3);
+  assert not public.external_search_claim('google_places', 'google_places', 3), 'the 4th call of the day is over the limit of 3';
+  assert not public.external_search_claim('osm', 'overpass', 0), 'limit 0: nothing goes out';
+  assert (select sum(calls) from public.external_search_usage) = 3, 'refused calls are not counted';
+  perform public.external_search_cost('web', 'web_search', 0.0123);
+  perform public.external_search_cost('web', 'web_search', 0.0100);
+  perform public.external_search_cost('web', 'web_search', -5);
+  assert (select cost_usd from public.external_search_usage where layer = 'web' and service = 'web_search') = 0.0223, 'costs add up, never below 0';
+  begin
+    insert into public.external_search_usage (day, layer, service, calls) values (current_date, 'scraper', 'google_places', 1);
+    raise exception 'an unknown layer was counted';
+  exception when check_violation then null;
+  end;
+
+  delete from public.external_throttle;
+  assert public.external_slot('nominatim', 1000, 3000) = 0, 'the first request goes at once';
+  v_wait := public.external_slot('nominatim', 1000, 3000);
+  assert v_wait between 900 and 1000, format('the next one waits about a second: %s', v_wait);
+  v_wait := public.external_slot('nominatim', 1000, 3000);
+  assert v_wait between 1900 and 2000, format('and the one after it two: %s', v_wait);
+  assert public.external_slot('nominatim', 1000, 500) = -1, 'too long a wait: nothing reserved';
+  v_wait := public.external_slot('nominatim', 1000, 5000);
+  assert v_wait between 2900 and 3000, format('the refused one took no slot: %s', v_wait);
+  assert public.external_slot('overpass', 1000, 3000) = 0, 'each service has its own slot';
+
+  -- Overpass answers: kept per town, category and radius; older than 7 days cleared on the way
+  insert into public.osm_shop_cache (town_key, category, radius_m, results, fetched_at)
+  values ('old town', 'hardware', 7000, '[]', now() - interval '8 days');
+  perform public.osm_cache_put('michalovce', 'hardware', 7000, '[{"name":"Železiarstvo XY"}]');
+  perform public.osm_cache_put('michalovce', 'hardware', 7000, '[{"name":"Železiarstvo XY"},{"name":"Iné"}]');
+  assert (select jsonb_array_length(results) from public.osm_shop_cache where town_key = 'michalovce' and category = 'hardware') = 2, 'replaced, not added';
+  assert not exists (select 1 from public.osm_shop_cache where town_key = 'old town'), 'old answers cleared';
+  begin
+    perform public.osm_cache_put('michalovce', 'fuel', 7000, '{"not":"a list"}');
+    raise exception 'a non-list was cached';
+  exception when check_violation then null;
+  end;
+
+  -- a town is kept for good; a point must be a point
+  insert into public.town_geocodes (key, query, name, lat, lng, country_code, found)
+  values ('michalovce', 'Michalovce', 'Michalovce', 48.7553, 21.9184, 'SK', true) on conflict (key) do nothing;
+  begin
+    insert into public.town_geocodes (key, query, found, lat, lng) values ('nowhere', 'Nowhere', true, 123, 0);
+    raise exception 'a point outside the earth was stored';
+  exception when check_violation then null;
+  end;
+
+  -- Cacadoo shops near the town centre: the nearby list leaves them out
+  assert exists (select 1 from public.cacadoo_shops_near(48.7553, 21.9184, 3) where slug = 'potraviny-centrum');
+  assert not exists (select 1 from public.cacadoo_shops_near(48.7553, 21.9184, 3) where slug = 'kisbolt-budapest');
+
+  -- the allowed domains: only clean ASCII domains, deep links only on the shop's own host
+  begin
+    insert into public.web_search_domains (domain, label) values ('*.example.sk', 'Star');
+    raise exception 'a wildcard domain was stored';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.web_search_domains (domain, label, search_url) values ('example.sk', 'Ex', 'https://evil.sk/s?q={query}');
+    raise exception 'a deep link to another host was stored';
+  exception when check_violation then null;
+  end;
+end $$;
+reset role;
+
+-- the admin: settings, switches, domains (checked again in the database)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare
+  v_s jsonb := public.admin_search_settings();
+  v_domain text;
+begin
+  assert jsonb_array_length(v_s -> 'layers') = 3, v_s::text;
+  assert (v_s -> 'layers' -> 0 ->> 'layer') = 'osm' and (v_s -> 'layers' -> 2 ->> 'layer') = 'web';
+  assert (v_s -> 'layers' -> 2 ->> 'cost_per_call_usd')::numeric = 0.01, 'the web search: $10 per 1,000';
+  assert jsonb_array_length(v_s -> 'domains') = 5 and (v_s -> 'domains' -> 0 ->> 'domain') = 'decathlon.sk', v_s::text;
+  assert (v_s ->> 'today_calls')::int = 3 and (v_s ->> 'today_cost_usd')::numeric = 0.0223, 'today''s calls and cost';
+  assert jsonb_array_length(v_s -> 'usage') >= 3;
+
+  perform public.admin_save_search_layer('web', false, 0.012, 0.1, 0.5);
+  assert not (public.admin_search_settings() -> 'layers' -> 2 ->> 'enabled')::boolean, 'the admin switched the web layer off';
+  perform public.admin_save_search_layer('web', true, 0.01, 0.1, 0.5);
+  begin
+    perform public.admin_save_search_layer('scraping', true, 0, 0, 0);
+    raise exception 'an unknown layer was saved';
+  exception when sqlstate 'P0001' then null;
+  end;
+  begin
+    perform public.admin_save_search_layer('osm', true, -1, 0, 0);
+    raise exception 'a negative price was saved';
+  exception when sqlstate 'P0001' then null;
+  end;
+
+  v_domain := public.admin_save_web_domain('  https://www.Example-Shop.SK/ ', 'Example <b>Shop</b>', 'https://www.example-shop.sk/hladat?q={query}', true, 60);
+  assert v_domain = 'www.example-shop.sk', v_domain;
+  assert (select d ->> 'label' from jsonb_array_elements(public.admin_search_settings() -> 'domains') d where d ->> 'domain' = v_domain) = 'Example Shop', 'the label is plain text';
+  v_domain := public.admin_save_web_domain('example-shop.sk', 'Example', 'https://eshop.example-shop.sk/s?term={query}&page=1', true, 61);
+  assert (select d ->> 'search_url' from jsonb_array_elements(public.admin_search_settings() -> 'domains') d where d ->> 'domain' = 'example-shop.sk') like 'https://eshop.example-shop.sk/%', 'a subdomain of the shop is fine';
+  perform public.admin_save_web_domain('example-shop.sk', 'Example', '', false, 61);
+  assert (select d -> 'search_url' = 'null'::jsonb and not (d ->> 'enabled')::boolean from jsonb_array_elements(public.admin_search_settings() -> 'domains') d where d ->> 'domain' = 'example-shop.sk'), 'an empty address removes the deep link';
+  foreach v_domain in array array['exa mple.sk', '*.example.sk', 'ex*.com', 'localhost', 'еxample.sk', 'example.sk/*'] loop
+    begin
+      perform public.admin_save_web_domain(v_domain, 'X', null, true, 1);
+      raise exception 'a bad domain was saved: %', v_domain;
+    exception when sqlstate 'P0001' then
+      assert sqlerrm = 'domain', sqlerrm;
+    end;
+  end loop;
+  foreach v_domain in array array['http://example-shop.sk/s?q={query}', 'https://example-shop.sk/s', 'https://other.sk/s?q={query}',
+                                  'https://example-shop.sk/s?q={query}&r={query}', 'https://example-shop.sk/s?q={query}"onclick'] loop
+    begin
+      perform public.admin_save_web_domain('example-shop.sk', 'Example', v_domain, true, 1);
+      raise exception 'a bad deep link was saved: %', v_domain;
+    exception when sqlstate 'P0001' then
+      assert sqlerrm = 'search_url', sqlerrm;
+    end;
+  end loop;
+  begin
+    perform public.admin_save_web_domain('example-shop.sk', '   ', null, true, 1);
+    raise exception 'an empty label was saved';
+  exception when sqlstate 'P0001' then null;
+  end;
+  assert public.admin_delete_web_domain('www.example-shop.sk');
+  assert public.admin_delete_web_domain('example-shop.sk');
+  assert not public.admin_delete_web_domain('example-shop.sk'), 'already gone';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+delete from public.external_search_usage;
+delete from public.external_throttle;
+delete from public.osm_shop_cache;
+delete from public.town_geocodes;
+
 \echo 'ALL DATABASE CHECKS PASSED'

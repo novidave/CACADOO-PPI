@@ -105,3 +105,64 @@ Deno.test("the answer's language: a two-letter code", () => {
   assertEquals(answerLanguage('sk" onmouseover="x'), null);
   assertEquals(answerLanguage(undefined), null);
 });
+
+// ---------------------------------------------------------------- Prompt 11: the search in layers
+
+import OpeningHours from "npm:opening_hours@3.15.0";
+import { refsOfKind } from "./chatProtocol.ts";
+import { GOOD_ENOUGH, hoursState, isGoodResult, SHOP_CATEGORIES, townInWords, wallClock } from "./sources.ts";
+
+Deno.test("the town only from the shopper's own words, bent as Slovak and Hungarian bend it", () => {
+  assert(townInWords("Michalovce", ["Kto má AdBlue v Michalovciach?"]), "v Michalovciach");
+  assert(townInWords("Košice", ["farba na plot v Košiciach"]), "v Košiciach");
+  assert(townInWords("Kosice", ["farba v KOŠICIACH"]), "accents and case do not matter");
+  assert(townInWords("Budapest", ["festék Budapesten"]), "Budapesten");
+  assert(townInWords("Nitra", ["v Nitre"]), "a short name");
+  assert(townInWords("Spišská Nová Ves", ["topánky v Spišskej Novej Vsi"]), "short words that change inside are skipped");
+  assert(townInWords("Nové Zámky", ["v Nových Zámkoch"]), "Nové Zámky");
+  assert(!townInWords("Nové Zámky", ["v Nitre"]), "not Nitra");
+  assert(townInWords("Aš", ["kolo v Aši"]) && !townInWords("Aš", ["kolo v Brne"]), "a two-letter town");
+  assert(townInWords("Banská Bystrica", ["v Banskej Bystrici"]), "two words");
+  assert(!townInWords("Michalovce", ["turistické topánky"]), "no town written");
+  assert(!townInWords("Bratislava", ["topánky v Michalovciach"]), "another town");
+  assert(townInWords("Michalovce", ["topánky", "a v Michalovciach?"]), "an earlier or later turn of the shopper");
+  assert(!townInWords("", ["v Michalovciach"]), "no town at all");
+});
+
+Deno.test("a good Cacadoo result: fresh data, not sold out, around the town when one was named", () => {
+  const item = (state: string, quantity: number | null) => ({ freshness: { state }, quantity });
+  assert(isGoodResult(item("current", 3), null));
+  assert(isGoodResult(item("recent", 1), true));
+  assert(!isGoodResult(item("stale", 5), null), "stale data never counts");
+  assert(!isGoodResult(item("current", 0), null), "sold out does not count");
+  assert(!isGoodResult(item("current", 2), false), "a town without Cacadoo shops: results from elsewhere do not count");
+  assertEquals(GOOD_ENOUGH, 3);
+  assertEquals(SHOP_CATEGORIES.length, new Set(SHOP_CATEGORIES).size);
+});
+
+Deno.test("the AI's refs of one kind, else all of that kind", () => {
+  assertEquals(refsOfKind(["r2", "n3", "w1", "n1"], "n"), ["n3", "n1"]);
+  assertEquals(refsOfKind(["r2", "r1"], "w"), null);
+  assertEquals(refsOfKind(["n1x", "wn1"], "n"), null, "only real refs");
+});
+
+Deno.test("OpenStreetMap hours in the town's own time zone: open until, opens at, tomorrow", () => {
+  const oh = new OpeningHours("Mo-Fr 09:00-17:00; Sa 09:00-12:00");
+  // Wednesday 15 October 2026, 08:30 UTC = 10:30 in Bratislava (summer time)
+  const now = wallClock(new Date("2026-10-14T08:30:00Z"), "Europe/Bratislava");
+  assertEquals([now.getHours(), now.getMinutes()], [10, 30], "the town's wall clock");
+  assertEquals(hoursState(oh, now), { open: true, next: { time: "17:00", tomorrow: false } });
+  assertEquals(hoursState(oh, wallClock(new Date("2026-10-14T05:00:00Z"), "Europe/Bratislava")), { open: false, next: { time: "9:00", tomorrow: false } });
+  assertEquals(hoursState(oh, wallClock(new Date("2026-10-14T18:00:00Z"), "Europe/Bratislava")), { open: false, next: { time: "9:00", tomorrow: true } }, "20:00 → tomorrow");
+  assertEquals(hoursState(oh, wallClock(new Date("2026-10-14T18:00:00Z"), "Europe/London"))?.next, { time: "9:00", tomorrow: true }, "another zone, another wall clock");
+  assertEquals(hoursState(new OpeningHours("Mo-Fr 09:00-17:00 \"call first\"; Sa unknown"), wallClock(new Date("2026-10-17T08:00:00Z"), "Europe/Bratislava")), null, "unknown: nothing said");
+});
+
+Deno.test("an answer goes back with the shops nearby and web offers it showed", () => {
+  const text = answerForHistory("Cacadoo nemá. V okolí môže mať:", [], {
+    nearby: [{ id: "osm:way/22", source: "osm", name: "Turista Michalovce", kind: "Šport", place: "", distance: "0,2 km od centra Michalovce", hours: null, phone: null, phoneHref: null, navigateHref: "", sourceHref: "", checkedAt: "", confidence: "" }],
+    web: [{ id: "w", source: "web", retailer: "Decathlon", title: "Turistické topánky MH100", href: "https://www.decathlon.sk/p", price: null, checkedAt: "", confidence: "" }],
+  });
+  assert(text.includes("[Nearby, stock not verified: Turista Michalovce (Šport, 0,2 km od centra Michalovce)]"), text);
+  assert(text.includes("[On the web: Decathlon: Turistické topánky MH100]"), text);
+});

@@ -1171,6 +1171,62 @@ the ones from Part J; the optional `AI_MODEL` in Vercel (Part M) now also choose
 
 ---
 
+## Part AE — The chat finds products in layers: shops nearby and the web (15 October 2026)
+
+- The main chat now has one job — finding a product in a town — and politely declines anything else.
+- It always searches **Cacadoo** first. Only when Cacadoo has fewer than 3 good results and the question names a town, it
+  also shows **shops nearby** that may have it (OpenStreetMap; "Môže mať · …", "zásoby neoverené", Zavolať, Navigovať)
+  and **offers on larger shops' websites** ("Z webu · Decathlon · cena podľa webu: … · overte dostupnosť na stránke →")
+  with links to each shop's own search. No town → it asks "V ktorom meste hľadáte?".
+- Only the product and the town go to OpenStreetMap, Google (if you switch it on) and Anthropic; nothing about the
+  visitor. Nothing from Google and no web result is stored.
+- Admin page "Predplatné a domény" → **Vyhľadávanie mimo Cacadoo**: a switch per source, the prices for the cost
+  estimate, the allowed web domains and their search links, the calls and the estimated cost per day.
+
+Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/34_layered_search.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again.
+   Check: `select layer, enabled from public.search_layers;` → osm, google_places, web.
+2. **One shared secret:** make 32+ random characters (e.g. a password manager's generator, letters and digits).
+   - Vercel → Project → Settings → Environment Variables → `EXTERNAL_SEARCH_SECRET` = that value, Production, tick
+     **Sensitive** → Save.
+   - Supabase → Edge Functions → **Secrets** → `EXTERNAL_SEARCH_SECRET` = the same value.
+3. **More Supabase secrets** (Edge Functions → Secrets):
+   - `WEB_SEARCH_ENABLED` = `true` (the web search; anything else = off).
+   - `EXTERNAL_SEARCH_DAILY_LIMIT` = `300` (outside calls a day, all sources together; optional, 300 is the default).
+   - `GOOGLE_PLACES_ENABLED` = `false` for now. Only if you want Google too: a Google Cloud project with **Places API
+     (New)** enabled, an API key restricted to that API → `GOOGLE_PLACES_API_KEY` = the key and `GOOGLE_PLACES_ENABLED` =
+     `true` (Google charges per request; read Google's terms first).
+   - Already there and needed: `ANTHROPIC_API_KEY`, `AI_MODEL` (optional) and `ADMIN_EMAIL` (OpenStreetMap asks every app
+     for a contact address; without it shops nearby are not searched).
+4. **Anthropic:** Claude Console → Settings → **Capabilities** (or Privacy/Organization settings): make sure **web search**
+   is allowed for your organisation. If the Console has its own list of allowed domains, it must include the domains of
+   step 7.
+5. **New function** `product-sources`: Supabase → Edge Functions → **Deploy a new function** → **Via Editor** → name
+   `product-sources` → paste the whole file `supabase/functions/product-sources/index.ts` → **Deploy** → in its
+   settings switch **OFF "Verify JWT"** (it checks the website's secret itself).
+6. **Merge the pull request** on GitHub → Vercel deploys. (Before step 2 the chat searches only Cacadoo, as before.)
+7. **Admin page** `https://cacadooppivercel.vercel.app/sk/admin/domains#external-search` (your admin account):
+   - **Vyhľadávanie mimo Cacadoo:** all three sources show their switch; next to each "Prostredie: zapnuté" or which
+     setting is missing.
+   - **Povolené webové domény a odkazy na vyhľadávanie:** Decathlon, dm, Exisport, Intersport and Action are there
+     without a search link. For each: open the shop's website, search for any word, copy the address of the results page,
+     put `{query}` where your word was (e.g. `https://www.decathlon.sk/search?Ntt={query}`) → paste into "Odkaz na
+     vyhľadávanie" → **Uložiť**. Note: dm's Slovak e-shop may be `mojadm.sk` — add that domain too if so.
+8. **Test** on `https://cacadooppivercel.vercel.app/sk`:
+   - **biela farba v Košiciach** (or anything Cacadoo has 3+ times) → only "Overené v Cacadoo".
+   - **turistické topánky v Michalovciach** → "Hľadám obchody v okolí…", "Hľadám na webe…" → "Obchody v okolí
+     (neoverené)" with "© OpenStreetMap contributors" and "Na webe" with "cena podľa webu" where the page shows one and
+     "Hľadať priamo v e-shope:" links.
+   - **turistické topánky** (no town) → "V ktorom meste hľadáte?" → **v Michalovciach** → the same with the town.
+   - **Aké bude zajtra počasie?** → "Pomáham len s hľadaním produktov v obchodoch v okolí."
+   - Admin page → **Denné použitie a odhad nákladov** shows the calls of the day.
+   - Nothing outside appears: Vercel → Logs → search `product-sources`; Supabase → Edge Functions → product-sources →
+     Logs. The admin page shows which switch is off.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1215,3 +1271,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 26. "Konverzácie do počítača": finished conversations saved by themselves as PDFs into a folder on the shop PC | ✅ built — set up Part AB |
 | 27. Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS, only added), "Odoslať sitemap", llms.txt and robots.txt per domain with "Kategórie tovaru", IndexNow after each upload (only changed pages), Product/Offer + Store JSON-LD, search results linking to the own domain | ✅ built — set up Part AC |
 | 28. The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots and the real steps, the answer streamed, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback | ✅ built — set up Part AD |
+| 29. The chat finds products in layers: Cacadoo, then shops nearby (OpenStreetMap, optional Google Places) and offers on allowed shop websites (web search), only with too little in Cacadoo and a town; admin switches, domains, search links, usage and cost | ✅ built — set up Part AE |

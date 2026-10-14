@@ -7,8 +7,12 @@ import type { StatusInput } from "./hours";
  * Plain functions: used by the route, the page and the Deno tests (src/lib/chat_test.ts).
  */
 
-/** The real steps of a request, in order (the status line under the thinking dots). */
-export type ChatStep = "understand" | "search" | "verify";
+/**
+ * The real steps of a request, in order (the status line under the thinking dots): the question
+ * reached the AI, it searches Cacadoo, it looks for shops nearby / on the web (Prompt 11, only when
+ * Cacadoo had too little), the results with availability and hours are back.
+ */
+export type ChatStep = "understand" | "search" | "nearby" | "web" | "verify";
 
 /** One result card: built by the server from search_stock results only, never from the AI's text. */
 export interface ChatCard {
@@ -33,6 +37,67 @@ export interface ChatCard {
   freshnessState: "current" | "recent" | "stale";
   /** "2,3 km od centra Košice" — only when the question named a town. */
   distance: string | null;
+  /** Layer 1: verified stock from the shop's own file ("Cacadoo"). */
+  source: "cacadoo";
+  /** "overená zásoba" / "staršie údaje" / "bez aktuálnych údajov" (from the freshness). */
+  confidence: string;
+}
+
+/**
+ * Layer 3: a shop of the right kind near the town's centre (OpenStreetMap). It may have the product;
+ * its stock is never known ("zásoby neoverené").
+ */
+export interface NearbyCard {
+  id: string;
+  source: "osm";
+  name: string;
+  /** The kind of shop ("Železiarstvo"). */
+  kind: string;
+  place: string;
+  /** "1,2 km od centra Michalovce". */
+  distance: string;
+  /** "otvorené do 17:00 (podľa OpenStreetMap)"; null when OpenStreetMap has no hours. */
+  hours: string | null;
+  phone: string | null;
+  phoneHref: string | null;
+  navigateHref: string;
+  /** The shop on openstreetmap.org. */
+  sourceHref: string;
+  /** "údaje z OpenStreetMap pred 3 h". */
+  checkedAt: string;
+  confidence: string;
+}
+
+/** Layer 3 from Google Places: shown only in this list (never on our map, never to the AI). */
+export interface GoogleCard {
+  id: string;
+  source: "google";
+  name: string;
+  place: string | null;
+  distance: string;
+  mapsHref: string | null;
+  navigateHref: string;
+  checkedAt: string;
+  confidence: string;
+}
+
+/** Layer 4: a product page on a larger shop's website (an online offer, never store stock). */
+export interface WebCard {
+  id: string;
+  source: "web";
+  retailer: string;
+  title: string;
+  href: string;
+  /** "cena podľa webu: 39,99 €" — only when the page's own text shows a price. */
+  price: string | null;
+  checkedAt: string;
+  confidence: string;
+}
+
+/** The retailer's own search for the product (the admin's search address). */
+export interface DeepLink {
+  retailer: string;
+  href: string;
 }
 
 /** The shops of the cards: their status dot (the same rule as everywhere) and the map pin. */
@@ -45,11 +110,23 @@ export interface ChatShop {
 }
 
 export interface ChatResults {
+  /** Layer 1, Cacadoo: current, then recent, then stale. */
   cards: ChatCard[];
   shops: Record<string, ChatShop>;
   /** What was searched for (shown when nothing was found). */
   searched: string[];
+  /** Layer 3 (OpenStreetMap; "© OpenStreetMap contributors" with them). */
+  nearby?: NearbyCard[];
+  /** Layer 3 from Google Places (with Google's attribution). */
+  google?: GoogleCard[];
+  /** Layer 4. */
+  web?: WebCard[];
+  deepLinks?: DeepLink[];
+  /** "only_cacadoo": the daily limit of outside searches was reached, only Cacadoo was searched. */
+  notes?: ChatNote[];
 }
+
+export type ChatNote = "only_cacadoo";
 
 export type ChatEvent =
   | { type: "step"; step: ChatStep }
@@ -61,6 +138,8 @@ export type ChatEvent =
   | ({ type: "results" } & ChatResults)
   /** The plain database search instead of the AI (no answer in 12 s, an error, a limit, no key). */
   | ({ type: "fallback"; limited: boolean; reason?: string } & ChatResults)
+  /** Sent while an outside source is slow, so the page knows the answer is still coming. */
+  | { type: "ping" }
   | { type: "done" };
 
 /** One earlier turn the browser sends along (text only; the server keeps no conversation). */
@@ -222,10 +301,19 @@ export function readEvents(buffer: string): { events: ChatEvent[]; rest: string 
 }
 
 /** What the browser sends back about an answer for the next question: its text and the cards it showed. */
-export function answerForHistory(answer: string, cards: ChatCard[]): string {
+export function answerForHistory(answer: string, cards: ChatCard[], more: Pick<ChatResults, "nearby" | "web"> = {}): string {
   const shown = cards
     .slice(0, CARDS_SHOWN)
     .map((c) => `${c.name} – ${c.price} – ${c.shop}${c.place ? `, ${c.place}` : ""}`)
     .join("; ");
-  return `${answer.trim()}${shown ? `\n[Shown: ${shown}]` : ""}`.slice(0, MAX_TURN_CHARS);
+  const nearby = (more.nearby ?? []).slice(0, 4).map((n) => `${n.name} (${n.kind}, ${n.distance})`).join("; ");
+  const web = (more.web ?? []).slice(0, 3).map((w) => `${w.retailer}: ${w.title}`).join("; ");
+  const parts = [shown && `[Shown: ${shown}]`, nearby && `[Nearby, stock not verified: ${nearby}]`, web && `[On the web: ${web}]`].filter(Boolean);
+  return `${answer.trim()}${parts.length ? `\n${parts.join("\n")}` : ""}`.slice(0, MAX_TURN_CHARS);
+}
+
+/** The refs the AI chose of one kind ("n" nearby, "w" web), in its order; null when it chose none of them. */
+export function refsOfKind(refs: string[], prefix: "r" | "n" | "w"): string[] | null {
+  const mine = refs.filter((ref) => new RegExp(`^${prefix}\\d+$`).test(ref));
+  return mine.length ? mine : null;
 }

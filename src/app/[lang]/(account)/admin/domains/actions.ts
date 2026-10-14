@@ -154,3 +154,51 @@ export async function deleteHoliday(formData: FormData) {
   });
   back(error ? { err: error.message.slice(0, 200) } : { ok: "holiday" }, "holidays");
 }
+
+const SEARCH_ERRORS = ["domain", "search_url", "label", "layer", "too_many"];
+
+/** "…_failed" codes from the admin_* search functions become the page's own messages. */
+function searchError(message: string): string {
+  return SEARCH_ERRORS.includes(message) ? `search_${message}` : message.slice(0, 200);
+}
+
+/** "0,032" / "0.032" → 0.032; null when it is not a number. */
+function amount(value: FormDataEntryValue | null): number | null {
+  const n = Number.parseFloat(String(value ?? "").replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * "Vyhľadávanie mimo Cacadoo" (database update 34): a layer's switch and its estimated prices;
+ * admin_save_search_layer checks is_admin() and the ranges itself.
+ */
+export async function saveSearchLayer(formData: FormData) {
+  const { session, back } = await start(formData);
+  const { error } = await session.supabase.rpc("admin_save_search_layer", {
+    p_layer: String(formData.get("layer") ?? ""),
+    p_enabled: formData.get("enabled") === "on",
+    p_cost_per_call_usd: amount(formData.get("cost_per_call")) ?? -1,
+    p_input_usd_per_mtok: amount(formData.get("input_per_mtok")) ?? 0,
+    p_output_usd_per_mtok: amount(formData.get("output_per_mtok")) ?? 0,
+  });
+  back(error ? { err: searchError(error.message) } : { ok: "layer" }, "external-search");
+}
+
+/** One allowed web domain with its label, search address (deep link) and order. */
+export async function saveWebDomain(formData: FormData) {
+  const { session, back } = await start(formData);
+  const { error } = await session.supabase.rpc("admin_save_web_domain", {
+    p_domain: String(formData.get("domain") ?? "").slice(0, 300),
+    p_label: String(formData.get("label") ?? "").slice(0, 200),
+    p_search_url: String(formData.get("search_url") ?? "").slice(0, 600),
+    p_enabled: formData.get("enabled") === "on",
+    p_sort: Math.floor(Number(formData.get("sort")) || 100),
+  });
+  back(error ? { err: searchError(error.message) } : { ok: "domain" }, "web-domains");
+}
+
+export async function deleteWebDomain(formData: FormData) {
+  const { session, back } = await start(formData);
+  const { error } = await session.supabase.rpc("admin_delete_web_domain", { p_domain: String(formData.get("domain") ?? "") });
+  back(error ? { err: searchError(error.message) } : { ok: "domain" }, "web-domains");
+}
