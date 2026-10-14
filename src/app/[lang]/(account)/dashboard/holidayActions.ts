@@ -68,6 +68,24 @@ export async function deleteSpecialHours(formData: FormData) {
   back(error ? { err: error.message } : { ok: "special_deleted" });
 }
 
+/**
+ * "Vymazať vybrané": the ticked special days, each through owner_delete_special_hours (which
+ * checks the caller owns the shop), a few at a time.
+ */
+export async function deleteSpecialDays(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const dates = [...new Set(formData.getAll("dates").map(String))].filter((d) => DATE.test(d)).slice(0, 400);
+  if (dates.length === 0) back({ err: "special_none" });
+  for (let i = 0; i < dates.length; i += 10) {
+    const results = await Promise.all(
+      dates.slice(i, i + 10).map((date) => session.supabase.rpc("owner_delete_special_hours", { p_shop_id: shopId, p_date: date })),
+    );
+    const failed = results.find((r) => r.error);
+    if (failed?.error) back({ err: failed.error.message });
+  }
+  back({ ok: "special_deleted_many" });
+}
+
 /** A holiday's button: "Otvorené ako zvyčajne" (that weekday's regular hours) or "Zatvorené". */
 export async function holidayChoice(formData: FormData) {
   const { session, shopId, back } = await start(formData);

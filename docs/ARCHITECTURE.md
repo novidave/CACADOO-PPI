@@ -788,6 +788,14 @@ the service role (owners may read their own shop's `subscriptions` row and impor
     name; every picture must open in the browser before a section is made), `lib/pdfRead` `picturePage()` draws each
     as 800 / 1600 px WebP on white (`createImageBitmap`, orientation from the picture); `sendPages()` is shared with
     PDFs; `PageSections` shows "Stiahnuť PDF" only for `source = 'pdf'`; the owner's row says "obrázky".
+- **No database change (2026-10-14):** "Vaše mimoriadne dni" (`Holidays.tsx`) — every line is a `<label>` with a tick
+  (`name="dates"`, `form="special-bulk"`, black `accent-foreground`: an empty hidden form outside the list, so each day's own "Vymazať" form
+  stays as it is); `components/BulkSelectBar` (client: "Vybrať všetko" with its half state, "Vymazať vybrané (n)" off
+  at 0, `window.confirm` first) sends that form to `deleteSpecialDays` (unique valid dates, ≤ 400, ten
+  `owner_delete_special_hours` calls at a time — the same owner check per day; `?ok=special_deleted_many`, nothing
+  ticked → `?err=special_none`). `SectionUploader`: the file input is `sr-only` and a blue underlined "Vybrať súbor"
+  button (`text-blue-700`, as `LogoInput`) opens it; the chosen names follow it (`data-chosen-files`); no `required`,
+  an empty choice → `error_no_file` before anything is sent.
 - **Update 32** (`supabase/sql/32_site_logo_link.sql`): **"Odkaz loga"** — `shops.site_logo_link` (check: https of a
   real host, ≤ 500, the booking link's pattern; NULL = the home page); `guard_shop_site_logo` also guards it;
   `owner_set_site_logo_link(shop, link)` (member; `clean_contact` adds https:// and turns http into https; another
@@ -1326,7 +1334,13 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   sideways scroll; `javascript:`, localhost, a password in it and ftp refused with the old link kept; http → https;
   "Späť na úvodnú stránku" and an empty field lead home again; a free shop has no field, a link left from Pro is shown
   with only the reset, which works; before update 32 the panel works without the field and the logo leads home), the
-  update-31 script again (35 checks); those scripts are not part of the repository.
+  update-31 script again (35 checks); special days and "Vybrať súbor" (28 checks: a tick per day, the bar off at 0, a
+  click on the line ticks it, three ticked → "(3)" and the half state, the confirmation (cancel keeps them), exactly
+  those three deleted, "Vybrať všetko" on and off, a day's own "Vymazať", nothing ticked → "Vyberte aspoň jeden deň.",
+  phone and HU/EN texts, all deleted → no list; the link in the shop logo's blue and underlined, the browser's box
+  hidden, no file → the message and no section, the chooser with several files, the names, a PDF uploaded through it,
+  the same link in "Nahradiť súbory", "Choose file", a long name on a phone), the update-27/29/30/31 scripts again; those
+  scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

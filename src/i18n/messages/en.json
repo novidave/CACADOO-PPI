@@ -323,7 +323,8 @@
     "delete_summary": "Removes the shop from PPI for good",
     "error_booking": "Enter the web address of your booking page, e.g. https://reservio.com/yourshop.",
     "error_special_dates": "Check the dates: from today up to a year ahead, at most 62 days.",
-    "error_special_ranges": "Enter a time from – to (e.g. 8:00 – 12:00) or choose Closed all day."
+    "error_special_ranges": "Enter a time from – to (e.g. 8:00 – 12:00) or choose Closed all day.",
+    "error_special_none": "Select at least one day."
   },
   "plan": {
     "title": "Plan",
@@ -1087,7 +1088,11 @@
     "unavailable": "This part becomes available after database update 27.",
     "saved": "Saved.",
     "special_saved": "Special day saved.",
-    "special_deleted": "Special day deleted."
+    "special_deleted": "Special day deleted.",
+    "select_all": "Select all",
+    "delete_selected": "Delete selected ({n})",
+    "delete_selected_confirm": "Delete the selected special days ({n})?",
+    "special_deleted_many": "The selected special days were deleted."
   },
   "sections": {
     "title": "Page sections (PDF)",
@@ -1225,6 +1230,8 @@
     "ok_site_logo_link": "Logo link saved.",
     "ok_site_logo_link_removed": "The logo leads to the home page again.",
     "error_site_logo_link": "The link is not valid. Enter the full address of a website, starting with https://.",
-    "error_site_logo_no_plan": "Only with the Pro plan or a domain of your own."
+    "error_site_logo_no_plan": "Only with the Pro plan or a domain of your own.",
+    "choose_file": "Choose file",
+    "error_no_file": "Choose a PDF or pictures first."
   }
 }

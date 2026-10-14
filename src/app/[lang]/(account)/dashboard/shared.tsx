@@ -21,6 +21,7 @@ const ERRORS = [
   "plan_active",
   "special_dates",
   "special_ranges",
+  "special_none",
   "plan_unavailable",
   "no_plan",
 ] as const;
@@ -76,6 +77,7 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     holidays_auto: dict.holidays.saved,
     special_saved: dict.holidays.special_saved,
     special_deleted: dict.holidays.special_deleted,
+    special_deleted_many: dict.holidays.special_deleted_many,
     section_uploaded: dict.sections.done,
     section_uploaded_removed: `${dict.sections.done} ${dict.sections.removed}`,
     section_saved: dict.sections.ok_saved,

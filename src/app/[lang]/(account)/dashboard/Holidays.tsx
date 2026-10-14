@@ -2,8 +2,9 @@ import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { addDays, displayTime, localDateTime, validRanges } from "@/lib/hours";
 import type { MyShop } from "@/lib/myShops";
+import { BulkSelectBar } from "@/components/BulkSelectBar";
 import { PendingButton } from "@/components/PendingButton";
-import { deleteSpecialHours, holidayChoice, saveSpecialHours, setAutoHolidays } from "./holidayActions";
+import { deleteSpecialDays, deleteSpecialHours, holidayChoice, saveSpecialHours, setAutoHolidays } from "./holidayActions";
 import type { Supabase } from "./ShopDocuments";
 
 interface SpecialRow {
@@ -163,7 +164,7 @@ export function Holidays({
         <PendingButton pending={dict.owner.saving}>{h.save_special}</PendingButton>
       </form>
 
-      {/* The shop's special days (past ones disappear after 7 days). */}
+      {/* The shop's special days (past ones disappear after 7 days); ticks for "Vymazať vybrané". */}
       <section className="flex flex-col gap-2" aria-labelledby="specials-heading">
         <h3 id="specials-heading" className="font-semibold">
           {h.list_title}
@@ -171,29 +172,42 @@ export function Holidays({
         {data.specials.length === 0 ? (
           <p className="text-sm text-muted">{h.none}</p>
         ) : (
-          <ul className="divide-y divide-line border-y border-line text-sm">
-            {data.specials.map((s) => (
-              <li key={s.date} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2" data-special={s.date}>
-                <span className="capitalize">{dateText(s.date)}</span>
-                <span className="font-semibold">{specialText(s)}</span>
-                {s.note && <span className="text-muted">{s.note}</span>}
-                <span className="ml-auto flex gap-3">
-                  <a
-                    href={`/${lang}/dashboard?${new URLSearchParams({ shop: shop.slug, at: "holidays", date: s.date })}#special-form`}
-                    className="underline underline-offset-4"
-                  >
-                    {h.edit}
-                  </a>
-                  <form action={deleteSpecialHours}>
-                    {hidden({ at: "holidays", date: s.date })}
-                    <button type="submit" className="underline underline-offset-4" data-delete-special={s.date}>
-                      {h.delete}
-                    </button>
-                  </form>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <>
+            <form id="special-bulk" action={deleteSpecialDays} className="hidden">
+              {hidden({ at: "holidays" })}
+            </form>
+            <BulkSelectBar
+              formId="special-bulk"
+              labels={{ select_all: h.select_all, delete_selected: h.delete_selected, confirm: h.delete_selected_confirm }}
+            />
+            <ul className="divide-y divide-line border-y border-line text-sm">
+              {data.specials.map((s) => (
+                <li key={s.date} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2" data-special={s.date}>
+                  {/* The whole line ticks the box (its text is the box's name for screen readers). */}
+                  <label className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
+                    <input type="checkbox" name="dates" value={s.date} form="special-bulk" className="h-4 w-4 accent-foreground" data-special-tick={s.date} />
+                    <span className="capitalize">{dateText(s.date)}</span>
+                    <span className="font-semibold">{specialText(s)}</span>
+                    {s.note && <span className="text-muted">{s.note}</span>}
+                  </label>
+                  <span className="ml-auto flex gap-3">
+                    <a
+                      href={`/${lang}/dashboard?${new URLSearchParams({ shop: shop.slug, at: "holidays", date: s.date })}#special-form`}
+                      className="underline underline-offset-4"
+                    >
+                      {h.edit}
+                    </a>
+                    <form action={deleteSpecialHours}>
+                      {hidden({ at: "holidays", date: s.date })}
+                      <button type="submit" className="underline underline-offset-4" data-delete-special={s.date}>
+                        {h.delete}
+                      </button>
+                    </form>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
 

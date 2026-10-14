@@ -39,7 +39,7 @@ Setup steps for humans are in `SETUP.md`.
 
 Plain white background, black text, thin light-grey lines (`border-line`, `text-muted`).
 **No colours** (only exceptions, at the owner's request: the Cacadoo PPI logo in the header, `public/brand/cacadoo-ppi.png`,
-the blue "Select picture" link for shop logos, and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
+the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
@@ -241,7 +241,8 @@ ranges of a day = break). Every place uses it: shop page (map pin, status line, 
 refreshed every minute in the browser), search map + result list, item page, API/MCP (`status` {state, text, label,
 next_change} on every shop), JSON-LD `specialOpeningHoursSpecification`. Input = `opening_hours` + `shop_calendar()`
 (`@/lib/shopCalendar`; before update 27 it is empty and the regular hours apply). Special day (`shop_special_hours`,
-`owner_save_special_hours()` / `owner_delete_special_hours()`) wins over a holiday, a holiday over the regular hours.
+`owner_save_special_hours()` / `owner_delete_special_hours()`; "Vaše mimoriadne dni" has ticks + `@/components/BulkSelectBar`
+→ `deleteSpecialDays`, the same function per day) wins over a holiday, a holiday over the regular hours.
 `public_holidays` (SK, HU, CZ; rows from `scripts/holidays.mjs` with date-holidays, `source` library|admin, admin wins,
 `admin_save_holiday()` on the admin page); `kind` day_off (yellow all day: "Štátny sviatok – overte otváracie hodiny")
 or shops_closed (closed by law, red "Zatvorené – štátny sviatok"; `closed_from` e.g. 24.12 12:00); `shops.auto_holidays` (`owner_set_auto_holidays()`, default on)
