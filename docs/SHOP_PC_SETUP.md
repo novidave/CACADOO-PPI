@@ -89,6 +89,11 @@ On the same page, under **Spúšťanie so systémom Windows**:
 
 Leave the PPI window open; minimising it is fine. Closing it stops the uploads until it is opened again.
 
+**Optional (paid plan): conversations to this PC.** In the same window, **Konverzácie do počítača** → **Vybrať
+priečinok pre konverzácie** → a folder of its own (e.g. `Dokumenty\Konverzácie PPI`) → **Povoliť**. While the window
+is open, each finished conversation with the shop assistant is saved there as a PDF every 5 minutes; nothing there is
+ever replaced or deleted.
+
 ### S5. Approve the columns (the owner, once per shop)
 
 **Môj obchod** → **Stĺpce súboru so zásobami**:

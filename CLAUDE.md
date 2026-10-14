@@ -141,8 +141,10 @@ PDF"** (finished conversations only; `owner_pdfs` in the function, RLS decides; 
 ticks + "Stiahnuť vybrané" (`ConversationDownloadBar`, each conversation its own PDF, no ZIP); the PDF shows the
 shopper's pictures large. Logos get a PNG
 twin (`logo-<time>.png`) for the PDFs. Never put purchase prices, suppliers, margins, invoice numbers, access keys or
-other shops' data into conversations, PDFs or exports. No local/PC folder sync or polling for exports: the cloud
-folder (below) is a push from our server when a conversation ends.
+other shops' data into conversations, PDFs or exports. "Konverzácie do počítača" (since 2026-10-14, at the owner's
+request): the shop PC's `/sync` window saves each finished conversation's PDF into a folder it picked
+(`@/components/ConversationFolderSync`, File System Access `readwrite`, every 5 min, `<YYYY-MM>/<pdf_name>`, never
+replaces or deletes a file, state only in that browser); the cloud folder (below) stays a push from our server.
 
 ## Cloud folder (paid, update 23)
 

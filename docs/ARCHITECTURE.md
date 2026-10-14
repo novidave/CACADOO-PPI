@@ -568,6 +568,16 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `SelectAllBox` shared with `BulkSelectBar`): every file downloaded with a hidden link, 0.7 s apart, each its own PDF
   (no ZIP); the browser may ask once to allow several downloads. Each row's link is a named hover group
   (`group/conv`): the section's `<details class="group">` no longer underlines every question.
+  **Konverzácie do počítača** (`/sync`, section `conversations-pc`, paid plan; `components/ConversationFolderSync`): a
+  folder picked with `pickWritableFolder()` (`showDirectoryPicker` mode `readwrite`, id `ppi-conversations`; handle in
+  IndexedDB `ppi-folder` under `conversations:<shop>` with `since` (chosen − 45 min), `cursor`, `done` {id → end} and
+  `count`); one window per shop (Web Locks `ppi-conversations-<shop>`), a check every 5 minutes (20 s tick, right away
+  while a full batch of 50 waits): RLS select of the shop's ended conversations (`ended_at`, `pdf_status`, `pdf_name`,
+  `message_count > 0`) from the cursor minus 45 minutes (an idle-ended conversation's `ended_at` is its last message),
+  leaving out the remembered ids → `POST /api/owner/conversations/pdf` → each PDF fetched from its 10-minute address
+  (Storage sends CORS) → `writeNewFile()` `<YYYY-MM>/<pdf_name>` (an existing file is left alone: never replaced or
+  deleted). A conversation still waiting for its PDF (≤ 60 min) or a failed save holds the cursor; failed or deleted
+  PDFs are passed. "Uložiť aj staršie" = `since`/`cursor` null. Nothing about it is stored on the server.
 - **Jobs:** `ppi-assistant-tick` (`*/5 * * * *`) and `ppi-assistant-retention` (`17 3 * * *`) call
   `<Vault ppi_project_url>/functions/v1/assistant-archive` with `net.http_post` and the Vault secret
   `ppi_assistant_cron`.
@@ -1356,7 +1366,13 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   "Stiahnuť vybrané (2)" → two separate PDFs and "Hotovo – …", one without a PDF → the other plus "1 z vybraných …";
   the conversation page's link, none while running; another shop's conversation 404 / not in the answer, more than 50
   or not ids 400, logged out 401; English; a phone), plus 2 new Deno tests (`owner_pdfs`, the pictures' size) and the
-  logo-in-PDF script again; those scripts are not part of the repository.
+  logo-in-PDF script again; "Konverzácie do počítača" (19 checks with the folder dialog answered by a folder in the
+  browser's own test storage: the section and its text, picked → nothing older, a new conversation saved once as
+  `<YYYY-MM>/<name>.pdf`, "Uložiť aj staršie" saves the older one while a same-named file stays untouched, the running
+  one not yet, a moved-away PDF not saved again, an idle-ended conversation (end = its last message) saved at the next
+  check, a second window waits, "Povoliť ukladanie do priečinka" after the browser asks again, "Prestať ukladať" keeps
+  the files, a phone, no section without the plan, the message without folder support); those scripts are not part of
+  the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

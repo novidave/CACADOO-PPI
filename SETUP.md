@@ -1075,6 +1075,25 @@ No database change, no new secret. Do the steps in order.
 
 ---
 
+## Part AB — Conversations saved by themselves into a folder on the shop PC (14 October 2026)
+
+- **Priečinok s exportom** (the page the shop PC keeps open) gets **Konverzácie do počítača** (paid plan): choose a
+  folder once (Edge or Chrome on a computer); while the page is open, every finished conversation is saved there as a
+  PDF (with the shopper's pictures) every 5 minutes: `2026-10/2026-10-14_15-30_3f2a9c1b.pdf`. Nothing in the folder is
+  ever replaced or deleted. **Uložiť aj staršie konverzácie** saves the older ones too.
+
+No database change, no new secret, no function to update (it uses the assistant-archive function of Part AA).
+
+1. **Merge the pull request** on GitHub → Vercel deploys.
+2. **On the shop PC** (the PPI window): **Priečinok s exportom** → **Konverzácie do počítača** → **Vybrať priečinok pre
+   konverzácie** → make or choose a folder, e.g. `Dokumenty\Konverzácie PPI` → the browser asks whether PPI may save
+   there → **Povoliť** (Edge/Chrome may offer "Povoliť pri každej návšteve" – choose it so it does not ask again after a
+   restart).
+3. **Test:** finish a conversation in the shop assistant → within 5 minutes (or **Skontrolovať teraz**) its PDF is in
+   the folder, in the month's subfolder.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1116,3 +1135,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 23. "Odkaz loga": the own domain's header logo can lead to another address (e.g. the shop's main website) | ✅ built — set up Part Y |
 | 24. Ticks on "Vaše mimoriadne dni" (delete several at once); blue "Vybrať súbor" link in page sections | ✅ built — set up Part Z |
 | 25. Assistant conversations as PDF straight to the PC ("Stiahnuť PDF", "Stiahnuť vybrané"); pictures large in the PDF | ✅ built — set up Part AA |
+| 26. "Konverzácie do počítača": finished conversations saved by themselves as PDFs into a folder on the shop PC | ✅ built — set up Part AB |

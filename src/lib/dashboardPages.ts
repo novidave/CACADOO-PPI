@@ -5,7 +5,7 @@
  * files). A form sends the owner back to the page and section ("at") it came from.
  */
 export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs"];
-export const EXPORT_SECTIONS = ["export", "private", "imports"];
+export const EXPORT_SECTIONS = ["export", "conversations-pc", "private", "imports"];
 
 export function sectionPath(lang: string, at: string): string {
   if (ASSISTANT_SECTIONS.includes(at)) return `/${lang}/dashboard/assistant`;

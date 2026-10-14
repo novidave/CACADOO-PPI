@@ -7,6 +7,7 @@ import { formatDateTime, formatTime, localDay } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { folderSyncLabels } from "@/lib/syncLabels";
 import { DashboardSection } from "@/components/DashboardSection";
+import { ConversationFolderSync } from "@/components/ConversationFolderSync";
 import { DbError } from "@/components/DbError";
 import { FolderSync } from "@/components/FolderSync";
 import { InstallApp } from "@/components/InstallApp";
@@ -44,7 +45,9 @@ interface ImportRow {
 /**
  * "Priečinok s exportom" — also the shop PC's PPI window (the installed app starts here):
  * connect the folder the stock software exports to (while open, the newest file is sent
- * every 15 minutes), the files in private folders, and the last 10 stock files received.
+ * every 15 minutes), with the paid plan a folder the assistant's finished conversations are
+ * saved to as PDFs (every 5 minutes), the files in private folders, and the last 10 stock
+ * files received.
  * One shop at a time (a shop switcher with more shops; one window per shop on the PC).
  */
 export default async function SyncPage({ params, searchParams }: PageProps<"/[lang]/sync">) {
@@ -181,6 +184,12 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
           <InstallApp labels={dict.sync} />
         </DashboardSection>
 
+        {planActive && (
+          <DashboardSection {...m.section("conversations-pc")} title={dict.conv_folder.title} summary={dict.conv_folder.summary}>
+            <p className="text-sm">{dict.conv_folder.intro}</p>
+            <ConversationFolderSync shopId={shop.id} lang={lang} timeZone={shop.timezone} loginHref={`/${lang}/login`} labels={dict.conv_folder} />
+          </DashboardSection>
+        )}
         {docsData && (planActive || files.length > 0) && (
           <DashboardSection {...m.section("private")} title={d.private_title} summary={summaries.private}>
             <PrivateFiles files={files} shop={shop} lang={lang} dict={dict} notice={m.notice("private")} />
