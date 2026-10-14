@@ -210,6 +210,8 @@ export async function searchStock(params: {
   radiusKm?: number | null;
   onlyAvailable?: boolean;
   lang: Locale;
+  /** The main page's chat cards: each shop also gets what its status is computed from (its live dot). */
+  withStatusInput?: boolean;
 }) {
   let location: Awaited<ReturnType<typeof resolveNear>> = null;
   if (params.lat != null && params.lng != null) {
@@ -243,9 +245,16 @@ export async function searchStock(params: {
   const results = rows.map((row) => {
     const item = apiItem(row, params.lang);
     const shopHours = hoursOf.get(row.shop_id);
-    return shopHours
-      ? { ...item, shop: { ...item.shop, status: apiStatus(shopHours, calendars.get(row.shop_id) ?? [], params.lang, now) } }
-      : item;
+    if (!shopHours) return item;
+    const calendar = calendars.get(row.shop_id) ?? [];
+    return {
+      ...item,
+      shop: {
+        ...item.shop,
+        status: apiStatus(shopHours, calendar, params.lang, now),
+        ...(params.withStatusInput ? { status_input: { hours: shopHours.opening_hours, timeZone: shopHours.timezone, days: calendar } } : {}),
+      },
+    };
   });
   return {
     query: params.q,

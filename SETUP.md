@@ -363,11 +363,12 @@ MCP connector (Part F). A short own domain (e.g. ppi.sk) instead of `*.vercel.ap
    shop's names are translated with its next new stock file; to start at once, send a file with **Nahrať súbor**.
 4. **AI search:** Vercel → Project → **Settings → Environment Variables** → add `ANTHROPIC_API_KEY` (an Anthropic key;
    a separate key from the Supabase one is fine) and, optionally, `AI_DAILY_LIMIT` (AI searches per day for the whole
-   site, default 500) for Production → **Redeploy**. The "Hľadať s AI" button appears only when the key is set.
-5. **Check:** search "white paint" on `/en` for an item named in Slovak (after its translation); click
-   **Hľadať s AI** on `/sk` with a question such as "čo potrebujem na tečúcu rúru" — an answer box appears above the
-   results within a few seconds. No box: log in (Môj obchod) and try again — a note says why (only logged-in owners
-   see it); or Vercel → **Logs** → search `ai-search`.
+   site, default 500) for Production → **Redeploy**. Without the key the main page's chat answers with the plain
+   search (Part AD).
+5. **Check:** search "white paint" on `/en` for an item named in Slovak (after its translation); ask on `/sk` a
+   question such as "čo potrebujem na tečúcu rúru" — an answer appears within a few seconds (Part AD). "Zobrazujem
+   jednoduché výsledky vyhľadávania." instead: log in (Môj obchod) and try again — a note says why (only logged-in
+   owners see it); or Vercel → **Logs** → search `ai-search`.
 
 Never put the Anthropic key in a `NEXT_PUBLIC_…` variable or in the repository.
 
@@ -1138,6 +1139,38 @@ No new secret. Do the steps in order.
 
 ---
 
+## Part AD — The main page as one AI chat (14 October 2026)
+
+- The main page is now **one chat search**, like Perplexity or Claude: the small Cacadoo pin, **Čo dnes hľadáte?**,
+  one input in the middle of the screen and three example questions. No filters, no other search box, no
+  "Len dostupné teraz".
+- After a question: three dots in Cacadoo yellow and the real steps ("Rozumiem otázke…" → "Hľadám v obchodoch…" →
+  "Overujem dostupnosť a otváracie hodiny…"), the answer word by word, then cards from the search (original name +
+  translation, price, shop, street, town, availability with its freshness, the status dot with words; "x km od centra
+  Košice" when the question named a town). Follow-ups keep the context ("a v Michalovciach?"); **+ Nový chat** starts
+  again; **Zastaviť** or Esc stops the answer. The website never asks for or guesses the visitor's location.
+- When the AI cannot answer (no key, a limit, an error, nothing within 12 seconds) the plain search answers in the same
+  chat with "Zobrazujem jednoduché výsledky vyhľadávania.". Links `/sk?q=…` still show the plain results to search
+  engines and browsers without JavaScript.
+
+**No database change, no new secret, no function to update.** `ANTHROPIC_API_KEY` and `AI_DAILY_LIMIT` in Vercel are
+the ones from Part J; the optional `AI_MODEL` in Vercel (Part M) now also chooses the model of the main page's chat
+(default `claude-haiku-5-5`).
+
+1. **Merge the pull request** on GitHub → Vercel deploys.
+2. **Test** on `https://cacadooppivercel.vercel.app/sk`:
+   - The page shows only the pin, "Čo dnes hľadáte?", the input and the three examples; a click on an example fills
+     the input.
+   - Ask **biela farba 15 l v Košiciach** → the yellow dots and the steps, the answer appears word by word, cards of
+     the shops in and around Košice with "… km od centra Košice".
+   - Ask **a v Michalovciach?** → the same product, now around Michalovce.
+   - **Zobraziť viac** (when there are more than 6 cards), **Ukázať na mape**, **+ Nový chat**.
+   - On a phone: the input stays at the bottom above the home bar, nothing scrolls sideways.
+   - "Zobrazujem jednoduché výsledky vyhľadávania." on every question: log in (Môj obchod) and ask again — the reason
+     is shown under the note; or Vercel → **Logs** → search `ai-search`.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1181,3 +1214,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 25. Assistant conversations as PDF straight to the PC ("Stiahnuť PDF", "Stiahnuť vybrané"); pictures large in the PDF | ✅ built — set up Part AA |
 | 26. "Konverzácie do počítača": finished conversations saved by themselves as PDFs into a folder on the shop PC | ✅ built — set up Part AB |
 | 27. Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS, only added), "Odoslať sitemap", llms.txt and robots.txt per domain with "Kategórie tovaru", IndexNow after each upload (only changed pages), Product/Offer + Store JSON-LD, search results linking to the own domain | ✅ built — set up Part AC |
+| 28. The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots and the real steps, the answer streamed, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback | ✅ built — set up Part AD |

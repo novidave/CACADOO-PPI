@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 2.9 · status 10 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 3.0 · status 14 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -20,6 +20,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | AI field mapping (Claude) with owner approval | Live (rule-based guess when no Anthropic key is set) |
 | Item names in Slovak, Hungarian and English; search across the three languages | Built and tested; live after migration 17, the new stock function and the Anthropic key in Supabase |
 | AI search on the main page (Claude Haiku) | Built and tested; switched on by the Anthropic key in Vercel |
+| The main page as one AI chat (Prompt 10): "Čo dnes hľadáte?" with one centred input and example questions; thinking dots and the real steps, the answer streamed word by word, result cards from the search with freshness and status, follow-up questions, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page | Built and tested against a Claude stand-in; live after the merge, no database change (SETUP.md part AD) |
 | Paid plan per shop (Stripe: monthly subscription, VAT invoices) | Built and tested against a Stripe stand-in; Stripe **test mode** first (SETUP.md part K) |
 | AI assistant on the shop page (paid plan only, Claude Haiku) | Built and tested against a Claude stand-in; live after migration 19 (SETUP.md part L) |
 | Documents and pictures for the assistant; private folders with access keys (paid plan only) | Built and tested against Claude and Storage stand-ins; live after migration 20 and two new functions (SETUP.md part M) |
@@ -81,7 +82,8 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - AI-proposed column mapping, always approved by the owner
 - Item names in three languages: every name is also kept in plain Slovak, Hungarian and English (made by AI in the
   background, correctable by the owner), so a search in any of the three languages finds it
-- AI search on the main page: an extra layer above the plain results, on request
+- The main page is one AI chat search (Prompt 10); the plain database search is its hidden fallback and the first
+  HTML of `/[lang]?q=…`
 - Paid plan per shop: a monthly Stripe subscription (Stripe Checkout to subscribe, the Stripe customer portal to
   cancel or change the card), invoices with VAT; one database function says whether a shop has it
 - AI assistant on the shop page (the first paid feature): questions about the shop's items, prices and availability,
@@ -145,25 +147,48 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 ### 5.1 Home and search (`/[lang]`)
 
-- One search box. Every word of the text must appear (any order, also inside longer words), ignoring accents and case
-  ("kava" finds "Káva"), in the item's name as the shop wrote it or its Slovak, Hungarian or English name, the brand,
-  the EAN barcode, or the shop's name, street and town. "white paint", "fehér festék" and "biela farba" all find
-  "Farba fas. biela 5L"; searching "Budince" lists the items of shops in Budince.
-- Every active shop is searched; there is no radius and no distance.
-- Filter: "Only available now".
-- Up to 50 results: available first, then fresher, then by name. Each result shows the item name as the shop wrote it
-  and, under it, its name in the page language when that reads differently ("Farba fas. biela 5L" / "White facade
-  paint 5 l"), price, shop name, street and town, the availability text with its freshness ("In stock · updated 8 min
-  ago") and the shop's **status**: a coloured dot with the words ("● Otvorené · zatvára o 17:00", 6.6).
-- A map shows the shops of the results, each pin in its status colour (its tooltip says the shop and the status in
-  words, e.g. "Potraviny Centrum · Otvorené"; no legend under the map); it is an extra: the page works without it.
-- No results: "No shop has this right now".
-- **Search with AI** (button next to the filter; only when the Anthropic key is set): the shopper's question, in any
-  language, goes to Claude Haiku, which works out what is needed and searches several times (names and synonyms in
-  Slovak, Hungarian and English, short forms used in shop systems, related products: "leaking pipe" → sealing tape,
-  silicone, pipe clamp). Above the plain results it shows "AI is searching all shops…", then a short answer in the
-  shopper's language, result cards (name + translation, brand, price, shop, availability + freshness, link to the item
-  page) and the terms it searched for. The plain server-rendered results stay underneath and are what crawlers see.
+The main page is **one AI chat** (Prompt 10), like Perplexity or Claude: nothing else above the fold.
+
+- **Empty page:** in the middle of the screen the small Cacadoo pin, the headline "Čo dnes hľadáte?", one large rounded
+  input that grows with the text (placeholder "Napíšte, čo hľadáte a kde – napr. biela farba 15 l v Košiciach") with a
+  send arrow, and three example questions that fill the input ("Kto má AdBlue v Michalovciach?", "Nabíjačka USB-C
+  otvorené teraz", "Farba na plot a štetec v Košiciach"). No filters, no other search box, no "Len dostupné teraz", no
+  location chip.
+- **Chat:** after the first question the input sits at the bottom of the screen (above the phone's home bar,
+  "Spýtajte sa ďalej…"). The shopper's question in a grey bubble on the right; the answer on the left without a border,
+  **streamed word by word**, in the language of the question (an Italian question gets an Italian answer; the page's
+  buttons stay in the page language). Enter sends, Shift+Enter makes a new line, Esc or "Zastaviť" stops the answer
+  (and the AI call on the server). "+ Nový chat" clears everything. The conversation lives only in that browser tab;
+  the server keeps none.
+- **Thinking:** three dots pulsing in Cacadoo yellow next to the small pin, and a line that follows the **real** steps:
+  "Rozumiem otázke…" (the question is with the AI), "Hľadám v obchodoch…" (the AI calls the search), "Overujem
+  dostupnosť a otváracie hodiny…" (the results with availability and status are back), then the answer. Grey
+  placeholder cards while the search runs. CSS only; with "reduce motion" the dots stand still. Screen readers hear
+  the steps and the answer (`aria-live="polite"`).
+- **Result cards** under the answer, built on the server from the search results only: the item name as the shop wrote
+  it and its translation in the page language under it, brand, price in the item's currency, shop (link), street and
+  town, the availability in bold with a freshness badge ("Aktualizované pred 8 min"; no availability for stale shops)
+  and the shop's status dot with the words. Distance only when the question named a town: "2,1 km od centra Košice".
+  Six cards, then "Zobraziť viac (n)"; "Ukázať na mape" opens a small map of those shops (loaded only then).
+- **Follow-up questions** keep the context: "a lacnejšie?", "len tie, čo sú teraz otvorené", "a v Michalovciach?"
+  (the browser sends the last three questions and answers, with the cards each answer showed, in short).
+- **No location:** the website never asks for the visitor's location and never guesses it (not from the browser, not
+  from the IP address). The shopper writes the town ("v Michalovciach"); the AI passes it to the search as the town.
+- **Search rules** (the same `search_stock` as the API and MCP): every word must appear (any order, also inside longer
+  words), ignoring accents and case ("kava" finds "Káva"), in the item's name as the shop wrote it or its Slovak,
+  Hungarian or English name, the brand, the EAN barcode, or the shop's name, street and town. Every active shop is
+  searched; with a town, the shops within 10 km of its centre (a town without PPI shops: all shops). Available
+  first, then fresher, then by name; payment never changes the order.
+- **Nothing found:** the answer says so plainly and shows what was searched ("Hľadané: …").
+- **Hidden fallback:** when no answer has started within 12 seconds, the AI fails or a limit is reached, the same chat
+  shows the plain database search as cards with the note "Zobrazujem jednoduché výsledky vyhľadávania." (over the
+  per-minute limit also "Veľa otázok naraz – AI odpovie znova o chvíľu."). Without the Anthropic key every question
+  gets the plain search.
+- **Links and crawlers:** `/[lang]?q=…` still renders the plain results (item, price, shop, street, town,
+  availability + freshness, status) in the first HTML, without a map, for crawlers, shared links and browsers without
+  JavaScript; with JavaScript such a link starts the chat with that question. The input is a plain form (`GET
+  /[lang]?q=…`), so it also works without JavaScript.
+- "Opýtajte sa obchodov" and "Upozorniť ma" are not shown: they do not exist yet.
 
 ### 5.2 Shop page (`/[lang]/shops/{slug}`)
 
@@ -475,16 +500,23 @@ choose "exact number / in stock–low stock / available" and hide items; migrati
 - An owner's correction is never overwritten, not even when the shop renames the item.
 - Without the Anthropic key in Supabase, nothing is translated and the search works on the original names.
 
-### 6.5 AI search
+### 6.5 AI search (the main page's chat)
 
-- Claude Haiku may only use one tool: the same `search_stock` as the API and MCP (no location). It states only what
-  the searches returned; the cards are built from the search results alone, so invented items, prices or shops
-  cannot appear, and stale shops show no availability. Nothing found: it says so and the searched terms are shown.
+- The model comes from `AI_MODEL` (default Claude Haiku); the Anthropic key is only on the server.
+- The AI may only use one tool: the same `search_stock` as the API and MCP, with the town the shopper wrote as `near`
+  (never a location from the device or the IP address). It searches several times when useful (names and synonyms in
+  Slovak, Hungarian and English, short forms used in shop systems, related products: "leaking pipe" → sealing tape,
+  silicone, pipe clamp). It states only what the searches returned and picks the items to show; the **cards are built
+  on the server from the search results alone** — an item the AI names that no search returned is dropped — so
+  invented items, prices or shops cannot appear, and stale shops show no availability. Product, brand and shop names
+  are data, never instructions (the system prompt says so). Purchase prices are never shown (the search has none).
+- Original names first, the translation under them; the answer and its translations in the language of the question.
 - At most 10 AI searches per minute per caller (hashed IP, as for the API) and `AI_DAILY_LIMIT` per day for the whole
-  site (default 500). Over a limit, or on any error, the AI layer silently disappears and the plain results remain.
-  A logged-in shop owner sees a short note with the reason instead (to test it), and every reason is written to the
-  Vercel log as `ai-search: …`.
-- Crawlers are kept away from it (robots.txt); the Anthropic key is only on the server.
+  site (default 500). Over a limit, after 12 seconds without an answer, or on any error, the plain database search
+  answers in the same chat ("Zobrazujem jednoduché výsledky vyhľadávania."). A logged-in shop owner also sees the
+  reason (to test it), and every reason is written to the Vercel log as `ai-search: …`.
+- "Zastaviť" / Esc stops the AI call on the server too. The server keeps no conversation and logs no question.
+- Crawlers are kept away from it (robots.txt); the main page itself loads no map and no heavy script.
 
 ### 6.6 Status: open / lunch break / closed / holiday / no hours
 
@@ -996,11 +1028,13 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
 
 - Plain white background, black text, thin light-grey lines; mobile-first. No colours, no dark mode, no cart icons.
   Exceptions at the owner's request: the Cacadoo PPI logo in the header, the blue "Select picture" link for logos and
-  the same blue "Vybrať súbor" link of page sections.
+  the same blue "Vybrať súbor" link of page sections, and (Prompt 10) the **thinking dots of the main page's chat in
+  Cacadoo yellow #FFC531**, next to the small Cacadoo pin, only while the AI works (still with "reduce motion").
 - Availability always written out as text, in bold, always next to its freshness.
-- Translated names in grey under the shop's own name; the AI answer in a plain bordered box above the results.
+- Translated names in grey under the shop's own name. The main page's chat: the shopper's question in a light-grey
+  bubble on the right, the answer on the left without a border, cards with thin grey lines; the input large and rounded.
 - Map: OpenFreeMap "positron" (free, no key), black dot pins; never required for the page to work.
-- **Status dots** (Prompt 9A, at the owner's request — the one colour exception besides the logo): green #1E9E5A open,
+- **Status dots** (Prompt 9A, at the owner's request): green #1E9E5A open,
   blue #2F6FED lunch break, red #D64545 closed, yellow #F2B705 public holiday, grey #9AA5B1 no hours; always shown
   together with the status in words, never colour alone (on the page next to the shop; on a map pin in its tooltip
   and label — no legend under the maps, at the owner's request); on maps a white outline and a thin dark ring.
@@ -1146,3 +1180,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-14 | Assistant conversations: "Stiahnuť PDF" and "Stiahnuť vybrané" (each its own PDF, straight to the PC); the shopper's pictures large in the PDF |
 | 2026-10-14 | "Konverzácie do počítača": each finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open) |
 | 2026-10-14 | Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS only by adding, or shown to add), "Odoslať sitemap", llms.txt and robots.txt per own domain with "Kategórie tovaru", IndexNow once per upload with only the changed pages, Product/Offer + Store JSON-LD on own-domain item pages, search results linking to the own domain |
+| 2026-10-14 | The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots in Cacadoo yellow with the real steps, the answer streamed word by word, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page (the API and MCP keep `only_available`) |

@@ -1,40 +1,82 @@
+import type { Viewport } from "next";
 import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, type Dictionary } from "@/i18n/dictionaries";
-import Link from "next/link";
-import { aiSearchEnabled } from "@/lib/aiSearch";
-import { createClient } from "@/lib/supabase/server";
 import { itemHref, shopHref } from "@/lib/customDomain";
+import { createClient } from "@/lib/supabase/server";
 import { getLiveSites, getShopCalendars, getShopsByIds, type PublicShop } from "@/lib/data";
 import { missingSupabaseEnv, supabaseEnv } from "@/lib/supabase/env";
 import { formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
 import type { StockRow } from "@/lib/stock";
-import { AiSearch } from "@/components/AiSearch";
-import { ShopMap } from "@/components/ShopMap";
+import { ChatSearch, type ChatLabels } from "@/components/ChatSearch";
 import { LiveStatus } from "@/components/ShopStatus";
 import type { CalendarDay } from "@/lib/hours";
 import { requestTime } from "@/lib/requestTime";
 import { statusInput } from "@/lib/shopCalendar";
 import { StockLine } from "@/components/StockLine";
 
+// The chat input sits above the phone's home bar (env(safe-area-inset-bottom)).
+export const viewport: Viewport = { viewportFit: "cover" };
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * The main page (Prompt 10): one chat search in the middle of the screen (ChatSearch). For
+ * crawlers, shared links and visitors without JavaScript, /[lang]?q=… also renders the plain
+ * database search in the first HTML (no map, no AI); with JavaScript such a link starts the chat
+ * with its question instead. No location: search is text only, the town is what the shopper writes.
+ */
 export default async function HomePage({ params, searchParams }: PageProps<"/[lang]">) {
   const { lang } = await params;
   if (!isLocale(lang)) notFound();
   const dict = await getDictionary(lang);
 
   const sp = await searchParams;
-  const q = (first(sp.q) ?? "").trim();
-  const onlyAvailable = first(sp.only) === "1";
-  // AI is an extra layer above the plain results, only when the shopper asks for it.
-  const aiEnabled = aiSearchEnabled();
-  const askAi = aiEnabled && first(sp.ai) === "1" && q.length >= 2;
+  const q = (first(sp.q) ?? "").trim().slice(0, 300);
 
+  const s = dict.search;
+  const labels: ChatLabels = {
+    headline: s.headline,
+    placeholder: s.placeholder,
+    follow_up: s.follow_up,
+    send: s.send,
+    stop: s.stop,
+    new_chat: s.new_chat,
+    examples: [s.example_1, s.example_2, s.example_3],
+    examples_label: s.examples_label,
+    you: s.you,
+    assistant: s.assistant,
+    step_understand: s.step_understand,
+    step_search: s.step_search,
+    step_verify: s.step_verify,
+    fallback_note: s.fallback_note,
+    limited: s.limited,
+    unavailable: s.ai_unavailable,
+    nothing_found: s.nothing_found,
+    searched: s.ai_searched,
+    stopped: s.stopped,
+    error: s.error,
+    show_more: s.show_more,
+    show_map: s.show_map,
+    hide_map: s.hide_map,
+    ai_note: s.ai_note,
+    results: s.results,
+    map: dict.shop.map,
+    keyboard_hint: s.keyboard_hint,
+  };
+
+  return (
+    <ChatSearch lang={lang} labels={labels} statusLabels={dict.status} initialQuestion={q.length >= 2 ? q : null}>
+      {q.length >= 2 ? <PlainResults q={q} lang={lang} dict={dict} /> : null}
+    </ChatSearch>
+  );
+}
+
+/** The plain database search (search_stock), server-rendered: the page's first HTML for ?q=…. */
+async function PlainResults({ q, lang, dict }: { q: string; lang: Locale; dict: Dictionary }) {
   const renderedAt = requestTime();
   let rows: StockRow[] = [];
   let shops = new Map<string, PublicShop>();
@@ -47,117 +89,33 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
     const supabase = await createClient();
     if (!supabase) {
       error = `${dict.search.not_connected} (${missingSupabaseEnv().join(", ")})`;
-    } else if (q) {
+    } else {
       // No location: every shop is searched, by item, brand, EAN, shop name, street or town.
-      const result = await supabase.rpc("search_stock", { q, lat: null, lng: null, only_available: onlyAvailable });
-      if (result.error) {
-        // Name the (public) project address so setup mistakes are visible.
-        error = `${result.error.message} · Supabase: ${supabaseEnv()?.url}`;
-      }
+      const result = await supabase.rpc("search_stock", { q, lat: null, lng: null, only_available: false });
+      if (result.error) error = `${result.error.message} · Supabase: ${supabaseEnv()?.url}`;
       rows = (result.data ?? []) as StockRow[];
-      // Opening hours, special days and holidays for each shop's status: two queries for all result shops.
       if (!result.error) {
         const ids = [...new Set(rows.map((r) => r.shop_id))];
         [shops, calendars, sites] = await Promise.all([getShopsByIds(ids), getShopCalendars(ids).catch(() => new Map()), getLiveSites()]);
       }
     }
   } catch (e) {
-    // e.g. a mistyped Supabase URL: show it instead of a blank 500 page.
     error = `${dict.search.not_connected} (${e instanceof Error ? e.message : String(e)})`;
   }
 
+  if (error) return <p className="rounded border border-line p-3 text-sm">{error}</p>;
   return (
-    <div className="flex flex-col gap-6">
-      <p className="text-muted">{dict.site.tagline}</p>
-
-      <form method="get" className="flex max-w-3xl flex-col gap-3" role="search">
-        <div className="flex gap-2">
-          <input
-            type="search"
-            name="q"
-            defaultValue={q}
-            placeholder={dict.search.placeholder}
-            aria-label={dict.search.placeholder}
-            className="min-w-0 flex-1 rounded border border-line px-3 py-2 outline-none focus:border-foreground"
-          />
-          <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium">
-            {dict.search.button}
-          </button>
-        </div>
-        <div className="flex flex-wrap items-center gap-4 text-sm">
-          <label className="flex items-center gap-2">
-            <input type="checkbox" name="only" value="1" defaultChecked={onlyAvailable} />
-            {dict.search.only_available}
-          </label>
-          {aiEnabled && (
-            <button type="submit" name="ai" value="1" className="rounded border border-line px-3 py-1">
-              {dict.search.ai_button}
-            </button>
-          )}
-        </div>
-      </form>
-
-      {askAi && (
-        <AiSearch
-          key={`${q}|${onlyAvailable}`}
-          q={q}
-          lang={lang}
-          only={onlyAvailable}
-          labels={{
-            title: dict.search.ai_title,
-            loading: dict.search.ai_loading,
-            searched: dict.search.ai_searched,
-            note: dict.search.ai_note,
-            unavailable: dict.search.ai_unavailable,
-          }}
-        />
+    <section aria-label={dict.search.results} data-plain-results>
+      {rows.length === 0 ? (
+        <p>{dict.search.empty_everywhere}</p>
+      ) : (
+        <ul className="divide-y divide-line border-y border-line">
+          {rows.map((row) => (
+            <ResultRow key={row.item_id} row={row} shop={shops.get(row.shop_id)} calendars={calendars} sites={sites} renderedAt={renderedAt} lang={lang} dict={dict} />
+          ))}
+        </ul>
       )}
-
-      {error && <p className="rounded border border-line p-3 text-sm">{error}</p>}
-
-      {q && !error && (
-        <section aria-label={dict.search.results}>
-          {rows.length === 0 ? (
-            <p>{dict.search.empty_everywhere}</p>
-          ) : (
-            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-              <div className="lg:sticky lg:top-4 lg:order-2">
-                <ShopMap
-                  shops={[...new Map(rows.filter((r) => r.shop_lat !== null && r.shop_lng !== null).map((r) => [r.shop_slug, r])).values()].map((r) => {
-                    const shop = shops.get(r.shop_id);
-                    return {
-                      slug: r.shop_slug,
-                      name: r.shop_name,
-                      lat: r.shop_lat!,
-                      lng: r.shop_lng!,
-                      href: shopHref(sites, lang, r.shop_slug, r.shop_country),
-                      ...(shop ? { status: statusInput(shop, calendars) } : {}),
-                    };
-                  })}
-                  label={dict.shop.map}
-                  statusLabels={dict.status}
-                  renderedAt={renderedAt}
-                />
-              </div>
-              <ul className="divide-y divide-line border-y border-line lg:order-1">
-                {rows.map((row) => (
-                  <ResultRow
-                    key={row.item_id}
-                    row={row}
-                    shop={shops.get(row.shop_id)}
-                    calendars={calendars}
-                    sites={sites}
-                    renderedAt={renderedAt}
-                    lang={lang}
-                    dict={dict}
-                  />
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-      )}
-    </div>
+    </section>
   );
 }
 
@@ -183,17 +141,17 @@ function ResultRow({
     <li data-shop={row.shop_slug} className="flex flex-col gap-1 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
-          <Link href={itemHref(sites, lang, row.shop_slug, row.item_id)} className="font-medium hover:underline">
+          <a href={itemHref(sites, lang, row.shop_slug, row.item_id)} className="font-medium hover:underline">
             {row.item_name}
-          </Link>
+          </a>
           {translated && <p className="text-sm text-muted">{translated}</p>}
         </div>
         <span className="whitespace-nowrap font-medium">{formatPrice(row.price, lang, row.currency)}</span>
       </div>
       <div className="text-sm text-muted">
-        <Link href={shopHref(sites, lang, row.shop_slug, row.shop_country)} className="hover:underline">
+        <a href={shopHref(sites, lang, row.shop_slug, row.shop_country)} className="hover:underline">
           {row.shop_name}
-        </Link>
+        </a>
         {[row.shop_address, row.shop_city].filter(Boolean).map((part) => ` · ${part}`)}
       </div>
       <div className="flex flex-wrap gap-x-3 text-sm">

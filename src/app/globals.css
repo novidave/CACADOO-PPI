@@ -28,6 +28,65 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 }
 
+/*
+ * The chat search's thinking dots (Prompt 10): Cacadoo yellow #FFC531, a colour exception next to
+ * the logo and the status dots (PRD section 9). Soft pulsing in CSS only; static with reduced motion.
+ */
+.ppi-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ppi-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #ffc531;
+  animation: ppi-dot 1.2s ease-in-out infinite;
+}
+.ppi-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.ppi-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes ppi-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+/* Placeholders of the result cards while the search runs (light grey, no colour). */
+.ppi-skeleton {
+  display: block;
+  border-radius: 4px;
+  background: var(--line);
+  animation: ppi-skeleton 1.4s ease-in-out infinite;
+}
+@keyframes ppi-skeleton {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-dots span,
+  .ppi-skeleton {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Map pins: black dot for shops, hollow ring for the visitor. No colour. */
 .ppi-pin {
   width: 16px;
