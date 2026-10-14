@@ -185,7 +185,7 @@ export function Holidays({
                 <li key={s.date} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2" data-special={s.date}>
                   {/* The whole line ticks the box (its text is the box's name for screen readers). */}
                   <label className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
-                    <input type="checkbox" name="dates" value={s.date} form="special-bulk" className="h-4 w-4" data-special-tick={s.date} />
+                    <input type="checkbox" name="dates" value={s.date} form="special-bulk" className="h-4 w-4 accent-foreground" data-special-tick={s.date} />
                     <span className="capitalize">{dateText(s.date)}</span>
                     <span className="font-semibold">{specialText(s)}</span>
                     {s.note && <span className="text-muted">{s.note}</span>}

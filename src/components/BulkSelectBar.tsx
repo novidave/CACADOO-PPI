@@ -44,6 +44,7 @@ export function BulkSelectBar({
           type="checkbox"
           checked={total > 0 && count === total}
           disabled={total === 0}
+          className="h-4 w-4 accent-foreground"
           onChange={(event) => {
             const on = event.currentTarget.checked;
             for (const box of boxesOf(formId)) box.checked = on;

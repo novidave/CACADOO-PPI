@@ -789,7 +789,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
     as 800 / 1600 px WebP on white (`createImageBitmap`, orientation from the picture); `sendPages()` is shared with
     PDFs; `PageSections` shows "Stiahnuť PDF" only for `source = 'pdf'`; the owner's row says "obrázky".
 - **No database change (2026-10-14):** "Vaše mimoriadne dni" (`Holidays.tsx`) — every line is a `<label>` with a tick
-  (`name="dates"`, `form="special-bulk"`: an empty hidden form outside the list, so each day's own "Vymazať" form
+  (`name="dates"`, `form="special-bulk"`, black `accent-foreground`: an empty hidden form outside the list, so each day's own "Vymazať" form
   stays as it is); `components/BulkSelectBar` (client: "Vybrať všetko" with its half state, "Vymazať vybrané (n)" off
   at 0, `window.confirm` first) sends that form to `deleteSpecialDays` (unique valid dates, ≤ 400, ten
   `owner_delete_special_hours` calls at a time — the same owner check per day; `?ok=special_deleted_many`, nothing
