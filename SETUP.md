@@ -1038,6 +1038,23 @@ No new secret, no function to update. Do the steps in order.
 
 ---
 
+## Part Z — Delete several special days at once; "Vybrať súbor" in page sections (14 October 2026)
+
+- Môj obchod → **Sviatky a mimoriadne zatvorenie** → **Vaše mimoriadne dni**: every day has a tick (a click anywhere
+  on its line ticks it), **Vybrať všetko** above the list and **Vymazať vybrané (n)**, which asks once before deleting.
+  Each day's own "Upraviť" / "Vymazať" stay.
+- **Sekcie stránky** → Pridať sekciu / Nahradiť súbory: the file is chosen with a blue, underlined **Vybrať súbor**
+  link (no more "Choose file / No file chosen" box); the chosen file names appear next to it.
+
+No database change, no new secret, no function to update.
+
+1. **Merge the pull request** on GitHub → Vercel deploys.
+2. **Test:**
+   - Vaše mimoriadne dni → tick two days → **Vymazať vybrané (2)** → OK → "Vybrané mimoriadne dni sú vymazané."
+   - Sekcie stránky → Pridať sekciu → **Vybrať súbor** → pick a PDF → its name appears → Pridať a nahrať PDF.
+
+---
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1077,3 +1094,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 21. Page sections for free shops: limits per plan set by the admin (free 1 / 5 pages / 10 MB, Pro 10 / 20 / 10 MB), "Pre viac sekcií prejdite na Pro", after the opening hours on free pages, Pro → free shows the first one | ✅ built — set up Part W |
 | 22. Own domain header: small clickable logo ("Logo v hlavičke webu") + SK · HU · EN; section position "Za otváracími hodinami"; page sections from pictures (JPG, PNG, WebP) | ✅ built — set up Part X |
 | 23. "Odkaz loga": the own domain's header logo can lead to another address (e.g. the shop's main website) | ✅ built — set up Part Y |
+| 24. Ticks on "Vaše mimoriadne dni" (delete several at once); blue "Vybrať súbor" link in page sections | ✅ built — set up Part Z |

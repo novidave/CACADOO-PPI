@@ -323,7 +323,8 @@
     "delete_summary": "Natrvalo odstráni obchod z PPI",
     "error_booking": "Zadajte webovú adresu vašej rezervačnej stránky, napr. https://reservio.com/vasobchod.",
     "error_special_dates": "Skontrolujte dátumy: od dneška najviac rok dopredu, rozsah najviac 62 dní.",
-    "error_special_ranges": "Zadajte čas od – do (napr. 8:00 – 12:00) alebo zvoľte Zatvorené celý deň."
+    "error_special_ranges": "Zadajte čas od – do (napr. 8:00 – 12:00) alebo zvoľte Zatvorené celý deň.",
+    "error_special_none": "Vyberte aspoň jeden deň."
   },
   "plan": {
     "title": "Plán",
@@ -1087,7 +1088,11 @@
     "unavailable": "Táto časť bude dostupná po aktualizácii databázy 27.",
     "saved": "Uložené.",
     "special_saved": "Mimoriadny deň uložený.",
-    "special_deleted": "Mimoriadny deň vymazaný."
+    "special_deleted": "Mimoriadny deň vymazaný.",
+    "select_all": "Vybrať všetko",
+    "delete_selected": "Vymazať vybrané ({n})",
+    "delete_selected_confirm": "Vymazať vybrané mimoriadne dni ({n})?",
+    "special_deleted_many": "Vybrané mimoriadne dni sú vymazané."
   },
   "sections": {
     "title": "Sekcie stránky (PDF)",
@@ -1225,6 +1230,8 @@
     "ok_site_logo_link": "Odkaz loga uložený.",
     "ok_site_logo_link_removed": "Logo opäť vedie na úvodnú stránku.",
     "error_site_logo_link": "Odkaz nie je platný. Zadajte celú adresu webu, ktorá začína https://.",
-    "error_site_logo_no_plan": "Len s predplatným Pro alebo s vlastnou doménou."
+    "error_site_logo_no_plan": "Len s predplatným Pro alebo s vlastnou doménou.",
+    "choose_file": "Vybrať súbor",
+    "error_no_file": "Najprv vyberte PDF alebo obrázky."
   }
 }

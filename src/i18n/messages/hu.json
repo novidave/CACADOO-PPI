@@ -323,7 +323,8 @@
     "delete_summary": "Véglegesen törli az üzletet a PPI-ből",
     "error_booking": "Adja meg a foglalási oldal webcímét, pl. https://reservio.com/azonuzlete.",
     "error_special_dates": "Ellenőrizze a dátumokat: mától legfeljebb egy évre előre, legfeljebb 62 nap.",
-    "error_special_ranges": "Adja meg az időt ettől – eddig (pl. 8:00 – 12:00), vagy válassza az Egész nap zárva lehetőséget."
+    "error_special_ranges": "Adja meg az időt ettől – eddig (pl. 8:00 – 12:00), vagy válassza az Egész nap zárva lehetőséget.",
+    "error_special_none": "Jelöljön ki legalább egy napot."
   },
   "plan": {
     "title": "Csomag",
@@ -1087,7 +1088,11 @@
     "unavailable": "Ez a rész a 27. adatbázis-frissítés után lesz elérhető.",
     "saved": "Mentve.",
     "special_saved": "Rendkívüli nap mentve.",
-    "special_deleted": "Rendkívüli nap törölve."
+    "special_deleted": "Rendkívüli nap törölve.",
+    "select_all": "Összes kijelölése",
+    "delete_selected": "Kijelöltek törlése ({n})",
+    "delete_selected_confirm": "Törli a kijelölt különleges napokat ({n})?",
+    "special_deleted_many": "A kijelölt különleges napok törölve."
   },
   "sections": {
     "title": "Oldalszakaszok (PDF)",
@@ -1225,6 +1230,8 @@
     "ok_site_logo_link": "Logóhivatkozás mentve.",
     "ok_site_logo_link_removed": "A logó ismét a kezdőlapra vezet.",
     "error_site_logo_link": "A hivatkozás nem érvényes. Adja meg a weboldal teljes, https:// kezdetű címét.",
-    "error_site_logo_no_plan": "Csak Pro előfizetéssel vagy saját domainnel."
+    "error_site_logo_no_plan": "Csak Pro előfizetéssel vagy saját domainnel.",
+    "choose_file": "Fájl kiválasztása",
+    "error_no_file": "Előbb válasszon PDF-et vagy képeket."
   }
 }

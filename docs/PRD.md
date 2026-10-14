@@ -33,6 +33,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Page sections for free shops too: the same upload and display options; limits per plan set by the admin (default free 1 section, 5 pages, 10 MB; Pro 10, 20, 10 MB); "Pre viac sekcií prejdite na Pro" at the limit; on a free page after the opening hours; Pro → free keeps every section, shows the first one | Built and tested; live after database update 30, the updated page-sections function and the merge (SETUP.md part W) |
 | Own domain header as before update 28: a small clickable logo ("Logo v hlavičke webu" replaces the header picture) and SK · HU · EN; the section position "Za otváracími hodinami"; sections made of pictures (JPG, PNG, WebP; one picture = one page) | Built and tested; live after database update 31, the updated page-sections function and the merge (SETUP.md part X) |
 | "Odkaz loga": where a click on the own domain's header logo leads (e.g. the shop's main website; empty = the home page) | Built and tested; live after database update 32 and the merge (SETUP.md part Y) |
+| Ticks on "Vaše mimoriadne dni" (delete several at once, "Vybrať všetko"); a blue "Vybrať súbor" link instead of the browser's file box in page sections | Built and tested; live after the merge, no database change (SETUP.md part Z) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -97,6 +98,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - Location services: the website never asks for the visitor's location and never guesses it from the IP address
   (decided 2026-10-06). Search is by text.
 - Colours: plain black and white design; only exceptions are the Cacadoo PPI logo and the blue "Select picture" link
+  (and, since 2026-10-14, the same blue "Vybrať súbor" link of page sections)
 - An admin area for shops and stock on the website (removed 2026-10-06; the one operator page since update 25 is
   "Predplatné a domény" for own domains)
 - Software or tunnels on the shop PC (a Cloudflare tunnel + rclone design was built on 2026-10-04 and replaced by the
@@ -294,7 +296,10 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   by default; "Zapnuté: na štátne sviatky sa pri obchode zobrazí sviatok alebo zatvorené podľa zákona. Vypnuté: platia
   vaše bežné otváracie hodiny aj počas sviatkov (napr. lekáreň, čerpacia stanica, obchod, ktorý má otvorené vždy).");
   add a date or a date range (≤ 62 days) as "Zatvorené celý deň" or other hours (a break allowed) with an optional
-  note (≤ 100, plain text), change and delete (past dates disappear after 7 days); the country's public holidays of
+  note (≤ 100, plain text), change and delete (past dates disappear after 7 days); **ticks** on "Vaše mimoriadne dni"
+  for deleting several at once: a click anywhere on a day's line ticks it, "Vybrať všetko", "Vymazať vybrané (n)"
+  (off until a day is ticked; asks "Vymazať vybrané mimoriadne dni (n)?" first; "Vybrané mimoriadne dni sú vymazané.";
+  nothing ticked → "Vyberte aspoň jeden deň."); the country's public holidays of
   the next 60 days (hidden when the switch is off) with one button each: "Otvorené ako zvyčajne" (that weekday's
   regular hours), "Zatvorené", "Iné hodiny" (the form with that date).
 - **Logo v hlavičke webu** (Pro or a domain of its own; update 31, replaces "Obrázok v hlavičke webu"): the small
@@ -746,6 +751,9 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
 A shop puts its own PDFs on its page: news, a leaflet, a menu, "About us" (Pro only until update 30; now free shops
 too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 
+- The file is chosen with a blue, underlined **"Vybrať súbor"** link (as the shop logo's "Vybrať obrázok"; the
+  browser's own "Choose file / No file chosen" box is hidden); the chosen files' names appear next to it, and sending
+  without one says "Najprv vyberte PDF alebo obrázky." (the same in "Nahradiť súbory").
 - **Pictures are fine too** (update 31): instead of one PDF the owner may choose pictures (JPG, PNG, WebP; several at
   once, not mixed with a PDF). Each picture becomes one page, in the order of the file names; the plan's pages are the
   number of pictures, its MB apply to each picture. The browser draws every picture as the page pictures (800 and
@@ -924,7 +932,8 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
 ## 9. Design
 
 - Plain white background, black text, thin light-grey lines; mobile-first. No colours, no dark mode, no cart icons.
-  Exceptions at the owner's request: the Cacadoo PPI logo in the header and the blue "Select picture" link for logos.
+  Exceptions at the owner's request: the Cacadoo PPI logo in the header, the blue "Select picture" link for logos and
+  the same blue "Vybrať súbor" link of page sections.
 - Availability always written out as text, in bold, always next to its freshness.
 - Translated names in grey under the shop's own name; the AI answer in a plain bordered box above the results.
 - Map: OpenFreeMap "positron" (free, no key), black dot pins; never required for the page to work.
@@ -1070,3 +1079,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-13 | Page sections: "Zobrazenie strán" (slider or one under another), full-screen viewer; page sections for free shops too (limits per plan set by the admin, "Pre viac sekcií prejdite na Pro", after the opening hours on a free page, Pro → free shows the first one) |
 | 2026-10-14 | Own domain header back to a small clickable logo ("Logo v hlavičke webu" replaces the header picture) with SK · HU · EN; the section position "Za otváracími hodinami"; page sections made of pictures (JPG, PNG, WebP) |
 | 2026-10-14 | "Odkaz loga": the own domain's header logo can lead to another address (e.g. the shop's main website) instead of the home page |
+| 2026-10-14 | Ticks on "Vaše mimoriadne dni" to delete several days at once ("Vybrať všetko", "Vymazať vybrané"); page sections choose their file with a blue "Vybrať súbor" link |

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { functionFailure } from "@/lib/functionError";
 import { createClient } from "@/lib/supabase/client";
@@ -167,6 +167,9 @@ export function SectionUploader({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  /** The chosen files' names, shown next to "Vybrať súbor" (the browser's own file box is hidden). */
+  const [names, setNames] = useState<string[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -176,6 +179,10 @@ export function SectionUploader({
     const checked = checkFiles(files, limits);
     setProblem(null);
     setStatus(null);
+    if (!files.some((f) => f.size > 0)) {
+      setProblem(labels.error_no_file);
+      return;
+    }
     if ("error" in checked) {
       setProblem((labels as Record<string, string>)[`error_${checked.error}`]);
       return;
@@ -220,6 +227,7 @@ export function SectionUploader({
       }
       setStatus(removed ? `${labels.done} ${labels.removed}` : labels.done);
       form.reset();
+      setNames([]);
       router.refresh();
     } catch (e) {
       if (created) {
@@ -308,17 +316,41 @@ export function SectionUploader({
           </div>
         </>
       )}
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{labels.file}</span>
+      <div className="flex flex-col gap-1">
+        <span className="text-sm" id={`${mode}-file-label`}>
+          {labels.file}
+        </span>
         <input
+          ref={fileInput}
           type="file"
           name="pdf"
           accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
           multiple
-          required
-          className="text-sm"
+          onChange={(event) => setNames(Array.from(event.currentTarget.files ?? []).map((f) => f.name))}
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden="true"
         />
-      </label>
+        {/* Blue and underlined like the shop logo's "Vybrať obrázok", as the owner asked; no "No file chosen". */}
+        <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => fileInput.current?.click()}
+            aria-labelledby={`${mode}-file-label ${mode}-file-choose`}
+            id={`${mode}-file-choose`}
+            className="self-start text-blue-700 underline underline-offset-4 hover:text-blue-900 disabled:text-muted disabled:no-underline"
+            data-choose-file
+          >
+            {labels.choose_file}
+          </button>
+          {names.length > 0 && (
+            <span className="min-w-0 break-all text-sm text-muted" aria-live="polite" data-chosen-files>
+              {names.join(", ")}
+            </span>
+          )}
+        </span>
+      </div>
       <p className="text-sm text-muted" data-format-hint>
         {labels.format_hint}
       </p>
