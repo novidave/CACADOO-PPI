@@ -44,7 +44,7 @@ const item = {
     freshness,
     distance_km: { type: ["number", "null"] },
     shop: { type: "object", properties: { slug: { type: "string" }, name: { type: "string" }, address: { type: ["string", "null"] }, city: { type: ["string", "null"] }, country: { type: ["string", "null"] }, timezone: { type: ["string", "null"] }, lat: { type: ["number", "null"] }, lng: { type: ["number", "null"] }, source_url: { type: "string", format: "uri" }, status } },
-    source_url: { type: "string", format: "uri", description: "PPI page to cite." },
+    source_url: { type: "string", format: "uri", description: "The page to cite: on the shop's own domain when it has one, else on PPI." },
   },
 };
 

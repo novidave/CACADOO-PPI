@@ -1019,12 +1019,15 @@ Deno.test("Pro ended: the website goes back; a bought domain stays the shop's (a
 // ---------------------------------------------------------------- Google Search Console (update 33)
 
 const TOKEN = "AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789-abcd";
+const VALUE = `google-site-verification=${TOKEN}`;
 
-Deno.test("Search Console: the pasted TXT value or its token, nothing else", () => {
+Deno.test("Search Console: only the pasted TXT value \"google-site-verification=…\" is accepted", () => {
   eq(googleVerification(`google-site-verification=${TOKEN}`), `google-site-verification=${TOKEN}`, "the whole value");
   eq(googleVerification(`  "google-site-verification=${TOKEN}"  `), `google-site-verification=${TOKEN}`, "with quotes");
   eq(googleVerification(`\u201egoogle-site-verification = ${TOKEN}\u201c`), `google-site-verification=${TOKEN}`, "Slovak quotes, spaces");
-  eq(googleVerification(TOKEN), `google-site-verification=${TOKEN}`, "only the token");
+  eq(googleVerification(TOKEN), null, "the token alone is not the TXT value");
+  eq(googleVerification(`google-site-verification:${TOKEN}`), null, "another separator");
+  eq(googleVerification(`msvalidate.01=${"A".repeat(32)}`), null, "Bing's code");
   eq(googleVerification("google-site-verification=short"), null, "too short");
   eq(googleVerification(`<meta name="google-site-verification" content="${TOKEN}" />`), null, "an HTML tag is not the TXT value");
   eq(googleVerification("v=spf1 include:spf.websupport.sk ~all"), null, "another TXT record");
@@ -1052,12 +1055,13 @@ Deno.test("Search Console: a bought domain gets the TXT record added; MX, SPF, D
   const after = reg.state.records.get("svc-davide.sk")!;
   for (const r of before) assert(after.some((x) => x.id === r.id && x.content === r.content), `${r.type} ${r.name} untouched`);
   eq([o.google_verification, o.google_verification_state], [`google-site-verification=${TOKEN}`, "added"], "remembered");
+  eq(o.google_txt_record_id, after.find((r) => r.content === VALUE)!.id, "the id of the record we added");
   assert((o.log as { step: string }[]).some((l) => l.step === "google"), "logged");
 
   // the same value again (Websupport may keep it in quotes): never a second record
   reg.state.records.set("svc-davide.sk", after.map((r) => (r.content.startsWith("google") ? { ...r, content: `"${r.content}"` } : r)));
   w.now += 60_000;
-  const [, again] = await post(deps, { action: "google_verify", order_id: o.id, value: TOKEN });
+  const [, again] = await post(deps, { action: "google_verify", order_id: o.id, value: VALUE });
   eq(again.state, "added", "still added");
   eq(reg.calls.filter((c) => c.startsWith("add ")).length, 1, "not added twice");
 
@@ -1073,25 +1077,103 @@ Deno.test("Search Console: a bought domain gets the TXT record added; MX, SPF, D
 Deno.test("Search Console: an own domain elsewhere gets the record to add by hand; only owners, only live, not too often", async () => {
   const { w, deps, reg } = setup();
   const o = newOrder(w, { kind: "connected", hostname: "eshop.mojobchod.sk", site_host: "eshop.mojobchod.sk", status: "live", price_cents: null, renewal_cents: null, vat_included: null });
-  const [, body] = await post(deps, { action: "google_verify", order_id: o.id, value: TOKEN });
+  const [, body] = await post(deps, { action: "google_verify", order_id: o.id, value: VALUE });
   eq([body.state, body.host], ["manual", "eshop.mojobchod.sk"], "to add by hand");
   eq(body.record, { type: "TXT", name: "eshop", value: `google-site-verification=${TOKEN}` }, "the record to add");
   eq(reg.calls.filter((c) => c.startsWith("add ")), [], "no DNS change of a domain we do not run");
   eq(o.google_verification_state, "manual", "remembered");
 
-  const [soon] = await post(deps, { action: "google_verify", order_id: o.id, value: TOKEN });
+  const [soon] = await post(deps, { action: "google_verify", order_id: o.id, value: VALUE });
   eq(soon, 429, "not again within 10 seconds");
   w.now += 60_000;
   const [, bad] = await post(deps, { action: "google_verify", order_id: o.id, value: "<meta name=x>" });
   eq(bad.state, "invalid", "a wrong value");
   eq(o.google_verification, `google-site-verification=${TOKEN}`, "a wrong value keeps the old one");
-  const [stranger] = await post(deps, { action: "google_verify", order_id: o.id, value: TOKEN }, "Bearer stranger");
+  const [stranger] = await post(deps, { action: "google_verify", order_id: o.id, value: VALUE }, "Bearer stranger");
   eq(stranger, 404, "another shop's owner");
-  const [nobody] = await post(deps, { action: "google_verify", order_id: o.id, value: TOKEN }, "");
+  const [nobody] = await post(deps, { action: "google_verify", order_id: o.id, value: VALUE }, "");
   eq(nobody, 401, "no login");
   o.status = "waiting_dns";
-  const [notLive] = await post(deps, { action: "google_verify", order_id: o.id, value: TOKEN });
+  const [notLive] = await post(deps, { action: "google_verify", order_id: o.id, value: VALUE });
   eq(notLive, 409, "only a live domain");
+});
+
+Deno.test("Search Console: the same value already in the DNS is not added, and Odstrániť never removes it", async () => {
+  const { w, deps, reg } = setup();
+  const o = newOrder(w, { status: "live", site_host: "davide.sk", registrar_service_id: "svc-davide.sk" });
+  const before: DnsRecord[] = [
+    { id: "m1", type: "MX", name: "@", content: "mail.websupport.sk" },
+    { id: "t1", type: "TXT", name: "@", content: "v=spf1 include:spf.websupport.sk ~all" },
+    { id: "t2", type: "TXT", name: "_dmarc", content: "v=DMARC1; p=none" },
+    { id: "g9", type: "TXT", name: "davide.sk.", content: `"${VALUE}"` },
+  ];
+  reg.state.records.set("svc-davide.sk", [...before]);
+  const [, body] = await post(deps, { action: "google_verify", order_id: o.id, value: VALUE });
+  eq(body.state, "present", "already in the DNS");
+  eq(reg.calls.filter((c) => c.startsWith("add ") || c.startsWith("delete ")), [], "nothing added, nothing removed");
+  eq([o.google_verification_state, o.google_txt_record_id], ["present", null], "not ours");
+
+  w.now += 60_000;
+  const [status, removed] = await post(deps, { action: "google_remove", order_id: o.id });
+  eq([status, removed], [200, { state: "removed", dns: false }], "forgotten, the DNS not changed");
+  eq(reg.calls.filter((c) => c.startsWith("delete ")), [], "the record that was there stays");
+  eq(reg.state.records.get("svc-davide.sk"), before, "every record as it was");
+  eq([o.google_verification, o.google_verification_state, o.google_txt_record_id], [null, null, null], "the stored value gone");
+});
+
+Deno.test("Search Console: Odstrániť removes only the record Cacadoo added; a new value replaces only ours", async () => {
+  const { w, deps, reg } = setup();
+  const o = newOrder(w, { status: "live", site_host: "davide.sk", registrar_service_id: "svc-davide.sk" });
+  const other = `google-site-verification=${"Q".repeat(43)}`;
+  const before: DnsRecord[] = [
+    { id: "a1", type: "A", name: "@", content: "76.76.21.21" },
+    { id: "m1", type: "MX", name: "@", content: "mail.websupport.sk" },
+    { id: "t1", type: "TXT", name: "@", content: "v=spf1 include:spf.websupport.sk ~all" },
+    { id: "t2", type: "TXT", name: "_dmarc", content: "v=DMARC1; p=none" },
+    { id: "t3", type: "TXT", name: "default._domainkey", content: "v=DKIM1; k=rsa; p=MIGf" },
+    { id: "g1", type: "TXT", name: "@", content: other },
+    { id: "g2", type: "TXT", name: "shop", content: VALUE },
+  ];
+  reg.state.records.set("svc-davide.sk", [...before]);
+  await post(deps, { action: "google_verify", order_id: o.id, value: VALUE });
+  const ours = o.google_txt_record_id as string;
+  assert(ours && !before.some((r) => r.id === ours), "a new record of ours (the same value under another name is not the domain's)");
+
+  // a new value: the new record first, then only our earlier one goes
+  w.now += 60_000;
+  const second = `google-site-verification=${"R".repeat(43)}`;
+  const [, replaced] = await post(deps, { action: "google_verify", order_id: o.id, value: second });
+  eq(replaced.state, "added", "added");
+  eq(reg.calls.filter((c) => c.startsWith("add ") || c.startsWith("delete ")), [`add TXT @ ${VALUE}`, `add TXT @ ${second}`, `delete ${ours}`], "new first, then only ours");
+  const secondId = o.google_txt_record_id as string;
+  assert(secondId && secondId !== ours, "the new record's id");
+
+  // Odstrániť: only our record; SPF, MX, DMARC, DKIM, the A record and the other Google value stay
+  w.now += 60_000;
+  const [status, removed] = await post(deps, { action: "google_remove", order_id: o.id });
+  eq([status, removed], [200, { state: "removed", dns: true }], "removed");
+  eq(reg.calls.filter((c) => c.startsWith("delete ")), [`delete ${ours}`, `delete ${secondId}`], "only our records were ever removed");
+  eq(reg.state.records.get("svc-davide.sk"), before, "every other record exactly as it was");
+  eq([o.google_verification, o.google_verification_state, o.google_txt_record_id], [null, null, null], "forgotten");
+  assert((o.log as { step: string; detail: string }[]).some((l) => l.step === "google" && /removed from DNS/.test(l.detail)), "logged");
+
+  // our record changed by someone in the DNS → no longer ours: never removed
+  w.now += 60_000;
+  await post(deps, { action: "google_verify", order_id: o.id, value: VALUE });
+  const third = o.google_txt_record_id as string;
+  reg.state.records.set("svc-davide.sk", reg.state.records.get("svc-davide.sk")!.map((r) => (r.id === third ? { ...r, content: other } : r)));
+  w.now += 60_000;
+  const deletes = reg.calls.filter((c) => c.startsWith("delete ")).length;
+  const [, changed] = await post(deps, { action: "google_remove", order_id: o.id });
+  eq(changed.dns, false, "a record that is no longer our value is left alone");
+  eq(reg.calls.filter((c) => c.startsWith("delete ")).length, deletes, "nothing removed");
+
+  // only the shop's owner
+  w.now += 60_000;
+  await post(deps, { action: "google_verify", order_id: o.id, value: VALUE });
+  eq((await post(deps, { action: "google_remove", order_id: o.id }, "Bearer stranger"))[0], 404, "another shop's owner");
+  eq((await post(deps, { action: "google_remove", order_id: o.id }, ""))[0], 401, "no login");
+  assert(o.google_verification, "still there");
 });
 
 Deno.test("Callers: cron secret, owners only for their shop, admin actions only for the admin", async () => {

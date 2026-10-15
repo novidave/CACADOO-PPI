@@ -53,7 +53,11 @@ function alternates(shop: PublicShop, lang: Locale, host: string | null) {
   const defaultLang = siteLang(shop.country);
   return {
     canonical: siteShopUrl(host, lang, defaultLang),
-    languages: Object.fromEntries(locales.map((l) => [l, siteShopUrl(host, l, defaultLang)])),
+    languages: {
+      ...Object.fromEntries(locales.map((l) => [l, siteShopUrl(host, l, defaultLang)])),
+      // The domain's own language for everyone else.
+      "x-default": siteShopUrl(host, defaultLang, defaultLang),
+    },
   };
 }
 

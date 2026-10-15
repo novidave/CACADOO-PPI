@@ -229,6 +229,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
 | `/api/owner/files/[kind]/[id]` | "Open" for the owner's own PDF or picture: login required → `doc-ingest` `open_file` (RLS: the owner's shop only) → 302 to a 10-minute signed address |
 | `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/manifest.webmanifest` | discovery files, app manifest |
 | `/api/site/[slug]/sitemap`, `…/robots`, `…/llms`, `…/indexnow/[key]` | a shop's own domain: its `sitemap.xml`, `robots.txt`, `llms.txt` and IndexNow key file (`src/proxy.ts` rewrites them; update 33 for the last two) |
+| `/api/indexnow/[key]` | the IndexNow key file of PPI's own host (`/<key>.txt` rewritten here by `src/proxy.ts`; update 36: `INDEXNOW_KEY`) |
 
 - **Languages:** `src/proxy.ts` sends addresses without a language to `/sk`, `/hu` or `/en` (saved choice → browser
   language → English), remembers the choice in a cookie and refreshes the Supabase session cookie. Texts in
@@ -869,7 +870,8 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `*.vercel.app`, `PPI_MAIN_HOSTS`) is looked up with `shop_for_host` (kept 60 s, unknown 20 s): `/` →
   rewrite to `/site/{lang}/{slug}` (`src/app/site/[lang]/[slug]`: its own root layout without the Cacadoo header — the shop's small header logo as a link home and `SiteLanguageSwitch` (update 31); the shop's name and logo on the page), `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml`, `/robots.txt`, `/llms.txt` and `/<IndexNow key>.txt`
   (update 33) → `/api/site/{slug}/sitemap|robots|llms|indexnow/<key>` (the matcher lists `/llms.txt` and
-  `/:file([A-Za-z0-9-]{8,128}\.txt)`; on PPI's own host those pass through), `www` → 308 bare, the shop's Cacadoo path → 308 to `/`, anything else → 307 to PPI's address,
+  `/:file([A-Za-z0-9-]{8,128}\.txt)`; on PPI's own host the first three pass through and `/<key>.txt` → `/api/indexnow/<key>`
+  since update 36), `www` → 308 bare, the shop's Cacadoo path → 308 to `/`, anything else → 307 to PPI's address,
   unknown → 404 page. On PPI's own host `/site/…` (and the old `/{lang}/site/…`) → 308 to the Cacadoo page. `ShopView` / `ItemView` render both
   (`onSite`: canonical and links on the own domain); the Cacadoo pages put `rel=canonical` on the own domain
   (`shopSiteHost` → `shop_site`); `sitemap.ts` leaves those shops out; `robots.ts` disallows `/site/`, `/*/site/` and
@@ -1023,6 +1025,57 @@ the service role (owners may read their own shop's `subscriptions` row and impor
     `lib/customDomain` `loadLiveSites()` (`live_shop_sites()`), `shopHref()`, `itemHref()`; `getLiveSites()` (cached
     per request) in `lib/data`; used by the main search (rows and map pins), `aiSearch` `toCards` (public client) and
     the item page's other offers. Tests: `npm run test:site` (`src/lib/findable_test.ts`).
+
+- **Update 36** (`supabase/sql/36_domain_findability.sql`, Prompt 12): **own domains fully findable.**
+  - *Search Console, only our record:* `domain_orders.google_txt_record_id` (check `^[A-Za-z0-9_-]{1,64}$`; only with
+    state `added`), state `present` (constraint `domain_orders_google_state`: value ⇔ state). The domains function's
+    `google_verify` now accepts only `google-site-verification=<token>` (the token alone is refused); on a zone we run
+    (`registrar_service_id`) it reads the records (`googleRecords()`: TXT at `@` starting with the prefix): the same
+    value ours already → nothing; the same value not ours → `present`, nothing added (and our earlier record, if any,
+    removed); else `addRecord`, then reads the zone again to find the new record's id (`RECORD_ID`), then — only then
+    — deletes our earlier record (`ownRecord()`: the stored id **and** still the stored value). New owner action
+    **`google_remove`**: `ownRecord()` → `deleteRecord` of that one id; `present` / `manual` / a record someone
+    changed → DNS untouched; the stored columns cleared; log step `google`. Website: `removeGoogle` →
+    `?ok=google_removed_dns|google_removed`.
+  - *Meta tags:* table `domain_site_verifications` (order_id pk, shop_id, `google_meta` `^[A-Za-z0-9_-]{20,100}$`,
+    `bing_meta` `^[A-Fa-f0-9]{16,64}$`; RLS: members select; no other grant) written only by
+    `owner_set_site_verification(order, 'google'|'bing', value)` (member → else 42501; live → else `state`; the
+    value through `clean_site_verification()`: the whole `<meta name="google-site-verification"|"msvalidate.01" …>`
+    of that kind, `content=…` or the value; Bing upper-cased; wrong → `value` 22023; empty removes).
+    `site_verification_meta(slug)` (anon) → `{host, google, bing}` only for a live domain with the plan. Website:
+    `saveVerificationMeta` (`?ok=meta_<kind>_saved|removed`, `?err=meta_<kind>_invalid`, `#verify-google|bing`),
+    `loadFindable()` reads the row (none before 36); the own domain's root layout
+    (`src/app/site/[lang]/[slug]/layout.tsx`) `generateMetadata` → Next's `verification` (`google`, `other:
+    {"msvalidate.01"}`) from `verificationMetadata(meta, host)` in `lib/siteFiles` — only when the request's Host is
+    that domain, only values of their format. `FindableSection`: a zone we run → the TXT flow + "Odstrániť"; a connected
+    domain → a) "HTML značka (odporúčané)" (`MetaTagForm kind="google"`, property "Predpona webovej adresy") and b)
+    "Záznam TXT" (`RecordTable`: "Kopírovať" for the name and the value); "Overiť v Bing Webmaster Tools" (import note
+    + `MetaTagForm kind="bing"`) for every live domain; sitemap steps for Google and Bing.
+  - *IndexNow per host:* key **`INDEXNOW_KEY`** (website: `lib/indexnow` `indexNowKey()` / `keyFileResponse()`, routes
+    `api/indexnow/[key]` (main host) and `api/site/[slug]/indexnow/[key]` (live own domain); stock-pull reads the same
+    secret) — `domain_settings.indexnow_key` / `indexnow_key()` / `indexnow_claim()` / `indexnow_sent()` of update 33
+    are no longer used. `inventory.indexnow_at` (trigger `track_inventory_change`, redefined: `now()` on insert, price
+    or currency change, or `(quantity > 0)` flipping; otherwise kept — a sale 12 → 11 is not news). Tables
+    `indexnow_hosts` (host pk, cursor `sent_upto` + `sent_upto_id`, `last_ping_at`, last status/result/urls) and
+    `indexnow_pings` (log, last 100 per host); RLS on, service role only. `indexnow_claim_host(shop, main_host,
+    max_items 3333)`: the shop's live own domain (plan) → kind `site` with the domain's language; else the main host
+    (`SITE_URL`'s host; invalid/none → null) → kind `main`, items of active shops **without** a live own domain; a host
+    seen first starts one hour back; `last_ping_at` within the hour → `{skip: 'hour'}`; nothing after the cursor (by
+    `(indexnow_at, item id)` — one upload's items share one time) → `{skip: 'nothing'}` (the hour is not used); else
+    `{host, kind, lang, items: [{id, slug}], upto, upto_id}` and `last_ping_at = now()`. `indexnow_done(host, kind,
+    upto, upto_id, urls, status, result)`: logs; only a 2xx moves the cursor forward (never back); `site` also updates
+    the order's `indexnow_at/urls/result` (the owner's line). stock-pull: `indexNowSettings(env)` (`INDEXNOW_KEY`,
+    `SITE_URL` https host), `pingIndexNow(db, shop, settings)` after `updated`, in the background: no key → nothing
+    (not even a claim); `indexNowUrls()` = each item in sk/hu/en (the own domain's language first), ≤ 10 000;
+    `indexNowPayload()` `{host, key, keyLocation, urlList}`; 15 s timeout; `console.log` host + count + answer, never
+    the key; errors never touch the upload.
+  - *llms.txt:* `shop_llms_facts()` + `stock_categories` (products' categories of the shop's items, top 15) and
+    `auto_holidays`; `siteLlmsTxt({…, slug, apiBase})` adds the holidays line, "Item categories on its item pages",
+    and "Machine access" (`<apiBase>/mcp` `get_shop` with the slug, `/api/v1/shops/<slug>`, OpenAPI).
+  - *Canonical links everywhere:* `lib/customDomain` `canonicalItemUrl()` / `canonicalShopUrl()`; `publicApi`
+    `liveSites()` (60 s cache) → every `source_url` (items, shops, search, MCP) on the live own domain; `app/llms.txt`
+    shop list via `mainLlmsShops()` (`lib/siteFiles`). `itemJsonLd`: the Offer whenever the item has a price (price,
+    currency, seller), `availability` only when not stale; `hreflang` + `x-default` on own-domain shop and item pages.
 
 ## 3. Main flows step by step
 
@@ -1339,6 +1392,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 33 | `supabase/sql/33_domain_findable.sql` | own domains easy to find: `domain_orders.google_verification*` and `indexnow_*` (+ checks), `domain_settings.indexnow_key` (+ check, made once) and `indexnow_key()`, `inventory.changed_at` / `shop_items.changed_at` with `track_inventory_change` / `track_item_change`, `indexnow_claim`, `indexnow_sent` (service role), `shops.product_categories` (+ `valid_categories` check, `guard_shop_categories`), `clean_categories`, `owner_set_categories`, `shop_llms_facts` (public). Needs 25; safe to run twice |
 | 34 | `supabase/sql/34_layered_search.sql` | the chat's search in layers: `search_layers` (switch + estimated prices per outside layer), `web_search_domains` (+ `valid_web_domain`, `valid_search_url`), `external_search_usage` (+ `external_search_claim`, `external_search_cost`), `town_geocodes`, `osm_shop_cache` (+ `osm_cache_put`), `external_throttle` (+ `external_slot`), `cacadoo_shops_near` (all service role only), `admin_search_settings`, `admin_save_search_layer`, `admin_save_web_domain`, `admin_delete_web_domain` (`is_admin()`). RLS on every table, no grant for visitors or owners. Safe to run twice |
 | 35 | `supabase/sql/35_partner_feeds.sql` | partner feeds: `partners`, `partner_stores`, `partner_products` (+ `search_blob`, trigram index), `partner_store_stock`, `partner_imports`; helpers `valid_feed_url`, `partner_schedule_interval`, `partner_data_fresh`; the function's steps `partner_start_due`, `partner_imports_waiting`, `partner_import_claim`, `partner_import_release`, `partner_import_downloaded`, `partner_import_unchanged`, `partner_import_rows`, `partner_import_finish`, `partner_import_fail`, `partner_retry_soon` (service role only); `search_partner_products`, `partner_layer_ready` (visitors); `admin_partner_settings`, `admin_save_partner`, `admin_set_partner_file`, `admin_set_partner_logo`, `admin_save_partner_stores`, `admin_queue_partner_import`, `admin_delete_partner` (`is_admin()`); buckets `partner-feeds` (private) and `partner-logos` (public); job `ppi-partner-feeds-tick`. RLS on every table. Safe to run twice |
+| 36 | `supabase/sql/36_domain_findability.sql` | own domains fully findable: `domain_orders.google_txt_record_id` (+ checks, state `present`), `domain_site_verifications` (RLS: members read) + `clean_site_verification`, `owner_set_site_verification`, `site_verification_meta` (anon); `inventory.indexnow_at` (+ `track_inventory_change` redefined, index), `indexnow_hosts`, `indexnow_pings` (RLS on, service role only), `indexnow_claim_host`, `indexnow_done` (service role); `shop_llms_facts` + `stock_categories`, `auto_holidays`. Needs 25 and 33; safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
 | 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
 | 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
@@ -1464,11 +1518,16 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   a gap of 3 hours, before/after/closed day, past midnight, day off (also without hours), shops closed incl. 24.12
   before and after 12:00, special hours with a break on a holiday, a special closed day, no hours, the switch off,
   the last Sundays of March and October, the coming-days list and the JSON-LD.
-- `npm run test:site` (Deno, `src/lib/findable_test.ts`, update 33): the own domain's robots.txt (AI crawlers, the
-  private paths in both groups, the sitemap, never the whole site), llms.txt (name, address, hours, a special day with
-  its note, categories, brands, the page's own stock words; missing data said, never invented; only the own domain),
-  the item JSON-LD (Product + Offer + Store on the own domain, no Offer when stale, PPI addresses without a domain),
-  where search results link, the Search Console record names.
+- `npm run test:site` (Deno, `src/lib/findable_test.ts`, updates 33 and 36): the own domain's robots.txt (AI crawlers,
+  the private paths in both groups, the sitemap, never the whole site), llms.txt (name, address, phone, e-mail, hours,
+  a special day with its note, whether holidays apply, categories, the stock's categories, brands, the page's own stock
+  words, Cacadoo's MCP/API with the slug; missing data said, never invented; page addresses only on the own domain;
+  nothing private), PPI's llms.txt shop list (own domain when live), the item JSON-LD (Product + Offer + Store on the
+  own domain; stale → the price without availability; sold out → OutOfStock; no price → no Offer; PPI addresses
+  without a domain), the Rich Results fields (Product snippet and Store) fresh and stale, the Store's e-mail, sameAs
+  and special days, API/MCP `source_url` (`canonicalItemUrl` / `canonicalShopUrl`), the Google and Bing meta tags (only
+  on the own domain, only their format), the IndexNow key file (`INDEXNOW_KEY`, only its own name), where search
+  results link, the Search Console record names.
 - `npm run test:chat` (Deno, `src/lib/chat_test.ts`, Prompt 10): the main page chat's protocol — the answer read word
   by word out of the streaming JSON (half escapes, `\u` escapes, fields in any order, only top-level fields), refs
   the AI may point to (unknown ones dropped, each once, ≤ 12), the earlier turns the browser sends (no system turns,
@@ -1710,7 +1769,25 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   shops nearby in the same turn; shops nearby before the partners refused by the server; 3 good partner results → no
   shops nearby, no web; no town → online only and "V ktorom meste hľadáte?"; a phone without sideways scroll; no partner
   → the tool not offered, no group; the public API and the plain search without partner rows; the privacy page), and the
-  phase A script again with no partner (95 checks, unchanged); those scripts are not part of the repository.
+  phase A script again with no partner (95 checks, unchanged); own domains fully findable (Prompt 12, update 36: 84
+  checks against the domains and stock-pull functions running locally with `INDEXNOW_KEY` and `SITE_URL`, the
+  Websupport/Vercel/IndexNow stand-ins — the IndexNow stand-in reads the key file from the site with the request's
+  Host header — and the website with `PPI_MAIN_HOSTS` for the main test host: robots.txt and llms.txt of the own domain
+  (holidays line, API/MCP with the slug, nothing private); the key file on the own domains, the main test host and
+  localhost, another name 404; the test bought domain in test mode: the token alone and an SPF record refused, one TXT
+  `@` added with A/CNAME/MX/SPF/DMARC unchanged, its id kept, the same value never twice, "Odstrániť" deletes exactly
+  that id (one POST + one DELETE at Websupport, the zone as before), a value someone else added → "nič sme nepridali"
+  and never removed; the Bing tag on its pages; the connected domain: "a) HTML značka (odporúčané)" with the URL
+  prefix, a Bing tag refused in the Google field, the Google tag in the `<head>` of its shop and item pages but not on
+  PPI's pages or another domain, "b) Záznam TXT" with two copy buttons and no DNS change, another owner and a visitor
+  cannot set or read a tag, "Odstrániť značku"; uploads: three changed items → one request (9 addresses) accepted, a
+  new price + a sale 2 → 1 → one request with only that item's three pages, logged `site 3 200`; a removed item within
+  the hour → no request, sent with the next ping an hour later; a free shop's price change → the main test host with
+  Cacadoo item pages only; "Naposledy oznámené …: 3 stránok."; Product + Offer (19,40 €, InStock; sold out →
+  OutOfStock) + Store JSON-LD, canonical and hreflang sk/hu/en/x-default on the own domain, PPI's item and shop pages
+  canonical there; Store with hours, e-mail, Facebook and a special day; stale → the Offer's price without
+  availability; the Rich Results fields fresh and stale; plain search, API search/shop and MCP `get_item` `source_url`
+  on the own domain, a free shop on PPI; PPI's llms.txt and sitemap); those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

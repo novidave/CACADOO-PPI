@@ -5082,4 +5082,297 @@ do $$ begin
 end $$;
 delete from public.partners;
 
+\echo '--- own domains fully findable: only our TXT record, Google and Bing meta tags, IndexNow per host (update 36)'
+-- a live own domain for shop A (owner ...0a), a bought one in test mode for the TXT record
+set role service_role;
+do $$
+declare v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.shop_has_plan(v_a), 'shop A has the plan';
+  insert into public.domain_orders (shop_id, kind, hostname, site_host, status, live_at)
+  values (v_a, 'connected', 'potraviny36.sk', 'potraviny36.sk', 'live', now());
+end $$;
+reset role;
+
+-- the Search Console TXT: a record id only for a record Cacadoo added; a value already in DNS is "present"
+do $$
+declare v_o uuid := (select id from public.domain_orders where hostname = 'potraviny36.sk');
+begin
+  update public.domain_orders set google_verification = 'google-site-verification=AbCdEfGhIjKlMnOpQrStUvWxYz_0123456789-abcd',
+    google_verification_state = 'present', google_verification_at = now() where id = v_o;
+  begin
+    update public.domain_orders set google_txt_record_id = '123' where id = v_o;
+    raise exception 'a record id for a record Cacadoo did not add';
+  exception when check_violation then null;
+  end;
+  update public.domain_orders set google_verification_state = 'added', google_txt_record_id = '123' where id = v_o;
+  begin
+    update public.domain_orders set google_txt_record_id = '1; drop table x' where id = v_o;
+    raise exception 'a strange record id';
+  exception when check_violation then null;
+  end;
+  update public.domain_orders set google_verification = null, google_verification_state = null, google_txt_record_id = null where id = v_o;
+end $$;
+
+-- visitors: no table, no owner or IndexNow function; the meta values only through site_verification_meta()
+set role anon;
+do $$
+declare v_t text;
+begin
+  foreach v_t in array array['domain_site_verifications', 'indexnow_hosts', 'indexnow_pings'] loop
+    begin
+      execute format('select count(*) from public.%I', v_t);
+      raise exception 'a visitor read %', v_t;
+    exception when insufficient_privilege then null;
+    end;
+  end loop;
+  begin
+    perform public.owner_set_site_verification((select id from public.domain_orders where hostname = 'potraviny36.sk'), 'google', 'x');
+    raise exception 'a visitor set a meta tag';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.indexnow_claim_host((select id from public.shops where slug = 'potraviny-centrum'), 'ppi.example.com');
+    raise exception 'a visitor claimed a ping';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.indexnow_done('ppi.example.com', 'main', now(), null, 1, 200, '200');
+    raise exception 'a visitor logged a ping';
+  exception when insufficient_privilege then null;
+  end;
+  assert public.site_verification_meta('potraviny-centrum') ->> 'host' = 'potraviny36.sk';
+  assert public.site_verification_meta('potraviny-centrum') ->> 'google' is null, 'nothing set yet';
+  assert public.site_verification_meta('drogeria-kostolne') is null, 'no own domain: nothing';
+end $$;
+reset role;
+
+-- the owner: Google's and Bing's meta tag values, the whole tag or the value, only that kind's format
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_o uuid := (select id from public.domain_orders where hostname = 'potraviny36.sk');
+  v_bad text;
+begin
+  assert public.owner_set_site_verification(v_o, 'google', '<meta name="google-site-verification" content="Zx9_Yw8-Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe" />')
+    = 'Zx9_Yw8-Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe', 'the whole tag';
+  assert public.owner_set_site_verification(v_o, 'bing', '<meta name="msvalidate.01" content="0123456789abcdef0123456789ABCDEF" />')
+    = '0123456789ABCDEF0123456789ABCDEF', 'Bing''s code';
+  assert public.owner_set_site_verification(v_o, 'google', 'content="Ab12Cd34Ef56Gh78Ij90Kl12Mn34"') = 'Ab12Cd34Ef56Gh78Ij90Kl12Mn34', 'content=…';
+  foreach v_bad in array array[
+    '<meta name="msvalidate.01" content="0123456789abcdef0123456789ABCDEF" />',
+    '<script>alert(1)</script>', 'google-site-verification=short', 'abc def ghi jkl mno pqr stu',
+    '"><script src=x>', '<meta name="google-site-verification" content="ok" onload="x">'] loop
+    begin
+      perform public.owner_set_site_verification(v_o, 'google', v_bad);
+      raise exception 'a bad Google value was taken: %', v_bad;
+    exception when invalid_parameter_value then assert sqlerrm = 'value', sqlerrm;
+    end;
+  end loop;
+  begin
+    perform public.owner_set_site_verification(v_o, 'bing', 'Zx9_Yw8-Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe');
+    raise exception 'a Google value taken as Bing''s';
+  exception when invalid_parameter_value then null;
+  end;
+  assert (select google_meta || ' ' || bing_meta from public.domain_site_verifications where order_id = v_o)
+    = 'Ab12Cd34Ef56Gh78Ij90Kl12Mn34 0123456789ABCDEF0123456789ABCDEF', 'the owner reads them; a refused value changes nothing';
+  begin
+    update public.domain_site_verifications set google_meta = 'Xx12Cd34Ef56Gh78Ij90Kl12Mn34' where order_id = v_o;
+    raise exception 'an owner wrote the table directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- another owner: nothing of shop A
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert not exists (select 1 from public.domain_site_verifications), 'another owner reads nothing';
+  begin
+    perform public.owner_set_site_verification((select id from public.domain_orders where hostname = 'potraviny36.sk'), 'google', 'Ab12Cd34Ef56Gh78Ij90Kl12Mn34');
+    raise exception 'another owner set shop A''s value';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  assert public.site_verification_meta('potraviny-centrum') = jsonb_build_object('host', 'potraviny36.sk', 'google', 'Ab12Cd34Ef56Gh78Ij90Kl12Mn34', 'bing', '0123456789ABCDEF0123456789ABCDEF');
+end $$;
+reset role;
+
+-- not live any more: the pages lose the tags, the owner cannot set new ones; an empty value removes
+update public.domain_orders set status = 'waiting_dns' where hostname = 'potraviny36.sk';
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin
+    perform public.owner_set_site_verification((select id from public.domain_orders where hostname = 'potraviny36.sk'), 'bing', '');
+    raise exception 'set on a domain that is not live';
+  exception when sqlstate 'P0001' then assert sqlerrm = 'state', sqlerrm;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+do $$ begin assert public.site_verification_meta('potraviny-centrum') is null, 'not live: no tags'; end $$;
+update public.domain_orders set status = 'live' where hostname = 'potraviny36.sk';
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  assert public.owner_set_site_verification((select id from public.domain_orders where hostname = 'potraviny36.sk'), 'bing', '  ') is null;
+  assert (select bing_meta from public.domain_site_verifications) is null, 'removed';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- IndexNow: only what a search result shows (new, price, in stock <-> sold out), never 12 -> 11
+delete from public.indexnow_hosts;
+delete from public.indexnow_pings;
+do $$ begin perform public.apply_stock_file((select id from public.shops where slug = 'potraviny-centrum'), '[
+  {"source_code":"N1","name":"Ryža 1 kg","quantity":12,"price":1.5},
+  {"source_code":"N2","name":"Cukor 1 kg","quantity":1,"price":0.99},
+  {"source_code":"N3","name":"Soľ 1 kg","quantity":5,"price":0.39},
+  {"source_code":"N4","name":"Múka 1 kg","quantity":0,"price":0.79}
+]', now(), null); end $$;
+-- (the trigger keeps indexnow_at on a plain update: back-dated with triggers off)
+set session_replication_role = replica;
+update public.inventory set indexnow_at = now() - interval '3 hours'
+where shop_item_id in (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'potraviny-centrum'));
+reset session_replication_role;
+do $$ begin perform public.apply_stock_file((select id from public.shops where slug = 'potraviny-centrum'), '[
+  {"source_code":"N1","name":"Ryža 1 kg","quantity":11,"price":1.5},
+  {"source_code":"N2","name":"Cukor 1 kg","quantity":0,"price":0.99},
+  {"source_code":"N3","name":"Soľ 1 kg","quantity":5,"price":0.45},
+  {"source_code":"N4","name":"Múka 1 kg","quantity":3,"price":0.79},
+  {"source_code":"N5","name":"Olej 1 l","quantity":2,"price":2.49}
+]', now(), null); end $$;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c jsonb;
+  v_codes text[];
+begin
+  v_c := public.indexnow_claim_host(v_a, 'ppi.example.com');
+  assert v_c ->> 'host' = 'potraviny36.sk' and v_c ->> 'kind' = 'site' and v_c ->> 'lang' = 'sk', 'the own domain: ' || v_c::text;
+  select array_agg(si.source_code order by si.source_code) into v_codes
+  from public.shop_items si where si.id::text in (select value ->> 'id' from jsonb_array_elements(v_c -> 'items'));
+  assert v_codes @> array['N2', 'N3', 'N4', 'N5'] and not (v_codes @> array['N1']),
+    'sold out, price, back in stock and new — not 12 -> 11: ' || array_to_string(v_codes, ',');
+  -- at most once an hour per host: the next upload waits, its changes stay for the next ping
+  assert public.indexnow_claim_host(v_a, 'ppi.example.com') ->> 'skip' = 'hour';
+  perform public.indexnow_done('potraviny36.sk', 'site', (v_c ->> 'upto')::timestamptz, (v_c ->> 'upto_id')::uuid, 12, 202, '202');
+  assert (select sent_upto = (v_c ->> 'upto')::timestamptz and last_status = 202 and last_urls = 12 from public.indexnow_hosts where host = 'potraviny36.sk');
+  assert (select indexnow_urls || ' ' || indexnow_result from public.domain_orders where hostname = 'potraviny36.sk') = '12 202', 'the owner sees it';
+  assert (select count(*) from public.indexnow_pings where host = 'potraviny36.sk' and urls = 12 and status = 202) = 1, 'logged';
+  -- an hour later, nothing new: no ping
+  update public.indexnow_hosts set last_ping_at = now() - interval '61 minutes' where host = 'potraviny36.sk';
+  assert public.indexnow_claim_host(v_a, 'ppi.example.com') ->> 'skip' = 'nothing';
+  assert (select last_ping_at < now() - interval '1 hour' from public.indexnow_hosts where host = 'potraviny36.sk'), 'nothing sent: the hour is not used';
+end $$;
+reset role;
+
+-- a failed ping: the same changes go with the next one
+set session_replication_role = replica;
+update public.inventory set indexnow_at = now() + interval '1 second'
+where shop_item_id = (select id from public.shop_items where source_code = 'N5' and shop_id = (select id from public.shops where slug = 'potraviny-centrum'));
+reset session_replication_role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c jsonb := public.indexnow_claim_host(v_a, 'ppi.example.com');
+  v_d jsonb;
+begin
+  assert jsonb_array_length(v_c -> 'items') = 1, v_c::text;
+  perform public.indexnow_done('potraviny36.sk', 'site', (v_c ->> 'upto')::timestamptz, (v_c ->> 'upto_id')::uuid, 3, null, 'failed: TypeError');
+  update public.indexnow_hosts set last_ping_at = now() - interval '61 minutes' where host = 'potraviny36.sk';
+  v_d := public.indexnow_claim_host(v_a, 'ppi.example.com');
+  assert v_d -> 'items' = v_c -> 'items', 'retried with the next ping';
+  perform public.indexnow_done('potraviny36.sk', 'site', (v_d ->> 'upto')::timestamptz, (v_d ->> 'upto_id')::uuid, 3, 200, '200');
+  assert (select count(*) from public.indexnow_pings where host = 'potraviny36.sk') = 3;
+end $$;
+reset role;
+
+-- the main Cacadoo host: every shop without a live own domain, never shop A's items; no main host given → nothing
+set session_replication_role = replica;
+update public.inventory set indexnow_at = now() + interval '2 seconds'
+where shop_item_id in (select si.id from public.shop_items si join public.shops s on s.id = si.shop_id where s.slug in ('drogeria-kostolne', 'potraviny-centrum'));
+reset session_replication_role;
+-- and a plain update of the quantity only (12 -> 11 style) keeps it
+do $$
+declare v_before timestamptz;
+begin
+  select inv.indexnow_at into v_before from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  where si.source_code = 'N1' and si.shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+  update public.inventory inv set quantity = 10 from public.shop_items si
+  where si.id = inv.shop_item_id and si.source_code = 'N1' and si.shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+  assert (select inv.indexnow_at = v_before from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+          where si.source_code = 'N1' and si.shop_id = (select id from public.shops where slug = 'potraviny-centrum')), 'a sale keeps the time';
+end $$;
+set role service_role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_c jsonb;
+begin
+  assert public.indexnow_claim_host(v_b, null) is null, 'no main host: no ping';
+  assert public.indexnow_claim_host(v_b, 'not a host') is null;
+  v_c := public.indexnow_claim_host(v_b, 'PPI.Example.com', 2);
+  assert v_c ->> 'host' = 'ppi.example.com' and v_c ->> 'kind' = 'main', v_c::text;
+  assert jsonb_array_length(v_c -> 'items') = 2, 'at most the limit';
+  assert not exists (select 1 from jsonb_array_elements(v_c -> 'items') e where e.value ->> 'slug' = 'potraviny-centrum'),
+    'a shop on its own domain is never pinged on the main host';
+  assert public.indexnow_claim_host(v_b, 'ppi.example.com') ->> 'skip' = 'hour', 'the main host too: once an hour';
+end $$;
+reset role;
+
+-- one upload's items share one time: a ping that holds only part of them, the next one goes on after the last one sent
+set role service_role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_t timestamptz;
+  v_n integer;
+  v_c jsonb;
+  v_d jsonb;
+begin
+  select max(inv.indexnow_at), count(*) into v_t, v_n
+  from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id where si.shop_id = v_b;
+  assert v_n >= 3, 'shop B has a few items';
+  update public.indexnow_hosts set sent_upto = v_t - interval '1 millisecond', sent_upto_id = null, last_ping_at = null
+  where host = 'ppi.example.com';
+  v_c := public.indexnow_claim_host(v_b, 'ppi.example.com', 2);
+  assert jsonb_array_length(v_c -> 'items') = 2 and (v_c ->> 'upto')::timestamptz = v_t and v_c ? 'upto_id', v_c::text;
+  perform public.indexnow_done('ppi.example.com', 'main', (v_c ->> 'upto')::timestamptz, (v_c ->> 'upto_id')::uuid, 6, 200, '200');
+  assert (select sent_upto = v_t and sent_upto_id = (v_c ->> 'upto_id')::uuid from public.indexnow_hosts where host = 'ppi.example.com');
+  update public.indexnow_hosts set last_ping_at = null where host = 'ppi.example.com';
+  v_d := public.indexnow_claim_host(v_b, 'ppi.example.com');
+  assert jsonb_array_length(v_d -> 'items') = v_n - 2, 'the rest of the same upload: ' || v_d::text;
+  assert not exists (select 1 from jsonb_array_elements(v_d -> 'items') d join jsonb_array_elements(v_c -> 'items') c on c.value = d.value),
+    'none sent twice';
+  -- an answer older than what was sent never moves the cursor back
+  perform public.indexnow_done('ppi.example.com', 'main', v_t - interval '1 hour', null, 1, 200, '200');
+  assert (select sent_upto = v_t from public.indexnow_hosts where host = 'ppi.example.com'), 'never back';
+end $$;
+reset role;
+
+-- llms.txt facts: the stock file's categories and the holiday switch
+set role anon;
+do $$
+declare v_f jsonb := public.shop_llms_facts('potraviny-centrum');
+begin
+  assert v_f ? 'stock_categories' and jsonb_typeof(v_f -> 'stock_categories') = 'array';
+  assert (v_f ->> 'auto_holidays')::boolean is not null;
+end $$;
+reset role;
+delete from public.domain_orders where hostname = 'potraviny36.sk';
+delete from public.indexnow_hosts;
+delete from public.indexnow_pings;
+
 \echo 'ALL DATABASE CHECKS PASSED'

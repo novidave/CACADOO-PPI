@@ -47,3 +47,18 @@ export function itemHref(sites: Map<string, string>, lang: string, slug: string,
   const host = sites.get(slug);
   return host ? siteItemUrl(host, lang, itemId) : `/${lang}/items/${itemId}`;
 }
+
+/**
+ * The item's canonical address for other systems (API/MCP source_url, llms.txt, IndexNow): on its
+ * shop's live own domain, else on PPI (`base` = PPI's own address).
+ */
+export function canonicalItemUrl(sites: Map<string, string>, base: string, lang: string, slug: string, itemId: string): string {
+  const host = sites.get(slug);
+  return host ? siteItemUrl(host, lang, itemId) : `${base}/${lang}/items/${itemId}`;
+}
+
+/** The shop's canonical address: its live own domain ("/" in its language, "/hu"…), else its PPI page. */
+export function canonicalShopUrl(sites: Map<string, string>, base: string, lang: string, slug: string, country: string | null | undefined): string {
+  const host = sites.get(slug);
+  return host ? siteShopUrl(host, lang, siteLang(country)) : `${base}/${lang}/shops/${slug}`;
+}

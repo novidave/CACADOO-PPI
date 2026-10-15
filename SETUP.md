@@ -1274,6 +1274,70 @@ Do the steps in order.
    Problems: the partner's row on the admin page shows the last imports with their reason; Supabase → Edge Functions →
    partner-feeds → Logs (feed addresses are never written there).
 
+## Part AG — Own domains fully findable: Search Console, Bing, IndexNow on every host (15 October 2026)
+
+- **Predplatné a doména → "Aby vás našli Google a AI asistenti"** (a live own domain):
+  - **A domain Cacadoo runs** (bought here): paste the whole TXT value `google-site-verification=…` → **Zapísať do
+    DNS** → Cacadoo adds one TXT record at the domain (SPF, MX, DKIM, DMARC and every other record stay as they are;
+    the same value is never added twice). **Odstrániť** removes only the record Cacadoo added.
+  - **An own domain connected from elsewhere**: **a) HTML značka (odporúčané)** — in Search Console choose "Predpona
+    webovej adresy" `https://<doména>/`, copy Google's meta tag, paste it → **Uložiť značku** → Cacadoo puts it on the
+    shop's pages on that domain → **Overiť**. **b) Záznam TXT** — the record to add at your registrar, with
+    "Kopírovať".
+  - **Overiť v Bing Webmaster Tools**: easiest "Importovať" from Search Console; else Bing's meta tag the same way.
+  - **Odoslať sitemap**: the steps for Google and for Bing.
+- **IndexNow on every host**: after a stock upload, only product pages that really changed (new or removed product,
+  another price, back in stock or sold out — not 12 → 11 pieces) are announced to Bing, Seznam, Yandex and others, on
+  their canonical address: the shop's own domain, or the main Cacadoo address for shops without one. At most once per
+  upload and once an hour per address; what waits goes with the next one. One key for everything: `INDEXNOW_KEY`.
+- **llms.txt of an own domain** also says whether the shop follows public holidays, the item categories and how AI
+  assistants can read the shop through Cacadoo's API/MCP. The API's and MCP's links (`source_url`) and Cacadoo's own
+  llms.txt now point to the shop's own domain.
+
+Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/36_domain_findability.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again.
+   Check: `select count(*) from public.indexnow_hosts;` → 0 (the table exists).
+2. **Make the IndexNow key** (it is public by design — it only proves the pings are yours): 32 letters and digits, for
+   example from a terminal `openssl rand -hex 16`, or any password generator set to letters + digits, 32 long. Write
+   it down; the **same value** goes into Vercel and Supabase.
+3. **Vercel** → the project → Settings → Environment Variables → **`INDEXNOW_KEY`** = the key (Production; Preview too
+   if you test there). Not sensitive, but "Sensitive" does no harm.
+4. **Supabase** → Edge Functions → **Secrets** → add:
+   - **`INDEXNOW_KEY`** = the same key.
+   - **`SITE_URL`** = the website's main address with https and without a slash at the end, e.g.
+     `https://cacadooppivercel.vercel.app` (later your own Cacadoo domain). Without it, shops without an own domain
+     are not announced (shops with a live own domain still are).
+5. **Functions** (Supabase → Edge Functions → the function → Code → paste the whole file → Deploy; "Verify JWT" stays
+   OFF):
+   - `domains` ← `supabase/functions/domains/index.ts` (Odstrániť; only "google-site-verification=…" accepted).
+   - `stock-pull` ← `supabase/functions/stock-pull/index.ts` (IndexNow on every host).
+6. **Merge the pull request** on GitHub → Vercel deploys with `INDEXNOW_KEY`. (If you added the variable after the
+   deploy started: Deployments → ⋯ → Redeploy.)
+7. **Check the key files:** `https://cacadooppivercel.vercel.app/<key>.txt` and `https://<own domain>/<key>.txt` both
+   show the key. A wrong name shows "Not found".
+8. **Test on a live own domain** (Predplatné a doména, the shop with the domain):
+   - Bought domain: Search Console → Pridať vlastníctvo → **Doména** → the domain → copy the TXT value → paste →
+     **Zapísať do DNS** → "Záznam TXT je zapísaný …" → in Search Console **Overiť** (a few minutes later if not found).
+     Optional: **Odstrániť** → "Záznam, ktorý pridal Cacadoo, je odstránený z DNS …" (check at Websupport: only that
+     one record is gone).
+   - Connected domain: Search Console → Pridať vlastníctvo → **Predpona webovej adresy** → `https://<doména>/` →
+     Ďalšie metódy overenia → **HTML značka** → copy → paste → **Uložiť značku** → open `https://<doména>/`, view the
+     page source: `<meta name="google-site-verification" …>` is there → **Overiť**.
+   - Bing Webmaster Tools → **Import** from Search Console (or the meta tag in "Overiť v Bing Webmaster Tools").
+   - Submit `https://<doména>/sitemap.xml` in Search Console (Súbory Sitemap) and in Bing (Sitemaps).
+9. **IndexNow test:** change one product's price in the shop's stock file and let the PC upload it (or "Upload file").
+   On Predplatné a doména the IndexNow line shows "Naposledy oznámené …: 3 stránok." (the product in SK, HU and EN).
+   Bing Webmaster Tools → IndexNow lists the addresses after a while. A second upload within the hour waits for the
+   next ping. Supabase → Edge Functions → stock-pull → Logs shows "IndexNow <host>: n addresses, answer 200/202"
+   (never the key).
+10. **Google Rich Results Test:** https://search.google.com/test/rich-results → paste a product address on the own
+    domain (`https://<doména>/sk/items/…`) → "Úryvky produktov" (Product snippets) valid. A note about a missing image
+    for merchant listings is expected: PPI has no product pictures and never invents any.
+
+The key of update 33 (`domain_settings.indexnow_key`) is no longer used; the key file now shows `INDEXNOW_KEY`.
+
 ---
 
 ## Part D — later, before launch
@@ -1322,3 +1386,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 28. The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots and the real steps, the answer streamed, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback | ✅ built — set up Part AD |
 | 29. The chat finds products in layers: Cacadoo, then shops nearby (OpenStreetMap, optional Google Places) and offers on allowed shop websites (web search), only with too little in Cacadoo and a town; admin switches, domains, search links, usage and cost | ✅ built — set up Part AE |
 | 30. Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule, shown in the chat under "Partneri" between Cacadoo and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" | ✅ built — set up Part AF |
+| 31. Own domains fully findable: "Odstrániť" removes only Cacadoo's TXT record; the Google HTML tag for connected domains; Bing Webmaster Tools; sitemap steps for Google and Bing; llms.txt with holidays and API/MCP; IndexNow on every host (one `INDEXNOW_KEY`, only real changes, once an hour per address); API/MCP links and Cacadoo's llms.txt point to the own domain | ✅ built — set up Part AG |

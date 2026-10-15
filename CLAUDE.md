@@ -268,25 +268,36 @@ the shop's small header logo as a link home (update 31); + items, `/api/site/[sl
 bare; canonical = the own domain; payment never affects search ranking. `PlanDetails`/`DomainStatus` labels from the
 `domains` i18n namespace; admin texts `admin_domains`.
 
-## Own domains easy to find (Pro, update 33)
+## Own domains easy to find (Pro, updates 33 and 36)
 
-`supabase/sql/33_domain_findable.sql`. "Aby vás našli Google a AI asistenti" on `dashboard/plan` (`FindableSection`,
-live orders only; hidden before update 33): **"Overiť v Google Search Console"** → domains action `google_verify`
-(owner, live): the pasted `google-site-verification=…` (or its token) is **only added** as one TXT `@` through
-`registrar.addRecord` when we run the zone (`registrar_service_id`), never twice, ≤ 5 Google values, never
-`deleteRecord` or any other record; else the record to add by hand (`recordName()` = `manualRecordName()`); stored in
-`domain_orders.google_verification*`. "Odoslať sitemap: https://<doména>/sitemap.xml" steps. Per own domain
-(`src/proxy.ts` → `/api/site/[slug]/robots|llms|indexnow/[key]`, only while `shop_site()`): robots.txt from
-`@/lib/siteFiles` (`AI_BOTS` shared with `app/robots.ts`; never `/api/`, `/auth/`, login pages), llms.txt (English, the
-shop's data as written, `shop_llms_facts()`: the owner's "Kategórie tovaru" `shops.product_categories` only through
-`owner_set_categories()` — never invented — and the stock file's brands; the page's own stock words), the IndexNow
-key file (`indexnow_key()`, public). **IndexNow:** stock-pull after `updated`, in the background, `pingIndexNow()` →
-`indexnow_claim()` (live own domain, **once per upload**, only items whose `inventory.changed_at` /
-`shop_items.changed_at` — set by triggers — equal the upload's `received_at`) → one POST to api.indexnow.org with
-`indexNowUrls()` (≤ 10 000), nothing when nothing changed, `indexnow_sent()`; never log the key. Item pages:
-`@/lib/jsonLd` `itemJsonLd` (`@graph`: Product + Offer only when not stale + the shop's Store, `storeJsonLd` shared with
-the shop page), canonical on the own domain. Main search rows, map pins, AI cards and other offers link a shop with a
-live own domain there (`loadLiveSites()` / `getLiveSites()` → `shopHref()` / `itemHref()` in `@/lib/customDomain`).
+`supabase/sql/33_domain_findable.sql` + `supabase/sql/36_domain_findability.sql` (Prompt 12). "Aby vás našli Google a AI
+asistenti" on `dashboard/plan` (`FindableSection`, live orders only; hidden before update 33). **"Overiť v Google Search
+Console"** → domains action `google_verify` (owner, live; only `google-site-verification=<token>`): on a zone we run
+(`registrar_service_id`) it **only adds** one TXT `@` through `registrar.addRecord`, keeps its id
+(`google_txt_record_id`), never twice; the same value already there → `present`, nothing added; ≤ 5 Google values.
+**"Odstrániť"** = action `google_remove`: deletes **only the record Cacadoo added** (stored id **and** still the stored
+value); never SPF/MX/DKIM/DMARC, a `present` or `manual` record or any other. A connected domain: a) **"HTML značka"
+(recommended)** — `owner_set_site_verification()` (owner, live, format checked) into `domain_site_verifications`; the
+own domain's root layout adds `<meta name="google-site-verification">` / `<meta name="msvalidate.01">` (Bing) only on
+that domain (`site_verification_meta()` + `verificationMetadata()`); b) the TXT record to add by hand (`recordName()` =
+`manualRecordName()`, copy buttons). Bing Webmaster Tools: the same meta tag or the import from Search Console; sitemap
+steps for Google and Bing. Per own domain (`src/proxy.ts` → `/api/site/[slug]/robots|llms|indexnow/[key]`, only while
+`shop_site()`): robots.txt from `@/lib/siteFiles` (`AI_BOTS` shared with `app/robots.ts`; never `/api/`, `/auth/`, login
+pages; the Sitemap line), llms.txt (English, the shop's data as written, `shop_llms_facts()`: the owner's "Kategórie
+tovaru" `shops.product_categories` only through `owner_set_categories()` — never invented —, the stock file's brands,
+the items' categories, whether holidays apply; the page's own stock words; Cacadoo's MCP/API with the slug). **IndexNow
+(update 36):** one key **`INDEXNOW_KEY`** (public; Vercel + Supabase secret), every host serves `/<key>.txt` (main host:
+`/api/indexnow/[key]`). stock-pull after `updated`, in the background, `pingIndexNow()` → `indexnow_claim_host()` (the
+shop's live own domain, else the main host from `SITE_URL`; **at most once per upload and once an hour per host**; only
+items whose `inventory.indexnow_at` — trigger: new, price/currency, in stock ↔ sold out; never 12 → 11 — is after the
+host's cursor) → one POST to api.indexnow.org (`{host, key, keyLocation, urlList}`, each item in sk/hu/en, ≤ 10 000,
+canonical URLs only) → `indexnow_done()` (logged in `indexnow_pings`; only a 2xx moves on, so failures go with the next
+ping); never log the key, never delay or undo the stock. Item pages: `@/lib/jsonLd` `itemJsonLd` (`@graph`: Product +
+Offer — price whenever the page shows one, `availability` only when not stale — + the shop's Store, `storeJsonLd`
+shared with the shop page), canonical + hreflang (+ `x-default`) on the own domain. Main search rows, map pins, AI cards,
+other offers, the API/MCP `source_url` (`canonicalItemUrl()` / `canonicalShopUrl()`) and PPI's llms.txt link a shop
+with a live own domain there (`loadLiveSites()` / `getLiveSites()` → `shopHref()` / `itemHref()` in `@/lib/customDomain`);
+PPI's sitemap leaves those pages out.
 
 ## Shop page and My shop (migration 21, update 26)
 
