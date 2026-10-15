@@ -4699,4 +4699,387 @@ delete from public.external_throttle;
 delete from public.osm_shop_cache;
 delete from public.town_geocodes;
 
+\echo '--- partner feeds: own tables, imports in parts, 48 hours, stock per store only from the feed, affiliate never ranks (update 35)'
+-- visitors and owners read none of the tables and call none of the import steps; visitors may search
+set role anon;
+do $$
+declare v_table text;
+begin
+  foreach v_table in array array['partners', 'partner_stores', 'partner_products', 'partner_store_stock', 'partner_imports'] loop
+    begin
+      execute format('select count(*) from public.%I', v_table);
+      raise exception 'a visitor read %', v_table;
+    exception when insufficient_privilege then null;
+    end;
+  end loop;
+  begin
+    perform public.partner_start_due();
+    raise exception 'a visitor started an import';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.partner_import_rows(gen_random_uuid(), 0, '[]', true, '', 0, 0, null, null);
+    raise exception 'a visitor wrote partner rows';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_partner_settings();
+    raise exception 'a visitor read the partner settings';
+  exception when insufficient_privilege then null;
+  end;
+  assert not public.partner_layer_ready(), 'no partner yet: the layer is skipped';
+  assert not exists (select 1 from public.search_partner_products('kladivo', null, 10)), 'nothing to find yet';
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin
+    perform public.admin_save_partner('{"name":"Evil","feed_format":"csv","timezone":"UTC"}');
+    raise exception 'an owner added a partner';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform count(*) from public.partner_products;
+    raise exception 'an owner read partner rows';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.partner_import_finish(gen_random_uuid());
+    raise exception 'an owner finished an import';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the admin adds partners (checked again in the database)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare
+  v_a uuid;
+  v_b uuid;
+  v_url text;
+  v_err text;
+begin
+  foreach v_url in array array['http://feeds.example.com/a.xml', 'https://127.0.0.1/a.xml', 'https://localhost/a.xml',
+                               'https://intranet.local/a.xml', 'https://user:pw@example.com/a.xml', 'ftp://example.com/a.xml',
+                               'https://example.com/a b.xml'] loop
+    begin
+      perform public.admin_save_partner(jsonb_build_object('name', 'X', 'feed_format', 'google_xml', 'timezone', 'UTC', 'feed_url', v_url));
+      raise exception 'a bad feed address was saved: %', v_url;
+    exception when sqlstate '22023' then
+      assert sqlerrm = 'feed_url', sqlerrm;
+    end;
+  end loop;
+  foreach v_err in array array['name', 'format', 'heureka_currency', 'currency', 'timezone', 'schedule'] loop
+    begin
+      perform public.admin_save_partner(case v_err
+        when 'name' then '{"name":" ","feed_format":"csv","timezone":"UTC"}'::jsonb
+        when 'format' then '{"name":"X","feed_format":"rss","timezone":"UTC"}'::jsonb
+        when 'heureka_currency' then '{"name":"X","feed_format":"heureka_xml","timezone":"UTC"}'::jsonb
+        when 'currency' then '{"name":"X","feed_format":"csv","timezone":"UTC","currency":"EURO"}'::jsonb
+        when 'timezone' then '{"name":"X","feed_format":"csv","timezone":"Mars/Base"}'::jsonb
+        else '{"name":"X","feed_format":"csv","timezone":"UTC","schedule":"minutely"}'::jsonb end);
+      raise exception 'a bad partner was saved (%)', v_err;
+    exception when sqlstate '22023' then
+      assert sqlerrm = v_err, format('%s expected, got %s', v_err, sqlerrm);
+    end;
+  end loop;
+
+  v_a := public.admin_save_partner('{"name":"Šport Partner","feed_format":"google_xml","feed_url":"https://feeds.example.com/google.xml","inventory_url":"https://feeds.example.com/local.xml","timezone":"Europe/Bratislava","affiliate":true}');
+  v_b := public.admin_save_partner('{"name":"Bazár Partner","feed_format":"heureka_xml","feed_url":"https://feeds.example.org/heureka.xml","currency":"eur","timezone":"Europe/Budapest"}');
+  assert (select value ->> 'schedule' from jsonb_array_elements(public.admin_partner_settings() -> 'partners') where value ->> 'id' = v_b::text) = 'daily', 'daily by default';
+  assert (select value ->> 'inventory_format' from jsonb_array_elements(public.admin_partner_settings() -> 'partners') where value ->> 'id' = v_a::text) = 'google_local_xml', 'the local inventory feed has a format';
+  assert (select value ->> 'currency' from jsonb_array_elements(public.admin_partner_settings() -> 'partners') where value ->> 'id' = v_b::text) = 'EUR';
+
+  -- the store list (only when the partner gives one); a wrong row names its number
+  assert public.admin_save_partner_stores(v_a, '[
+    {"code":"KE1","name":"Predajňa Košice","address":"Hlavná 1","city":"Košice","country":"SK"},
+    {"code":"MI1","name":"Predajňa Michalovce","address":"Nám. osloboditeľov 1","city":"Michalovce","country":"sk"},
+    {"code":"MI2","name":"Sklad pri Michalovciach","city":"Pozdišovce","lat":48.735,"lng":21.94},
+    {"code":"BA1","name":"Predajňa Bratislava","city":"Bratislava"}]') = 4;
+  begin
+    perform public.admin_save_partner_stores(v_a, '[{"code":"X1","name":"OK"},{"code":"X2","name":"","city":"Nowhere"}]');
+    raise exception 'a store without a name was saved';
+  exception when sqlstate '22023' then
+    assert sqlerrm = 'stores:2', sqlerrm;
+  end;
+  assert (select jsonb_array_length(value -> 'stores') from jsonb_array_elements(public.admin_partner_settings() -> 'partners') where value ->> 'id' = v_a::text) = 4, 'a refused list changes nothing';
+
+  -- an uploaded file only from the partner's own folder, with the right name
+  begin
+    perform public.admin_set_partner_file(v_b, 'products', v_a::text || '/feed-1760000000000.xml');
+    raise exception 'another partner''s file was taken';
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    perform public.admin_set_partner_file(v_b, 'products', v_b::text || '/../feed-1760000000000.xml');
+    raise exception 'a path with .. was taken';
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    perform public.admin_set_partner_logo(v_b, 'other/logo.svg');
+    raise exception 'a bad logo path was taken';
+  exception when sqlstate '22023' then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the function (service role): start, claim, parts, rows, finish
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.partners where name = 'Šport Partner');
+  v_b uuid := (select id from public.partners where name = 'Bazár Partner');
+  v_shop_items bigint := (select count(*) from public.shop_items);
+  v_inventory bigint := (select count(*) from public.inventory);
+  v_ids uuid[];
+  v_imp uuid;
+  v_inv uuid;
+  v_claim jsonb;
+  v_r record;
+  v_changed timestamptz;
+  v_first text;
+begin
+  select array_agg(x) into v_ids from public.partner_start_due() x;
+  assert array_length(v_ids, 1) = 3, format('products for both, inventory for one: %s', array_length(v_ids, 1));
+  assert not exists (select 1 from public.partner_start_due()), 'not due again until the schedule says so';
+  assert (select next_run_at from public.partners where id = v_a) > now() + interval '23 hours', 'next turn a day later';
+  select id into v_imp from public.partner_imports where partner_id = v_a and kind = 'products';
+  select id into v_inv from public.partner_imports where partner_id = v_a and kind = 'inventory';
+
+  -- one caller at a time
+  v_claim := public.partner_import_claim(v_imp, 60);
+  assert v_claim ->> 'url' = 'https://feeds.example.com/google.xml' and v_claim ->> 'format' = 'google_xml';
+  assert v_claim -> 'previous' = 'null'::jsonb or v_claim -> 'previous' is null, 'no earlier import';
+  assert public.partner_import_claim(v_imp, 60) is null, 'taken: a second caller gets nothing';
+  begin
+    insert into public.partner_imports (partner_id, kind, source, source_key) values (v_a, 'products', 'url', 'x');
+    raise exception 'two running imports of one kind';
+  exception when unique_violation then null;
+  end;
+  perform public.partner_import_downloaded(v_imp, 2, 1234, now() + interval '1 hour', 'Tue, 14 Oct 2026 06:00:00 GMT', '"abc"');
+  assert (select feed_time <= now() from public.partner_imports where id = v_imp), 'the data''s time is never in the future';
+  -- part 0 in two batches, then part 1; rows of a part read again are not doubled
+  perform public.partner_import_rows(v_imp, 0, '[
+    {"id":"S1","title":"Stan Quechua 2 Seconds","brand":"Quechua","gtin":"3608439000001","price":89.99,"currency":"EUR","availability":"in_stock","state":"in_stock","link":"https://partner.example.com/p/S1"},
+    {"id":"S2","title":"Kladivo tesárske 600 g","brand":"Geologic","price":19.99,"sale_price":14.99,"sale_from":"2020-01-01T00:00:00Z","sale_to":"2099-01-01T00:00:00Z","currency":"EUR","availability":"out_of_stock","state":"out_of_stock","link":"https://partner.example.com/p/S2"}
+  ]', false, null, null, null, null, null);
+  perform public.partner_import_rows(v_imp, 0, '[
+    {"id":"S3","title":"Spacák Forclaz 0°","price":59.0,"currency":"EUR","availability":"preorder","state":"preorder","link":"https://partner.example.com/p/S3"},
+    {"id":"S3","title":"Spacák Forclaz 0° (2)","price":61.0,"currency":"EUR","availability":"preorder","state":"preorder","link":"https://partner.example.com/p/S3"}
+  ]', true, '<item><g:id>S4', 4, 0, null, 'utf-8');
+  assert (select title from public.partner_products where partner_id = v_a and item_id = 'S3') = 'Spacák Forclaz 0° (2)', 'the later row of a batch wins';
+  begin
+    perform public.partner_import_rows(v_imp, 0, '[]', true, '', 0, 0, null, null);
+    raise exception 'a part was written twice';
+  exception when sqlstate '55000' then null;
+  end;
+  assert (select part_index = 1 and carry = '<item><g:id>S4' and rows_read = 4 from public.partner_imports where id = v_imp);
+  begin
+    perform public.partner_import_finish(v_imp);
+    raise exception 'finished before the last part';
+  exception when sqlstate '55000' then null;
+  end;
+  perform public.partner_import_rows(v_imp, 1, '[{"id":"S4","title":"Turistická obuv MH100","price":49.99,"currency":"EUR","availability":"in_stock","state":"in_stock","link":"https://partner.example.com/p/S4"}]',
+                                     true, '', 1, 0, null, null);
+  assert public.partner_import_finish(v_imp) ->> 'status' = 'done';
+  assert (select count(*) from public.partner_products where partner_id = v_a) = 4;
+  assert (select bool_and(updated_at = (select feed_time from public.partner_imports where id = v_imp)) from public.partner_products where partner_id = v_a),
+    'each item keeps the time of its data';
+
+  -- the local inventory feed: stock per store, as the partner reports it
+  perform public.partner_import_claim(v_inv, 60);
+  perform public.partner_import_downloaded(v_inv, 1, 100, now() - interval '1 hour', null, null);
+  perform public.partner_import_rows(v_inv, 0, '[
+    {"id":"S1","store":"KE1","availability":"in_stock","state":"in_stock","quantity":3},
+    {"id":"S1","store":"MI1","availability":"out_of_stock","state":"out_of_stock","quantity":0},
+    {"id":"S1","store":"MI2","availability":"limited_availability","state":"limited","quantity":1},
+    {"id":"S4","store":"BA1","availability":"in_stock","state":"in_stock","quantity":8}
+  ]', true, '', 4, 0, null, 'utf-8');
+  assert public.partner_import_finish(v_inv) ->> 'status' = 'done';
+
+  -- Heureka partner: no inventory feed → no store stock at all
+  v_imp := (select id from public.partner_imports where partner_id = v_b and kind = 'products');
+  perform public.partner_import_claim(v_imp, 60);
+  perform public.partner_import_downloaded(v_imp, 1, 100, now() - interval '2 hours', null, null);
+  perform public.partner_import_rows(v_imp, 0, '[
+    {"id":"H1","title":"Stan Quechua 2 Seconds","price":89.99,"currency":"EUR","availability":"0","state":"in_stock","link":"https://bazar.example.org/s1"},
+    {"id":"H2","title":"Stan rodinný 4 osoby","price":149.0,"currency":"EUR","availability":"3","state":"in_days","days":3,"link":"https://bazar.example.org/s2"}
+  ]', true, '', 2, 0, null, 'utf-8');
+  assert public.partner_import_finish(v_imp) ->> 'status' = 'done';
+
+  -- never mixed with the shops' data
+  assert (select count(*) from public.shop_items) = v_shop_items and (select count(*) from public.inventory) = v_inventory,
+    'a partner import touches no shop data';
+  assert not exists (select 1 from public.search_stock('kladivo', null, null, null, false) where item_name ilike '%tesárske%'),
+    'search_stock never returns partner rows';
+  assert not exists (select 1 from public.search_stock('stan quechua', null, null, null, false)), 'no partner row in the shops'' search';
+  assert not exists (select 1 from public.search_stock('kladivo', null, null, null, false) s
+                     where not exists (select 1 from public.shop_items si where si.id = s.item_id)), 'only shop items in search_stock';
+  assert not exists (select 1 from public.public_stock where item_name ilike '%Quechua%'), 'public_stock has no partner rows';
+
+  -- an unchanged feed (304) keeps the time of its data
+  update public.partners set next_run_at = now() where id = v_b;
+  perform public.partner_start_due();
+  v_imp := (select id from public.partner_imports where partner_id = v_b and status = 'download');
+  v_claim := public.partner_import_claim(v_imp, 60);
+  assert v_claim -> 'previous' ->> 'feed_time' is not null, 'the earlier import is offered for If-Modified-Since';
+  perform public.partner_import_unchanged(v_imp);
+  assert (select status = 'unchanged' and feed_time is not null from public.partner_imports where id = v_imp);
+
+  -- a feed with mostly unreadable rows changes nothing more and is tried again within the hour
+  update public.partners set next_run_at = now() where id = v_b;
+  perform public.partner_start_due();
+  v_imp := (select id from public.partner_imports where partner_id = v_b and status = 'download');
+  perform public.partner_import_claim(v_imp, 60);
+  perform public.partner_import_downloaded(v_imp, 1, 100, now(), null, null);
+  perform public.partner_import_rows(v_imp, 0, '[]', true, '', 10, 9, null, null);
+  assert public.partner_import_finish(v_imp) ->> 'error' = 'unreadable';
+  assert (select count(*) from public.partner_products where partner_id = v_b) = 2, 'the earlier rows stay';
+  assert (select next_run_at < now() + interval '61 minutes' from public.partners where id = v_b), 'tried again within the hour';
+
+  -- a feed over the size limit stops with its reason and waits for the partner's next turn
+  update public.partners set next_run_at = now() where id = v_b;
+  perform public.partner_start_due();
+  v_imp := (select id from public.partner_imports where partner_id = v_b and status = 'download');
+  perform public.partner_import_claim(v_imp, 60);
+  perform public.partner_import_fail(v_imp, 'too_big', 'The feed is larger than 50 MB (PARTNER_FEED_MAX_MB).');
+  assert (select status = 'error' and error = 'too_big' and error_detail like '%PARTNER_FEED_MAX_MB%' from public.partner_imports where id = v_imp);
+  assert (select next_run_at > now() + interval '23 hours' from public.partners where id = v_b), 'too big: no retry within the hour';
+  assert (select count(*) from public.partner_products where partner_id = v_b) = 2, 'and nothing changed';
+
+  -- an import that never finishes is given up after 30 tries
+  update public.partners set next_run_at = now() where id = v_b;
+  perform public.partner_start_due();
+  v_imp := (select id from public.partner_imports where partner_id = v_b and status = 'download');
+  update public.partner_imports set attempts = 30 where id = v_imp;
+  assert public.partner_import_claim(v_imp, 60) ->> 'error' = 'stuck';
+
+  -- a full new feed: rows it no longer has are removed; unchanged rows keep changed_at
+  update public.partner_products set changed_at = now() - interval '1 day' where partner_id = v_a;
+  select changed_at into v_changed from public.partner_products where partner_id = v_a and item_id = 'S1';
+  update public.partners set next_run_at = now() where id = v_a;
+  perform public.partner_start_due();
+  v_imp := (select id from public.partner_imports where partner_id = v_a and kind = 'products' and status = 'download');
+  delete from public.partner_imports where partner_id = v_a and kind = 'inventory' and status = 'download';
+  perform public.partner_import_claim(v_imp, 60);
+  perform public.partner_import_downloaded(v_imp, 1, 100, now() - interval '30 minutes', null, null);
+  perform public.partner_import_rows(v_imp, 0, '[
+    {"id":"S1","title":"Stan Quechua 2 Seconds","brand":"Quechua","gtin":"3608439000001","price":89.99,"currency":"EUR","availability":"in_stock","state":"in_stock","link":"https://partner.example.com/p/S1"},
+    {"id":"S2","title":"Kladivo tesárske 600 g","brand":"Geologic","price":19.99,"sale_price":14.99,"sale_from":"2020-01-01T00:00:00Z","sale_to":"2099-01-01T00:00:00Z","currency":"EUR","availability":"out_of_stock","state":"out_of_stock","link":"https://partner.example.com/p/S2"},
+    {"id":"S4","title":"Turistická obuv MH100","price":44.99,"currency":"EUR","availability":"in_stock","state":"in_stock","link":"https://partner.example.com/p/S4"}
+  ]', true, '', 3, 0, null, null);
+  perform public.partner_import_finish(v_imp);
+  assert not exists (select 1 from public.partner_products where partner_id = v_a and item_id = 'S3'), 'gone from the feed: gone';
+  assert (select changed_at from public.partner_products where partner_id = v_a and item_id = 'S1') = v_changed, 'unchanged values keep changed_at';
+  assert (select changed_at > v_changed from public.partner_products where partner_id = v_a and item_id = 'S4'), 'a new price is a change';
+end $$;
+reset role;
+
+-- the search: accent-insensitive, every word, partner name, GTIN; stores in the town from the feed only
+set role anon;
+do $$
+declare
+  v_r record;
+  v_first uuid;
+  v_order text;
+begin
+  assert public.partner_layer_ready();
+  select * into v_r from public.search_partner_products('KLADIVO tesarske', null, 10);
+  assert v_r.title = 'Kladivo tesárske 600 g' and v_r.price = 14.99 and v_r.regular_price = 19.99, 'sale price inside its dates';
+  assert v_r.availability_state = 'out_of_stock' and v_r.availability = 'out_of_stock', 'availability as the feed wrote it';
+  assert not exists (select 1 from public.search_partner_products('kladivo', null, 10) where title = 'Kladivo 500 g'), 'no shop items here';
+  assert (select count(*) from public.search_partner_products('stan', null, 10)) = 3, 'both partners, accent-insensitive';
+  assert (select count(*) from public.search_partner_products('stan bazar', null, 10)) = 2, 'the partner''s name is searched too';
+  assert (select count(*) from public.search_partner_products('3608439000001', null, 10)) = 1, 'by GTIN';
+  assert (select count(*) from public.search_partner_products('stan lietadlo', null, 10)) = 0, 'every word must match';
+  assert not exists (select 1 from public.search_partner_products('', null, 10)), 'no term: nothing';
+
+  -- no town: no stores; Michalovce: the store there and the one within 20 km of its centre (by the shops' centre)
+  assert (select bool_and(stores = '[]'::jsonb) from public.search_partner_products('stan', null, 10)), 'stores only for a town';
+  select * into v_r from public.search_partner_products('quechua', 'michalovce', 10) where partner_name = 'Šport Partner';
+  assert jsonb_array_length(v_r.stores) = 2, format('two stores around Michalovce: %s', v_r.stores);
+  assert v_r.stores -> 0 ->> 'code' = 'MI2' and v_r.stores -> 0 ->> 'state' = 'limited', 'in stock first';
+  assert v_r.stores -> 1 ->> 'code' = 'MI1' and v_r.stores -> 1 ->> 'state' = 'out_of_stock';
+  select * into v_r from public.search_partner_products('quechua', 'Košice', 10) where partner_name = 'Šport Partner';
+  assert v_r.stores -> 0 ->> 'name' = 'Predajňa Košice' and (v_r.stores -> 0 ->> 'quantity')::numeric = 3;
+  -- the Heureka partner has no local inventory feed: never any store stock
+  assert (select bool_and(stores = '[]'::jsonb) from public.search_partner_products('stan', 'Košice', 10) where partner_name = 'Bazár Partner');
+  -- the store list alone is no stock: Bratislava has a store, but this item has no row there
+  assert (select stores from public.search_partner_products('quechua', 'Bratislava', 10) where partner_name = 'Šport Partner') = '[]'::jsonb;
+  -- the store in Košice with stock comes first for Košice
+  select partner_name into v_order from public.search_partner_products('stan quechua', 'Košice', 10) limit 1;
+  assert v_order = 'Šport Partner', 'stock in a store in the town first';
+end $$;
+reset role;
+
+-- older than 48 hours: no availability, no store stock, only the time; last in the order
+set role service_role;
+update public.partner_products set updated_at = now() - interval '49 hours' where item_id = 'S1';
+update public.partner_store_stock set updated_at = now() - interval '49 hours' where item_id = 'S1' and store_code = 'KE1';
+reset role;
+set role anon;
+do $$
+declare v_r record;
+begin
+  select * into v_r from public.search_partner_products('quechua', 'Košice', 10) where partner_name = 'Šport Partner';
+  assert v_r.stale and v_r.availability is null and v_r.availability_state is null and v_r.stores = '[]'::jsonb,
+    'old data shows no availability';
+  assert v_r.updated_at < now() - interval '48 hours', 'only its time';
+  assert (select partner_name from public.search_partner_products('stan quechua', 'Košice', 10) limit 1) = 'Bazár Partner', 'fresh first';
+end $$;
+reset role;
+
+-- the affiliate flag never changes the order
+set role service_role;
+update public.partner_products set updated_at = now() - interval '1 hour' where item_id = 'S1';
+reset role;
+do $$
+declare
+  v_before text;
+  v_after text;
+begin
+  set local role anon;
+  select string_agg(partner_name || ':' || item_id, ',') into v_before from public.search_partner_products('stan quechua', null, 10);
+  reset role;
+  update public.partners set affiliate = not affiliate;
+  set local role anon;
+  select string_agg(partner_name || ':' || item_id, ',') into v_after from public.search_partner_products('stan quechua', null, 10);
+  reset role;
+  assert v_before = v_after, format('affiliate changed the order: %s / %s', v_before, v_after);
+  update public.partners set affiliate = not affiliate;
+end $$;
+
+-- the admin sees counts and imports; deleting a partner removes everything of it
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare
+  v_s jsonb := public.admin_partner_settings();
+  v_p jsonb;
+  v_a uuid;
+  v_del jsonb;
+begin
+  select value into v_p from jsonb_array_elements(v_s -> 'partners') where value ->> 'name' = 'Šport Partner';
+  v_a := (v_p ->> 'id')::uuid;
+  assert (v_p ->> 'products')::int = 3 and (v_p ->> 'store_stock')::int = 4 and jsonb_array_length(v_p -> 'stores') = 4;
+  assert jsonb_array_length(v_p -> 'imports') >= 2;
+  perform public.admin_queue_partner_import(v_a);
+  v_del := public.admin_delete_partner(v_a);
+  assert v_del ->> 'logo' is null and v_del -> 'files' = '[]'::jsonb;
+  assert public.admin_delete_partner(v_a) is null, 'already gone';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+do $$ begin
+  assert not exists (select 1 from public.partner_products pp where not exists (select 1 from public.partners p where p.id = pp.partner_id));
+  assert not exists (select 1 from public.partner_store_stock ss where not exists (select 1 from public.partners p where p.id = ss.partner_id));
+end $$;
+delete from public.partners;
+
 \echo 'ALL DATABASE CHECKS PASSED'

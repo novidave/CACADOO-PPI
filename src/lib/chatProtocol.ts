@@ -9,10 +9,10 @@ import type { StatusInput } from "./hours";
 
 /**
  * The real steps of a request, in order (the status line under the thinking dots): the question
- * reached the AI, it searches Cacadoo, it looks for shops nearby / on the web (Prompt 11, only when
- * Cacadoo had too little), the results with availability and hours are back.
+ * reached the AI, it searches Cacadoo, its partners' feeds, shops nearby / the web (Prompt 11, only
+ * when Cacadoo had too little), the results with availability and hours are back.
  */
-export type ChatStep = "understand" | "search" | "nearby" | "web" | "verify";
+export type ChatStep = "understand" | "search" | "partners" | "nearby" | "web" | "verify";
 
 /** One result card: built by the server from search_stock results only, never from the AI's text. */
 export interface ChatCard {
@@ -40,6 +40,36 @@ export interface ChatCard {
   /** Layer 1: verified stock from the shop's own file ("Cacadoo"). */
   source: "cacadoo";
   /** "overená zásoba" / "staršie údaje" / "bez aktuálnych údajov" (from the freshness). */
+  confidence: string;
+}
+
+/**
+ * Layer 2: a partner shop's product from its own feed (database update 35), as the partner sent it.
+ * Never Cacadoo-verified stock: "skladom podľa partnera". Line: "Decathlon (partner) · 24,99 € ·
+ * online skladom / predajňa Košice: skladom podľa partnera · údaje z 08:00".
+ */
+export interface PartnerCard {
+  id: string;
+  source: "partner";
+  partner: string;
+  logo: string | null;
+  /** The product name as the partner's feed wrote it. */
+  title: string;
+  brand: string | null;
+  /** The partner's product page; null when the feed has none. */
+  href: string | null;
+  /** The link is an affiliate link: marked "partnerský odkaz" (rel="sponsored"). Never changes the order. */
+  affiliate: boolean;
+  price: string | null;
+  /** The regular price while the feed's sale price applies. */
+  regularPrice: string | null;
+  /** "online skladom"; null when the feed is older than 48 hours or says nothing. */
+  online: string | null;
+  /** "predajňa Košice: skladom podľa partnera" — only from the partner's local inventory feed. */
+  stores: string[];
+  /** "údaje z 08:00" / for old data "údaje z 12. 10. 2026". */
+  checkedAt: string;
+  stale: boolean;
   confidence: string;
 }
 
@@ -112,6 +142,8 @@ export interface ChatShop {
 export interface ChatResults {
   /** Layer 1, Cacadoo: current, then recent, then stale. */
   cards: ChatCard[];
+  /** Layer 2, partners' feeds ("Partneri"), in the database's order. */
+  partners?: PartnerCard[];
   shops: Record<string, ChatShop>;
   /** What was searched for (shown when nothing was found). */
   searched: string[];
@@ -301,19 +333,25 @@ export function readEvents(buffer: string): { events: ChatEvent[]; rest: string 
 }
 
 /** What the browser sends back about an answer for the next question: its text and the cards it showed. */
-export function answerForHistory(answer: string, cards: ChatCard[], more: Pick<ChatResults, "nearby" | "web"> = {}): string {
+export function answerForHistory(answer: string, cards: ChatCard[], more: Pick<ChatResults, "partners" | "nearby" | "web"> = {}): string {
   const shown = cards
     .slice(0, CARDS_SHOWN)
     .map((c) => `${c.name} – ${c.price} – ${c.shop}${c.place ? `, ${c.place}` : ""}`)
     .join("; ");
+  const partners = (more.partners ?? []).slice(0, 3).map((p) => `${p.partner}: ${p.title}${p.price ? ` – ${p.price}` : ""}`).join("; ");
   const nearby = (more.nearby ?? []).slice(0, 4).map((n) => `${n.name} (${n.kind}, ${n.distance})`).join("; ");
   const web = (more.web ?? []).slice(0, 3).map((w) => `${w.retailer}: ${w.title}`).join("; ");
-  const parts = [shown && `[Shown: ${shown}]`, nearby && `[Nearby, stock not verified: ${nearby}]`, web && `[On the web: ${web}]`].filter(Boolean);
+  const parts = [
+    shown && `[Shown: ${shown}]`,
+    partners && `[Partners' feeds, not verified by Cacadoo: ${partners}]`,
+    nearby && `[Nearby, stock not verified: ${nearby}]`,
+    web && `[On the web: ${web}]`,
+  ].filter(Boolean);
   return `${answer.trim()}${parts.length ? `\n${parts.join("\n")}` : ""}`.slice(0, MAX_TURN_CHARS);
 }
 
-/** The refs the AI chose of one kind ("n" nearby, "w" web), in its order; null when it chose none of them. */
-export function refsOfKind(refs: string[], prefix: "r" | "n" | "w"): string[] | null {
+/** The refs the AI chose of one kind ("p" partners, "n" nearby, "w" web), in its order; null when it chose none of them. */
+export function refsOfKind(refs: string[], prefix: "r" | "p" | "n" | "w"): string[] | null {
   const mine = refs.filter((ref) => new RegExp(`^${prefix}\\d+$`).test(ref));
   return mine.length ? mine : null;
 }

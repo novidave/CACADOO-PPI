@@ -11,6 +11,7 @@ import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDo
 import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
 import { ExternalSearchAdmin, type SearchSettings, type SourcesEnv } from "./ExternalSearchAdmin";
 import { outsideSearchEnabled, sourcesStatus } from "@/lib/productSources";
+import { type PartnerEnv, PartnerFeedsAdmin, type PartnerSettings } from "./PartnerFeedsAdmin";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/admin/domains">): Promise<Metadata> {
   const { lang } = await params;
@@ -99,7 +100,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     hyear: String(hyear),
   })}`;
 
-  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv] = await Promise.all([
+  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
@@ -108,6 +109,12 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     // "Vyhľadávanie mimo Cacadoo" (database update 34) and the product-sources function's switches.
     session.supabase.rpc("admin_search_settings"),
     sourcesStatus(session.supabase),
+    // "Partnerské feedy" (database update 35) and the partner-feeds function's size limit.
+    session.supabase.rpc("admin_partner_settings"),
+    session.supabase.functions
+      .invoke<{ env: PartnerEnv }>("partner-feeds", { body: { action: "admin_status" } })
+      .then(({ data, error }) => (error || !data ? null : data.env))
+      .catch(() => null),
   ]);
   const limitRows = sectionLimits.error ? null : ((sectionLimits.data ?? []) as LimitsRow[]);
   if (overview.error) return <DbError message={overview.error.message} dict={dict} />;
@@ -120,7 +127,11 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     : null;
   const ok = first(sp.ok);
   const err = first(sp.err);
-  const searchErr = err?.startsWith("search_") ? (dict.admin_search as Record<string, string>)[`err_${err.slice(7)}`] : undefined;
+  const searchErr = err?.startsWith("search_")
+    ? (dict.admin_search as Record<string, string>)[`err_${err.slice(7)}`]
+    : err?.startsWith("partner_")
+      ? t((dict.admin_partners as Record<string, string>)[`err_${err.slice(8)}`] ?? err, { line: first(sp.line) ?? "?" })
+      : undefined;
   const credit = s.credit_eur === null || s.credit_eur === undefined ? null : Number(s.credit_eur);
   const low = Number(s.low_credit_eur ?? 0);
   const hidden = (
@@ -135,7 +146,11 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">{a.title}</h1>
-        {ok && <p role="status" className="border border-foreground p-3 font-medium">{a.done}</p>}
+        {ok && (
+          <p role="status" className="border border-foreground p-3 font-medium">
+            {ok === "partner_queued" ? dict.admin_partners.queued : a.done}
+          </p>
+        )}
         {err && <p role="alert" className="border border-line p-3">{searchErr ?? t(a.failed, { message: err })}</p>}
       </header>
 
@@ -394,6 +409,14 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
         settings={searchSettings.error ? null : (searchSettings.data as SearchSettings)}
         env={sourcesEnv as SourcesEnv | null}
         websiteSecret={outsideSearchEnabled()}
+        dict={dict}
+        hidden={hidden}
+      />
+
+      <PartnerFeedsAdmin
+        settings={partnerSettings.error ? null : (partnerSettings.data as PartnerSettings)}
+        env={partnerEnv}
+        lang={lang}
         dict={dict}
         hidden={hidden}
       />

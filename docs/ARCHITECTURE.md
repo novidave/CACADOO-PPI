@@ -443,6 +443,71 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   ASCII-only domains without wildcards, search addresses https on the shop's host with `{query}` once, plain-text label,
   ≤ 50), `admin_delete_web_domain()` — all `is_admin()` in SQL; the environment's state from `admin_status`.
 
+### 2.7b Partner feeds: layer 2 of the chat (Prompt 11 phase B: `supabase/sql/35_partner_feeds.sql`, `supabase/functions/partner-feeds`, `lib/partnerSearch.ts`, `lib/partners.ts`, admin `PartnerFeedsAdmin.tsx`)
+
+- **Tables** (update 35; RLS on, no grant for visitors or owners): `partners` (the admin's settings), `partner_stores`
+  (the store list the admin typed), `partner_products` and `partner_store_stock` (the feeds' rows exactly as sent, each
+  with `updated_at` = the time of its data and `import_id`), `partner_imports` (one row per import: its state between
+  the function's calls and its result; one running import per partner and kind; the last 10 kept). Never joined with
+  `shop_items` / `inventory`; not in `public_stock`, `search_stock`, the API or MCP.
+- **The function `partner-feeds`** (one file, Verify JWT off) — three steps, so a big feed fits the 2 s of CPU per call:
+  1. **download** (`partner_import_claim()` leases the import for 170 s): the https address (`safeUrl()`: https, a real
+     host name, no IP, no local names, no user:password; at most 5 forwards, each checked; `If-Modified-Since` /
+     `If-None-Match` from the last finished import of the same address and format unless forced → 304 =
+     `partner_import_unchanged()`) or the admin's uploaded file (streamed from storage; the same file again =
+     unchanged) → `unpacked()` (gzip by its magic bytes through `DecompressionStream`; ZIP refused) →
+     `splitIntoParts()`: parts of 4 MB (`imports/<import>/00000.part`), each cut after a line break (else after `>`,
+     else after an ASCII byte) so no character is split, counting every byte against `PARTNER_FEED_MAX_MB` (default 50,
+     at most 500; a `Content-Length` over it stops before the body is read) → over it: `too_big`, the parts already
+     written removed, nothing changed → else `partner_import_downloaded()` with the time of the data (`Last-Modified`
+     when not in the future, else now; for a file its upload time).
+  2. **parse**, one part per call: the encoding from part 0 (BOM, the XML declaration, valid UTF-8, else
+     Windows-1250); text = the import's `carry` + the part; `parseText()`: XML records by the format's item tag (`<item>`
+     RSS or `<entry>` Atom for Google, `<SHOPITEM>` for Heureka; direct children only, CDATA and entities decoded), CSV
+     records with quotes and quoted line breaks (delimiter from the header: tab, `;`, `,`, `|`; the header kept in the
+     import); an item cut by the part's end goes back as the new `carry` (≤ 1.5 MB). Rows: Google (id, title, link,
+     image_link, price/sale_price + its dates, availability, brand, gtin, mpn, product_type), Heureka (ITEM_ID,
+     PRODUCTNAME/PRODUCT, URL, IMGURL, PRICE_VAT in the partner's currency, MANUFACTURER, EAN, PRODUCTNO, CATEGORYTEXT,
+     DELIVERY_DATE: 0 = in stock, N = in N days, a date as written), own CSV (columns by name in sk/hu/en; other columns
+     never stored), local inventory (store_code, id/itemid, availability, quantity). A row over the database's limits is
+     counted unreadable, never cut. `partner_import_rows()` in batches of 1000 (`distinct on` the id, upsert); the part's
+     last batch moves the import on (`part_index`, `carry`, counts) and lets go of the lease; then the function calls
+     itself (`work` with the service role key) for the next part.
+  3. **finish** after the last part: `partner_import_finish()` — no readable rows, or more unreadable than readable →
+     `error` (`empty` / `unreadable`), the earlier rows stay; else the partner's rows of that kind from older imports are
+     deleted. The parts are removed (also after any error). Failures are retried within the hour
+     (`partner_retry_soon()`; too big: at the next turn); 30 claims without progress = `stuck`.
+  Callers: pg_cron `ppi-partner-feeds-tick` every 5 minutes (`x-ppi-cron` = Vault `ppi_assistant_cron`, checked with
+  `assistant_cron_ok()`): `partner_start_due()` (due partners: a products import and, with a local feed, an inventory
+  import; `next_run_at` + the schedule) and `partner_imports_waiting()` → one `work` call each; `run` and `admin_status`
+  with the admin's login (`is_admin()`). Feed addresses (they may hold a partner's token) are never logged.
+- **Search** `search_partner_products(q, town, limit)` (anon): candidates by the longest word on `search_blob`
+  (generated `search_text(title brand gtin mpn)`, trigram index) or the partner's name, then `matches_all_words` (or the
+  exact GTIN); the sale price inside its dates; `partner_data_fresh()` (48 hours) — older rows return
+  `availability*` null, no stores and `stale`; stores only from `partner_store_stock` joined with the store list, in the
+  town (`search_text(city)` equal, or within 20 km of `town_center()` / `town_geocodes`), fresh rows only, ≤ 5. Order:
+  fresh, in stock in a store in the town, in stock online, `similarity`, price, partner name, title — never `affiliate`.
+  `partner_layer_ready()`: an enabled partner with rows.
+- **In the chat** (`runChatSearch`): `search_partners` {query, town} is offered only when `partner_layer_ready()`. The
+  server processes a turn's calls Cacadoo → partners → outside; the partners are refused before Cacadoo or with 3+ good
+  Cacadoo results; a town not in the shopper's words is dropped (no stores). Shops nearby and the web need the partners
+  searched first (or in the same turn) and fewer than 3 good results of Cacadoo and the partners together
+  (`isGoodPartner`: fresh and in stock in a store in the town). The model sees partner, title, brand, price, the online
+  state, the stores' states and whether the data is old — never the affiliate flag. `partnerResults()` builds
+  `PartnerCard`s from the rows only (refs `p…` choose; the database's order, old data last; ≤ 6): "Šport Partner
+  (partner) · 19,99 € (pôvodne 24,99 €) · online skladom / predajňa Michalovce: skladom podľa partnera · údaje z 09:48"
+  (`partnerOnlineText`, `partnerStoreText`, `partnerTimeText` in the partner's time zone), the title linked
+  (`rel="sponsored noopener noreferrer"` + "partnerský odkaz" for affiliate partners), "údaje partnera, neoverené v
+  Cacadoo"; the logo from the public bucket in grey. Step `partners` ("Hľadám u partnerov…"); the group "Partneri" sits
+  between "Overené v Cacadoo" and "Obchody v okolí (neoverené)"; the history line names the partners' offers.
+- **Admin** (`PartnerFeedsAdmin.tsx`, `partnerActions.ts`): `admin_partner_settings()`, `admin_save_partner()` (another
+  address, format or currency → a full import soon; an address replaces an uploaded file), `admin_set_partner_file()`
+  (the browser uploaded `<partner>/feed-<ms>.xml` straight into `partner-feeds` — storage policy: admin, that name
+  pattern — through `PartnerFileUpload`; the replaced file deleted), `admin_set_partner_logo()` (sharp → WebP ≤ 256 ×
+  64 in `partner-logos`), `admin_save_partner_stores()` ("stores:<line>" on a wrong row), `admin_queue_partner_import()`
+  + the function's `run` ("Importovať teraz"), `admin_delete_partner()` (then its files); the import reasons in sk/hu/en
+  (`admin_partners.err_import_*`) with the function's detail.
+
 ### 2.8 Paid plan (`supabase/functions/stripe-checkout`, `supabase/functions/stripe-webhook`)
 
 - **No Stripe key on the website.** Both functions are single paste-deployable files with Verify JWT off; they call the
@@ -990,6 +1055,16 @@ the allowed domains → "Overujem…" → the answer streams ("Môže ich mať �
 v okolí (neoverené)" and "Na webe" with the deep links. "turistické topánky" without a town → the Cacadoo answer + "V
 ktorom meste hľadáte?" → "v Michalovciach" → the same with the town.
 
+**A shopper asks "Kde kúpim kladivo v Michalovciach?" with partner feeds (Prompt 11 phase B):** `search_stock` near
+Michalovce → one hammer, sold out (no good result) → the model calls `search_partners` {kladivo, Michalovce},
+`search_nearby_shops` and `search_web` in one turn → the server runs the partners first ("Hľadám u partnerov…"):
+`search_partner_products` → 1 good partner result (in stock in the partner's Michalovce store) → still fewer than 3 →
+shops nearby and the web run → the answer → the groups "Overené v Cacadoo", "Partneri" ("Šport Partner (partner) ·
+19,99 € · online skladom / predajňa Michalovce: skladom podľa partnera · údaje z 09:48", "partnerský odkaz"; a 3-day-old
+feed only "údaje z 12. 10. 2026"), "Obchody v okolí (neoverené)", "Na webe". **A partner feed is imported:** pg_cron →
+partner-feeds `tick` → `partner_start_due` → `work` (download: the feed into 4 MB parts) → `work` per part (rows) →
+`partner_import_finish` → the parts removed.
+
 **A shop's names get their translations:** an upload is applied → reply to the PPI window → in the background
 `items_to_translate` → Claude Haiku → `apply_item_translations` → from then on "white paint" finds "Farba fas. biela 5L".
 
@@ -1066,6 +1141,8 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | Translation fails (Claude unavailable, no key) | stock as usual; new names found only by their original words | names without translation ("made with the next stock file"); `last_error` "Item names could not be translated (the stock is fine): …" until the next applied file; retried with the next file |
 | AI search fails, is slow (no answer in 12 s) or is over a limit | the plain search's cards in the same chat with "Zobrazujem jednoduché výsledky vyhľadávania." | when logged in: the reason under the note; Vercel log line `ai-search: …` |
 | product-sources missing, failing or switched off; Nominatim / Overpass / Google / web search down | Cacadoo's answer as usual, without that group (the AI is told the source is unavailable) | Vercel log `ai-search: product-sources … failed (…)`, Supabase function log `product-sources: …`; the admin page shows the environment's switches |
+| A partner feed fails (server error, wrong format, too big, unreadable) | the partner's earlier rows; after 48 hours without a new import no availability, only "údaje z <dátum>" | admin page: the import with its reason ("Feed je väčší ako limit PARTNER_FEED_MAX_MB…"); Supabase function log `partner-feeds: …` (never the address) |
+| partner-feeds not deployed / no partner with rows | the chat without "Partneri" (the layer is skipped) | admin page: "Funkcia partner-feeds neodpovedá…" / "Zatiaľ žiadny partner…" |
 | Daily limit of outside calls reached | Cacadoo only, with "Prehľadali sme len ponuky v Cacadoo." | today's calls on the admin page |
 | E-mail sending fails (SMTP) | — | no confirmation / reset e-mails (check Brevo and Supabase Auth logs) |
 | Stripe not set up (secrets missing) or function not deployed | — | "Paid plans are not available yet" / "Stripe could not be opened: …" in the Plan section |
@@ -1147,6 +1224,12 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
   `stripe-checkout` with the owner's login and never sees a key. `stripe-webhook` accepts only correctly signed,
   recent events and re-reads the subscription from Stripe; only it (and `stripe-checkout` for the customer link) writes
   `subscriptions`, with the service role. Card data never reaches PPI.
+- Partner feeds (update 35): the partner-feeds function fetches only https addresses of real host names (no IP
+  addresses or local names, every forward checked, at most 5) and never logs them (they may hold a partner's token);
+  feed rows are data — the AI sees them as tool results only, never the affiliate flag; visitors read them only through
+  `search_partner_products()`; uploads into `partner-feeds` only by the admin with the expected name; the function's
+  `work` step only with the service role key, `run` only for the admin, `tick` only with the Vault secret. Nothing about
+  visitors goes to partners.
 - Secrets (SMTP key, API keys) live in Supabase secrets, Vercel variables and a password manager —
   never in the repository or chat.
 
@@ -1165,6 +1248,7 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Supabase function secret | `WEB_SEARCH_ENABLED`, `GOOGLE_PLACES_ENABLED` | `true` switches the web search / Google Places on (the hard off; the admin's switch can also turn a layer off) |
 | Supabase function secret (optional) | `GOOGLE_PLACES_API_KEY` | Google Places API (New), only with `GOOGLE_PLACES_ENABLED=true` |
 | Supabase function secret | `ADMIN_EMAIL`, `ANTHROPIC_API_KEY`, `AI_MODEL` (existing) | the contact in Nominatim/Overpass requests (without it OpenStreetMap is not asked); the web search and its model |
+| Supabase function secret (optional) | `PARTNER_FEED_MAX_MB` | the largest partner feed the partner-feeds function reads, in MB unpacked (default 50, at most 500); a bigger feed stops with "too_big" |
 | Vercel env (optional) | `AI_DAILY_LIMIT` | AI searches per day for the whole site (default 500) |
 | Vercel env (optional) | `CHAT_MONTHLY_LIMIT_PER_SHOP` | shop assistant messages per shop per calendar month (default 1,000; 0 = assistants off) |
 | Vercel env (server only) | `SESSION_COOKIE_SECRET` | at least 32 random characters: signs the access-key session cookie and the viewer's page addresses; without it "Mám prístupový kľúč" is off |
@@ -1199,7 +1283,7 @@ src/app/api, mcp, auth     REST API + OpenAPI, MCP server, e-mail link landing /
 src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
 src/components/            ShopMap, FolderSync, ChatSearch, ShopChat, FolderAccess, DocUpload, FolderKeyForm,
                            FolderKeySetter, ShopForm, LogoInput, DashboardSection, RecentImports, ContactLinks, …
-src/lib/                   data, publicApi, aiSearch, chatProtocol, aiModel, shopChat, assistantArchive, docsAccess, accessKey, watermark,
+src/lib/                   data, publicApi, aiSearch, chatProtocol, partners, partnerSearch, aiModel, shopChat, assistantArchive, docsAccess, accessKey, watermark,
                            pdfRead, names, apiHttp, domains, domainName, customDomain, siteFiles, jsonLd,
                            functionError, …
 src/types/                 type declarations for packages without their own (opentype.js)
@@ -1208,7 +1292,7 @@ src/proxy.ts               language redirect + session refresh; shops' own domai
 supabase/migrations/       updates 1–21 (section 9)
 supabase/sql/              from update 22 on: one SQL file per phase, pasted by the owner (section 9)
 supabase/functions/        stock-pull, stripe-checkout, stripe-webhook, doc-ingest, shop-files, assistant-archive,
-                           cloud-export, domains, page-sections, product-sources
+                           cloud-export, domains, page-sections, product-sources, partner-feeds
                            (each index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
@@ -1254,6 +1338,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 32 | `supabase/sql/32_site_logo_link.sql` | "Odkaz loga": `shops.site_logo_link` (+ check), `guard_shop_site_logo` with it, `owner_set_site_logo_link`, `shop_site_logo` (+ `link`; dropped and made again). Needs 31; safe to run twice |
 | 33 | `supabase/sql/33_domain_findable.sql` | own domains easy to find: `domain_orders.google_verification*` and `indexnow_*` (+ checks), `domain_settings.indexnow_key` (+ check, made once) and `indexnow_key()`, `inventory.changed_at` / `shop_items.changed_at` with `track_inventory_change` / `track_item_change`, `indexnow_claim`, `indexnow_sent` (service role), `shops.product_categories` (+ `valid_categories` check, `guard_shop_categories`), `clean_categories`, `owner_set_categories`, `shop_llms_facts` (public). Needs 25; safe to run twice |
 | 34 | `supabase/sql/34_layered_search.sql` | the chat's search in layers: `search_layers` (switch + estimated prices per outside layer), `web_search_domains` (+ `valid_web_domain`, `valid_search_url`), `external_search_usage` (+ `external_search_claim`, `external_search_cost`), `town_geocodes`, `osm_shop_cache` (+ `osm_cache_put`), `external_throttle` (+ `external_slot`), `cacadoo_shops_near` (all service role only), `admin_search_settings`, `admin_save_search_layer`, `admin_save_web_domain`, `admin_delete_web_domain` (`is_admin()`). RLS on every table, no grant for visitors or owners. Safe to run twice |
+| 35 | `supabase/sql/35_partner_feeds.sql` | partner feeds: `partners`, `partner_stores`, `partner_products` (+ `search_blob`, trigram index), `partner_store_stock`, `partner_imports`; helpers `valid_feed_url`, `partner_schedule_interval`, `partner_data_fresh`; the function's steps `partner_start_due`, `partner_imports_waiting`, `partner_import_claim`, `partner_import_release`, `partner_import_downloaded`, `partner_import_unchanged`, `partner_import_rows`, `partner_import_finish`, `partner_import_fail`, `partner_retry_soon` (service role only); `search_partner_products`, `partner_layer_ready` (visitors); `admin_partner_settings`, `admin_save_partner`, `admin_set_partner_file`, `admin_set_partner_logo`, `admin_save_partner_stores`, `admin_queue_partner_import`, `admin_delete_partner` (`is_admin()`); buckets `partner-feeds` (private) and `partner-logos` (public); job `ppi-partner-feeds-tick`. RLS on every table. Safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
 | 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
 | 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
@@ -1392,6 +1477,17 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   (bent forms, short words, another town, none), a good result (stale, sold out, a town without Cacadoo shops), the
   refs of one kind, OpenStreetMap hours in the town's own time zone (open until, opens at, tomorrow, unknown) and the
   history line with shops nearby and web offers.
+- `npm run test:functions` also runs 20 tests of `partner-feeds` (update 35): prices and currencies as the text names
+  them; safe addresses and the size limit's bounds; XML records (whole item tags only, direct children, CDATA, entities,
+  comments); Google XML (RSS and Atom), Google CSV/TSV (quotes, quoted line breaks), Heureka XML in Windows-1250 (the
+  partner's currency, DELIVERY_DATE), own CSV (Slovak column names, quantity, other columns never stored), the local
+  inventory feed (XML and CSV; a row without a store unreadable); every format cut into parts of 7–257 bytes gives the
+  same rows; parts end at line breaks, never inside a character; encodings; a wrong format's reason; the whole chain
+  (download → parts → rows → finish, parts removed, Last-Modified as the data's time, then 304 = unchanged); a feed over
+  `PARTNER_FEED_MAX_MB` (streamed and by Content-Length) stops with "too_big", nothing written, no part left; gzip,
+  ZIP refused, HTTP errors, forwards to http or an IP refused, a forward to another https host followed; an uploaded file
+  read once; only the job's secret, the service key and the admin; a broken step goes on from the same part, a missing
+  part stops with its reason.
 - `npm run test:functions` also runs 17 tests of `product-sources` (update 34): the categories are the website's; the
   Overpass query; an OpenStreetMap element (name, point, kind, one clean phone, control characters removed); the same
   shop; a price only from the page's text; allowed domains (subdomains yes, look-alikes and other paths no); deep links
@@ -1599,8 +1695,22 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   the OpenStreetMap shop not repeated, "Google Maps", the field mask, nothing of Google in the AI's requests or the
   database, not on the map); the daily limit → "Prehľadali sme len ponuky v Cacadoo."; an Italian question; the fallback;
   a phone without sideways scroll; English labels; the usage on the admin page; the privacy page's TODO line), and the
-  Prompt 10 script again with the outside layers off (65 checks, unchanged); those scripts are not part of the
-  repository.
+  Prompt 10 script again with the outside layers off (65 checks, unchanged); partner feeds (Prompt 11 phase B, 76
+  checks against the partner-feeds function running locally with PARTNER_FEED_MAX_MB=1, stand-in partner servers, the
+  Claude and OpenStreetMap stand-ins and the real admin page: the section and the function's limit; an http address and
+  Heureka without a currency refused; a Google XML partner with its local inventory feed imported on saving (the data's
+  time from Last-Modified, the PPI user agent, no part left), the store list (a wrong line named), the logo (WebP,
+  public); a Heureka feed 3 days old; an own CSV uploaded from the browser straight to storage (a private column never
+  stored); a 2 MB feed stops with the reason and nothing imported; "Importovať teraz" reads in full; the job with its
+  secret → 304 → unchanged; only the service key and the admin may start steps; "kladivo v Michalovciach" → the groups
+  Cacadoo → Partneri → shops nearby → web, the step "Hľadám u partnerov…", "Šport Partner (partner) · 19,99 € (pôvodne
+  24,99 €) · online skladom / predajňa Michalovce: skladom podľa partnera · údaje z HH:MM", the sold-out one, the CSV
+  partner online only, the old feed "údaje z 12. 10. 2026" without availability and last, "partnerský odkaz" with
+  `rel="sponsored"` only on affiliate partners, the logo in grey, the AI never sees the affiliate flag, partners before
+  shops nearby in the same turn; shops nearby before the partners refused by the server; 3 good partner results → no
+  shops nearby, no web; no town → online only and "V ktorom meste hľadáte?"; a phone without sideways scroll; no partner
+  → the tool not offered, no group; the public API and the plain search without partner rows; the privacy page), and the
+  phase A script again with no partner (95 checks, unchanged); those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).
@@ -1620,6 +1730,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | Websupport | registers the shops' own domains (in the shops' names) from PPI's prepaid credit | the domain prices (partner prices); the shop pays PPI's price table |
 | Stripe | paid plan and domains: payment page, subscriptions, invoices, customer portal, Stripe Tax | no monthly fee; a fee per payment plus Billing and Tax fees (stripe.com/pricing); test mode is free |
 | OpenFreeMap | map tiles | free, no key |
+| Partner feeds | read by the partner-feeds function (Supabase Edge Functions; the parts sit in Supabase Storage only while an import runs) | no extra service; a 50 MB feed is about 13 short function calls per import |
 | OpenStreetMap (Nominatim, Overpass API) | the town's centre and shops nearby for the chat (update 34), cached | free under their usage policies (1 request per second, identified, cached) |
 | Google Places API (New) | optional shops nearby (Nearby Search, Pro fields) | per Google's price list (about $32 per 1,000 Nearby Search Pro requests at the time of writing); off unless `GOOGLE_PLACES_ENABLED=true` |
 | Claude Code | writes, tests and fixes the code | Claude plan |
