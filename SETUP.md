@@ -1225,6 +1225,55 @@ Do the steps in order.
    - Nothing outside appears: Vercel → Logs → search `product-sources`; Supabase → Edge Functions → product-sources →
      Logs. The admin page shows which switch is off.
 
+## Part AF — Partner feeds: partners' products in the chat under "Partneri" (15 October 2026)
+
+- Partner shops (e.g. a large sports chain) can send their **product feed**: Google Merchant XML or CSV/TSV (with its
+  **local inventory feed** for stock per store), Heureka XML, or a plain CSV. PPI reads it on a schedule (daily by
+  default) into its own tables — never mixed with the shops' stock — and shows it exactly as the partner sent it.
+- In the chat, when Cacadoo has fewer than 3 good results, the partners come under **"Partneri"**, between Cacadoo and the
+  shops nearby: "Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera · údaje z
+  08:00". Stock in a store only when the partner's local inventory feed says so. A feed older than 48 hours shows no
+  availability, only "údaje z <dátum>". Affiliate links say "partnerský odkaz" and never rank higher.
+- Admin page "Predplatné a domény" → **Partnerské feedy**: add partners, their feed (address or file), format, schedule,
+  affiliate yes/no, logo and store list; see the counts and the last imports; "Importovať teraz".
+- **Size:** a feed is read in parts, so big feeds work, up to `PARTNER_FEED_MAX_MB` (default 50 MB, at most 500 MB,
+  unpacked). A bigger feed is **not cut**: the import stops and the admin page says "Feed je väčší ako limit
+  PARTNER_FEED_MAX_MB…". A large chain's full feed can be several hundred MB — ask the partner for a feed of the
+  products/regions you need, or raise the limit (Supabase's free plan has 1 GB of storage; the parts sit there only
+  while an import runs). A file you upload yourself is also capped by Storage's file limit (50 MB on the free plan);
+  a feed address has no such cap.
+
+Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/35_partner_feeds.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again. It also creates the buckets
+   `partner-feeds` (private) and `partner-logos` (public) and the job `ppi-partner-feeds-tick` (every 5 minutes; it uses
+   the Vault secrets `ppi_project_url` and `ppi_assistant_cron` from part O — nothing new to add).
+   Check: `select jobname, schedule from cron.job where jobname = 'ppi-partner-feeds-tick';` → one row, `3-59/5 * * * *`.
+2. **New function** `partner-feeds`: Supabase → Edge Functions → **Deploy a new function** → **Via Editor** → name
+   `partner-feeds` → paste the whole file `supabase/functions/partner-feeds/index.ts` → **Deploy** → in its settings
+   switch **OFF "Verify JWT"** (it checks the job's secret, the admin's login and its own service key itself).
+3. **Secret (optional):** Supabase → Edge Functions → **Secrets** → `PARTNER_FEED_MAX_MB` = e.g. `100` (whole MB; default
+   50, at most 500). Nothing to add in Vercel.
+4. **Merge the pull request** on GitHub → Vercel deploys. (With no partner the chat works exactly as before.)
+5. **Admin page** `https://cacadooppivercel.vercel.app/sk/admin/domains#partner-feeds` (your admin account):
+   - The line "Funkcia partner-feeds: limit veľkosti feedu 50 MB …" shows the function answers.
+   - **Pridať partnera:** name (e.g. Decathlon), format (Google Merchant XML for a Google feed), the feed address the
+     partner gave you (https), the local inventory feed address if they have one (for stock per store), time zone
+     (Europe/Bratislava), "Denne", tick **"Partnerské (affiliate) odkazy"** only if the links pay you a commission →
+     **Pridať partnera**. The import starts at once.
+   - Open the partner's row: after a minute the summary shows "N produktov … · hotovo" (or the reason, e.g. too big).
+     Paste the **store list** if the partner gave you one ("kód;názov;adresa;mesto;PSČ;krajina"; the code is the
+     `store_code` of their local inventory feed; the name is shown as "predajňa <name>") → **Uložiť predajne**. Upload
+     the **logo** (PNG/JPG/WebP ≤ 1 MB).
+   - No address, only a file? Leave the address empty, save, then use **Súbor feedu** in the partner's row.
+6. **Test** on `https://cacadooppivercel.vercel.app/sk`: ask for a product the partner's feed has and Cacadoo has few of,
+   with a town where the partner has a store, e.g. **"Kde kúpim stan v Košiciach?"** → "Hľadám u partnerov…" → the group
+   **Partneri** after "Overené v Cacadoo" and before "Obchody v okolí (neoverené)", with the price, "online skladom", the
+   store line (only with a local inventory feed), "údaje z HH:MM" and "partnerský odkaz" on affiliate partners.
+   Problems: the partner's row on the admin page shows the last imports with their reason; Supabase → Edge Functions →
+   partner-feeds → Logs (feed addresses are never written there).
+
 ---
 
 ## Part D — later, before launch
@@ -1272,3 +1321,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 27. Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS, only added), "Odoslať sitemap", llms.txt and robots.txt per domain with "Kategórie tovaru", IndexNow after each upload (only changed pages), Product/Offer + Store JSON-LD, search results linking to the own domain | ✅ built — set up Part AC |
 | 28. The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots and the real steps, the answer streamed, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback | ✅ built — set up Part AD |
 | 29. The chat finds products in layers: Cacadoo, then shops nearby (OpenStreetMap, optional Google Places) and offers on allowed shop websites (web search), only with too little in Cacadoo and a town; admin switches, domains, search links, usage and cost | ✅ built — set up Part AE |
+| 30. Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule, shown in the chat under "Partneri" between Cacadoo and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" | ✅ built — set up Part AF |

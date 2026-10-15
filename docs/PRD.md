@@ -22,6 +22,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | AI search on the main page (Claude Haiku) | Built and tested; switched on by the Anthropic key in Vercel |
 | The main page as one AI chat (Prompt 10): "Čo dnes hľadáte?" with one centred input and example questions; thinking dots and the real steps, the answer streamed word by word, result cards from the search with freshness and status, follow-up questions, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page | Built and tested against a Claude stand-in; live after the merge, no database change (SETUP.md part AD) |
 | The chat finds products in layers (Prompt 11, phase A): Cacadoo first; with fewer than 3 good Cacadoo results and a town the shopper wrote, also shops of the right kind nearby (OpenStreetMap, optionally Google Places; "Môže mať", stock not verified) and offers on allowed shop websites (Claude's web search; "Z webu", price as the page shows it) with links to each shop's own search; groups "Overené v Cacadoo" / "Obchody v okolí (neoverené)" / "Na webe"; anything not about finding a product is declined; admin: switches, allowed domains, search links, calls and estimated cost per day | Built and tested against stand-ins for Claude, Nominatim, Overpass and Google; live after database update 34, the product-sources function, its secrets and the merge (SETUP.md part AE) |
+| Partner feeds (Prompt 11, phase B): partner shops' product feeds (Google Merchant XML/CSV with its local inventory feed, Heureka XML, a plain CSV) read on a schedule into their own tables and shown in the chat under "Partneri" between Cacadoo and shops nearby ("Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera · údaje z 08:00"; older than 48 hours: only "údaje z <dátum>"); affiliate links marked "partnerský odkaz", never ranked higher; admin "Partnerské feedy" | Built and tested against stand-ins for the partners' servers, Claude and Storage; live after database update 35, the partner-feeds function and the merge (SETUP.md part AF) |
 | Paid plan per shop (Stripe: monthly subscription, VAT invoices) | Built and tested against a Stripe stand-in; Stripe **test mode** first (SETUP.md part K) |
 | AI assistant on the shop page (paid plan only, Claude Haiku) | Built and tested against a Claude stand-in; live after migration 19 (SETUP.md part L) |
 | Documents and pictures for the assistant; private folders with access keys (paid plan only) | Built and tested against Claude and Storage stand-ins; live after migration 20 and two new functions (SETUP.md part M) |
@@ -69,7 +70,8 @@ Center.
 
 **Self-service:** there is no approval step by the operator and no admin area for shops or stock. The only operator page
 is "Predplatné a domény" (`/[lang]/admin/domains`, own domains, update 25; only for accounts with `profiles.is_admin`); since
-update 34 it also holds "Vyhľadávanie mimo Cacadoo" and the allowed web domains of the main chat's search (6.5).
+update 34 it also holds "Vyhľadávanie mimo Cacadoo" and the allowed web domains of the main chat's search (6.5), and
+since update 35 "Partnerské feedy" (6.5b).
 The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 ## 3. Scope
@@ -86,8 +88,9 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   background, correctable by the owner), so a search in any of the three languages finds it
 - The main page is one AI chat search (Prompt 10); the plain database search is its hidden fallback and the first
   HTML of `/[lang]?q=…`
-- The main chat's search in layers (Prompt 11): Cacadoo, then shops nearby (OpenStreetMap, optionally Google Places) and
-  offers on larger shops' websites, only when Cacadoo has too little and the shopper wrote a town
+- The main chat's search in layers (Prompt 11): Cacadoo, then the partners' own product feeds, then shops nearby
+  (OpenStreetMap, optionally Google Places) and offers on larger shops' websites, only when Cacadoo has too little (and,
+  for shops nearby and the web, the shopper wrote a town)
 - Paid plan per shop: a monthly Stripe subscription (Stripe Checkout to subscribe, the Stripe customer portal to
   cancel or change the card), invoices with VAT; one database function says whether a shop has it
 - AI assistant on the shop page (the first paid feature): questions about the shop's items, prices and availability,
@@ -199,8 +202,20 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
 (in the language of the question) and no search.
 
 - **Layer 1 – Cacadoo** (always first): the shops' own stock files, with the freshness badges and status dots above.
-- **Layer 3 – shops nearby** (only when Cacadoo gave fewer than 3 good results — current or recent data, not sold out,
-  around the town — and the shopper wrote a town): shops of the right kind around the town's centre from OpenStreetMap
+- **Layer 2 – partners** (phase B; only when Cacadoo gave fewer than 3 good results, skipped when no partner has rows):
+  the product feeds of partner shops (6.5b), searched with the same accent-insensitive search as the shops' items. A
+  card: "Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera · údaje z 08:00", then
+  the product's name as the partner wrote it (link to the partner's page) and "údaje partnera, neoverené v Cacadoo".
+  "online …" is the feed's own availability (skladom / vypredané / na objednávku / na predobjednávku / do N dní, or the
+  partner's own word); the stores come only from the partner's local inventory feed, only those in the town the shopper
+  wrote (by the store list's town, or within 20 km of the town's centre). The time is the time of the partner's data
+  (when the partner's server made the feed, else when it was read; for an uploaded file, the upload) in the partner's
+  time zone. **Data older than 48 hours shows no availability and no stores**, only "údaje z 12. 10. 2026", and comes
+  last. An affiliate link is marked "partnerský odkaz" (`rel="sponsored"`); the order never depends on it (the AI does
+  not even see it). The partner's logo is shown in grey, like the rest of the site.
+- **Layer 3 – shops nearby** (only when Cacadoo and the partners together gave fewer than 3 good results — Cacadoo:
+  current or recent data, not sold out, around the town; a partner: data under 48 hours and in stock in one of its
+  stores in the town by the partner's word — and the shopper wrote a town): shops of the right kind around the town's centre from OpenStreetMap
   (the AI picks 1–3 kinds of shop for the product, e.g. AdBlue → čerpacie stanice, autodiely). A card: "Môže mať ·
   Turista Michalovce", the kind, street, "180 m od centra Michalovce", the opening hours from OpenStreetMap as text
   ("otvorené do 17:00 (podľa OpenStreetMap)", nothing when OpenStreetMap has none), **zásoby neoverené**, buttons
@@ -212,9 +227,9 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   page's title (link to the page), "cena podľa webu: 39,99 €" (only when the page's own text shows a price), "overte
   dostupnosť na stránke →", "zistené (práve teraz)". Never a store stock claim. Under them "Hľadať priamo v e-shope:"
   with a link to each shop's own search for the product (the admin's search address).
-- **Order and groups:** Overené v Cacadoo (current, then recent, then stale) → [Partneri, phase B] → Obchody v okolí
-  (neoverené) → Na webe. The thinking line follows the real steps ("Hľadám v obchodoch…", "Hľadám obchody v okolí…",
-  "Hľadám na webe…"). Only Cacadoo shops go on "Ukázať na mape".
+- **Order and groups:** Overené v Cacadoo (current, then recent, then stale) → Partneri (fresh first) → Obchody v okolí
+  (neoverené) → Na webe. The thinking line follows the real steps ("Hľadám v obchodoch…", "Hľadám u partnerov…",
+  "Hľadám obchody v okolí…", "Hľadám na webe…"). Only Cacadoo shops go on "Ukázať na mape".
 - **No town** in the question and too little in Cacadoo: the answer shows what Cacadoo has and asks "V ktorom meste
   hľadáte?"; the follow-up ("v Michalovciach") searches nearby and on the web for the same product.
 - **Nothing anywhere:** the answer says so and shows what was searched. "Opýtajte sa obchodov" / "Upozorniť ma" do not
@@ -583,6 +598,32 @@ choose "exact number / in stock–low stock / available" and hide items; migrati
   the estimated prices, the allowed web domains (ASCII only, no wildcard) with their search addresses (https on the
   shop's own host, `{query}` once), today's calls and the calls and cost per day and layer. Every read and write is
   checked by `is_admin()` in the database.
+
+### 6.5b Partner feeds (Prompt 11, phase B)
+
+- **Admin "Partnerské feedy"** (on "Predplatné a domény"): add a partner with its name, logo (PNG/JPG/WebP ≤ 1 MB, stored
+  as a small WebP, shown in grey), the feed — an https address or a file the admin uploads (it goes from the browser
+  straight to private storage) —, its format (Google Merchant XML, Google Merchant CSV/TSV, Heureka XML, own CSV with
+  columns by name), an optional local inventory feed (Google's format: store_code, id, availability, quantity; address
+  or file), how often it is read (every hour, 6 hours, **daily by default**, weekly), the time zone its times are shown
+  in, the currency (required for Heureka, whose feed names none), affiliate yes/no, on/off, and the store list with
+  addresses when the partner gives one ("kód;názov;adresa;mesto;PSČ;krajina;šírka;dĺžka", a wrong line is named).
+  Per partner: counts (products, how many with data under 48 hours, stores, store stock rows), the time of the data,
+  the next import, the last imports with their reason when one failed, "Importovať teraz" (reads everything again).
+- **Import** (Edge Function partner-feeds, pg_cron every 5 minutes): the feed is streamed — gzip unpacked on the way —
+  into parts of 4 MB in private storage, then read one part per call (an Edge Function has 2 seconds of CPU), each call
+  starting the next. A feed over `PARTNER_FEED_MAX_MB` (default 50, at most 500) **stops with "too_big"**: nothing is
+  imported and nothing is cut; the admin sees why and what to do. A partner's server that answers "not modified" (304)
+  changes nothing. A readable feed replaces that partner's rows (items it no longer has are removed); a feed with no
+  readable rows, or more unreadable rows than readable ones, leaves the earlier data. Failures are tried again within
+  the hour (too big: at the partner's next turn); an import stuck 30 times is given up.
+- **As the partner sent it:** names, prices, availability words, links — never corrected, translated or completed; a
+  row the database cannot hold as sent is counted unreadable, never cut. Columns of an own CSV outside the known names
+  are never stored. Stock per store comes only from the local inventory feed.
+- **Never mixed with the shops' data:** own tables, never in `public_stock`, `search_stock`, the public API, MCP, the
+  plain search, shop or item pages; only in the main chat, under "Partneri".
+- **Safety:** feed addresses only https of a real host name (no IP addresses, no local names, no user:password), each
+  forward checked the same way, at most 5; addresses may hold a partner's token and are never logged.
 
 ### 6.6 Status: open / lunch break / closed / holiday / no hours
 
@@ -994,7 +1035,7 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
   under the shop's details asks for its first page first (`fetchpriority=high`); an open slider loads its second page
   once it is near the screen.
 
-## 7. Data model (after database update 34)
+## 7. Data model (after database update 35)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -1039,6 +1080,11 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 | `domain_prices` | `tld` (key), `price_cents`, `renewal_cents`, `vat_included`, `currency` (EUR), `sort_order`, `active` | The admin's price table; everyone reads active rows |
 | `shop_legal` | `shop_id` (key), `company_name`, `contact_name`, `street`, `city`, `zip`, `country`, `ico`, `dic`, `ic_dph`, `email`, `phone` | The domain owner's details; members and the admin read, owners write through `owner_save_legal()` |
 | `domain_orders` | `shop_id`, `kind` (`bought`/`connected`), `hostname`, `site_host`, `www`, `status` (quoted → checkout → paid → registering → configuring → securing → live; waiting_dns → verified; taken, failed, dns_timeout, lapsed, ended, canceled), the frozen price, Stripe session/invoice/payment/refund, Websupport profile/order/service, `test_mode`, `waiting_credit`, `dns_records`, checks, tries, `live_at`, `live_email_at`, `expires_at`, renewal state and notices, `auth_code`, `last_error`, `needs_admin`, `log`; update 33: `google_verification` (`google-site-verification=…`), `google_verification_state` (added/manual), `google_verification_at`, `indexnow_upload_at` (the upload last announced), `indexnow_at`, `indexnow_urls`, `indexnow_result` | One open domain per shop and per host; members and the admin read; only the domains and Stripe functions write |
+| `partners` (update 35) | `name`, `logo_path`, `feed_url` or `feed_file_path` (+ `feed_file_at`), `feed_format` (google_xml/google_csv/heureka_xml/csv), `inventory_url` or `inventory_file_path`, `inventory_format` (google_local_xml/google_local_csv), `currency`, `timezone`, `schedule` (hourly/6h/daily/weekly), `affiliate`, `enabled`, `next_run_at`, `force_next` | Admin only through `admin_*` functions; nobody else reads it |
+| `partner_stores` (update 35) | `partner_id`, `store_code`, `name`, `address`, `city`, `postal_code`, `country`, `lat`, `lng` | The partner's store list as the admin typed it |
+| `partner_products` (update 35) | `partner_id`, `item_id`, `title`, `brand`, `gtin`, `mpn`, `category`, `price`, `sale_price` (+ `sale_from`/`sale_to`), `currency`, `availability` (as written) + `availability_state` + `availability_days`, `link`, `image_link`, `search_blob` (generated, trigram index), `import_id`, `updated_at` (the time of the data), `changed_at` | The feeds' rows as sent; visitors read only through `search_partner_products()` |
+| `partner_store_stock` (update 35) | `partner_id`, `item_id`, `store_code`, `availability` + `availability_state`, `quantity`, `import_id`, `updated_at` | Only from the local inventory feed |
+| `partner_imports` (update 35) | `partner_id`, `kind` (products/inventory), `source`, `status` (download → parse → done / unchanged / error), `error` + `error_detail`, `feed_time`, `source_modified`, `etag`, `bytes`, `parts`, `part_index`, `carry`, `encoding`, `header`, `rows_read`/`rows_bad`/`rows_kept`, lock and tries | One running import per partner and kind; the last 10 kept |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
 Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop), `raw-files` (private, last raw files kept
@@ -1048,6 +1094,8 @@ may only add files they registered; only the service role reads or deletes) and 
 Update 28: `shop-sections` (private, 10 MB, PDF/WebP/JPEG: the cleaned PDFs and every page picture,
 `<shop>/<section>/v<version>/`) and `shop-sections-public` (public, 5 MB, WebP/JPEG: copies of the pictures of shown
 sections only); no policies, only the page-sections function writes either.
+Update 35: `partner-feeds` (private: the admin uploads feed files into `<partner>/`; the partner-feeds function keeps an
+import's parts in `imports/<import>/` until it ends) and `partner-logos` (public, 1 MB, PNG/JPEG/WebP; the admin writes).
 A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation PDFs.
 
 ## 8. Security and privacy
@@ -1095,6 +1143,13 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
   on the website uses them; `is_admin` is used again since update 25, only for "Predplatné a domény" and the domain
   functions (`admin_shops()` and `admin_save_shop()` were dropped by migration
   21 with the display columns they set).
+
+**Partner feeds (update 35).** Nothing about visitors goes to partners: their feeds are read on our server, and a
+partner's page opens only when the shopper clicks its link. The new tables have RLS on and no grant for visitors or
+owners; visitors read partner rows only through `search_partner_products()` (data under 48 hours with availability,
+older without), the admin manages partners only through `admin_*` functions (`is_admin()`), the partner-feeds function
+writes with the service role. Feed addresses are https of a real host only and never logged. Affiliate links are marked
+and never change the order.
 
 **Outside sources (update 34).** The main chat's search sends only the product and the town to OpenStreetMap
 (Nominatim, Overpass API), Google Places (when switched on) and Anthropic (Claude and its web search) — never anything
@@ -1193,6 +1248,14 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   are done; anything left over continues the next time the owner opens the dashboard, and an upload left unfinished
   for an hour shows as an error to delete and upload again.
 - The wrong-key counter is kept like the other limits (the website calls it with the public key).
+- **Partner feeds (update 35).** A partner's whole feed must fit `PARTNER_FEED_MAX_MB` (at most 500 MB) — a large
+  chain's full Google feed can be several hundred MB unpacked: ask the partner for a feed of the products and regions
+  that matter, or raise the limit (the parts take that much Supabase storage while an import runs; the free plan has
+  1 GB in all). Storage's own file limit (50 MB on the free plan) also caps a file the admin uploads; an address has
+  no such cap. Store stock needs the partner's local inventory feed in Google's format (Heureka's availability feed is
+  not read). A store is matched to the shopper's town by the store list's town or, with coordinates, by the town's
+  centre when Cacadoo or OpenStreetMap already knows it. The partner layer is in the main chat only (not in the public
+  API, MCP or the plain search).
 - **Outside sources (update 34).** The deep links need the admin's search addresses (none are set for the five domains
   of the brief: their search pages could not be checked from here). OpenStreetMap is only as complete as its volunteers
   made it: a town may show few shops, or ones that have closed. The web search runs on the model in `AI_MODEL`; the
@@ -1238,6 +1301,9 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] `ADMIN_EMAIL` set in Supabase (OpenStreetMap needs a contact); `EXTERNAL_SEARCH_DAILY_LIMIT` chosen; the web domains
       and their search addresses checked on the admin page; Google Places only after reading Google's terms
 - [ ] Privacy page: the legal text for the outside services replaces the TODO line
+- [ ] Partner feeds: database update 35 pasted, the partner-feeds function deployed (Verify JWT off),
+      `PARTNER_FEED_MAX_MB` chosen; each partner's feed imported once by hand ("Importovať teraz") and its counts
+      checked; the job `ppi-partner-feeds-tick` succeeds; affiliate partners named in the terms (SETUP.md part AF)
 
 ## 13. History
 
@@ -1271,3 +1337,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-14 | Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS only by adding, or shown to add), "Odoslať sitemap", llms.txt and robots.txt per own domain with "Kategórie tovaru", IndexNow once per upload with only the changed pages, Product/Offer + Store JSON-LD on own-domain item pages, search results linking to the own domain |
 | 2026-10-14 | The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots in Cacadoo yellow with the real steps, the answer streamed word by word, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page (the API and MCP keep `only_available`) |
 | 2026-10-15 | The chat finds products in layers: Cacadoo first, then shops nearby (OpenStreetMap, optionally Google Places) and offers on allowed shop websites (Claude's web search) with deep links, only when Cacadoo has fewer than 3 good results and the shopper wrote a town; other questions declined; admin switches, allowed domains, calls and cost per day |
+| 2026-10-15 | Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule in parts, shown in the chat under "Partneri" between Cacadoo and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" |

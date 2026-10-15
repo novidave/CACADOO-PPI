@@ -56,10 +56,11 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
 - `npm run test:site` — unit tests (Deno) of the own domain's robots.txt / llms.txt, the item JSON-LD and the search
   links (`src/lib/findable_test.ts`)
 - `npm run test:chat` — unit tests (Deno) of the main page chat's protocol: streamed answer, refs, history, NDJSON, the
-  layers' rules (town from the shopper's words, good results, OpenStreetMap hours) (`src/lib/chat_test.ts`)
+  layers' rules (town from the shopper's words, good results, OpenStreetMap hours, partner card texts and the 48-hour
+  rule) (`src/lib/chat_test.ts`)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
-  checkout and webhook, page-sections PDF cleaning and limits
+  checkout and webhook, page-sections PDF cleaning and limits, partner-feeds formats, parts and size limit
   — and `paste_safe_test.ts`: the owner pastes every `index.ts` into the Supabase editor, so write invisible or special
   characters (U+FFFF, BOM, no-break space, zero-width) as `\u…` escapes, never literally.
 
@@ -101,9 +102,9 @@ Tools: `search_stock` (layer 1) always; `search_nearby_shops` (layer 3, OpenStre
 `search_web` (layer 4, Claude's web search on the admin's allowed domains) only with `EXTERNAL_SEARCH_SECRET`. **The
 server enforces the order** (`refusal()` in `runChatSearch`): Cacadoo first in the question, fewer than `GOOD_ENOUGH` (3)
 good results (`isGoodResult`), a town from the shopper's own words (`townInWords`; never a guess, never the visitor's
-location → "V ktorom meste hľadáte?" via `ask_town`), each outside layer once. Groups: Overené v Cacadoo → [Partneri,
-phase B] → Obchody v okolí (neoverené) → Na webe; every card carries `source`, a checked-at text and `confidence`; cards
-only from tool results (refs `r`/`n`/`w` only choose). **Never** present layer 3/4 as stock, never scrape (only
+location → "V ktorom meste hľadáte?" via `ask_town`), each outside layer once. Groups: Overené v Cacadoo → Partneri
+(phase B, below) → Obchody v okolí (neoverené) → Na webe; every card carries `source`, a checked-at text and
+`confidence`; cards only from tool results (refs `r`/`p`/`n`/`w` only choose). **Never** present layer 3/4 as stock, never scrape (only
 Nominatim, Overpass, Google Places API, web search), never put Google content in a model request, on our map or in the
 database, never store web results. product-sources: `x-ppi-sources` secret; daily limit (`EXTERNAL_SEARCH_DAILY_LIMIT`,
 `external_search_claim` before every outside call, skipped as a whole — cache too — once reached); a layer runs only if
@@ -113,6 +114,28 @@ kind; "© OpenStreetMap contributors" / "Google Maps" with their lists; Google f
 `web_search_20250305`, `max_uses` 3, `allowed_domains`, `user_location` = town + country, price only from cited text,
 deep links `{query}` URL-encoded, new tab `rel="noopener noreferrer"`. Only the product and the town go out (privacy
 page lists the services). Admin texts `admin_search`; every admin read/write via `admin_*` SQL (`is_admin()`).
+
+## Partner feeds (Prompt 11 phase B, update 35)
+
+`supabase/sql/35_partner_feeds.sql` + `supabase/functions/partner-feeds` (one file, Verify JWT off) + `@/lib/partnerSearch`
+/ `@/lib/partners` (card texts) + `admin/domains/PartnerFeedsAdmin.tsx` / `partnerActions.ts` + `@/components/PartnerFileUpload`.
+Layer 2 of the chat: tool `search_partners` {query, town} only when `partner_layer_ready()` (no partner with rows → the
+layer is skipped); refused before Cacadoo or with 3+ good Cacadoo results; a town not in the shopper's words is dropped.
+Shops nearby and the web need the partners searched first (or in the same turn) and fewer than 3 good results of
+Cacadoo + partners (`isGoodPartner`: under 48 h and in stock in a store in the town). **Partner rows are never mixed with
+shop data**: own tables (`partners`, `partner_stores`, `partner_products`, `partner_store_stock`, `partner_imports`; RLS,
+no grants), read only through `search_partner_products()` (same `search_text` / `matches_all_words` search); never in
+`public_stock`, `search_stock`, pages, API or MCP. Shown **as the partner sent it** (never edited; a row over the limits
+is unreadable, never cut; own-CSV columns outside the known names never stored); stock per store **only from the local
+inventory feed**. The database decides freshness: older than 48 h → no availability and no stores, only "údaje z
+<dátum>". Card: "Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera · údaje z
+08:00" (`search.partner_*`), affiliate → "partnerský odkaz" + `rel="sponsored"`; **ranking never uses the affiliate flag
+and the AI never sees it**; logo in grey. Import: pg_cron `ppi-partner-feeds-tick` (5 min) → download streamed (gzip
+unpacked) into 4 MB parts in private `partner-feeds` (`imports/<import>/`), over `PARTNER_FEED_MAX_MB` (default 50, ≤ 500)
+→ `too_big`, nothing changed, never cut; one part per call (2 s CPU), `carry` across parts, the function chains itself
+(`work`, service key); finish replaces that partner's rows; 304 / same uploaded file → unchanged. Feed URLs: https of a
+real host only, forwards checked, never logged. Admin uploads go browser → storage (policy: admin + name pattern).
+Admin texts `admin_partners`.
 
 ## Paid plan (Stripe)
 
@@ -391,7 +414,7 @@ hand, any browser, same POST). Guide: `docs/SHOP_PC_SETUP.md`.
 ## Auth
 
 Self-service, shop owners only — **no admin area on the website** except "Predplatné a domény" (`/[lang]/admin/domains`,
-own domains and, since update 34, "Vyhľadávanie mimo Cacadoo"; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
+own domains and, since update 34, "Vyhľadávanie mimo Cacadoo", since update 35 "Partnerské feedy"; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
 sends a confirmation e-mail), `/login`, `/forgot` (reset e-mail → `/auth/confirm` → `/[lang]/password`). `/auth/confirm`
 handles `token_hash` (templates in SETUP.md E3), `code` (default templates) and `#access_token` (→ `/[lang]/login/finish`).
 Owners create/edit shops via `owner_save_shop()`, read them via `my_shops()`, approve columns via `owner_set_mapping()`,

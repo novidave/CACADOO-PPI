@@ -166,3 +166,78 @@ Deno.test("an answer goes back with the shops nearby and web offers it showed", 
   assert(text.includes("[Nearby, stock not verified: Turista Michalovce (Šport, 0,2 km od centra Michalovce)]"), text);
   assert(text.includes("[On the web: Decathlon: Turistické topánky MH100]"), text);
 });
+
+// ---------------------------------------------------------------- layer 2: partners' feeds (Prompt 11 phase B)
+
+import sk from "../i18n/messages/sk.json" with { type: "json" };
+import { isGoodPartner, type PartnerHit, partnerLogoUrl, partnerOnlineText, partnerStoreText, partnerTimeText } from "./partners.ts";
+
+const hit = (over: Partial<PartnerHit> = {}): PartnerHit => ({
+  partner_id: "11111111-1111-1111-1111-111111111111",
+  partner_name: "Decathlon",
+  partner_logo: null,
+  partner_timezone: "Europe/Bratislava",
+  affiliate: false,
+  item_id: "S1",
+  title: "Stan Quechua 2 Seconds",
+  brand: "Quechua",
+  gtin: null,
+  price: 24.99,
+  regular_price: null,
+  currency: "EUR",
+  link: "https://www.partner.example/p/s1",
+  image_link: null,
+  availability: "in_stock",
+  availability_state: "in_stock",
+  availability_days: null,
+  updated_at: "2026-10-14T06:00:00Z",
+  stale: false,
+  stores: [{ code: "KE1", name: "Košice", address: null, city: "Košice", availability: "in_stock", state: "in_stock", quantity: 3, updated_at: "2026-10-14T06:00:00Z" }],
+  ...over,
+});
+
+Deno.test("partner card: \"online skladom / predajňa Košice: skladom podľa partnera · údaje z 08:00\"", () => {
+  const s = sk.search;
+  const now = new Date("2026-10-14T10:00:00Z");
+  assertEquals(partnerOnlineText(hit(), s), "online skladom");
+  assertEquals(partnerStoreText(hit().stores[0], s), "predajňa Košice: skladom podľa partnera");
+  assertEquals(partnerTimeText(hit(), s, "sk", now), "údaje z 08:00", "the partner's time zone");
+  assertEquals(partnerTimeText(hit({ updated_at: "2026-10-13T06:00:00Z" }), s, "sk", now), "údaje z 13. 10. 2026 08:00");
+  assertEquals(partnerOnlineText(hit({ availability_state: "in_days", availability_days: 3 }), s), "online do 3 dní");
+  assertEquals(partnerOnlineText(hit({ availability_state: "unknown", availability: "2026-11-02" }), s), "online: 2026-11-02", "as the partner wrote it");
+  assertEquals(partnerOnlineText(hit({ availability_state: "unknown", availability: null }), s), null);
+  const store = { ...hit().stores[0], state: "limited" as const };
+  assertEquals(partnerStoreText(store, s), "predajňa Košice: posledné kusy podľa partnera");
+  assertEquals(partnerStoreText({ ...store, state: "unknown", availability: "vystavené" }, s), "predajňa Košice: vystavené (podľa partnera)");
+});
+
+Deno.test("a partner feed older than 48 hours shows no availability, only the day of its data", () => {
+  const s = sk.search;
+  const old = hit({ stale: true, availability: null, availability_state: null, stores: [], updated_at: "2026-10-11T06:00:00Z" });
+  assertEquals(partnerOnlineText(old, s), null);
+  assertEquals(partnerTimeText(old, s, "sk", new Date("2026-10-14T10:00:00Z")), "údaje z 11. 10. 2026");
+  assert(!isGoodPartner(old));
+  // even if a stale row came with a state, it is not written out
+  assertEquals(partnerOnlineText({ ...old, availability_state: "in_stock" }, s), null);
+});
+
+Deno.test("a good partner result: fresh and in stock in a store in the town (online alone is not)", () => {
+  assert(isGoodPartner(hit()));
+  assert(isGoodPartner(hit({ stores: [{ ...hit().stores[0], state: "limited" }] })));
+  assert(!isGoodPartner(hit({ stores: [] })), "online only: the shops nearby may still be asked");
+  assert(!isGoodPartner(hit({ stores: [{ ...hit().stores[0], state: "out_of_stock" }] })));
+  assert(!isGoodPartner(hit({ stale: true })));
+  assertEquals(isGoodPartner(hit({ affiliate: true })), isGoodPartner(hit({ affiliate: false })), "the affiliate flag never counts");
+});
+
+Deno.test("partner refs, logos and the history the browser sends back", () => {
+  assertEquals(refsOfKind(["r1", "p2", "n1", "p1"], "p"), ["p2", "p1"]);
+  assertEquals(partnerLogoUrl("https://x.supabase.co", "11111111-1111-1111-1111-111111111111/logo-1760000000000.webp"),
+    "https://x.supabase.co/storage/v1/object/public/partner-logos/11111111-1111-1111-1111-111111111111/logo-1760000000000.webp");
+  assertEquals(partnerLogoUrl("https://x.supabase.co", "../evil.svg"), null);
+  const text = answerForHistory("Decathlon má stan.", [], {
+    partners: [{ id: "p", source: "partner", partner: "Decathlon", logo: null, title: "Stan Quechua", brand: null, href: null, affiliate: true,
+      price: "24,99 €", regularPrice: null, online: "online skladom", stores: [], checkedAt: "", stale: false, confidence: "" }],
+  });
+  assert(text.includes("[Partners' feeds, not verified by Cacadoo: Decathlon: Stan Quechua – 24,99 €]"), text);
+});

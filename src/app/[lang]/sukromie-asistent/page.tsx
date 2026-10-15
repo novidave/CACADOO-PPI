@@ -41,6 +41,7 @@ export default async function AssistantPrivacyPage({ params }: PageProps<"/[lang
       <section id="hladanie-mimo-cacadoo" className="flex flex-col gap-1">
         <h2 className="font-semibold">{p.external_title}</h2>
         <p>{p.external}</p>
+        <p data-privacy-partners>{p.external_partners}</p>
         <p className="text-sm text-muted" data-privacy-todo>
           {p.external_todo}
         </p>

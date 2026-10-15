@@ -14,6 +14,7 @@ import {
   type GoogleCard,
   MAX_QUESTION,
   type NearbyCard,
+  type PartnerCard,
   readEvents,
   type WebCard,
 } from "@/lib/chatProtocol";
@@ -51,9 +52,14 @@ export interface ChatLabels {
   results: string;
   map: string;
   keyboard_hint: string;
+  step_partners: string;
   step_nearby: string;
   step_web: string;
   group_cacadoo: string;
+  group_partners: string;
+  partner_tag: string;
+  partner_affiliate: string;
+  partner_regular: string;
   group_nearby: string;
   group_web: string;
   may_have: string;
@@ -450,16 +456,18 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
   const stepText = {
     understand: labels.step_understand,
     search: labels.step_search,
+    partners: labels.step_partners,
     nearby: labels.step_nearby,
     web: labels.step_web,
     verify: labels.step_verify,
   }[turn.step ?? "understand"];
   const cards = turn.results?.cards ?? [];
+  const partners = turn.results?.partners ?? [];
   const nearby = turn.results?.nearby ?? [];
   const google = turn.results?.google ?? [];
   const web = turn.results?.web ?? [];
   const deepLinks = turn.results?.deepLinks ?? [];
-  const anything = cards.length + nearby.length + google.length + web.length + deepLinks.length > 0;
+  const anything = cards.length + partners.length + nearby.length + google.length + web.length + deepLinks.length > 0;
   const shown = more ? cards : cards.slice(0, CARDS_SHOWN);
   const waitingCards = turn.state === "running" && !turn.results && (turn.step !== "understand" || turn.answer);
   // Only Cacadoo shops go on our map (OpenStreetMap shops have no verified data; Google's never go there).
@@ -533,6 +541,17 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
         </section>
       )}
 
+      {partners.length > 0 && (
+        <section className="flex flex-col gap-2" aria-label={labels.group_partners} data-group="partners">
+          <h3 className="text-sm font-semibold">{labels.group_partners}</h3>
+          <ul className="flex flex-col divide-y divide-line border-y border-line" data-partner-cards>
+            {partners.map((card) => (
+              <Partner key={card.id} card={card} labels={labels} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       {(nearby.length > 0 || google.length > 0) && (
         <section className="flex flex-col gap-2" aria-label={labels.group_nearby} data-group="nearby">
           <h3 className="text-sm font-semibold">{labels.group_nearby}</h3>
@@ -580,7 +599,7 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
         </section>
       )}
 
-      {(nearby.length > 0 || google.length > 0 || web.length > 0) && (
+      {(partners.length > 0 || nearby.length > 0 || google.length > 0 || web.length > 0) && (
         <p className="text-xs text-muted">
           <a href={`/${lang}/sukromie-asistent#hladanie-mimo-cacadoo`} className="underline underline-offset-4">
             {labels.privacy_link}
@@ -592,6 +611,64 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
 }
 
 const pill = "rounded-full border border-line px-3 py-1 hover:border-foreground";
+
+/**
+ * Layer 2: "Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera ·
+ * údaje z 08:00", then the product as the partner named it. An affiliate link says so
+ * ("partnerský odkaz", rel="sponsored"). The partner's logo in grey, like the rest of the site.
+ */
+function Partner({ card, labels }: { card: PartnerCard; labels: ChatLabels }) {
+  const availability = [card.online, ...card.stores].filter(Boolean).join(" / ");
+  return (
+    <li className="flex flex-col gap-1 py-3" data-partner-card data-stale={card.stale ? "" : undefined}>
+      <p className="text-sm" data-partner-line>
+        {card.logo && (
+          // eslint-disable-next-line @next/next/no-img-element -- a small logo straight from storage
+          <img src={card.logo} alt="" width={16} height={16} loading="lazy" className="mr-1.5 inline-block h-4 w-auto align-[-3px] grayscale" />
+        )}
+        <span className="font-semibold">{card.partner}</span> {labels.partner_tag}
+        {card.price && (
+          <>
+            {" · "}
+            <span className="font-semibold">{card.price}</span>
+            {card.regularPrice && <span className="text-muted"> ({labels.partner_regular.replace("{price}", card.regularPrice)})</span>}
+          </>
+        )}
+        {availability && (
+          <>
+            {" · "}
+            <b data-partner-availability>{availability}</b>
+          </>
+        )}
+        <span className="text-muted" data-partner-time>
+          {" · "}
+          {card.checkedAt}
+        </span>
+      </p>
+      <p>
+        {card.href ? (
+          <a
+            href={card.href}
+            target="_blank"
+            rel={card.affiliate ? "sponsored noopener noreferrer" : "noopener noreferrer"}
+            className="underline underline-offset-4"
+          >
+            {card.title}
+          </a>
+        ) : (
+          card.title
+        )}
+        {card.brand && <span className="text-muted"> · {card.brand}</span>}
+        {card.affiliate && (
+          <span className="ml-2 whitespace-nowrap text-xs text-muted" data-affiliate>
+            {labels.partner_affiliate}
+          </span>
+        )}
+      </p>
+      <p className="text-xs text-muted">{card.confidence}</p>
+    </li>
+  );
+}
 
 /** Layer 3: "Môže mať · <shop>" — never a stock claim. */
 function Nearby({ card, labels }: { card: NearbyCard; labels: ChatLabels }) {
