@@ -128,29 +128,41 @@ export async function loadDomainPage(supabase: SupabaseClient, shopId: string): 
   };
 }
 
-/** "Aby vás našli Google a AI asistenti" on a live domain (database update 33). */
+/** "Aby vás našli Google a AI asistenti" on a live domain (database updates 33 and 36). */
 export interface Findable {
   google_verification: string | null;
-  google_verification_state: "added" | "manual" | null;
+  /** added: Cacadoo wrote it into DNS (and may remove it); present: it was there already; manual: shown to add by hand. */
+  google_verification_state: "added" | "present" | "manual" | null;
   google_verification_at: string | null;
   indexnow_at: string | null;
   indexnow_urls: number | null;
   indexnow_result: string | null;
   categories: string[];
+  /** Update 36: the meta tag values on the domain's pages (Google "HTML značka", Bing msvalidate.01). */
+  google_meta: string | null;
+  bing_meta: string | null;
 }
 
-/** The Search Console value, the last IndexNow ping and the categories; null before update 33. */
+/** The Search Console value, the meta tags, the last IndexNow ping and the categories; null before update 33. */
 export async function loadFindable(supabase: SupabaseClient, orderId: string, shopId: string): Promise<Findable | null> {
-  const [order, shop] = await Promise.all([
+  const [order, shop, meta] = await Promise.all([
     supabase
       .from("domain_orders")
       .select("google_verification, google_verification_state, google_verification_at, indexnow_at, indexnow_urls, indexnow_result")
       .eq("id", orderId)
       .maybeSingle(),
     supabase.from("shops").select("product_categories").eq("id", shopId).maybeSingle(),
+    // Before update 36 the table is missing: no meta tags yet.
+    supabase.from("domain_site_verifications").select("google_meta, bing_meta").eq("order_id", orderId).maybeSingle(),
   ]);
   if (order.error || shop.error || !order.data) return null;
-  return { ...(order.data as Omit<Findable, "categories">), categories: ((shop.data?.product_categories as string[] | null) ?? []) };
+  const tags = (meta.error ? null : meta.data) as { google_meta: string | null; bing_meta: string | null } | null;
+  return {
+    ...(order.data as Omit<Findable, "categories" | "google_meta" | "bing_meta">),
+    categories: ((shop.data?.product_categories as string[] | null) ?? []),
+    google_meta: tags?.google_meta ?? null,
+    bing_meta: tags?.bing_meta ?? null,
+  };
 }
 
 /** The domains Edge Function with the caller's own login: its answer, or its reason code. */

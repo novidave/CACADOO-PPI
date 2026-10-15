@@ -20,9 +20,11 @@ import {
   connectDomain,
   disconnectDomain,
   payDomain,
+  removeGoogle,
   requestAuthCode,
   saveCategories,
   saveLegal,
+  saveVerificationMeta,
   verifyGoogle,
 } from "./actions";
 
@@ -98,7 +100,7 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
   const paidNow = first(sp.domain) === "paid";
   const current = domains?.current ?? null;
   const open = current && OPEN_STATUSES.includes(current.status) ? current : null;
-  // Search Console, llms.txt categories and IndexNow on a live domain (database update 33).
+  // Search Console, Bing, llms.txt categories and IndexNow on a live domain (database updates 33 and 36).
   const findable = open?.status === "live" ? await loadFindable(supabase, open.id, shop.id).catch(() => null) : null;
   const hidden = (
     <>
@@ -429,12 +431,121 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
 }
 
 const SEARCH_CONSOLE_URL = "https://search.google.com/search-console";
+const BING_WEBMASTER_URL = "https://www.bing.com/webmasters";
+
+/** One DNS record to add by hand, each part with "Kopírovať". */
+function RecordTable({ name, value, d }: { name: string; value: string; d: Dictionary["domains"] }) {
+  const copy = { copy: d.dns_copy, copied: d.dns_copied };
+  return (
+    <table className="w-full">
+      <thead>
+        <tr className="border-b border-line text-left text-muted">
+          <th className="py-1 pr-3 font-normal">{d.dns_type}</th>
+          <th className="py-1 pr-3 font-normal">{d.dns_name}</th>
+          <th className="py-1 pr-3 font-normal">{d.dns_value}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr className="border-b border-line align-top">
+          <td className="py-1 pr-3 font-mono">TXT</td>
+          <td className="py-1 pr-3">
+            <span className="font-mono">{name}</span> <CopyButton text={name} labels={copy} />
+          </td>
+          <td className="py-1 pr-3">
+            <span className="break-all font-mono">{value}</span> <CopyButton text={value} labels={copy} />
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+/** Google's "HTML značka" or Bing's meta tag on the domain's pages (owner_set_site_verification, update 36). */
+function MetaTagForm({
+  kind,
+  orderId,
+  current,
+  host,
+  hidden,
+  d,
+  ok,
+  err,
+}: {
+  kind: "google" | "bing";
+  orderId: string;
+  current: string | null;
+  host: string;
+  hidden: React.ReactNode;
+  d: Dictionary["domains"];
+  ok: string | undefined;
+  err: string | undefined;
+}) {
+  const name = kind === "google" ? "google-site-verification" : "msvalidate.01";
+  const tag = current ? `<meta name="${name}" content="${current}" />` : null;
+  const notice = ({
+    [`meta_${kind}_saved`]: t(kind === "google" ? d.meta_google_saved : d.meta_bing_saved, { domain: host }),
+    [`meta_${kind}_removed`]: d.meta_removed,
+  } as Record<string, string>)[ok ?? ""];
+  return (
+    <div className="flex flex-col gap-2" data-meta-form={kind}>
+      <form action={saveVerificationMeta} className="flex flex-col gap-2">
+        {hidden}
+        <input type="hidden" name="order_id" value={orderId} />
+        <input type="hidden" name="kind" value={kind} />
+        <label className="flex flex-col gap-1">
+          <span className="text-sm">{kind === "google" ? d.google_meta_label : d.bing_label}</span>
+          <textarea
+            name="value"
+            required
+            rows={2}
+            maxLength={500}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder={`<meta name="${name}" content="…" />`}
+            className="rounded border border-line px-3 py-2 font-mono text-sm outline-none focus:border-foreground"
+          />
+        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <PendingButton pending={d.checking}>{d.meta_button}</PendingButton>
+        </div>
+        <p className="text-xs text-muted">{t(d.meta_note, { domain: host })}</p>
+      </form>
+      {err === `meta_${kind}_invalid` && (
+        <p role="alert" className="border border-line p-3 text-sm" data-meta-error>
+          {kind === "google" ? d.meta_google_invalid : d.meta_bing_invalid}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="border border-foreground p-3 text-sm font-medium" data-meta-notice>
+          {notice}
+        </p>
+      )}
+      {tag && (
+        <div className="flex flex-col gap-2 border border-line p-3 text-sm" data-meta-current>
+          <p>{t(d.meta_current, { domain: host })}</p>
+          <code className="break-all font-mono text-xs">{tag}</code>
+          <form action={saveVerificationMeta}>
+            {hidden}
+            <input type="hidden" name="order_id" value={orderId} />
+            <input type="hidden" name="kind" value={kind} />
+            <input type="hidden" name="remove" value="1" />
+            <PendingButton pending={d.checking}>{d.meta_remove}</PendingButton>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
- * "Aby vás našli Google a AI asistenti" (database update 33), on a live domain: "Overiť v Google
- * Search Console" (the TXT value goes into DNS when Cacadoo runs the domain's DNS, else the record
- * to add by hand), "Odoslať sitemap", llms.txt and robots.txt with the categories for llms.txt,
- * and the last IndexNow ping.
+ * "Aby vás našli Google a AI asistenti" (database updates 33 and 36), on a live domain:
+ * "Overiť v Google Search Console" — a domain whose DNS Cacadoo runs (bought here, or an own domain
+ * in our Websupport account) gets the TXT value added to its DNS (only added; "Odstrániť" removes
+ * only that record); an own domain elsewhere gets a) the "HTML značka" on its pages (recommended,
+ * property "Predpona webovej adresy") or b) the TXT record to add by hand. Bing Webmaster Tools: the
+ * same meta tag method, or the import from Search Console. "Odoslať sitemap" for both, llms.txt and
+ * robots.txt with the categories for llms.txt, and the last IndexNow ping.
  */
 function FindableSection({
   order,
@@ -458,12 +569,95 @@ function FindableSection({
 }) {
   const host = order.site_host ?? order.hostname;
   const base = `https://${host}`;
+  const prefix = `${base}/`;
   // Cacadoo writes the record when it runs the domain's DNS (a domain bought here, or one in our Websupport account).
   const auto = Boolean(order.registrar_service_id);
   const value = findable.google_verification;
+  const state = findable.google_verification_state;
   const okResult = /^2\d\d$/.test(findable.indexnow_result ?? "");
   const copy = { copy: d.dns_copy, copied: d.dns_copied };
   const googleError = ({ google_invalid: d.google_invalid, google_too_many: d.google_too_many, google_too_soon: d.google_too_soon } as Record<string, string>)[err ?? ""];
+  const removedNotice = ({ google_removed: d.google_removed, google_removed_dns: d.google_removed_dns } as Record<string, string>)[ok ?? ""];
+
+  const txtForm = (
+    <form action={verifyGoogle} className="flex flex-col gap-2" data-google-form>
+      {hidden}
+      <input type="hidden" name="order_id" value={order.id} />
+      <label className="flex flex-col gap-1">
+        <span className="text-sm">{d.google_label}</span>
+        <input
+          name="value"
+          required
+          maxLength={300}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          defaultValue={value ?? ""}
+          placeholder="google-site-verification=…"
+          className="rounded border border-line px-3 py-2 font-mono text-sm outline-none focus:border-foreground"
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <PendingButton pending={d.checking}>{auto ? d.google_button_auto : d.google_button_manual}</PendingButton>
+      </div>
+      <p className="text-xs text-muted">{auto ? d.google_auto_note : d.google_manual_note}</p>
+      {googleError && (
+        <p role="alert" className="border border-line p-3 text-sm" data-google-error>
+          {googleError}
+        </p>
+      )}
+    </form>
+  );
+  const removeForm = value && (
+    <form action={removeGoogle} className="flex flex-col gap-1" data-google-remove>
+      {hidden}
+      <input type="hidden" name="order_id" value={order.id} />
+      <div>
+        <PendingButton pending={d.checking}>{d.google_remove}</PendingButton>
+      </div>
+      <p className="text-xs text-muted">{state === "added" ? d.google_remove_note_added : d.google_remove_note_other}</p>
+    </form>
+  );
+  const txtSteps = (
+    <ol className="flex list-decimal flex-col gap-1 pl-6 text-sm">
+      <li>
+        {t(d.google_step1, { domain: host })}{" "}
+        <a href={SEARCH_CONSOLE_URL} target="_blank" rel="noopener" className="underline underline-offset-4">
+          {d.google_open}
+        </a>
+      </li>
+      <li>{d.google_step2}</li>
+      <li>{d.google_step3}</li>
+    </ol>
+  );
+  const txtState = (
+    <>
+      {value && state === "added" && (
+        <p role="status" className="border border-foreground p-3 text-sm font-medium" data-google-added>
+          {t(d.google_added, { domain: host })}
+        </p>
+      )}
+      {value && state === "present" && (
+        <p role="status" className="border border-foreground p-3 text-sm font-medium" data-google-present>
+          {t(d.google_present, { domain: host })}
+        </p>
+      )}
+      {value && state === "manual" && (
+        <div className="flex flex-col gap-2 border border-foreground p-3 text-sm" data-google-record>
+          <p className="font-medium">{t(d.google_manual, { domain: host })}</p>
+          <RecordTable name={recordName(host)} value={value} d={d} />
+          <p className="font-semibold">{d.google_manual_keep}</p>
+        </div>
+      )}
+      {removedNotice && (
+        <p role="status" className="border border-foreground p-3 text-sm font-medium" data-google-removed>
+          {removedNotice}
+        </p>
+      )}
+      {removeForm}
+    </>
+  );
+
   return (
     <section id="findable" className="flex flex-col gap-4 border-t border-line pt-4" aria-labelledby="findable-heading" data-findable>
       <h3 id="findable-heading" className="font-semibold">
@@ -471,91 +665,76 @@ function FindableSection({
       </h3>
       <p className="text-sm text-muted">{t(d.findable_intro, { domain: host })}</p>
 
-      <div className="flex flex-col gap-3 border border-line p-4" data-google>
+      <div id="verify-google" className="flex flex-col gap-3 border border-line p-4" data-google>
         <h4 className="font-semibold">{d.google_title}</h4>
+        {auto ? (
+          <>
+            {txtSteps}
+            {txtForm}
+            {txtState}
+          </>
+        ) : (
+          <>
+            <div className="flex flex-col gap-2" data-google-meta>
+              <h5 className="text-sm font-semibold">{d.google_meta_title}</h5>
+              <ol className="flex list-decimal flex-col gap-1 pl-6 text-sm">
+                <li>
+                  {t(d.google_meta_step1, { url: prefix })}{" "}
+                  <a href={SEARCH_CONSOLE_URL} target="_blank" rel="noopener" className="underline underline-offset-4">
+                    {d.google_open}
+                  </a>
+                </li>
+                <li>{d.google_meta_step2}</li>
+                <li>{d.google_meta_step3}</li>
+              </ol>
+              <MetaTagForm kind="google" orderId={order.id} current={findable.google_meta} host={host} hidden={hidden} d={d} ok={ok} err={err} />
+            </div>
+            <div className="flex flex-col gap-2 border-t border-line pt-3" data-google-txt>
+              <h5 className="text-sm font-semibold">{d.google_txt_title}</h5>
+              <p className="text-sm">{d.google_txt_text}</p>
+              {txtSteps}
+              {txtForm}
+              {txtState}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div id="verify-bing" className="flex flex-col gap-3 border border-line p-4" data-bing>
+        <h4 className="font-semibold">{d.bing_title}</h4>
+        <p className="text-sm">{d.bing_import}</p>
         <ol className="flex list-decimal flex-col gap-1 pl-6 text-sm">
           <li>
-            {t(d.google_step1, { domain: host })}{" "}
-            <a href={SEARCH_CONSOLE_URL} target="_blank" rel="noopener" className="underline underline-offset-4">
-              {d.google_open}
+            {t(d.bing_step1, { url: prefix })}{" "}
+            <a href={BING_WEBMASTER_URL} target="_blank" rel="noopener" className="underline underline-offset-4">
+              {d.bing_open}
             </a>
           </li>
-          <li>{d.google_step2}</li>
-          <li>{d.google_step3}</li>
+          <li>{d.bing_step2}</li>
+          <li>{d.bing_step3}</li>
         </ol>
-        <form action={verifyGoogle} className="flex flex-col gap-2" data-google-form>
-          {hidden}
-          <input type="hidden" name="order_id" value={order.id} />
-          <label className="flex flex-col gap-1">
-            <span className="text-sm">{d.google_label}</span>
-            <input
-              name="value"
-              required
-              maxLength={300}
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              defaultValue={value ?? ""}
-              placeholder="google-site-verification=…"
-              className="rounded border border-line px-3 py-2 font-mono text-sm outline-none focus:border-foreground"
-            />
-          </label>
-          <div className="flex flex-wrap items-center gap-3">
-            <PendingButton pending={d.checking}>{auto ? d.google_button_auto : d.google_button_manual}</PendingButton>
-          </div>
-          <p className="text-xs text-muted">{auto ? d.google_auto_note : d.google_manual_note}</p>
-          {googleError && (
-            <p role="alert" className="border border-line p-3 text-sm" data-google-error>
-              {googleError}
-            </p>
-          )}
-        </form>
-        {value && findable.google_verification_state === "added" && (
-          <p role="status" className="border border-foreground p-3 text-sm font-medium" data-google-added>
-            {t(d.google_added, { domain: host })}
-          </p>
-        )}
-        {value && findable.google_verification_state === "manual" && (
-          <div className="flex flex-col gap-2 border border-foreground p-3 text-sm" data-google-record>
-            <p className="font-medium">{t(d.google_manual, { domain: host })}</p>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-line text-left text-muted">
-                  <th className="py-1 pr-3 font-normal">{d.dns_type}</th>
-                  <th className="py-1 pr-3 font-normal">{d.dns_name}</th>
-                  <th className="py-1 pr-3 font-normal">{d.dns_value}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b border-line">
-                  <td className="py-1 pr-3 font-mono">TXT</td>
-                  <td className="py-1 pr-3 font-mono">{recordName(host)}</td>
-                  <td className="break-all py-1 pr-3 font-mono">{value}</td>
-                  <td className="py-1 text-right">
-                    <CopyButton text={value} labels={copy} />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p className="font-semibold">{d.google_manual_keep}</p>
-          </div>
-        )}
+        <MetaTagForm kind="bing" orderId={order.id} current={findable.bing_meta} host={host} hidden={hidden} d={d} ok={ok} err={err} />
       </div>
 
       <div className="flex flex-col gap-2 border border-line p-4" data-sitemap>
         <h4 className="break-all font-semibold">{t(d.sitemap_title, { url: `${base}/sitemap.xml` })}</h4>
-        <ol className="flex list-decimal flex-col gap-1 pl-6 text-sm">
-          <li>{d.sitemap_step1}</li>
-          <li>{d.sitemap_step2}</li>
-          <li>{d.sitemap_step3}</li>
-        </ol>
         <p className="flex flex-wrap items-center gap-3 text-sm">
           <a href={`${base}/sitemap.xml`} target="_blank" rel="noopener" className="break-all font-mono underline underline-offset-4">
             {base}/sitemap.xml
           </a>
           <CopyButton text={`${base}/sitemap.xml`} labels={copy} />
         </p>
+        <h5 className="text-sm font-semibold">{d.sitemap_google}</h5>
+        <ol className="flex list-decimal flex-col gap-1 pl-6 text-sm">
+          <li>{d.sitemap_step1}</li>
+          <li>{d.sitemap_step2}</li>
+          <li>{d.sitemap_step3}</li>
+        </ol>
+        <h5 className="text-sm font-semibold">{d.sitemap_bing}</h5>
+        <ol className="flex list-decimal flex-col gap-1 pl-6 text-sm" data-sitemap-bing>
+          <li>{d.sitemap_bing_step1}</li>
+          <li>{t(d.sitemap_bing_step2, { url: `${base}/sitemap.xml` })}</li>
+        </ol>
       </div>
 
       <div className="flex flex-col gap-2 border border-line p-4" data-ai-files>

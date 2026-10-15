@@ -1,3 +1,4 @@
+import { canonicalShopUrl } from "./customDomain";
 import type { CalendarDay, OpeningHours } from "./hours";
 import { DAYS, dayName, displayTime, rangesFor, upcomingDays } from "./hours";
 
@@ -66,6 +67,9 @@ export interface LlmsFacts {
   categories: string[];
   /** The brands most often in the shop's stock file. */
   brands: string[];
+  /** Update 36: the item categories its pages show (most frequent first), and whether it follows public holidays. */
+  stock_categories?: string[];
+  auto_holidays?: boolean;
   items: number;
 }
 
@@ -110,6 +114,9 @@ function specialLines(hours: OpeningHours | null, timeZone: string, days: Calend
 export function siteLlmsTxt(o: {
   host: string;
   lang: string;
+  /** The shop's slug for Cacadoo's API and MCP (get_shop), and Cacadoo's own address. */
+  slug: string;
+  apiBase: string;
   shop: LlmsShop;
   calendar: CalendarDay[];
   facts: LlmsFacts | null;
@@ -127,7 +134,19 @@ export function siteLlmsTxt(o: {
     shop.booking_url ? `- Booking: ${line(shop.booking_url)}` : null,
   ].filter(Boolean);
   const special = specialLines(shop.opening_hours, shop.timezone, o.calendar, o.now ?? new Date());
-  const categories = facts?.categories.length ? facts.categories.map((c) => `- ${line(c)}`) : ["- Not listed by the shop."];
+  const stockCategories = (facts?.stock_categories ?? []).map(line).filter(Boolean);
+  const categories = facts?.categories.length
+    ? facts.categories.map((c) => `- ${line(c)}`)
+    : stockCategories.length
+      ? []
+      : ["- Not listed by the shop."];
+  const holidays =
+    facts?.auto_holidays === true
+      ? [`- Public holidays${shop.country ? ` (${line(shop.country)})` : ""}: the shop follows them — on those days the hours above may not apply; see the special days below.`]
+      : facts?.auto_holidays === false
+        ? ["- Public holidays: the shop keeps its regular hours on them (its own special days are listed below)."]
+        : [];
+  const api = o.apiBase.replace(/\/+$/, "");
   const example = (template: string, n: string) => template.replace("{n}", n);
 
   return [
@@ -146,12 +165,14 @@ export function siteLlmsTxt(o: {
     `## Opening hours (time zone ${shop.timezone})`,
     "",
     ...hoursLines(shop.opening_hours),
+    ...holidays,
     ...(special.length ? ["", "Special days in the next 14 days:", ...special] : []),
     "- The home page says whether the shop is open right now.",
     "",
     "## Categories",
     "",
     ...categories,
+    ...(stockCategories.length ? [...(categories.length ? [""] : []), `Item categories on its item pages: ${stockCategories.join(", ")}.`] : []),
     ...(facts?.brands.length ? ["", `Brands in the stock file: ${facts.brands.map(line).join(", ")}.`] : []),
     ...(facts ? [`Items listed: ${facts.items}.`] : []),
     "",
@@ -167,8 +188,51 @@ export function siteLlmsTxt(o: {
     `- Every item shows its price and the quantity exactly as in the shop's stock file: "${example(words.in_stock_count, "12")}" means 12 pieces in stock, "${words.out_of_stock}" means sold out (0 or less).`,
     `- Next to it, how fresh the data is: "${example(words.updated_ago, "8")}" (the stock file is under 30 minutes old) or the time it was last confirmed (under 24 hours), in the shop's time zone.`,
     `- When the data is older, the page shows "${words.stale}" and no quantity: do not say the item is in stock, suggest calling the shop.`,
-    "- Item pages carry schema.org Product data with an Offer (price, currency, availability) only while the stock data is fresh, and the shop as a Store (LocalBusiness) with its address and opening hours.",
+    "- Item pages carry schema.org Product data with an Offer (price and currency; the availability only while the stock data is fresh, as on the page), and the shop as a Store (LocalBusiness) with its address and opening hours.",
     "- Nothing is sold online here: the goods are bought in the shop. Please link the item's page on this domain when you mention it.",
     "",
+    "## Machine access (Cacadoo PPI, read-only, no login)",
+    "",
+    `- MCP server (Streamable HTTP): ${api}/mcp — get_shop with slug "${o.slug}", get_item(id), search_stock(query, near)`,
+    `- REST API: ${api}/api/v1/shops/${o.slug} · ${api}/api/v1/shops/${o.slug}/items?page=1 · ${api}/api/v1/items/{id}`,
+    `- OpenAPI description: ${api}/api/openapi.json`,
+    `- The same data as these pages; every source_url points to ${base}/.`,
+    "",
   ].join("\n");
+}
+
+/** The shop list of PPI's own llms.txt: each shop's canonical page (its live own domain when it has one). */
+export function mainLlmsShops(
+  shops: { slug: string; name: string; city: string | null; country: string | null }[],
+  sites: Map<string, string>,
+  base: string,
+): string {
+  if (!shops.length) return "- (none yet)";
+  return shops
+    .map((s) => `- [${line(s.name)}${s.city ? `, ${line(s.city)}` : ""}${s.country ? ` (${s.country})` : ""}](${canonicalShopUrl(sites, base, "en", s.slug, s.country)})`)
+    .join("\n");
+}
+
+/** What site_verification_meta(slug) gives (update 36): the live own domain and its meta tag values. */
+export interface SiteVerification {
+  host: string | null;
+  google: string | null;
+  bing: string | null;
+}
+
+const GOOGLE_META = /^[A-Za-z0-9_-]{20,100}$/;
+const BING_META = /^[A-Fa-f0-9]{16,64}$/;
+
+/**
+ * The verification meta tags of a page on the shop's own domain: only on that domain (the request's
+ * host), only values of the right format — <meta name="google-site-verification"> and
+ * <meta name="msvalidate.01">. Anything else → nothing.
+ */
+export function verificationMetadata(meta: SiteVerification | null, requestHost: string | null): { google?: string; other?: Record<string, string> } | null {
+  const host = (requestHost ?? "").toLowerCase().replace(/:\d+$/, "");
+  if (!meta?.host || host !== meta.host.toLowerCase()) return null;
+  const google = meta.google && GOOGLE_META.test(meta.google) ? meta.google : null;
+  const bing = meta.bing && BING_META.test(meta.bing) ? meta.bing : null;
+  if (!google && !bing) return null;
+  return { ...(google ? { google } : {}), ...(bing ? { other: { "msvalidate.01": bing } } : {}) };
 }

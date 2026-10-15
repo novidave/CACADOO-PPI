@@ -3,6 +3,7 @@ import en from "@/i18n/messages/en.json";
 import hu from "@/i18n/messages/hu.json";
 import sk from "@/i18n/messages/sk.json";
 import { isLocale, type Locale } from "@/i18n/config";
+import { canonicalItemUrl, canonicalShopUrl, loadLiveSites } from "./customDomain";
 import { type CalendarDay, type OpeningHours, shopStatus, statusText } from "./hours";
 import { loadCalendars } from "./shopCalendar";
 import { missingColumn } from "./missingColumn";
@@ -15,7 +16,8 @@ import { createPublicClient } from "./supabase/public";
  * same data and rules as the website, because everything comes from the
  * database views/functions (public_stock, search_stock, public_shops,
  * shop_stock). The quantity exactly as in the shop's file; no availability at
- * all for stale shops — the database already enforces both.
+ * all for stale shops — the database already enforces both. Every source_url is the page's
+ * canonical address: on the shop's live own domain when it has one (update 36), else on PPI.
  */
 
 export const DATA_RULES =
@@ -54,14 +56,25 @@ export function apiLang(value: string | null | undefined): Locale {
   return isLocale(value) ? value : "en";
 }
 
-const page = (lang: Locale, path: string) => `${siteUrl()}/${lang}${path}`;
+/** Shops whose own domain is live: slug → host (live_shop_sites); kept a minute, empty on any error. */
+export type LiveSites = Map<string, string>;
+let sitesCache: { at: number; sites: LiveSites } | null = null;
+async function liveSites(): Promise<LiveSites> {
+  if (sitesCache && Date.now() - sitesCache.at < 60_000) return sitesCache.sites;
+  const sites = await loadLiveSites(createPublicClient()).catch(() => new Map<string, string>());
+  sitesCache = { at: Date.now(), sites };
+  return sites;
+}
+
+const itemSourceUrl = (sites: LiveSites, lang: Locale, slug: string, itemId: string) => canonicalItemUrl(sites, siteUrl(), lang, slug, itemId);
+const shopSourceUrl = (sites: LiveSites, lang: Locale, slug: string, country: string | null) => canonicalShopUrl(sites, siteUrl(), lang, slug, country);
 
 function availabilityText(key: AvailabilityKey | null, quantity: number | null): string | null {
   if (!key) return null;
   return en.stock[key].replace("{n}", String(quantity ?? ""));
 }
 
-export function apiItem(row: StockRow, lang: Locale) {
+export function apiItem(row: StockRow, lang: Locale, sites: LiveSites = new Map()) {
   return {
     id: row.item_id,
     /** As the shop wrote it. */
@@ -93,9 +106,9 @@ export function apiItem(row: StockRow, lang: Locale) {
       timezone: row.shop_timezone,
       lat: row.shop_lat,
       lng: row.shop_lng,
-      source_url: page(lang, `/shops/${row.shop_slug}`),
+      source_url: shopSourceUrl(sites, lang, row.shop_slug, row.shop_country),
     },
-    source_url: page(lang, `/items/${row.item_id}`),
+    source_url: itemSourceUrl(sites, lang, row.shop_slug, row.item_id),
   };
 }
 
@@ -151,7 +164,7 @@ async function calendarsFor(ids: string[], days = 16) {
   return loadCalendars(db(), ids, days).catch(() => new Map<string, CalendarDay[]>());
 }
 
-export function apiShop(shop: ShopRow, lang: Locale, calendar: CalendarDay[] = []) {
+export function apiShop(shop: ShopRow, lang: Locale, calendar: CalendarDay[] = [], sites: LiveSites = new Map()) {
   const status = apiStatus(shop, calendar, lang);
   return {
     slug: shop.slug,
@@ -180,7 +193,7 @@ export function apiShop(shop: ShopRow, lang: Locale, calendar: CalendarDay[] = [
       age_minutes: shop.freshness_age_minutes,
       updated_at: shop.latest_file_time,
     },
-    source_url: page(lang, `/shops/${shop.slug}`),
+    source_url: shopSourceUrl(sites, lang, shop.slug, shop.country),
   };
 }
 
@@ -234,16 +247,17 @@ export async function searchStock(params: {
   const rows = (data ?? []) as StockRow[];
   // Each result's shop gets its status (the same rule as the page): hours + special days + holidays.
   const ids = [...new Set(rows.map((r) => r.shop_id))];
-  const [hours, calendars] = await Promise.all([
+  const [hours, calendars, sites] = await Promise.all([
     ids.length
       ? db().from("public_shops").select("id, opening_hours, timezone").in("id", ids)
       : Promise.resolve({ data: [], error: null }),
     calendarsFor(ids),
+    rows.length ? liveSites() : Promise.resolve(new Map<string, string>()),
   ]);
   const hoursOf = new Map(((hours.data ?? []) as { id: string; opening_hours: OpeningHours | null; timezone: string }[]).map((h) => [h.id, h]));
   const now = new Date();
   const results = rows.map((row) => {
-    const item = apiItem(row, params.lang);
+    const item = apiItem(row, params.lang, sites);
     const shopHours = hoursOf.get(row.shop_id);
     if (!shopHours) return item;
     const calendar = calendars.get(row.shop_id) ?? [];
@@ -276,8 +290,8 @@ export async function listShops(lang: Locale) {
   const { data, error } = await publicShops((columns) => db().from("public_shops").select(columns).order("name").limit(1000));
   if (error) throw new ApiError(500, error.message);
   const shops = (data ?? []) as unknown as ShopRow[];
-  const calendars = await calendarsFor(shops.map((s) => s.id));
-  return { count: shops.length, shops: shops.map((s) => apiShop(s, lang, calendars.get(s.id) ?? [])), data_rules: DATA_RULES };
+  const [calendars, sites] = await Promise.all([calendarsFor(shops.map((s) => s.id)), liveSites()]);
+  return { count: shops.length, shops: shops.map((s) => apiShop(s, lang, calendars.get(s.id) ?? [], sites)), data_rules: DATA_RULES };
 }
 
 export async function getShop(slug: string, lang: Locale) {
@@ -286,8 +300,8 @@ export async function getShop(slug: string, lang: Locale) {
   if (error) throw new ApiError(500, error.message);
   if (!data) throw new ApiError(404, "Shop not found");
   const shop = data as unknown as ShopRow;
-  const calendars = await calendarsFor([shop.id]);
-  return { shop: apiShop(shop, lang, calendars.get(shop.id) ?? []), data_rules: DATA_RULES };
+  const [calendars, sites] = await Promise.all([calendarsFor([shop.id]), liveSites()]);
+  return { shop: apiShop(shop, lang, calendars.get(shop.id) ?? [], sites), data_rules: DATA_RULES };
 }
 
 export async function getShopItems(slug: string, pageNumber: number, q: string, lang: Locale) {
@@ -303,6 +317,7 @@ export async function getShopItems(slug: string, pageNumber: number, q: string, 
   if (error) throw new ApiError(500, error.message);
   const rows = (data ?? []) as (Omit<StockRow, "shop_id" | "shop_slug" | "shop_name"> & { total_count: number })[];
   const total = Number(rows[0]?.total_count ?? 0);
+  const sites = await liveSites();
   return {
     shop,
     page: current,
@@ -325,6 +340,7 @@ export async function getShopItems(slug: string, pageNumber: number, q: string, 
           distance_km: null,
         } as StockRow,
         lang,
+        sites,
       ),
     ),
     data_rules: DATA_RULES,
@@ -342,7 +358,8 @@ export async function getItem(id: string, lang: Locale) {
     .maybeSingle();
   if (error) throw new ApiError(500, error.message);
   if (!data) throw new ApiError(404, "Item not found");
-  const item = apiItem({ ...(data as StockRow), distance_km: null }, lang);
+  const sites = await liveSites();
+  const item = apiItem({ ...(data as StockRow), distance_km: null }, lang, sites);
 
   // Same product (EAN) in other shops, nearest to this shop first.
   let also_available_at: ReturnType<typeof apiItem>[] = [];
@@ -357,7 +374,7 @@ export async function getItem(id: string, lang: Locale) {
     also_available_at = ((others.data ?? []) as StockRow[])
       .filter((r) => r.ean === item.ean && r.item_id !== item.id)
       .slice(0, 20)
-      .map((r) => apiItem(r, lang));
+      .map((r) => apiItem(r, lang, sites));
   }
   return { item, also_available_at, data_rules: DATA_RULES };
 }

@@ -119,7 +119,10 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   // PPI's own sitemap.xml, robots.txt and llms.txt (matched only for shops' domains).
-  if (pathname === "/sitemap.xml" || pathname === "/robots.txt" || pathname === "/llms.txt" || KEY_FILE.test(pathname)) return NextResponse.next();
+  if (pathname === "/sitemap.xml" || pathname === "/robots.txt" || pathname === "/llms.txt") return NextResponse.next();
+  // The IndexNow key file of the main domain too (update 36: every host serves the one key).
+  const keyFile = KEY_FILE.exec(pathname);
+  if (keyFile) return NextResponse.rewrite(new URL(`/api/indexnow/${keyFile[1]}`, request.url));
   const segment = pathname.split("/")[1];
 
   // A shop's domain page asked for on PPI's own address (/site/{lang}/{slug}…): the Cacadoo page.

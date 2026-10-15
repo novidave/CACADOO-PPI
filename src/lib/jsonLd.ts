@@ -71,8 +71,9 @@ const SCHEMA_AVAILABILITY: Record<string, string> = {
 
 /**
  * An item's page: the Product with its Offer, and the shop as a Store (LocalBusiness) that the
- * offer's seller points to. The offer (price, currency, availability) is there only while the
- * shop's stock data is fresh (not stale) — exactly when the page itself shows the quantity.
+ * offer's seller points to. The Offer says what the page shows (update 36): the price and its
+ * currency whenever the page shows a price, the availability only while the shop's stock data is
+ * fresh (not stale) — exactly when the page itself shows the quantity; never invented.
  */
 export function itemJsonLd(item: StockRow, shop: PublicShop | null, lang: Locale, host: string | null, input: StatusInput | null, base: string) {
   const url = host ? siteItemUrl(host, lang, item.item_id) : `${base}/${lang}/items/${item.item_id}`;
@@ -92,15 +93,17 @@ export function itemJsonLd(item: StockRow, shop: PublicShop | null, lang: Locale
           ...(item.shop_country ? { addressCountry: item.shop_country } : {}),
         },
       };
+  const availability =
+    item.freshness_state !== "stale" && item.availability ? (SCHEMA_AVAILABILITY[item.availability] ?? null) : null;
   const offer =
-    item.freshness_state !== "stale" && item.price !== null && item.availability && SCHEMA_AVAILABILITY[item.availability]
+    item.price !== null && item.currency
       ? {
           offers: {
             "@type": "Offer",
             url,
             price: Number(item.price).toFixed(2),
             priceCurrency: item.currency,
-            availability: SCHEMA_AVAILABILITY[item.availability],
+            ...(availability ? { availability } : {}),
             seller: { "@id": shopUrl },
             availableAtOrFrom: { "@id": shopUrl },
           },

@@ -13,10 +13,12 @@
 // shop's Stripe renewal succeeded; never a domain held back (auth code on cancellation).
 // Update 33, "Overiť v Google Search Console": the pasted TXT value is added to the domain's DNS
 // when we run it (only added; no record is ever replaced or removed), else shown to add by hand.
+// Update 36: the id of the record we added is kept, so "Odstrániť" (google_remove) removes only
+// that one record; a value that was already in the DNS ("present") is never touched.
 //
 // Who calls it:
 //   - the website with the owner's login: check, pay, cancel_payment, connect, recheck, disconnect, auth_code, pro_price,
-//     google_verify
+//     google_verify, google_remove
 //   - the website with the admin's login: admin_retry, admin_email, admin_auth_code,
 //     admin_save_auth_code, admin_credit
 //   - stripe-webhook (service role key): run (a payment was confirmed)
@@ -650,10 +652,15 @@ export interface Order {
   last_error: string | null;
   last_check_at: string | null;
   created_at: string;
-  /** Update 33: the Search Console value the owner pasted, and whether we wrote it into DNS. */
+  /**
+   * Update 33: the Search Console value the owner pasted, and whether we wrote it into DNS ("added"), found it
+   * there already ("present", update 36) or showed it to add by hand ("manual").
+   */
   google_verification?: string | null;
-  google_verification_state?: "added" | "manual" | null;
+  google_verification_state?: "added" | "present" | "manual" | null;
   google_verification_at?: string | null;
+  /** Update 36: the DNS record Cacadoo added (only with "added") — the one record "Odstrániť" may remove. */
+  google_txt_record_id?: string | null;
 }
 
 export interface Deps {
@@ -1889,15 +1896,16 @@ async function authCodeAction(deps: Deps, who: { authorization: string }, body: 
 const GOOGLE_PREFIX = "google-site-verification=";
 /** At most this many Search Console values on one domain (several Google accounts may verify it). */
 export const MAX_GOOGLE_RECORDS = 5;
+const RECORD_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
- * The TXT value Search Console shows ("google-site-verification=…"), as pasted: the whole value
- * or just its token, quotes and spaces around it allowed. Anything else (an HTML tag, an SPF
- * record…) → null.
+ * The TXT value Search Console shows, as pasted: "google-site-verification=<token>", quotes and
+ * spaces around it allowed. Nothing else is accepted (the token alone, an HTML tag, an SPF record…)
+ * → null.
  */
 export function googleVerification(input: unknown): string | null {
   const text = String(input ?? "").trim().replace(/^["'\u201c\u201d\u201e]+|["'\u201c\u201d\u201e]+$/g, "").trim();
-  const match = /^(?:google-site-verification\s*=\s*)?([A-Za-z0-9_-]{20,100})$/i.exec(text);
+  const match = /^google-site-verification\s*=\s*([A-Za-z0-9_-]{20,100})$/i.exec(text);
   return match ? `${GOOGLE_PREFIX}${match[1]}` : null;
 }
 
@@ -1910,12 +1918,23 @@ export function manualRecordName(host: string): string {
 
 const unquoted = (value: string) => value.trim().replace(/^"(.*)"$/s, "$1").replace(/"\s*"/g, "");
 
+/** The Search Console TXT records at the domain itself (SPF, DMARC, DKIM and every other record are left out). */
+const googleRecords = (records: DnsRecord[], host: string) =>
+  records.filter((r) => r.type.toUpperCase() === "TXT" && bareName(r.name, host) === "@" && unquoted(r.content).startsWith(GOOGLE_PREFIX));
+
+/** Our own earlier record: the stored id AND still the stored value (a record someone changed is no longer ours). */
+function ownRecord(o: Order, records: DnsRecord[], host: string): DnsRecord | null {
+  if (o.google_verification_state !== "added" || !o.google_txt_record_id || !o.google_verification) return null;
+  return googleRecords(records, host).find((r) => r.id === o.google_txt_record_id && unquoted(r.content) === o.google_verification) ?? null;
+}
+
 /**
- * "Overiť v Google Search Console" (live domains): the value goes into the domain's DNS as a TXT
+ * "Overiť v Google Search Console" (live domains): the value goes into the domain's DNS as a new TXT
  * record at the domain itself when Cacadoo runs its DNS (a domain bought here, or an own domain in
- * our Websupport account) — only added, never replacing or removing a record (MX, SPF, DKIM, DMARC
- * and every other TXT stay as they are). Otherwise the owner gets the record to add at their own
- * registrar.
+ * our Websupport account) — only added: MX, SPF, DKIM, DMARC and every other record stay as they
+ * are. The same value already there → nothing is added ("present"). A new value replaces only the
+ * record Cacadoo added earlier (the new one first, so the domain stays verified). Otherwise the owner
+ * gets the record to add at their own registrar.
  */
 async function googleVerifyAction(deps: Deps, who: { authorization: string }, body: Json): Promise<Response> {
   const id = String(body.order_id ?? "");
@@ -1928,21 +1947,65 @@ async function googleVerifyAction(deps: Deps, who: { authorization: string }, bo
   const host = o.site_host ?? o.hostname;
 
   if (o.registrar_service_id && deps.registrar) {
-    const records = await deps.registrar.records(o.registrar_service_id);
-    const google = records.filter(
-      (r) => r.type.toUpperCase() === "TXT" && bareName(r.name, host) === "@" && unquoted(r.content).startsWith(GOOGLE_PREFIX),
+    const sid = o.registrar_service_id;
+    const records = await deps.registrar.records(sid);
+    const google = googleRecords(records, host);
+    const own = ownRecord(o, records, host);
+    const same = google.find((r) => unquoted(r.content) === value) ?? null;
+    if (same && own && same.id === own.id) {
+      await patch(deps, o.id, { google_verification_at: iso(deps) });
+      return reply(200, { state: "added", host, record: { type: "TXT", name: "@", value } });
+    }
+    if (same) {
+      // Already in the DNS, not added by us: nothing is added, and "Odstrániť" will never remove it.
+      if (own) await deps.registrar.deleteRecord(sid, own.id);
+      await patch(deps, o.id, { google_verification: value, google_verification_state: "present", google_txt_record_id: null, google_verification_at: iso(deps) });
+      await log(deps, o.id, "google", true, own ? "Search Console value already in DNS; our earlier record removed" : "Search Console value already in DNS: nothing added");
+      return reply(200, { state: "present", host, record: { type: "TXT", name: "@", value } });
+    }
+    if (google.length - (own ? 1 : 0) >= MAX_GOOGLE_RECORDS) return reply(200, { state: "too_many", host });
+    await deps.registrar.addRecord(sid, { type: "TXT", name: "@", value });
+    const added = googleRecords(await deps.registrar.records(sid), host).find(
+      (r) => unquoted(r.content) === value && !google.some((g) => g.id === r.id) && RECORD_ID.test(r.id),
     );
-    const present = google.some((r) => unquoted(r.content) === value);
-    if (!present && google.length >= MAX_GOOGLE_RECORDS) return reply(200, { state: "too_many", host });
-    if (!present) await deps.registrar.addRecord(o.registrar_service_id, { type: "TXT", name: "@", value });
-    await patch(deps, o.id, { google_verification: value, google_verification_state: "added", google_verification_at: iso(deps) });
-    await log(deps, o.id, "google", true, present ? "Search Console TXT record already in DNS" : "Search Console TXT record added to DNS");
+    if (own) await deps.registrar.deleteRecord(sid, own.id);
+    await patch(deps, o.id, {
+      google_verification: value,
+      google_verification_state: "added",
+      google_txt_record_id: added?.id ?? null,
+      google_verification_at: iso(deps),
+    });
+    await log(deps, o.id, "google", true, own ? "Search Console TXT record added to DNS; our earlier record removed" : "Search Console TXT record added to DNS");
     return reply(200, { state: "added", host, record: { type: "TXT", name: "@", value } });
   }
 
-  await patch(deps, o.id, { google_verification: value, google_verification_state: "manual", google_verification_at: iso(deps) });
+  await patch(deps, o.id, { google_verification: value, google_verification_state: "manual", google_txt_record_id: null, google_verification_at: iso(deps) });
   await log(deps, o.id, "google", true, "Search Console TXT record shown to add at the registrar");
   return reply(200, { state: "manual", host, record: { type: "TXT", name: manualRecordName(host), value } });
+}
+
+/**
+ * "Odstrániť": forgets the Search Console value and removes from the DNS only the record Cacadoo
+ * added (its id and still its value). A value that was already there ("present"), one the owner adds
+ * by hand ("manual") and every other record are never touched.
+ */
+async function googleRemoveAction(deps: Deps, who: { authorization: string }, body: Json): Promise<Response> {
+  const id = String(body.order_id ?? "");
+  const o = UUID.test(id) ? await load(deps, id) : null;
+  if (!o || !(await member(deps, who.authorization, o.shop_id))) return reply(404, { error: "not_found" });
+  if (!o.google_verification) return reply(200, { state: "removed", dns: false });
+  const host = o.site_host ?? o.hostname;
+  let dns = false;
+  if (o.registrar_service_id && deps.registrar && o.google_verification_state === "added" && o.google_txt_record_id) {
+    const own = ownRecord(o, await deps.registrar.records(o.registrar_service_id), host);
+    if (own) {
+      await deps.registrar.deleteRecord(o.registrar_service_id, own.id);
+      dns = true;
+    }
+  }
+  await patch(deps, o.id, { google_verification: null, google_verification_state: null, google_txt_record_id: null, google_verification_at: iso(deps) });
+  await log(deps, o.id, "google", true, dns ? "Search Console TXT record removed from DNS (only ours)" : "Search Console value forgotten; DNS not changed");
+  return reply(200, { state: "removed", dns });
 }
 
 /** The Pro price (from Stripe, STRIPE_PRICE_PRO), shown next to the domain to a shop without Pro. */
@@ -2055,6 +2118,8 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
         return await cancelPaymentAction(deps, who, body);
       case "google_verify":
         return await googleVerifyAction(deps, who, body);
+      case "google_remove":
+        return await googleRemoveAction(deps, who, body);
     }
     return reply(400, { error: "bad_request" });
   } catch (e) {

@@ -160,8 +160,39 @@ export async function verifyGoogle(formData: FormData) {
   if (error === "too_soon") back({ err: "google_too_soon" }, "findable");
   if (error) back({ err: "error" }, "findable");
   const state = data?.state;
-  if (state === "added" || state === "manual") back({ ok: `google_${state}` }, "findable");
+  if (state === "added" || state === "present" || state === "manual") back({ ok: `google_${state}` }, "findable");
   back({ err: state === "too_many" ? "google_too_many" : "google_invalid" }, "findable");
+}
+
+/**
+ * "Odstrániť" (update 36): the Search Console value is forgotten; from the DNS the function removes
+ * only the record Cacadoo added (never one that was there already, never another record).
+ */
+export async function removeGoogle(formData: FormData) {
+  const { session, back } = await start(formData);
+  const { data, error } = await callDomains<{ state?: string; dns?: boolean }>(session.supabase, {
+    action: "google_remove",
+    order_id: String(formData.get("order_id") ?? ""),
+  });
+  if (error || data?.state !== "removed") back({ err: "error" }, "findable");
+  back({ ok: data?.dns ? "google_removed_dns" : "google_removed" }, "findable");
+}
+
+/**
+ * The meta tag of Google ("HTML značka") or Bing (msvalidate.01) on the domain's pages (update 36):
+ * owner_set_site_verification() checks the shop, the live domain and the format; "remove" = empty.
+ */
+export async function saveVerificationMeta(formData: FormData) {
+  const { session, back } = await start(formData);
+  const kind = formData.get("kind") === "bing" ? "bing" : "google";
+  const remove = formData.get("remove") === "1";
+  const { error } = await session.supabase.rpc("owner_set_site_verification", {
+    p_order_id: String(formData.get("order_id") ?? ""),
+    p_kind: kind,
+    p_value: remove ? "" : String(formData.get("value") ?? "").slice(0, 500),
+  });
+  if (error) back({ err: error.message === "value" ? `meta_${kind}_invalid` : "error" }, `verify-${kind}`);
+  back({ ok: remove ? `meta_${kind}_removed` : `meta_${kind}_saved` }, `verify-${kind}`);
 }
 
 /** "Kategórie tovaru" for the domain's llms.txt (owner_set_categories: plain text, at most 12). */

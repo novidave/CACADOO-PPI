@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { siteLang, sitePath } from "@/lib/customDomain";
 import { getShop } from "@/lib/data";
 import { getSiteLogo } from "@/lib/sections";
+import { type SiteVerification, verificationMetadata } from "@/lib/siteFiles";
+import { createPublicClient } from "@/lib/supabase/public";
 import { SiteLanguageSwitch } from "@/components/LanguageSwitch";
 import "../../../globals.css";
 
@@ -18,8 +21,18 @@ import "../../../globals.css";
  */
 export async function generateMetadata({ params }: LayoutProps<"/site/[lang]/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const shop = await getShop(slug).catch(() => null);
-  return shop ? { title: { default: shop.name, template: "%s" } } : {};
+  const supabase = createPublicClient();
+  const [shop, meta, host] = await Promise.all([
+    getShop(slug).catch(() => null),
+    // The owner's Google ("HTML značka") and Bing meta tags (update 36; nothing before it).
+    supabase
+      ? Promise.resolve(supabase.rpc("site_verification_meta", { p_slug: slug })).then(({ data }) => (data as SiteVerification | null) ?? null, () => null)
+      : Promise.resolve(null),
+    headers().then((h) => h.get("host")),
+  ]);
+  if (!shop) return {};
+  const verification = verificationMetadata(meta, host);
+  return { title: { default: shop.name, template: "%s" }, ...(verification ? { verification } : {}) };
 }
 
 export default async function SiteLayout({ children, params }: LayoutProps<"/site/[lang]/[slug]">) {

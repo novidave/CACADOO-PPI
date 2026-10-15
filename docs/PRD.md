@@ -40,6 +40,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Assistant conversations as PDF straight to the PC: "Stiahnuť PDF" on each, ticks + "Stiahnuť vybrané"; the shopper's pictures large in the PDF | Built and tested; live after the updated assistant-archive function and the merge (SETUP.md part AA) |
 | "Konverzácie do počítača": every finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open; never replaces anything) | Built and tested; live after the merge, no database change (SETUP.md part AB) |
 | Own domains easy to find: "Overiť v Google Search Console" (the TXT record written into DNS for domains Cacadoo runs, shown to add by hand otherwise) and "Odoslať sitemap"; llms.txt and robots.txt per own domain (with "Kategórie tovaru"); IndexNow after every stock upload (only changed pages); search results, map pins and AI cards link to the own domain; item pages carry Product/Offer + Store JSON-LD | Built and tested; live after database update 33, the updated domains and stock-pull functions and the merge (SETUP.md part AC) |
+| Own domains fully findable: "Overiť v Google Search Console" — a TXT record added to the DNS of a domain Cacadoo runs ("Odstrániť" removes only that record), or for a connected domain the **HTML značka** on its pages (recommended) or the TXT record to add by hand; **Bing Webmaster Tools** (the same meta tag, or the import from Search Console); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacadoo's API/MCP; **IndexNow on every host** (the main domain too) with only meaningful changes, once per upload and once an hour per host; the Offer keeps the price on stale pages (no availability); API/MCP `source_url` and PPI's llms.txt point to the own domain | Built and tested; live after database update 36, `INDEXNOW_KEY` (Vercel + Supabase) and `SITE_URL` (Supabase), the updated domains and stock-pull functions and the merge (SETUP.md part AG) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -890,8 +891,9 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
 - **Easy to find (update 33).** Under the live domain on "Predplatné a doména", the box **"Aby vás našli Google a AI
   asistenti"**:
   - **"Overiť v Google Search Console"**: three steps (open Search Console → Pridať vlastníctvo → Doména → the domain;
-    copy the TXT value "google-site-verification=…"; click Overiť), a field for the value (the whole value or only its
-    token, quotes allowed; an HTML tag or any other text is refused: "Toto nie je hodnota TXT zo Search Console …").
+    copy the TXT value "google-site-verification=…"; click Overiť), a field for the value (since update 36 only the
+    whole value "google-site-verification=…", quotes allowed; the token alone, an HTML tag or any other text is refused:
+    "Toto nie je hodnota TXT zo Search Console …").
     A domain whose DNS Cacadoo runs (bought here, or an own domain in PPI's Websupport account): **"Zapísať do DNS"**
     adds one TXT record at the domain itself through the Websupport DNS API — **only added**: no record is ever
     replaced or removed (MX, SPF, DKIM, DMARC and every other TXT stay), the same value is never added twice, at most
@@ -929,6 +931,45 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
 - **Main Cacadoo search** (results, map pins, the AI search cards) and the "Dostupné aj v" list link a shop with a
   live own domain straight to it (its item `https://<doména>/<lang>/items/<id>` and its home page); other shops stay on
   PPI's pages. Payment never affects the order of the results.
+- **Fully findable (update 36, Prompt 12).** What changed and was added on top of update 33:
+  - **Search Console on a domain Cacadoo runs**: Cacadoo keeps the id of the TXT record it added
+    (`google_txt_record_id`); the same value already in the DNS → nothing is added ("Táto hodnota už v DNS domény …
+    je — nič sme nepridali."; state `present`). **"Odstrániť"** forgets the value and removes from the DNS **only the
+    record Cacadoo added** (its id and still its value; a record someone changed is left alone) — never a record that
+    was there before, never SPF, MX, DKIM, DMARC or anything else ("Záznam, ktorý pridal Cacadoo, je odstránený z
+    DNS. Ostatné záznamy sme nezmenili."). A new value replaces only Cacadoo's own earlier record (the new one first).
+  - **Search Console on a connected domain**: **a) "HTML značka (odporúčané)"** — property type "Predpona webovej
+    adresy" `https://<doména>/`; the owner pastes Google's whole meta tag (or its content); Cacadoo adds
+    `<meta name="google-site-verification" content="…">` to the shop's pages **on that domain only**; **b) "Záznam
+    TXT"** — the record with "Kopírovať" next to its name and its value.
+  - **"Overiť v Bing Webmaster Tools"** (every own domain): "Najjednoduchšie: … Importovať …" (Bing takes over a site
+    verified in Search Console, with its sitemap), else the same meta tag method with `msvalidate.01`. The meta tag
+    values (`domain_site_verifications`, one row per domain) only through `owner_set_site_verification()` (the
+    shop's owners, a live domain, the format of that kind — anything else "Toto nie je značka …"); "Odstrániť
+    značku". The pages read them through `site_verification_meta(slug)` (live domain + plan) and only on the request
+    host that is that domain.
+  - **"Odoslať sitemap: https://<doména>/sitemap.xml"** now with the steps for Google Search Console and Bing
+    Webmaster Tools.
+  - **llms.txt of an own domain** also says whether the shop follows public holidays ("the shop follows them — on
+    those days the hours above may not apply" / "keeps its regular hours"), the item categories its pages show (only
+    data that exists; never invented), and **"Machine access"**: Cacadoo's MCP server (`get_shop` with this shop's
+    slug), REST API and OpenAPI, whose `source_url` points back to the domain.
+  - **IndexNow on every host** (replaces update 33's per-domain ping): one key `INDEXNOW_KEY` (public by design; the
+    same value in Vercel and as a Supabase secret), served as `https://<host>/<key>.txt` on the main Cacadoo domain
+    and on every live own domain. After stock-pull applied a file, in the background (never delays the stock): only
+    **meaningful changes** — a new item, a price or currency change, in stock ↔ sold out (a removed item becomes sold
+    out); not 12 → 11 pieces (`inventory.indexnow_at`, set by the trigger). The item pages go to their **canonical
+    host** (the shop's live own domain, else the main Cacadoo host from `SITE_URL`), each in sk/hu/en, ≤ 10 000
+    addresses per request, one host per request, **at most once per upload and once an hour per host**; what
+    changed in between goes with the next ping; a refused or failed ping is sent again with the next one (only an
+    accepted answer moves on). Every ping is logged (`indexnow_pings`: host, number of addresses, answer); the owner
+    sees the last one. Never private content (only item pages).
+  - **Item JSON-LD**: the **Offer** follows the visible page — the price and currency whenever the page shows a price,
+    the **availability only while the data is fresh** (none when stale); no price → no Offer (never invented).
+    `hreflang` sk/hu/en + `x-default` (the domain's own language) on the own domain's shop and item pages.
+  - **Every link to a shop with a live own domain points there**: besides the search results and the AI cards, the
+    public API's and MCP's **`source_url`** (items and shops) and PPI's own **llms.txt** shop list; PPI's sitemap
+    leaves those pages out.
 - **Renewal and cancellation.** 30 days before expiry the renewal is charged to the saved card (a Stripe invoice); only
   after it is paid does Websupport renew from PPI's credit. E-mails 30 and 7 days before expiry; a failed renewal: a
   reminder every week with the payment link, then at expiry the domain lapses and the page is back on its Cacadoo
@@ -1048,7 +1089,7 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 | `shop_members` | `shop_id`, `user_id`, `role` (`owner`) | Which account owns which shop |
 | `products` | `id`, `ean` (unique), `name`, `brand`, `category` | One per real product, shared by shops |
 | `shop_items` | `id`, `shop_id`, `source_code` (the shop's item code), `name`, `ean`, `brand`, `product_id`, `updated_at`, `name_lang`, `name_i18n` (`{"sk","hu","en"}`), `translated_name_source`, `name_i18n_by_owner`, `changed_at` (update 33: when name, EAN or brand last changed; a trigger) | Unique per shop + code; names searchable through one trigram index over the original and the three translations. Every item of an active shop is public (`is_public` dropped by migration 21) |
-| `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at`, `changed_at` (update 33: when quantity, price or currency last really changed; a trigger) | Written only by the stock-pull function |
+| `inventory` | `shop_item_id`, `quantity`, `price`, `currency`, `source_updated_at`, `received_at`, `changed_at` (update 33: when quantity, price or currency last really changed; a trigger), `indexnow_at` (update 36: when it last changed in a way a search result shows — new, price/currency, in stock ↔ sold out; a trigger) | Written only by the stock-pull function |
 | `sync_sources` | `shop_id` (unique), `file_format`, `field_mapping` (jsonb), `mapping_status` (`proposed`/`confirmed`), `sample_rows` (never private columns: 3 rows without purchase price / supplier / margin / invoice columns before approval, only the approved columns after), `file_columns` (every column name of the latest file), `latest_file_time`, `last_checked_at`, `last_error`, `folder_seen_at`, `last_file_name` | One per shop: how its stock file is read and the latest upload. A leftover `file_url` column is unused |
 | `stock_imports` | `shop_id`, `file_name`, `file_time`, `received_at`, `status` (`ok`/`errors`/`waiting`), `total_rows`, `imported`, `zeroed`, `skipped`, `error`, `columns`, `preview` | Import report per received file, the last 10 per shop; written only by stock-pull (`record_stock_import()`), read only by the shop's owners; the preview holds only approved columns |
 | `profiles` | `user_id`, `display_name`, `language`, `is_admin` | One per account, created automatically |
@@ -1076,10 +1117,13 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 | `cloud_connections` | `shop_id` (key: one per shop), `provider` (`onedrive`/`dropbox`), `account_name`, `account_email`, `folder_path`, `access_token_enc`, `refresh_token_enc`, `access_expires_at`, `scope`, `site_url`, `status` (`ok`/`expired`/`error`), `last_error`, `connected_by`, `connected_at`, `last_success_at`, `failing_since`, `alert_sent_at` | The shop's cloud (update 23); written only by cloud-export; owners read everything except the tokens |
 | `cloud_oauth_states` | `state_hash`, `shop_id`, `provider`, `user_id`, `verifier`, `folder_path`, `return_url`, `expires_at` | One OAuth round trip (SHA-256 of the state, 10 minutes, single use); no client access |
 | `cloud_export_items` | `conversation_id`, `shop_id`, `item_key` (`pdf` or the attachment id), `remote_path`, `remote_id`, `bytes`, `uploaded_at` | What was copied (unique per conversation and item); owners read |
-| `domain_settings` | one row: `search_url` (https), `same_price_as_registrar`, `low_credit_eur`, `test_domain`, `credit_eur`, `credit_checked_at`, `credit_alert_at`, `indexnow_key` (update 33: random; public through `indexnow_key()`, served as `/<key>.txt`) | Update 25; only the admin (owners read the search address and the switch through `domain_shop_settings()`) |
+| `domain_settings` | one row: `search_url` (https), `same_price_as_registrar`, `low_credit_eur`, `test_domain`, `credit_eur`, `credit_checked_at`, `credit_alert_at`, `indexnow_key` (update 33: random; no longer used since update 36 — the key is `INDEXNOW_KEY`) | Update 25; only the admin (owners read the search address and the switch through `domain_shop_settings()`) |
 | `domain_prices` | `tld` (key), `price_cents`, `renewal_cents`, `vat_included`, `currency` (EUR), `sort_order`, `active` | The admin's price table; everyone reads active rows |
 | `shop_legal` | `shop_id` (key), `company_name`, `contact_name`, `street`, `city`, `zip`, `country`, `ico`, `dic`, `ic_dph`, `email`, `phone` | The domain owner's details; members and the admin read, owners write through `owner_save_legal()` |
-| `domain_orders` | `shop_id`, `kind` (`bought`/`connected`), `hostname`, `site_host`, `www`, `status` (quoted → checkout → paid → registering → configuring → securing → live; waiting_dns → verified; taken, failed, dns_timeout, lapsed, ended, canceled), the frozen price, Stripe session/invoice/payment/refund, Websupport profile/order/service, `test_mode`, `waiting_credit`, `dns_records`, checks, tries, `live_at`, `live_email_at`, `expires_at`, renewal state and notices, `auth_code`, `last_error`, `needs_admin`, `log`; update 33: `google_verification` (`google-site-verification=…`), `google_verification_state` (added/manual), `google_verification_at`, `indexnow_upload_at` (the upload last announced), `indexnow_at`, `indexnow_urls`, `indexnow_result` | One open domain per shop and per host; members and the admin read; only the domains and Stripe functions write |
+| `domain_orders` | `shop_id`, `kind` (`bought`/`connected`), `hostname`, `site_host`, `www`, `status` (quoted → checkout → paid → registering → configuring → securing → live; waiting_dns → verified; taken, failed, dns_timeout, lapsed, ended, canceled), the frozen price, Stripe session/invoice/payment/refund, Websupport profile/order/service, `test_mode`, `waiting_credit`, `dns_records`, checks, tries, `live_at`, `live_email_at`, `expires_at`, renewal state and notices, `auth_code`, `last_error`, `needs_admin`, `log`; update 33: `google_verification` (`google-site-verification=…`), `google_verification_state` (added/manual; update 36: present), `google_verification_at`, `indexnow_upload_at` (the upload last announced), `indexnow_at`, `indexnow_urls`, `indexnow_result`; update 36: `google_txt_record_id` (the record Cacadoo added, only with added) | One open domain per shop and per host; members and the admin read; only the domains and Stripe functions write |
+| `domain_site_verifications` | `order_id` (key), `shop_id`, `google_meta` (Google's token), `bing_meta` (Bing's hex code), `updated_at` | Update 36; RLS: the shop's members read; written only through `owner_set_site_verification()` |
+| `indexnow_hosts` | `host` (key), `sent_upto` + `sent_upto_id` (what was sent and accepted), `last_ping_at`, `last_status`, `last_result`, `last_urls` | Update 36; RLS on, service role only (stock-pull through `indexnow_claim_host()` / `indexnow_done()`) |
+| `indexnow_pings` | `host`, `kind` (main/site), `urls`, `status`, `result`, `upto`, `sent_at` (the last 100 per host) | Update 36; RLS on, service role only |
 | `partners` (update 35) | `name`, `logo_path`, `feed_url` or `feed_file_path` (+ `feed_file_at`), `feed_format` (google_xml/google_csv/heureka_xml/csv), `inventory_url` or `inventory_file_path`, `inventory_format` (google_local_xml/google_local_csv), `currency`, `timezone`, `schedule` (hourly/6h/daily/weekly), `affiliate`, `enabled`, `next_run_at`, `force_next` | Admin only through `admin_*` functions; nobody else reads it |
 | `partner_stores` (update 35) | `partner_id`, `store_code`, `name`, `address`, `city`, `postal_code`, `country`, `lat`, `lng` | The partner's store list as the admin typed it |
 | `partner_products` (update 35) | `partner_id`, `item_id`, `title`, `brand`, `gtin`, `mpn`, `category`, `price`, `sale_price` (+ `sale_from`/`sale_to`), `currency`, `availability` (as written) + `availability_state` + `availability_days`, `link`, `image_link`, `search_blob` (generated, trigram index), `import_id`, `updated_at` (the time of the data), `changed_at` | The feeds' rows as sent; visitors read only through `search_partner_products()` |
@@ -1338,3 +1382,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-14 | The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots in Cacadoo yellow with the real steps, the answer streamed word by word, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page (the API and MCP keep `only_available`) |
 | 2026-10-15 | The chat finds products in layers: Cacadoo first, then shops nearby (OpenStreetMap, optionally Google Places) and offers on allowed shop websites (Claude's web search) with deep links, only when Cacadoo has fewer than 3 good results and the shopper wrote a town; other questions declined; admin switches, allowed domains, calls and cost per day |
 | 2026-10-15 | Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule in parts, shown in the chat under "Partneri" between Cacadoo and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" |
+| 2026-10-15 | Own domains fully findable: "Odstrániť" removes only the TXT record Cacadoo added, the same value is never added twice; the Google "HTML značka" for connected domains (recommended) next to the TXT record; Bing Webmaster Tools (meta tag or import); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacadoo's API/MCP; IndexNow on every host with one `INDEXNOW_KEY`, only meaningful changes, once per upload and once an hour per host, logged; the Offer keeps the price on stale pages; `x-default` hreflang; API/MCP `source_url` and PPI's llms.txt point to the own domain |

@@ -21,14 +21,19 @@
 //   6. after the reply, in the background: names without a translation (or renamed) get
 //      their Slovak, Hungarian and English names from Claude Haiku; never touches stock,
 //      and whatever fails is tried again with the next file
-//   7. also in the background (update 33): a shop whose own domain is live tells IndexNow
-//      (Bing, Seznam, Yandex… share it) the addresses on that domain that this upload
-//      changed — one request per upload at most (indexnow_claim), only the changed items
+//   7. also in the background (update 36): IndexNow (Bing, Seznam, Yandex… share it) is told
+//      the item pages that changed in a way a search result shows — new, price, in stock ↔
+//      sold out (inventory.indexnow_at; not 12 → 11 pieces) — on their canonical host: the
+//      shop's live own domain, else the main Cacadoo host. At most one request per upload and
+//      one per hour per host (indexnow_claim_host); what waits goes with the next one, and a
+//      refused or failed request is sent again with the next one (indexnow_done)
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor →
 // name "stock-pull" → paste this file → Deploy, then switch OFF "Verify JWT"
-// (this function checks its callers itself). Secret: ANTHROPIC_API_KEY (optional:
-// AI mapping proposals and the item-name translations).
+// (this function checks its callers itself). Secrets: ANTHROPIC_API_KEY (optional:
+// AI mapping proposals and the item-name translations); INDEXNOW_KEY (the same key as the
+// website's, public by design) and SITE_URL (the website's address, e.g. https://ppi.cacadoo.sk)
+// for IndexNow — without either, no IndexNow request is sent.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { XMLParser } from "npm:fast-xml-parser@5.11.2";
@@ -568,63 +573,107 @@ function inBackground(task: Promise<unknown>): void {
   else task.catch(() => {});
 }
 
-// ---------------------------------------------------------------- IndexNow (update 33)
+// ---------------------------------------------------------------- IndexNow (update 36)
 
 /** The shared IndexNow endpoint: one request reaches every search engine that takes part. */
 export const INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow";
-const INDEXNOW_MAX_URLS = 10_000;
+export const INDEXNOW_MAX_URLS = 10_000;
 const SITE_LANGS = ["sk", "hu", "en"];
+/** Items per request: each in the three languages, so one request always holds them all (3 × 3333 ≤ 10 000). */
+const INDEXNOW_MAX_ITEMS = Math.floor(INDEXNOW_MAX_URLS / SITE_LANGS.length);
+const INDEXNOW_KEY = /^[A-Za-z0-9-]{8,128}$/;
+const HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
 
-/** What indexnow_claim() gives once per upload: the live own domain and the items that changed. */
-export interface IndexNowClaim {
-  order_id: string;
+export interface IndexNowSettings {
+  /** INDEXNOW_KEY: the same key the website serves as https://<host>/<key>.txt on every host. */
+  key: string | null;
+  /** The main Cacadoo host (from SITE_URL), for the shops without a live own domain. */
+  mainHost: string | null;
+  fetch?: typeof fetch;
+  endpoint?: string;
+}
+
+/** INDEXNOW_KEY and the host of SITE_URL (https only); a missing or malformed one → null (no request). */
+export function indexNowSettings(env: (name: string) => string | undefined): IndexNowSettings {
+  const key = (env("INDEXNOW_KEY") ?? "").trim();
+  let mainHost: string | null = null;
+  try {
+    const url = new URL((env("SITE_URL") ?? "").trim());
+    const host = url.hostname.toLowerCase();
+    if (url.protocol === "https:" && HOST.test(host) && host.includes(".")) mainHost = host;
+  } catch {
+    // no SITE_URL
+  }
+  return { key: INDEXNOW_KEY.test(key) ? key : null, mainHost };
+}
+
+/** What indexnow_claim_host() gives once per upload (null: no host at all). */
+export interface IndexNowHostClaim {
   host: string;
-  /** The domain's own language ("/" is in it). */
-  lang: string;
-  key: string;
-  upload_at: string;
-  items: string[];
+  kind: "site" | "main";
+  /** Changed since the last answered ping, oldest first (absent with skip). */
+  items?: { id: string; slug: string }[];
+  /** The own domain's language ("/" is in it); null on the main host. */
+  lang?: string | null;
+  upto?: string;
+  upto_id?: string;
+  /** "hour": that host had its ping this hour; "nothing": nothing changed since the last one. */
+  skip?: "hour" | "nothing";
 }
 
 /**
- * The changed addresses on the shop's own domain (the same as its sitemap.xml): its page, then
- * every changed item in the domain's language, then in the other languages; at most 10 000.
+ * The canonical addresses of the changed item pages on that host (as in its sitemap.xml): each
+ * item in every language — on an own domain its own language first; at most 10 000. Only item
+ * pages: nothing else of the shop, never a private file.
  */
-export function indexNowUrls(claim: IndexNowClaim): string[] {
-  if (!claim.items.length) return [];
+export function indexNowUrls(claim: IndexNowHostClaim): string[] {
+  const items = claim.items ?? [];
+  if (!items.length || !HOST.test(claim.host)) return [];
   const base = `https://${claim.host}`;
-  const others = SITE_LANGS.filter((l) => l !== claim.lang);
-  const urls = [`${base}/`, ...others.map((l) => `${base}/${l}`)];
-  for (const lang of [claim.lang, ...others]) {
-    for (const id of claim.items) urls.push(`${base}/${lang}/items/${id}`);
+  const langs = claim.kind === "site" && claim.lang && SITE_LANGS.includes(claim.lang)
+    ? [claim.lang, ...SITE_LANGS.filter((l) => l !== claim.lang)]
+    : SITE_LANGS;
+  const urls: string[] = [];
+  for (const item of items) {
+    if (!UUID.test(item.id)) continue;
+    for (const lang of langs) urls.push(`${base}/${lang}/items/${item.id}`);
   }
   return urls.slice(0, INDEXNOW_MAX_URLS);
 }
 
+/** The request IndexNow takes: one host, its key, where the key file is, the addresses. */
+export function indexNowPayload(host: string, key: string, urls: string[]) {
+  return { host, key, keyLocation: `https://${host}/${key}.txt`, urlList: urls.slice(0, INDEXNOW_MAX_URLS) };
+}
+
+export type IndexNowOutcome = { host: string | null; sent: number; status: number | null; skipped?: string };
+
 /**
- * After an upload that was applied: one IndexNow request with the addresses it changed, only for
- * a shop whose own domain is live (indexnow_claim decides, and only once per upload). The key is
- * public (the domain serves it as /<key>.txt) but is still never logged.
+ * After an upload that was applied (in the background; never delays or undoes the stock): one
+ * IndexNow request for the host of this shop's pages with the item pages that changed there,
+ * when indexnow_claim_host() allows it (at most once an hour per host). The answer is noted
+ * (indexnow_done: logged; only an accepted request moves on, so a failure is sent again with
+ * the next one). The key is public (every host serves /<key>.txt) but is still never logged.
  */
-export async function pingIndexNow(
-  db: SupabaseClient,
-  shopId: string,
-  f: typeof fetch = fetch,
-  endpoint = INDEXNOW_ENDPOINT,
-): Promise<{ sent: number; status: number | null }> {
-  const { data, error } = await db.rpc("indexnow_claim", { p_shop_id: shopId });
-  if (error || !data) return { sent: 0, status: null };
-  const claim = data as IndexNowClaim;
+export async function pingIndexNow(db: SupabaseClient, shopId: string, settings: IndexNowSettings): Promise<IndexNowOutcome> {
+  if (!settings.key) return { host: null, sent: 0, status: null, skipped: "no key" };
+  const { data, error } = await db.rpc("indexnow_claim_host", {
+    p_shop_id: shopId,
+    p_main_host: settings.mainHost,
+    p_max_items: INDEXNOW_MAX_ITEMS,
+  });
+  if (error || !data) return { host: null, sent: 0, status: null, skipped: error ? "database" : "no host" };
+  const claim = data as IndexNowHostClaim;
+  if (claim.skip) return { host: claim.host, sent: 0, status: null, skipped: claim.skip };
   const urls = indexNowUrls(claim);
-  // Nothing changed in this upload: no request (the owner still sees the last one).
-  if (!urls.length) return { sent: 0, status: null };
+  if (!urls.length) return { host: claim.host, sent: 0, status: null, skipped: "nothing" };
   let status: number | null = null;
   let result: string;
   try {
-    const res = await f(endpoint, {
+    const res = await (settings.fetch ?? fetch)(settings.endpoint ?? INDEXNOW_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ host: claim.host, key: claim.key, keyLocation: `https://${claim.host}/${claim.key}.txt`, urlList: urls }),
+      body: JSON.stringify(indexNowPayload(claim.host, settings.key, urls)),
       signal: AbortSignal.timeout(15_000),
     });
     status = res.status;
@@ -633,9 +682,19 @@ export async function pingIndexNow(
   } catch (e) {
     result = `failed: ${e instanceof Error ? e.name : "error"}`;
   }
-  await db.rpc("indexnow_sent", { p_order_id: claim.order_id, p_upload_at: claim.upload_at, p_urls: urls.length, p_result: result });
-  if (status === null || status >= 400) console.error(`stock-pull: IndexNow answered ${result} for ${claim.host}`);
-  return { sent: urls.length, status };
+  await db.rpc("indexnow_done", {
+    p_host: claim.host,
+    p_kind: claim.kind,
+    p_upto: claim.upto ?? null,
+    p_upto_id: claim.upto_id ?? null,
+    p_urls: urls.length,
+    p_status: status,
+    p_result: result,
+  });
+  const line = `stock-pull: IndexNow ${claim.host}: ${urls.length} addresses, answer ${result}`;
+  if (status !== null && status < 400) console.log(line);
+  else console.error(line);
+  return { host: claim.host, sent: urls.length, status };
 }
 
 // ---------------------------------------------------------------- one shop
@@ -867,8 +926,8 @@ export async function receiveUpload(
   options: {
     translate?: Translator;
     background?: (task: Promise<unknown>) => void;
-    /** Tests only: where the IndexNow request goes. */
-    indexnow?: { fetch?: typeof fetch; endpoint?: string };
+    /** IndexNow's key and the main host (the handler reads INDEXNOW_KEY and SITE_URL); tests: where it goes. */
+    indexnow?: IndexNowSettings;
   } = {},
 ) {
   const shopId = params.get("shop_id") ?? "";
@@ -909,7 +968,8 @@ export async function receiveUpload(
   // The new stock is saved; IndexNow is told and names are translated after the reply, so neither delays it.
   if (result.status === "updated") {
     const later = options.background ?? inBackground;
-    later(pingIndexNow(db, shopId, options.indexnow?.fetch, options.indexnow?.endpoint).catch(() => ({ sent: 0, status: null })));
+    const indexnow = options.indexnow ?? { key: null, mainHost: null };
+    later(pingIndexNow(db, shopId, indexnow).catch((): IndexNowOutcome => ({ host: null, sent: 0, status: null, skipped: "failed" })));
     later(translateShopItems(db, shopId, options.translate));
   }
   return reply(200, { result: publicResult(result) });
@@ -946,7 +1006,7 @@ export async function handler(req: Request): Promise<Response> {
   });
 
   // The only way in: an upload from the PPI window on the shop PC or "Upload file".
-  return await receiveUpload(req, new URL(req.url).searchParams, asCaller, db);
+  return await receiveUpload(req, new URL(req.url).searchParams, asCaller, db, { indexnow: indexNowSettings((name) => Deno.env.get(name)) });
 }
 
 if (!Deno.env.get("PPI_STOCK_PULL_TEST")) Deno.serve(handler);

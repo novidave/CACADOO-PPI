@@ -1,5 +1,7 @@
 import { CORS_HEADERS, LIMIT_PER_MINUTE } from "@/lib/apiHttp";
+import { loadLiveSites } from "@/lib/customDomain";
 import { siteUrl } from "@/lib/site";
+import { mainLlmsShops } from "@/lib/siteFiles";
 import { createPublicClient } from "@/lib/supabase/public";
 
 export const revalidate = 3600;
@@ -8,9 +10,13 @@ export const revalidate = 3600;
 export async function GET() {
   const base = siteUrl();
   const supabase = createPublicClient();
-  const { data: shops } = supabase
-    ? await supabase.from("public_shops").select("slug, name, city, country").order("name").limit(200)
-    : { data: [] as { slug: string; name: string; city: string | null; country: string | null }[] };
+  const [{ data: shops }, sites] = await Promise.all([
+    supabase
+      ? supabase.from("public_shops").select("slug, name, city, country").order("name").limit(200)
+      : Promise.resolve({ data: [] as { slug: string; name: string; city: string | null; country: string | null }[] }),
+    // A shop with a live own domain is linked there (its canonical address).
+    loadLiveSites(supabase).catch(() => new Map<string, string>()),
+  ]);
 
   const text = `# PPI
 
@@ -27,6 +33,7 @@ PPI reads stock from each shop's own stock software: the shop's export file arri
 - For stale shops PPI shows NO availability. Never present a stale shop's item as available.
 - Shop pages also list opening hours (in the shop's time zone), "open now", facilities (customer toilet, douchette, card payment) and the shop's contact links: website, e-mail, Facebook page and booking link (booking_url) when it has them.
 - Please cite the page (source_url) and the "updated" time when you use this data.
+- Some shops have their own domain: their pages live there (the canonical address), and every source_url, the list below and the sitemaps point there.
 
 ## Machine access (read-only, no login, ${LIMIT_PER_MINUTE} requests per minute)
 
@@ -44,7 +51,7 @@ PPI reads stock from each shop's own stock software: the shop's export file arri
 - Same pages in Slovak (/sk/…) and Hungarian (/hu/…)
 
 ## Shops
-${(shops ?? []).map((s) => `- [${s.name}${s.city ? `, ${s.city}` : ""}${s.country ? ` (${s.country})` : ""}](${base}/en/shops/${s.slug})`).join("\n") || "- (none yet)"}
+${mainLlmsShops(shops ?? [], sites, base)}
 `;
   return new Response(text, {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600", ...CORS_HEADERS },

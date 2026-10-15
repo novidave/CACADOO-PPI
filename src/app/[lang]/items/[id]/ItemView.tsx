@@ -33,7 +33,10 @@ export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> 
     alternates: host
       ? {
           canonical: siteItemUrl(host, lang, item.item_id),
-          languages: Object.fromEntries(locales.map((l) => [l, siteItemUrl(host, l, item.item_id)])),
+          languages: {
+            ...Object.fromEntries(locales.map((l) => [l, siteItemUrl(host, l, item.item_id)])),
+            "x-default": siteItemUrl(host, siteLang(item.shop_country), item.item_id),
+          },
         }
       : pageAlternates(lang, `/items/${item.item_id}`, locales),
   };
