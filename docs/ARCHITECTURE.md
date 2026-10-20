@@ -39,6 +39,11 @@ something breaks. What PPI does for its users is in `docs/PRD.md`.
    When a PDF is ready, the Edge Function **`cloud-export`** copies it with the shopper's files into the shop's own
    **OneDrive or Dropbox** folder (connected once by the owner with the provider's login; tokens kept encrypted); it
    never replaces or deletes anything there, retries failures and e-mails the owners after 24 hours of failures.
+8. Every shop has a blog, **"Novinky"** (update 37): posts written in Môj obchod (photos drawn in the owner's browser)
+   or imported from the shop's **Facebook Page** by the Edge Function **`shop-blog`** (Facebook Login for Business,
+   the Page token encrypted; all past posts once, then a daily sync and the webhook; Facebook's pictures converted to
+   WebP there), and published to the Page when the owner says so in "Zverejniť aj na Facebooku?". The pages are
+   server-rendered with JSON-LD, RSS, sitemap, llms.txt and IndexNow, on Cacaduu and on the shop's own domain.
 
 ```text
 SHOP
@@ -63,6 +68,9 @@ SUPABASE -----------------------------------------------------------------------
                -> (PDF ready, service key) Edge Function cloud-export (owner's login: connect, folders, retry, older,
                   disconnect | provider's redirect: code -> encrypted tokens | pg_cron + Vault secret: tick every 5 min)
                   +--> MICROSOFT GRAPH (OneDrive) / DROPBOX API: new folders and files only | BREVO API: failure e-mail
+  Edge Function shop-blog (owner's login: photos, publish, connect, import | Facebook: /oauth, signed /webhook
+               | pg_cron + Vault secret: tick every 5 min) -> Storage blog-photos (public WebP 1600/800)
+                  +--> FACEBOOK GRAPH API (the Page's own posts; posting as the Page) | INDEXNOW | BREVO: expiry e-mail
         ^ ^
         | +--> STRIPE: Checkout, customer portal, Stripe Tax, invoices (keys only in function secrets)
                                    |
@@ -1077,6 +1085,104 @@ the service role (owners may read their own shop's `subscriptions` row and impor
     shop list via `mainLlmsShops()` (`lib/siteFiles`). `itemJsonLd`: the Offer whenever the item has a price (price,
     currency, seller), `availability` only when not stale; `hreflang` + `x-default` on own-domain shop and item pages.
 
+### 2.16 Shop blog "Novinky" and the Facebook Page (database update 37, `supabase/sql/37_shop_blog.sql`, `supabase/functions/shop-blog`)
+
+- **Tables** (RLS on; owners read their own through `owner_blog_*`; no client writes): `blog_posts` (slug unique per
+  shop, title ≤ 200, body as written ≤ 70 000, `source` cacaduu|facebook, `status` draft|published|hidden|pending,
+  `publish_at`, `edited_at`, the Facebook copy `fb_choice` / `fb_status` / `fb_error` / `fb_tries` / `fb_posting_at`,
+  `fb_post_id` (unique per shop: never imported or posted twice), `fb_permalink`, `fb_updated_at` / `fb_deleted_at` /
+  `fb_checked_at`, `title_by_owner`, `links` jsonb ≤ 20, generated `search`, `indexnow_at` / `indexnow_sent_at`),
+  `blog_photos` (photo|video, `status` uploading|pending|ready|failed, paths `<uuid>/<uuid>/<uuid>-(1600|800).(webp|jpg)`,
+  widths, `fb_media_id`, `source_url`, `attempts` / `next_try_at`), `blog_limits` (free 10, Pro null; signed-in read,
+  `admin_save_blog_limits()`), `shop_blog_settings` (`auto_publish`, `last_choice`), `facebook_connections` (one Page
+  per shop; owners have a column grant without `page_token_enc`), `facebook_oauth_states`, `facebook_pending_pages`.
+  Triggers `blog_posts_touch` / `blog_photos_touch` keep `updated_at`, `edited_at` (only for a live post's title, text or
+  links) and `indexnow_at`.
+- **One visibility rule:** `blog_visible_posts(shop)` = published, `publish_at <= now()`, an active shop, and among the
+  newest `blog_limits.max_posts` such posts (by `shop_has_plan`); `blog_visible_ids()` / `blog_post_visible()` on top.
+  Visitors: `shop_blog(slug, page, per_page)` (12 per page + the total), `shop_blog_post(slug, post)`,
+  `shop_blog_count(slug)` (the "Novinky" link), `blog_index(slug, limit)` (sitemap, RSS, llms.txt),
+  `search_shop_blog(slug, q)` (the assistant). Owners (member checked in each): `owner_blog_posts` (list with
+  `shown` / `over_limit`), `owner_blog_post`, `owner_blog_save` (draft or a live post's edit; an imported post only its
+  title → `title_by_owner`; `blog_slug()` from the title, unique per shop), `owner_blog_publish(post, at, choice)` (now or
+  ≤ 1 year ahead; `web_fb` needs an `ok` connection; remembers `last_choice`; a live post → `published`),
+  `owner_blog_set_choice` (until its time), `owner_blog_set_hidden`, `owner_blog_settings`, `owner_blog_photo_order`.
+- **Owner's browser** (`dashboard/blog/page.tsx`: list, Facebook panel, settings; `dashboard/blog/[id]/page.tsx` +
+  `components/BlogEditor`): the text through server actions (`dashboard/blog/actions.ts` → the `owner_blog_*`
+  functions); photos drawn by `lib/blogPhotos` `drawBlogPhoto()` (`createImageBitmap` with the picture's orientation,
+  1600 and 800 px wide, never enlarged, WebP 0.82 or JPEG, no metadata) → `shop-blog` `photo_begin` → `?action=photo`
+  twice (the owner's login through `supabase.functions.invoke`). "Zverejniť" / "Naplánovať" saves, then opens
+  `components/PublishDialog` (a modal `<dialog>`: `showModal()` makes the page inert, Esc → back, the last choice
+  focused) when Facebook is set up (`facebookEnabled()`: the function's `config`, cached 60 s); "web_fb" now →
+  `postToFacebook` (function `publish_fb`). "Pripojiť" from the dialog saves first, comes back to
+  `dashboard/blog/<id>?fb_pick=…&resume=publish` (the Page picker, then the dialog open again). `components/FacebookPagePicker` (after `?fb_pick=`) and
+  `FacebookImportProgress` (polls `facebookImportState` every 3 s).
+- **Function `shop-blog`** (one file, Verify JWT off; it checks every caller): `config` (anyone: `{facebook}`); owners
+  (their JWT; membership and ownership asked from the database with their own login): `photo_begin` (`blog_photo_add`:
+  ≤ 10 for a Cacaduu post), `?action=photo` (the bytes' type WebP/JPEG, ≤ 5 MB, width exactly as asked or the photo's
+  own width when smaller, stored under random names, `blog_photo_stored`), `photo_delete` / `post_delete` (files first,
+  then rows), `publish_fb`, `connect` (state → `facebook_state_save`, the login URL with `FACEBOOK_CONFIG_ID` or the
+  three scopes, `redirect_uri` = `<SUPABASE_URL>/functions/v1/shop-blog/oauth`; `return_url` only a
+  `…/<lang>/dashboard/blog…` address), `pages`, `pick` (the chosen Page's token encrypted → `facebook_connection_save`,
+  the Page subscribed to the webhook when `pages_manage_metadata` was granted), `disconnect`, `import`; the admin:
+  `admin_info` (redirect URI, webhook URL, verify token, scopes). `GET /oauth` (code → short → long-lived user token →
+  `/me/accounts` page tokens + `/me/permissions` → `facebook_pending_save`, encrypted, 10 minutes → back with
+  `fb_pick=<id>`; errors `fb_denied` / `fb_no_pages` / `fb_failed` / `fb_not_configured`). `GET/POST /webhook`
+  (`hub.verify_token` = HMAC-SHA256(app secret, "ppi-shop-blog-webhook")[0..32]; POST bodies must carry
+  `X-Hub-Signature-256` → `facebook_sync_page_soon` for each Page). `work` (service key; chained in the background):
+  `import` (`facebook_import_take` lease → one page of 25 posts → `blog_import_post` each → `facebook_import_step`
+  with the next cursor → itself again) and `photo` (one size of one Facebook picture per call: downloaded only from
+  `*.fbcdn.net`, `*.fbsbx.com`, `*.facebook.com` (≤ 20 MB, forwards checked), decoded with jsquash (mozjpeg / libwebp
+  WASM), shrunk by area averaging, encoded to WebP, stored; then the next). `tick` (pg_cron `ppi-blog-tick`, every 5
+  minutes `3-59/5`, `x-ppi-cron` = Vault `ppi_assistant_cron`; ≤ 90 s): due "Web + Facebook" copies (`blog_fb_due`),
+  stalled imports, the daily sync (`facebook_sync_due`: new posts since the newest imported one − 2 days, then
+  `blog_posts_to_check` 100 at a time through one Graph batch: changed → `blog_import_post`, gone (code 100 / subcode
+  33) → `blog_posts_deleted_on_facebook` = hidden; next sync in a day + up to 30 minutes, after an error in an hour),
+  waiting photos, IndexNow, the expiry e-mail, unfinished uploads and orphan files.
+- **Graph** (`Graph` class, `GRAPH_VERSION` v23.0, every call with `appsecret_proof`): `POST_FIELDS` asks only for the
+  post's own content (`id, message, created_time, updated_time, permalink_url, is_published, attachments{…}` with
+  `subattachments.limit(100)`) — never comments, reactions, likes, tags, places or `from`. `mapPost()`: photos (album
+  pictures by their `target.id` → `/{id}?fields=images` for the largest), video → its picture + link, share / event →
+  `links` (Facebook's `l.facebook.com` wrapper unwrapped), a new profile or cover picture without words and unpublished posts skipped;
+  `importTitle()`: the first sentence (ends at `! ? …`, at `.` only before a capital, or the line's end) ≤ 70
+  characters, cut at a word with "…", else the date. `blog_import_post` decides own (a post with this `fb_post_id`
+  from Cacaduu → untouched), same (`updated_time` unchanged), updated (text, links, photos replaced; the owner's title
+  kept) or new (`published` with Facebook's time, or `pending` with "Schvaľovať pred zverejnením"). Publishing
+  (`publishToFacebook`): `blog_fb_claim` (one at a time, `posting`; a try older than 10 minutes → failed, never resent
+  by itself) → each photo `POST /{page}/photos` (`url` = its public 1600 px address, `published=false`) → `POST
+  /{page}/feed` (`message` = the text + "\n\nČítať na webe: <blogUrl>", `attached_media`) → permalink →
+  `blog_fb_result`. A token error (190 / 102 / 10 / 200) → `facebook_connection_result` = expired (`failing_since`) →
+  the owners' one e-mail (`facebook_alerts_due` / `facebook_alert_sent`, Brevo `BREVO_API_KEY` + `ALERT_EMAIL_FROM`).
+- **Token:** AES-256-GCM, key from HKDF(`FB_TOKEN_ENCRYPTION_KEY`, salt "ppi-shop-blog"), additional data
+  `<shop>:<page>:page` (pending pages: `<pending id>:pages`), so a token copied to another row does not open.
+- **Website pages** (server components, `lib/blog.ts` with the public client; `lib/blogFormat.ts` shared with the
+  tests): `app/[lang]/shops/[slug]/blog/page.tsx` and `[post]/page.tsx` (both through `BlogViews.tsx`), the same
+  views at `app/site/[lang]/[slug]/blog/…` for own domains; `rss.xml/route.ts` and `api/site/[slug]/blog-rss`
+  (`lib/blogFeed.ts`, RSS 2.0, 20 newest, `atom:link`); `components/BlogText` (paragraphs, links as `<a>`, nothing as
+  HTML), `BlogGallery` / `BlogPhoto` (next/image with its own loader: ≤ 800 → the 800 px file, else 1600; `shown` 750 /
+  380 / 192 so phones get 800 at 1x and 1600 at 2x; no image optimisation), `SectionZoom` for the viewer. Metadata:
+  title, description (`excerpt()`), `blogAlternates()` (canonical on the live own domain, hreflang sk/hu/en +
+  x-default), `alternates.types` RSS, Open Graph `article` with the first photo; JSON-LD `blogPostingJsonLd` /
+  `blogJsonLd` (+ BreadcrumbList). `src/proxy.ts`: an own domain's `/blog`, `/blog/<post>`, `/<lang>/blog…` → the site
+  pages, `/blog/rss.xml` → `api/site/<slug>/blog-rss`; `/<lang>/shops/<slug>/blog…` asked on the own domain → its `/blog`
+  address; `/site/…/blog…` asked on Cacaduu → the Cacaduu address (the Cacaduu addresses of a shop with a live domain
+  stay readable, canonical on the domain, like its shop page). Sitemaps: `app/sitemap.ts` (shops without a live domain) and `api/site/[slug]/sitemap` (the domain's), each
+  post in three languages; `api/site/[slug]/llms` "Latest news" (`blog_index`, 5). `ShopView`: "Novinky" link
+  (`shop_blog_count` > 0). Shop assistant: tool `search_shop_news` (`search_shop_blog`) when the shop has visible
+  posts; sources link to the post.
+- **IndexNow:** `blog_indexnow_claim(main_host)` (the post's canonical host: the live own domain, else `SITE_URL`'s
+  host; posts changed since they were last sent — visible ones and newly hidden ones; shares `indexnow_hosts`, so with
+  the stock at most one ping per host an hour) → each post and the blog page in sk/hu/en → `api.indexnow.org`
+  (`INDEXNOW_KEY`) → `blog_indexnow_done` (logged in `indexnow_pings`; only a 2xx marks the posts sent).
+- **Storage:** `blog-photos` (public, 5 MB, WebP/JPEG; no policies — only the function). Unused files (no row) are
+  removed by the tick (`blog_orphan_files`); a photo left `uploading` for an hour is dropped (`blog_stale_uploads`).
+- **Admin:** `admin/domains` → "Novinky / Blog" (`BlogAdmin.tsx`, `saveBlogLimits`) with the Meta app's addresses and
+  the verify token from `admin_info`. **Privacy:** `app/[lang]/sukromie/page.tsx` and `…/vymazanie-udajov/page.tsx`
+  (texts `privacy.*`, TODO lines).
+- Before update 37 every blog read falls back to "no posts" and Môj obchod → Novinky / Blog says "Táto časť bude
+  dostupná po aktualizácii databázy 37."; without `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` (`config` → false, or the
+  function not deployed) no Facebook button, panel or dialog is shown.
+
 ## 3. Main flows step by step
 
 **A shopper searches "farba":** browser → Vercel → `/[lang]?q=farba` server component → `search_stock('farba')` with
@@ -1283,6 +1389,16 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
   `search_partner_products()`; uploads into `partner-feeds` only by the admin with the expected name; the function's
   `work` step only with the service role key, `run` only for the admin, `tick` only with the Vault secret. Nothing about
   visitors goes to partners.
+- Shop blog (update 37): the Facebook Page token is encrypted with AES-256-GCM (HKDF from `FB_TOKEN_ENCRYPTION_KEY`,
+  the shop and the Page as additional data), owners have no column grant on it, it is never logged, and "Odpojiť"
+  deletes the row. The login's state is random, single use, kept as SHA-256 for 10 minutes; the way back goes only to
+  `…/<lang>/dashboard/blog…` saved with the state; the Pages to choose from are kept encrypted for 10 minutes. Every
+  Graph call carries `appsecret_proof`; the webhook's POSTs must carry a valid `X-Hub-Signature-256` and only make a
+  sync happen sooner (the sync reads Facebook itself). Only `pages_show_list`, `pages_read_engagement`,
+  `pages_manage_posts` (and `pages_manage_metadata` for the webhook if the configuration has it); the fields asked
+  never include comments, reactions, likes, tags or authors. Pictures come only from Facebook's picture hosts (≤ 20
+  MB, forwards checked), owners' photos are checked by their bytes; the bucket has no policies. Public pages load
+  nothing from Facebook. The `work` step needs the service key, `tick` the Vault secret.
 - Secrets (SMTP key, API keys) live in Supabase secrets, Vercel variables and a password manager —
   never in the repository or chat.
 
@@ -1326,6 +1442,11 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Supabase function secrets (local tests only) | `WEBSUPPORT_API_BASE`, `VERCEL_API_BASE` | point the domains function at stand-ins; never set them in the real project |
 | Stripe (test mode first) | product + monthly price, Stripe Tax (origin address, registrations), invoice details, customer portal, webhook endpoint `…/functions/v1/stripe-webhook` with 7 events (`invoice.paid` since update 25) | SETUP.md parts K and R |
 | Supabase Auth | sign-ups on, confirm e-mail on, min. password 8, custom SMTP (Brevo), Site URL + redirect URLs, e-mail templates | accounts and e-mails |
+| Supabase function secrets (shop blog, update 37) | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` (the Meta app) | without them every Facebook button, panel and dialog is hidden (the blog works without Facebook) |
+| Supabase function secret (shop blog) | `FB_TOKEN_ENCRYPTION_KEY` | at least 32 random characters: encrypts the Page tokens; changing it means every shop connects its Page again |
+| Supabase function secret (shop blog, optional) | `FACEBOOK_CONFIG_ID` | the Facebook Login for Business configuration's id; without it the login asks for the three permissions by name |
+| Supabase function secrets (shop blog, existing) | `SITE_URL`, `INDEXNOW_KEY`, `BREVO_API_KEY`, `ALERT_EMAIL_FROM` | "Čítať na webe" addresses and IndexNow; the expiry e-mail |
+| Meta app (developers.facebook.com) | Valid OAuth Redirect URI `https://<project>.supabase.co/functions/v1/shop-blog/oauth`; Privacy Policy URL `https://cacaduu.com/sk/sukromie`; User data deletion → instructions URL `https://cacaduu.com/sk/sukromie/vymazanie-udajov`; webhook (Page, field `feed`) `…/functions/v1/shop-blog/webhook` + the verify token from the admin page | SETUP.md part AI |
 | Supabase (automatic) | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | given to the function by Supabase |
 
 ## 8. Repository layout
@@ -1337,6 +1458,7 @@ src/app/robots.ts, sitemap.ts, llms.txt/, manifest.ts
 src/components/            ShopMap, FolderSync, ChatSearch, ShopChat, FolderAccess, DocUpload, FolderKeyForm,
                            FolderKeySetter, ShopForm, LogoInput, DashboardSection, RecentImports, ContactLinks, …
 src/lib/                   data, publicApi, aiSearch, chatProtocol, partners, partnerSearch, aiModel, shopChat, assistantArchive, docsAccess, accessKey, watermark,
+                           blog, blogFormat, blogFeed, blogPhotos,
                            pdfRead, names, apiHttp, domains, domainName, customDomain, siteFiles, jsonLd,
                            functionError, …
 src/types/                 type declarations for packages without their own (opentype.js)
@@ -1345,7 +1467,7 @@ src/proxy.ts               language redirect + session refresh; shops' own domai
 supabase/migrations/       updates 1–21 (section 9)
 supabase/sql/              from update 22 on: one SQL file per phase, pasted by the owner (section 9)
 supabase/functions/        stock-pull, stripe-checkout, stripe-webhook, doc-ingest, shop-files, assistant-archive,
-                           cloud-export, domains, page-sections, product-sources, partner-feeds
+                           cloud-export, domains, page-sections, product-sources, partner-feeds, shop-blog
                            (each index.ts + tests), deno.json
 supabase/tests/            database checks (run.sh, database_test.sql, shim for plain Postgres)
 supabase/seed.sql          the 4 sample shops
@@ -1393,6 +1515,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 34 | `supabase/sql/34_layered_search.sql` | the chat's search in layers: `search_layers` (switch + estimated prices per outside layer), `web_search_domains` (+ `valid_web_domain`, `valid_search_url`), `external_search_usage` (+ `external_search_claim`, `external_search_cost`), `town_geocodes`, `osm_shop_cache` (+ `osm_cache_put`), `external_throttle` (+ `external_slot`), `cacadoo_shops_near` (all service role only), `admin_search_settings`, `admin_save_search_layer`, `admin_save_web_domain`, `admin_delete_web_domain` (`is_admin()`). RLS on every table, no grant for visitors or owners. Safe to run twice |
 | 35 | `supabase/sql/35_partner_feeds.sql` | partner feeds: `partners`, `partner_stores`, `partner_products` (+ `search_blob`, trigram index), `partner_store_stock`, `partner_imports`; helpers `valid_feed_url`, `partner_schedule_interval`, `partner_data_fresh`; the function's steps `partner_start_due`, `partner_imports_waiting`, `partner_import_claim`, `partner_import_release`, `partner_import_downloaded`, `partner_import_unchanged`, `partner_import_rows`, `partner_import_finish`, `partner_import_fail`, `partner_retry_soon` (service role only); `search_partner_products`, `partner_layer_ready` (visitors); `admin_partner_settings`, `admin_save_partner`, `admin_set_partner_file`, `admin_set_partner_logo`, `admin_save_partner_stores`, `admin_queue_partner_import`, `admin_delete_partner` (`is_admin()`); buckets `partner-feeds` (private) and `partner-logos` (public); job `ppi-partner-feeds-tick`. RLS on every table. Safe to run twice |
 | 36 | `supabase/sql/36_domain_findability.sql` | own domains fully findable: `domain_orders.google_txt_record_id` (+ checks, state `present`), `domain_site_verifications` (RLS: members read) + `clean_site_verification`, `owner_set_site_verification`, `site_verification_meta` (anon); `inventory.indexnow_at` (+ `track_inventory_change` redefined, index), `indexnow_hosts`, `indexnow_pings` (RLS on, service role only), `indexnow_claim_host`, `indexnow_done` (service role); `shop_llms_facts` + `stock_categories`, `auto_holidays`. Needs 25 and 33; safe to run twice |
+| 37 | `supabase/sql/37_shop_blog.sql` | the shop blog and its Facebook Page: `blog_limits` (+ `admin_save_blog_limits`), `blog_posts`, `blog_photos`, `shop_blog_settings`, `facebook_connections` (owners: no grant on the token), `facebook_oauth_states`, `facebook_pending_pages` (RLS on every table); `blog_slug`, `blog_visible_posts` / `blog_visible_ids` / `blog_post_visible` (the one rule), triggers `blog_posts_touch` / `blog_photos_touch`; visitors `shop_blog`, `shop_blog_post`, `shop_blog_count`, `blog_index`, `search_shop_blog`; owners `owner_blog_posts`, `owner_blog_post`, `owner_blog_save`, `owner_blog_publish`, `owner_blog_set_choice`, `owner_blog_set_hidden`, `owner_blog_settings`, `owner_blog_photo_order`; the function's steps (service role) `blog_photo_*`, `blog_post_files`, `blog_post_remove`, `blog_stale_uploads`, `blog_orphan_files`, `facebook_state_*`, `facebook_pending_*`, `facebook_connection_*`, `facebook_disconnect`, `facebook_import_*`, `facebook_imports_stalled`, `facebook_sync_*`, `facebook_newest_import`, `blog_import_post`, `blog_posts_to_check` / `_checked` / `_deleted_on_facebook`, `blog_fb_due` / `_claim` / `_result`, `facebook_alerts_due` / `_alert_sent`, `blog_indexnow_claim` / `_done`; bucket `blog-photos` (public); job `ppi-blog-tick`. Needs 36; safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
 | 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
 | 25 | `supabase/sql/25_custom_domains.sql` | own domains: `domain_settings`, `domain_prices`, `shop_legal`, `domain_orders` (RLS; one open order per shop and host), the `domain_*` functions (service role), `owner_save_legal`, `domain_owner_details`, `domain_quote`, `domain_connect_start`, `shop_for_host` / `shop_site` / `live_shop_sites` (public, only live Pro shops), the `admin_*domain*` functions (`is_admin()`), pg_cron jobs `ppi-domains-tick` and `ppi-domains-daily`. Needs 18 and 22; safe to run twice |
@@ -1566,6 +1689,24 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   48-hour alert; taken after payment → only the domain refunded; own domain Čaká na DNS → Overené → Beží, reminder,
   7-day stop, automatic DNS in our account; renewals charged before Websupport renews, lapse; Pro ended → auth code;
   callers (cron secret, owners, admin).
+- `npm run test:blog` (Deno, `src/lib/blog_test.ts`, update 37): blog addresses on Cacaduu and on the own domain
+  (`/blog` in the shop's language, `/hu/blog` in the others, canonical, hreflang + x-default, RSS); the text as written
+  (paragraphs and lines, links clickable without a trailing dot, hashtags kept); excerpts cut at a word; the Facebook
+  message ending with "Čítať na webe: <address>"; BlogPosting with the shop as LocalBusiness author and publisher +
+  BreadcrumbList; RSS 2.0 (address, date, escaped text, first photo); scheduling in the shop's time zone (summer and
+  winter time) ↔ UTC; the own domain's llms.txt "Latest news".
+- `npm run test:functions` also runs 19 tests of `shop-blog` (update 37): imported titles (the first sentence, ≤ 70 at a
+  word; "č. 10" and "8.00" do not end it; else a link's title or the date); the Facebook message; a post's text,
+  photos, videos (picture + link), links and events, never profile pictures; only the post's own fields asked (never
+  comments, reactions or people); pictures by their bytes, area averaging never enlarges; the Page token encrypted and
+  bound to its shop and Page; the import page by page, chained, photos queued; Facebook's largest picture → WebP 1600,
+  then 800, failures noted; the daily sync (new since the newest import, edited updated, deleted hidden; before the
+  first import only what came after connecting); an expired connection (noted, one e-mail, posts stay); publishing
+  (photos unpublished then attached, text + "Čítať na webe", the id kept, retry, never twice), a scheduled post with
+  the job, an expired connection while publishing; no app secrets → `config` false, nothing Facebook, no errors;
+  connect (login, the Pages to pick encrypted, no token to the browser, the token stored encrypted); the owner's photos
+  by their bytes and width; the webhook (verify token, only signed changes); IndexNow (each post and the blog page in
+  three languages, on its host).
 - `npm run lint`, `npm run typecheck`, `npm run build` before every push.
 - During development every feature was also run end to end in a real Chromium browser (Playwright) against a local
   stand-in for Supabase (PostgREST + the function in Deno) and, for translations and AI search, a stand-in for the
@@ -1787,7 +1928,28 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   OutOfStock) + Store JSON-LD, canonical and hreflang sk/hu/en/x-default on the own domain, PPI's item and shop pages
   canonical there; Store with hours, e-mail, Facebook and a special day; stale → the Offer's price without
   availability; the Rich Results fields fresh and stale; plain search, API search/shop and MCP `get_item` `source_url`
-  on the own domain, a free shop on PPI; PPI's llms.txt and sitemap); those scripts are not part of the repository.
+  on the own domain, a free shop on PPI; PPI's llms.txt and sitemap); the shop blog (update 37, 95 checks against the
+  shop-blog function running locally with a stand-in for Facebook's Graph API and picture servers, Brevo and IndexNow:
+  "Novinky / Blog" in the menu, the Facebook panel not connected with the profiles line; a post with two photos drawn
+  in the browser (WebP 1600 + 800, never enlarged); "Zverejniť" → "Facebook nie je pripojený." with its buttons, Esc =
+  back → "Len na web" → "Zverejnené na webe ✓"; on the own domain `/blog/<post>` with the text as written, canonical,
+  hreflang, BlogPosting + BreadcrumbList, OG image, srcset 800 / 1600, no Facebook script, tap to zoom; the Cacaduu
+  address readable with the canonical on the domain; the "Novinky" link; "Pripojiť" from the dialog → the login asks
+  only the needed permissions → pick a Page (no tokens in the page) → back in the dialog, the token stored only
+  encrypted; the preview (Page name, text, last line, 4 thumbnails + "+1") → "Áno…" → web ✓ and Facebook ✓ with a link,
+  the stand-in holding the text + "Čítať na webe", 5 photos uploaded unpublished from the public bucket and attached,
+  the post id kept; an edit → the note, no dialog, Facebook untouched, dateModified moved; the expired dialog; a
+  scheduled "Web + Facebook" post with the last choice pre-selected → not public before its time, changeable to "Len
+  web", posted by the job at its time; a Facebook error → "Skúsiť znova na Facebook" → posted, the web post stays;
+  "Stiahnuť všetky príspevky" → 29 imported in pages of 25 (a profile picture without words skipped, Cacaduu's own
+  posts not again, never comments or reactions asked; photos from Facebook's full picture → WebP 1600 + 800; a video as
+  picture + link; a shared link unwrapped; an event; the title from the first sentence; "Pôvodný príspevok na
+  Facebooku"; no duplicates the next time); "Schvaľovať pred zverejnením" → "Čaká na schválenie" → public; an edit on
+  Facebook followed, a comment alone changes nothing, a deletion → hidden and 404; hide / show / delete with the photo
+  files; the own domain's RSS, sitemap, llms.txt "Latest news", `/hu/blog/<post>` in Hungarian, IndexNow on its host
+  once an hour; a free shop: the 10 newest, the 11th 404, canonical and RSS on Cacaduu, the dashboard's note; an
+  expired token → one e-mail and the banner, posts stay; "Odpojiť" deletes the token; without the app's secrets no
+  Facebook panel and "Zverejniť" publishes straight to the web; /sukromie and the data deletion page); those scripts are not part of the repository.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

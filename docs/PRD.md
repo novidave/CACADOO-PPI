@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 3.1 · status 15 October 2026 · live at <https://cacaduu.com> (brand: **Cacaduu PPI**; the Vercel address cacadooppivercel.vercel.app still answers)
+Version 3.2 · status 20 October 2026 · live at <https://cacaduu.com> (brand: **Cacaduu PPI**; the Vercel address cacadooppivercel.vercel.app still answers)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -41,6 +41,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Konverzácie do počítača": every finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open; never replaces anything) | Built and tested; live after the merge, no database change (SETUP.md part AB) |
 | Own domains easy to find: "Overiť v Google Search Console" (the TXT record written into DNS for domains Cacaduu runs, shown to add by hand otherwise) and "Odoslať sitemap"; llms.txt and robots.txt per own domain (with "Kategórie tovaru"); IndexNow after every stock upload (only changed pages); search results, map pins and AI cards link to the own domain; item pages carry Product/Offer + Store JSON-LD | Built and tested; live after database update 33, the updated domains and stock-pull functions and the merge (SETUP.md part AC) |
 | Own domains fully findable: "Overiť v Google Search Console" — a TXT record added to the DNS of a domain Cacaduu runs ("Odstrániť" removes only that record), or for a connected domain the **HTML značka** on its pages (recommended) or the TXT record to add by hand; **Bing Webmaster Tools** (the same meta tag, or the import from Search Console); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; **IndexNow on every host** (the main domain too) with only meaningful changes, once per upload and once an hour per host; the Offer keeps the price on stale pages (no availability); API/MCP `source_url` and PPI's llms.txt point to the own domain | Built and tested; live after database update 36, `INDEXNOW_KEY` (Vercel + Supabase) and `SITE_URL` (Supabase), the updated domains and stock-pull functions and the merge (SETUP.md part AG) |
+| Shop blog "Novinky" (every shop; free: the newest 10 posts shown, Pro: all): posts written in Môj obchod → "Novinky / Blog" with up to 10 photos, now or scheduled; the shop's Facebook Page connected once: all past posts imported, a daily sync, and "Zverejniť aj na Facebooku?" before each post; `/blog` pages, RSS, JSON-LD, sitemap, llms.txt and IndexNow, also on own domains; privacy and data deletion pages | Built and tested against Facebook, Brevo and IndexNow stand-ins; live after database update 37, the new shop-blog function, the Meta app and the merge (SETUP.md part AI) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -257,6 +258,8 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   main website; same window), and the SK · HU · EN switch on the right, a thin line under it (the header
   picture of update 28 is no longer shown); the shop's name and logo are on the page itself, above its details, as
   on the Cacaduu address ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
+- **"Novinky"** (update 37): a link in the details row to the shop's blog (6.15), only when it has at least one
+  visible post.
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
   with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
 - **Booking link** (update 26, every shop, optional): "Rezervovať termín" in the same row and style as the e-mail
@@ -1076,7 +1079,86 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
   under the shop's details asks for its first page first (`fetchpriority=high`); an open slider loads its second page
   once it is near the screen.
 
-## 7. Data model (after database update 35)
+### 6.15 Shop blog "Novinky" and the shop's Facebook Page (database update 37)
+
+Every shop can keep a blog of its own news: written in Cacaduu, or brought over from its Facebook Page; posts written in
+Cacaduu can also go to the Page. Shop profile content, never stock. **Texts are shown exactly as written** (paragraphs,
+links, #hashtags and emoji stay; PPI never edits, corrects or translates a post; only the labels around it follow the
+page language).
+
+- **On the shop's page:** a **"Novinky"** link in the details row (next to e-mail, Facebook and the booking link), only
+  when the shop has at least one visible post. **`/[lang]/shops/<slug>/blog`**: 12 posts per page, newest first (date,
+  title, the first photo small, the beginning of the text, "Čítať ďalej"), "Novšie" / "Staršie" and "Strana n z m"; an
+  empty blog says "Obchod zatiaľ nemá žiadne novinky." **`/[lang]/shops/<slug>/blog/<post>`**: the title, "Zverejnené
+  <date>" (+ "upravené <date>"), the text as written (web addresses clickable, new tab), the photos (the
+  first large, the others in a grid; WebP 800 / 1600 px straight from storage through next/image's own loader, no image
+  optimisation), a tap opens the **full-screen viewer** (the page sections' `SectionZoom`: swipe, ← →, pinch, Esc), a
+  Facebook video as its picture with "Video na Facebooku" (opens Facebook), shared links and events as "Odkaz" /
+  "Udalosť", and for an imported post **"Pôvodný príspevok na Facebooku"** (a plain link, new tab). "← Všetky
+  novinky", "← Späť na obchod". Server-rendered; no JavaScript needed except for the viewer.
+- **On the shop's own domain** (Pro): `/blog`, `/blog/<post>` (and `/hu/blog`, `/en/blog` …) with the own domain's
+  header; the canonical address is always the own domain (the Cacaduu addresses stay readable and point there, as the
+  shop page does).
+- **Free vs Pro:** the newest **10** visible posts on a free shop's page (the admin's setting "Novinky / Blog" on
+  "Predplatné a domény": 0–10 000; Pro: empty = unlimited); older posts stay stored and come back with Pro or a higher
+  limit. Môj obchod says "Free: na webe sa zobrazuje 10 najnovších článkov. S predplatným Pro všetky." and marks the
+  rest "Nezobrazuje sa (Free ukazuje 10 najnovších)".
+- **Môj obchod → "Novinky / Blog"** (its own page in the menu, `/dashboard/blog`): the list of posts with the status
+  (**Publikované**, **Naplánované**, **Skryté**, Koncept, Čaká na schválenie), the source (Cacaduu / Facebook), where it
+  went (**Web + Facebook** / **Len web**; "Na Facebooku ✓", "Na Facebook pôjde <date>", "Na Facebook sa nepodarilo
+  zverejniť", "Zmazané na Facebooku"), the photo count; **Upraviť**, **Skryť / Zobraziť**, **Vymazať** (with its photos;
+  a Facebook copy stays on Facebook), **Zobraziť na webe**. **"Nový článok"**: title (≤ 200), text (as written), up to
+  **10 photos** (JPG, PNG, WebP; "Vybrať fotky"; drawn in the owner's browser to 1600 and 800 px WebP — JPEG where the
+  browser cannot write WebP — never enlarged, without place data; reorder and remove), **Kedy**: "Hneď" or "Naplánovať
+  na" (a date and time in the shop's time zone, at most a year ahead), then **"Zverejniť"** / **"Naplánovať"** or "Uložiť
+  koncept". Editing a published post: "Uložiť zmeny" with the note **"Zmena sa prejaví len na webe, nie na Facebooku."**
+  An imported post: only its title can be changed ("Príspevok z Facebooku: text a fotky sú z Facebooku a menia sa
+  tam.").
+- **The question before publishing** (a modal dialog, asked every time; the last answer is pre-selected and focused;
+  focus stays inside; Esc = back): with Facebook connected **"Zverejniť aj na Facebooku?"** with a preview of the post as
+  the Page will show it (the Page's name and picture, the text, up to 4 photos with "+N" on the last, the last line
+  **"Čítať na webe: <the post's address>"**) → "Áno, zverejniť na webe aj na Facebooku" · "Len na web" · "Späť na úpravy".
+  Not connected: "Facebook nie je pripojený." → "Pripojiť Facebook stránku" (after the login it comes back to the same
+  post with the dialog open) · "Len na web" · "Späť". Expired: "Pripojenie k Facebooku vypršalo." → "Pripojiť znova" ·
+  "Len na web" · "Späť". A scheduled post says "Na Facebook pôjde v čase zverejnenia: <date>." and its choice can be
+  changed in the list until its time ("Zmeniť na „Len web“"). Results: **"Zverejnené na webe ✓"**, **"Zverejnené na
+  Facebooku ✓"** ("Otvoriť na Facebooku"), "Naplánované na <date> ✓", or the error with **"Skúsiť znova na Facebook"**
+  (the web post stays either way). Without Facebook set up on Cacaduu (no `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET`) there
+  is no dialog and no Facebook button anywhere: "Zverejniť" publishes to the web.
+- **Facebook Page** (on the same page; only when Facebook is set up): **"Pripojiť Facebook stránku"** → Facebook Login
+  for Business (only `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`; `pages_manage_metadata` only if
+  the app's configuration asks for it, for the webhook) → **pick one Page** of the person's Pages ("Osobné profily
+  Facebook nepodporuje – len Facebook stránky (Pages)."; no Page → that message) → "Pripojená stránka: <name>". The
+  Page's token is stored **only encrypted** and only the server uses it; **"Odpojiť"** deletes it (imported posts stay).
+  **"Stiahnuť všetky príspevky"** brings every past post in the background, 25 at a time ("Sťahujem príspevky… zatiaľ
+  n", then "Stiahnuté: n nových príspevkov."); after that a **daily sync** (and a sync within minutes when the app's
+  webhook reports a change) brings new posts, edits (text, photos, links; the owner's own title stays) and hides
+  posts deleted on Facebook ("Zmazané na Facebooku"). "Posledná synchronizácia … · Ďalšia …". **Imported posts**: the
+  title is the text's first sentence, at most 70 characters, cut at a word ("…"), else the date; text and links as
+  written; photos (up to 100 of an album) copied as WebP 1600 / 800 px; a video as its picture + link; shared links and
+  events as links; never comments, reactions, likes or anybody's name. **"Publikovať importované príspevky
+  automaticky"** (default) or **"Schvaľovať pred zverejnením"** (they wait as "Čaká na schválenie" → "Zverejniť"). A post
+  that came from Cacaduu is never imported back; nothing is imported twice.
+- **Publishing to Facebook** as the Page: the text, up to 10 photos and the line "Čítať na webe: <address>" (the
+  own domain when live); Facebook's post id is kept (never sent twice; a try that got no answer for 10 minutes is
+  marked failed with "Skontrolujte stránku…", never repeated by itself). Scheduled posts go when their time comes (the
+  5-minute job).
+- **Expired connection** (the person removed the app, changed the password, lost the Page role …): the page and the
+  dialog say "Pripojenie k Facebooku vypršalo – pripojte znova", nothing goes to Facebook, and the owners get **one
+  e-mail** "Pripojenie k Facebooku vypršalo – pripojte znova" (Brevo); connecting again clears it.
+- **Readable for Google and AI:** every page server-rendered with title, description, canonical + hreflang (sk, hu, en,
+  x-default), Open Graph `article` (the first photo); JSON-LD **`BlogPosting`** (headline, text, dates, images, the shop
+  as `LocalBusiness` author and publisher) + **`BreadcrumbList`** (shop → Novinky → post), the list page as `Blog`;
+  posts in the sitemaps (Cacaduu's, or the own domain's); an **RSS feed** `…/blog/rss.xml` (`<link rel="alternate">` on
+  the blog pages); the newest 5 posts under "Latest news" in the own domain's **llms.txt**; **IndexNow** for new,
+  changed and hidden posts (sk/hu/en addresses on their canonical host, with the stock's limit of once an hour per
+  host); the Pro **shop assistant** can search the visible posts (`search_shop_news`) and names them as sources.
+- **No Facebook SDK, pixel, plugin or embedded Facebook widget** on any public page: Facebook pictures are copied into
+  Cacaduu's storage, links to Facebook are plain links. The privacy page **`/[lang]/sukromie`** (a draft with TODO lines)
+  says what is done with Facebook data, and **`/[lang]/sukromie/vymazanie-udajov`** says how to delete it (Odpojiť,
+  Vymazať, Business Integrations) — the addresses the Meta app asks for.
+
+## 7. Data model (after database update 37)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -1129,6 +1211,12 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 | `partner_products` (update 35) | `partner_id`, `item_id`, `title`, `brand`, `gtin`, `mpn`, `category`, `price`, `sale_price` (+ `sale_from`/`sale_to`), `currency`, `availability` (as written) + `availability_state` + `availability_days`, `link`, `image_link`, `search_blob` (generated, trigram index), `import_id`, `updated_at` (the time of the data), `changed_at` | The feeds' rows as sent; visitors read only through `search_partner_products()` |
 | `partner_store_stock` (update 35) | `partner_id`, `item_id`, `store_code`, `availability` + `availability_state`, `quantity`, `import_id`, `updated_at` | Only from the local inventory feed |
 | `partner_imports` (update 35) | `partner_id`, `kind` (products/inventory), `source`, `status` (download → parse → done / unchanged / error), `error` + `error_detail`, `feed_time`, `source_modified`, `etag`, `bytes`, `parts`, `part_index`, `carry`, `encoding`, `header`, `rows_read`/`rows_bad`/`rows_kept`, lock and tries | One running import per partner and kind; the last 10 kept |
+| `blog_posts` (update 37) | `shop_id`, `slug` (unique per shop), `title` (≤ 200), `body` (as written, ≤ 70 000), `source` (cacaduu/facebook), `status` (draft/published/hidden/pending), `publish_at`, `edited_at`, `fb_choice` (web/web_fb), `fb_status` (waiting/posting/posted/failed), `fb_error`, `fb_tries`, `fb_post_id` (unique per shop), `fb_permalink`, `fb_updated_at`, `fb_deleted_at`, `title_by_owner`, `links` (shared links, events, videos), `search` (generated), `indexnow_at` / `indexnow_sent_at` | Owners read their own (`owner_blog_*`), change them only through `owner_blog_*` functions; visitors only through `shop_blog()` / `shop_blog_post()` (the visibility rule); the shop-blog function (service role) imports and publishes |
+| `blog_photos` (update 37) | `post_id`, `shop_id`, `position`, `kind` (photo/video), `link_url`, `status` (uploading/pending/ready/failed), `path_large` / `path_small` (random names, 1600 / 800 px WebP or JPEG), `width`, `height`, `fb_media_id`, `source_url` (Facebook's picture, until copied), `attempts`, `last_error` | ≤ 10 per Cacaduu post, ≤ 100 per imported post; written only by the function |
+| `blog_limits` (update 37) | `plan` (free/pro), `max_posts` (0–10 000; null = all) | Defaults free 10, Pro unlimited; only `admin_save_blog_limits()` (is_admin) writes |
+| `shop_blog_settings` (update 37) | `shop_id`, `auto_publish` (imported posts at once, default on), `last_choice` (web/web_fb: the dialog's pre-selected answer) | Through `owner_blog_settings()` / the publish functions |
+| `facebook_connections` (update 37) | `shop_id` (one Page per shop), `page_id`, `page_name`, `page_picture`, `page_token_enc` (AES-GCM, never readable by owners), `scopes`, `status` (ok/expired), `site_url`, `last_error`, the import's state (`import_state`, `import_cursor`, `import_count`, `import_error`, `import_lease_at` …), `last_sync_at`, `next_sync_at`, `failing_since`, `alert_sent_at`, `connected_by`, `connected_at` | Owners read every column except the token (column grant); only the function writes; "Odpojiť" deletes the row |
+| `facebook_oauth_states`, `facebook_pending_pages` (update 37) | the login's state (SHA-256, 10 minutes, single use, the return address); the Pages to choose from (encrypted, 10 minutes) | No client access |
 
 `opening_hours`: `{"mon":[["08:00","12:00"],["13:00","17:00"]], …, "sun":[]}`.
 Storage: bucket `logos` (public, 1 MB, PNG/JPEG/WebP, folder per shop), `raw-files` (private, last raw files kept
@@ -1141,6 +1229,8 @@ sections only); no policies, only the page-sections function writes either.
 Update 35: `partner-feeds` (private: the admin uploads feed files into `<partner>/`; the partner-feeds function keeps an
 import's parts in `imports/<import>/` until it ends) and `partner-logos` (public, 1 MB, PNG/JPEG/WebP; the admin writes).
 A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation PDFs.
+Update 37: `blog-photos` (public, 5 MB, WebP/JPEG: `<shop>/<post>/<random>-1600|800.webp|jpg`; no policies, only the
+shop-blog function writes; a photo's files are deleted before its row).
 
 ## 8. Security and privacy
 
@@ -1188,6 +1278,16 @@ A WebP logo has a PNG copy next to it (`logo-<time>.png`) for the conversation P
   functions (`admin_shops()` and `admin_save_shop()` were dropped by migration
   21 with the display columns they set).
 
+**Shop blog and Facebook (update 37).** The Facebook Page token is encrypted with AES-GCM (`FB_TOKEN_ENCRYPTION_KEY`,
+bound to the shop and the Page) before it is stored, used only by the shop-blog function, never shown to owners or
+logged; "Odpojiť" deletes it. The login uses a random single-use state (kept as SHA-256, 10 minutes) and comes back
+only to the function's own address and then to a `…/dashboard/blog` address saved with the state; every Graph call
+carries `appsecret_proof`; the webhook accepts only bodies signed with the app secret. Only the permissions the blog
+needs are asked for; comments, reactions, likes and other people's names are never requested or stored. Pictures are
+downloaded only from Facebook's own picture hosts. Public pages load nothing from Facebook (no SDK, pixel, plugin or
+embedded post); visitors read posts only through the database's visibility rule. The privacy page and the data
+deletion page are drafts (TODO lines) until the legal text is final.
+
 **Partner feeds (update 35).** Nothing about visitors goes to partners: their feeds are read on our server, and a
 partner's page opens only when the shopper clicks its link. The new tables have RLS on and no grant for visitors or
 owners; visitors read partner rows only through `search_partner_products()` (data under 48 hours with availability,
@@ -1216,6 +1316,9 @@ line until the legal text is final).
 - Translated names in grey under the shop's own name. The main page's chat: the shopper's question in a light-grey
   bubble on the right, the answer on the left without a border, cards with thin grey lines; the input large and rounded.
 - Map: OpenFreeMap "positron" (free, no key), black dot pins; never required for the page to work.
+- Shop blog (update 37): black and white like the rest; photos with a thin grey line; the Facebook preview in the
+  publish dialog is a plain sketch (no Facebook colours or logo); no Facebook SDK, pixel, plugin or embedded widget on
+  any page.
 - **Status dots** (Prompt 9A, at the owner's request): green #1E9E5A open,
   blue #2F6FED lunch break, red #D64545 closed, yellow #F2B705 public holiday, grey #9AA5B1 no hours; always shown
   together with the status in words, never colour alone (on the page next to the shop; on a map pin in its tooltip
@@ -1304,6 +1407,15 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   not read). A store is matched to the shopper's town by the store list's town or, with coordinates, by the town's
   centre when Cacaduu or OpenStreetMap already knows it. The partner layer is in the main chat only (not in the public
   API, MCP or the plain search).
+- **Shop blog and Facebook (update 37).** Built and tested only against stand-ins for Facebook's Graph API, Brevo and
+  IndexNow: try it with a real Page (davide.sk) before telling shops. Until Meta approves the app (App Review of
+  `pages_show_list`, `pages_read_engagement`, `pages_manage_posts` and business verification), only people with a role
+  in the Meta app can connect a Page. Facebook sends no webhook for the posts of a Page without `pages_manage_metadata`
+  (then the daily sync brings the changes). A post edited on Facebook after it went there from Cacaduu stays as on the
+  web (Cacaduu's post is the original); an edit in Cacaduu does not change the Facebook copy. A post deleted on Facebook
+  is hidden on the web within a day (with the webhook within minutes). Long Facebook videos are shown only as their
+  picture with a link. The Graph API version (v23.0) must be moved on when Meta ends it (about two years). The privacy
+  and data deletion pages have TODO lines for the legal text.
 - **Outside sources (update 34).** The deep links need the admin's search addresses (none are set for the five domains
   of the brief: their search pages could not be checked from here). OpenStreetMap is only as complete as its volunteers
   made it: a town may show few shops, or ones that have closed. The web search runs on the model in `AI_MODEL`; the
@@ -1352,6 +1464,10 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] Partner feeds: database update 35 pasted, the partner-feeds function deployed (Verify JWT off),
       `PARTNER_FEED_MAX_MB` chosen; each partner's feed imported once by hand ("Importovať teraz") and its counts
       checked; the job `ppi-partner-feeds-tick` succeeds; affiliate partners named in the terms (SETUP.md part AF)
+- [ ] Shop blog: database update 37 pasted, the shop-blog function deployed (Verify JWT off) with `FACEBOOK_APP_ID`,
+      `FACEBOOK_APP_SECRET`, `FB_TOKEN_ENCRYPTION_KEY`; the Meta app's Facebook Login for Business, redirect URI, privacy
+      and data deletion addresses, webhook; App Review and business verification passed; the job `ppi-blog-tick`
+      succeeds; the final text of `/sukromie` and `/sukromie/vymazanie-udajov` (SETUP.md part AI)
 
 ## 13. History
 
@@ -1387,3 +1503,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-15 | The chat finds products in layers: Cacaduu first, then shops nearby (OpenStreetMap, optionally Google Places) and offers on allowed shop websites (Claude's web search) with deep links, only when Cacaduu has fewer than 3 good results and the shopper wrote a town; other questions declined; admin switches, allowed domains, calls and cost per day |
 | 2026-10-15 | Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule in parts, shown in the chat under "Partneri" between Cacaduu and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" |
 | 2026-10-15 | Own domains fully findable: "Odstrániť" removes only the TXT record Cacaduu added, the same value is never added twice; the Google "HTML značka" for connected domains (recommended) next to the TXT record; Bing Webmaster Tools (meta tag or import); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; IndexNow on every host with one `INDEXNOW_KEY`, only meaningful changes, once per upload and once an hour per host, logged; the Offer keeps the price on stale pages; `x-default` hreflang; API/MCP `source_url` and PPI's llms.txt point to the own domain |
+| 2026-10-20 | Shop blog "Novinky": posts written in Cacaduu (photos, scheduling) or imported from the shop's Facebook Page (all past posts, a daily sync, edits and deletions followed), published to the Page on request ("Zverejniť aj na Facebooku?"); `/blog` pages with JSON-LD, RSS, sitemap, llms.txt and IndexNow on Cacaduu and own domains; free shops show the newest 10; privacy and Facebook data deletion pages |

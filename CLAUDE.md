@@ -63,6 +63,8 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
 - `npm run test:chat` — unit tests (Deno) of the main page chat's protocol: streamed answer, refs, history, NDJSON, the
   layers' rules (town from the shopper's words, good results, OpenStreetMap hours, partner card texts and the 48-hour
   rule) (`src/lib/chat_test.ts`)
+- `npm run test:blog` — unit tests (Deno) of the shop blog (`src/lib/blog_test.ts`): addresses on Cacaduu and own
+  domains, the text as written, the Facebook message, BlogPosting/BreadcrumbList JSON-LD, RSS, scheduling time zones
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook, page-sections PDF cleaning and limits, partner-feeds formats, parts and size limit
@@ -403,6 +405,41 @@ no position choice, `shop_sections()` gives `before_items` (= right after the op
 number "Pre viac sekcií prejdite na Pro" (no error); the assistant only with the plan (`section_for_assistant()`).
 Owner actions sync the whole shop's pictures (`sections_to_sync(p_section_id, p_shop_id)`).
 
+## Shop blog "Novinky" and the Facebook Page (update 37)
+
+`supabase/sql/37_shop_blog.sql` + `supabase/functions/shop-blog` (one file, Verify JWT off) + `@/lib/blog` /
+`@/lib/blogFormat` (shared with the tests) / `@/lib/blogFeed` / `@/lib/blogPhotos` + pages
+`shops/[slug]/blog` (+ `[post]`, `rss.xml`) and `site/[lang]/[slug]/blog` + dashboard `dashboard/blog` ("Novinky / Blog",
+its own menu page; `[id]` = `@/components/BlogEditor` + `PublishDialog`) + admin `BlogAdmin.tsx`. Every shop; shop
+profile content, never stock. **Posts are shown exactly as written** (never edited, corrected or translated; the
+owner may only retitle an imported post, `title_by_owner`). **One visibility rule in SQL**: `blog_visible_posts()`
+(published, its time came, active shop, the newest `blog_limits.max_posts` — free 10, Pro null = all; admin only via
+`admin_save_blog_limits()`); visitors read only `shop_blog` / `shop_blog_post` / `shop_blog_count` / `blog_index` /
+`search_shop_blog`; owners write only through `owner_blog_*`; the function (service role) imports, stores photos and
+publishes. Pages are server components with canonical on the live own domain, hreflang + x-default, OG `article`,
+JSON-LD `BlogPosting` (shop = `LocalBusiness` author/publisher) + `BreadcrumbList`, RSS `…/blog/rss.xml` (own domain:
+`/blog/rss.xml` → `api/site/[slug]/blog-rss`), sitemaps, llms.txt "Latest news" (5), IndexNow (`blog_indexnow_claim`,
+shares `indexnow_hosts`); "Novinky" link on the shop page only with ≥ 1 visible post; the Pro assistant's
+`search_shop_news`. Photos: owners' drawn in the browser (`drawBlogPhoto`: 1600 + 800 px WebP 0.82 / JPEG, never
+enlarged), Facebook's converted in the function (jsquash WASM, one size per call, only from Facebook's picture hosts);
+public bucket `blog-photos`, random names, no policies; `@/components/BlogPhoto` = next/image with its own loader (≤ 800
+→ the 800 file), never image optimisation; the viewer is `SectionZoom`. **Facebook** (only with `FACEBOOK_APP_ID` +
+`FACEBOOK_APP_SECRET`; else `config` → false and every Facebook button, panel and dialog is hidden, no errors):
+Facebook Login for Business (`FACEBOOK_CONFIG_ID` or the scopes `pages_show_list`, `pages_read_engagement`,
+`pages_manage_posts`; nothing more), redirect `…/functions/v1/shop-blog/oauth`, one Page per shop, the Page token
+**only encrypted** (AES-GCM, `FB_TOKEN_ENCRYPTION_KEY`, bound to shop + Page; owners have no column grant; never logged;
+"Odpojiť" deletes it), every call with `appsecret_proof`, Graph `v23.0`. Import ("Stiahnuť všetky príspevky", 25 per
+call, chained) + daily sync (pg_cron `ppi-blog-tick` every 5 min; new, edited, deleted → hidden) + signed webhook
+(`X-Hub-Signature-256`, verify token from the admin page) → `blog_import_post` (own/same/updated/new, `fb_post_id`
+unique: never twice; auto-publish or "Schvaľovať pred zverejnením" → pending); title = first sentence ≤ 70 at a word.
+**Never ask for or store comments, reactions, likes or other people's names** (`POST_FIELDS`). Publishing: the dialog
+before every "Zverejniť"/"Naplánovať" (connected / not connected / expired; last choice pre-selected; Esc = back;
+results "Zverejnené na webe ✓" / "Zverejnené na Facebooku ✓" / error + "Skúsiť znova na Facebook"); as the Page: text +
+≤ 10 photos + "Čítať na webe: <canonical address>"; `blog_fb_claim` never sends twice; an edit changes only the web.
+Expired token → banner + dialog + one Brevo e-mail (`facebook_alerts_due`). **No Facebook SDK, pixel, plugin or embedded
+widget on any public page.** Privacy draft `/[lang]/sukromie` + `/[lang]/sukromie/vymazanie-udajov` (the Meta app's
+URLs; TODO lines). Texts `blog`, `owner_blog`, `admin_blog`, `privacy`.
+
 ## Stock upload
 
 `supabase/functions/stock-pull/index.ts` (single file, paste-deployable) only receives uploads:
@@ -430,7 +467,7 @@ hand, any browser, same POST). Guide: `docs/SHOP_PC_SETUP.md`.
 ## Auth
 
 Self-service, shop owners only — **no admin area on the website** except "Predplatné a domény" (`/[lang]/admin/domains`,
-own domains and, since update 34, "Vyhľadávanie mimo Cacaduu", since update 35 "Partnerské feedy"; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
+own domains and, since update 34, "Vyhľadávanie mimo Cacaduu", since update 35 "Partnerské feedy", since update 37 "Novinky / Blog" limits and the Meta app's addresses; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
 sends a confirmation e-mail), `/login`, `/forgot` (reset e-mail → `/auth/confirm` → `/[lang]/password`). `/auth/confirm`
 handles `token_hash` (templates in SETUP.md E3), `code` (default templates) and `#access_token` (→ `/[lang]/login/finish`).
 Owners create/edit shops via `owner_save_shop()`, read them via `my_shops()`, approve columns via `owner_set_mapping()`,
