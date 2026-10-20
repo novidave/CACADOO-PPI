@@ -9,6 +9,7 @@ import { getSiteLogo } from "@/lib/sections";
 import { type SiteVerification, verificationMetadata } from "@/lib/siteFiles";
 import { createPublicClient } from "@/lib/supabase/public";
 import { SiteLanguageSwitch } from "@/components/LanguageSwitch";
+import { quicksand } from "../../../fonts";
 import "../../../globals.css";
 
 /**
@@ -62,7 +63,7 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
   const linkClass = "flex h-9 min-w-0 items-center overflow-hidden whitespace-nowrap sm:h-10";
 
   return (
-    <html lang={lang} className="h-full antialiased">
+    <html lang={lang} className={`${quicksand.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <header className="border-b border-line" data-site-header>
           <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3">
