@@ -1373,6 +1373,99 @@ Do the steps in order.
 5. **Check:** `https://cacaduu.com/sk` shows the Cacaduu logo and "Overené v Cacaduu" under a chat answer; a new
    conversation PDF ends with "Vytvorené Cacaduu PPI".
 
+## Part AI — Shop blog "Novinky" and the shop's Facebook Page (20 October 2026)
+
+- Every shop gets a blog: **Môj obchod → Novinky / Blog** (its own page in the menu). "Nový článok": title, text (shown
+  exactly as written), up to 10 photos, now or scheduled. The shop page shows a **"Novinky"** link as soon as there is
+  one visible post; the posts are at `…/shops/<obchod>/blog` and, for a shop with its own domain, at
+  `https://<doména>/blog` (with an RSS feed, sitemap, llms.txt, IndexNow and JSON-LD for Google and AI assistants).
+  Free shops show their 10 newest posts, Pro shops all (the admin can change both on "Predplatné a domény").
+- **Facebook Page** (once the Meta app below is set up): "Pripojiť Facebook stránku" → Facebook's login → pick the Page
+  → **"Stiahnuť všetky príspevky"** brings every past post; afterwards new, edited and deleted posts follow once a day
+  (within minutes with the webhook). Before each "Zverejniť" the owner is asked **"Zverejniť aj na Facebooku?"** with a
+  preview; "Áno…" posts the text, the photos and "Čítať na webe: <adresa>" on the Page. Comments, reactions and other
+  people's names are never read. Without the Facebook secrets the blog works and no Facebook button is shown.
+
+Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/37_shop_blog.sql` → Run → "Success. No rows returned"
+   (notices "… does not exist, skipping" are normal). Safe to run again. It creates the public bucket `blog-photos` and
+   the job `ppi-blog-tick` (every 5 minutes; it uses the Vault secrets `ppi_project_url` and `ppi_assistant_cron` from
+   part O — nothing new to add).
+   Check: `select jobname, schedule from cron.job where jobname = 'ppi-blog-tick';` → one row, `3-59/5 * * * *`.
+2. **New function** `shop-blog`: Supabase → Edge Functions → **Deploy a new function** → **Via Editor** → name
+   `shop-blog` → paste the whole file `supabase/functions/shop-blog/index.ts` → **Deploy** → in its settings switch
+   **OFF "Verify JWT"** (it checks the owners' logins, Facebook's signature, the job's secret and its own service key
+   itself).
+3. **Encryption key for the Page tokens:** Supabase → Edge Functions → **Secrets** → **`FB_TOKEN_ENCRYPTION_KEY`** = 48
+   random characters (for example `openssl rand -base64 36` in a terminal, or a password generator). Keep it in your
+   password manager; changing it later means every shop connects its Page again. (`SITE_URL`, `INDEXNOW_KEY`,
+   `BREVO_API_KEY` and `ALERT_EMAIL_FROM` are already set from earlier parts.)
+4. **Merge the pull request** on GitHub → Vercel deploys. Nothing to add in Vercel. The blog works now without
+   Facebook: test it on a shop (Môj obchod → Novinky / Blog → Nový článok → photos → **Zverejniť** → "Zverejnené na
+   webe ✓" → the "Novinky" link on the shop page).
+5. **Meta app** (once, about 30 minutes; you need a personal Facebook account that is an admin of the davide.sk Page):
+   1. <https://developers.facebook.com> → **My Apps** → **Create app** → use case **"Other"** → app type **"Business"** →
+      name `Cacaduu PPI`, your contact e-mail, your business portfolio (Meta Business Suite; create one if asked) →
+      **Create app**.
+   2. **App settings → Basic:** **App domains** `cacaduu.com`; **Privacy Policy URL** `https://cacaduu.com/sk/sukromie`;
+      **User data deletion** → "Data deletion instructions URL" → `https://cacaduu.com/sk/sukromie/vymazanie-udajov`;
+      **Category** "Business and pages"; **App icon** 1024 × 1024 (the Cacaduu PPI logo) → **Save changes**. Copy the
+      **App ID** and, after "Show", the **App secret**.
+   3. **Add product → Facebook Login for Business → Set up.** In its **Settings**: Client OAuth login **Yes**, Web OAuth
+      login **Yes**, Enforce HTTPS **Yes**, Use Strict Mode for redirect URIs **Yes**, **Valid OAuth Redirect URIs** =
+      `https://<project>.supabase.co/functions/v1/shop-blog/oauth` (your Supabase project's address; the admin page in
+      step 7 shows it exactly) → **Save changes**.
+   4. **Facebook Login for Business → Configurations → Create configuration:** name `Cacaduu PPI – Novinky`, login
+      variation **General**, access token **User access token**, assets **Pages**, permissions **pages_show_list**,
+      **pages_read_engagement**, **pages_manage_posts** (add **pages_manage_metadata** only if you set up the webhook
+      in step 6) → **Create**. Copy the **Configuration ID**.
+   5. **Supabase → Edge Functions → Secrets:** **`FACEBOOK_APP_ID`** = the App ID, **`FACEBOOK_APP_SECRET`** = the App
+      secret, **`FACEBOOK_CONFIG_ID`** = the Configuration ID. (Without `FACEBOOK_CONFIG_ID` the login asks for the
+      three permissions by name, which also works.)
+   6. **Webhook (optional, recommended):** first open the admin page (step 7) and copy the **Verify token**. Then in the
+      Meta app: **Add product → Webhooks → Set up** → object **Page** → **Subscribe to this object**: Callback URL
+      `https://<project>.supabase.co/functions/v1/shop-blog/webhook`, Verify token = the copied one → **Verify and
+      save** → next to the field **feed** click **Subscribe**. Without the webhook the daily sync still brings every
+      change (just later); Meta may also hold webhook events back until the app is Live — the sync covers that too.
+   7. **Check:** `https://cacaduu.com/sk/admin/domains#blog` (your admin account) → "Facebook aplikácia: Nastavená" with
+      the Redirect URI, the webhook's Callback URL and Verify token, and whether the configuration is set. "Funkcia
+      shop-blog neodpovedá" = step 2 is missing.
+   8. **Roles while the app is in Development mode:** App roles → Roles → add the people who will connect a Page now
+      (you, the davide.sk Page admin) as **Administrator** or **Tester**; each accepts the invitation in their Facebook
+      account. In Development mode only these people can connect a Page — that is enough for davide.sk.
+6. **Test on davide.sk** (logged in as the shop's owner, the Facebook account from step 5.8):
+   1. Môj obchod → **Novinky / Blog** → **Facebook stránka** → **Pripojiť Facebook stránku** → Facebook asks for the
+      permissions → pick the davide.sk Page → **Pripojiť** → "Pripojená stránka: …". ("Osobné profily nie sú
+      podporované" means the account runs no Page.)
+   2. **Stiahnuť všetky príspevky** → "Sťahujem príspevky… zatiaľ n" → "Stiahnuté: n nových príspevkov." (photos keep
+      arriving for a few minutes).
+   3. Open `https://davide.sk/blog`: the posts, newest first, 12 per page; a post with its photos, "Pôvodný príspevok na
+      Facebooku". Also `https://davide.sk/blog/rss.xml`, `https://davide.sk/sitemap.xml` (the `/blog/…` lines) and
+      `https://davide.sk/llms.txt` ("## Latest news").
+   4. **Nový článok** → title, text, 2 photos → **Zverejniť** → "Zverejniť aj na Facebooku?" with the preview →
+      **Áno, zverejniť na webe aj na Facebooku** → "Zverejnené na webe ✓" and "Zverejnené na Facebooku ✓" → **Otvoriť
+      na Facebooku**: the text, the photos and "Čítať na webe: https://davide.sk/blog/…".
+   5. Edit a post on Facebook → the next day (or within minutes with the webhook) the web shows the change; delete a
+      test post on Facebook → it disappears from the web ("Zmazané na Facebooku" in the list).
+   6. Google's Rich Results Test (<https://search.google.com/test/rich-results>) with a post's address → "Article"
+      (BlogPosting) and "Breadcrumbs" valid.
+   Problems: Supabase → Edge Functions → shop-blog → Logs (tokens and post texts are never written there); the list
+   shows "Na Facebook sa nepodarilo zverejniť" with Facebook's reason and **Skúsiť znova na Facebook**.
+7. **Before other shops connect their Pages** (Meta's review, can take days to weeks):
+   1. **Business verification:** Meta Business Suite → Settings → Security Center → **Start verification** (company
+      name, address, registration number, a document).
+   2. Meta app → **App Review → Permissions and Features** → request **Advanced Access** for `pages_show_list`,
+      `pages_read_engagement`, `pages_manage_posts` (and `pages_manage_metadata` with the webhook). For each: what PPI
+      does with it ("shows the shop's own Page posts on the shop's page"; "posts the shop's article to its own Page
+      when the owner chooses 'Web + Facebook'") and a screen recording of steps 6.1–6.4.
+   3. When approved: the switch at the top of the app → **App Mode: Live**.
+   Until then only people with a role in the app (step 5.8) can connect a Page; everyone else's blog works without
+   Facebook.
+8. **Privacy texts:** `/sk/sukromie` and `/sk/sukromie/vymazanie-udajov` are drafts with "TODO" lines (operator, contact
+   e-mail, retention). Replace them with the final legal text (keys `privacy.*` in `src/i18n/messages/{sk,hu,en}.json`)
+   before App Review.
+
 ---
 
 ## Part D — later, before launch
@@ -1423,3 +1516,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 30. Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule, shown in the chat under "Partneri" between Cacaduu and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" | ✅ built — set up Part AF |
 | 31. Own domains fully findable: "Odstrániť" removes only Cacaduu's TXT record; the Google HTML tag for connected domains; Bing Webmaster Tools; sitemap steps for Google and Bing; llms.txt with holidays and API/MCP; IndexNow on every host (one `INDEXNOW_KEY`, only real changes, once an hour per address); API/MCP links and Cacaduu's llms.txt point to the own domain | ✅ built — set up Part AG |
 | 32. Quicksand font; the Cacaduu PPI logo and icons; the name Cacaduu everywhere; cacaduu.com as the main domain | ✅ built — set up Part AH |
+| 33. Shop blog "Novinky": posts with photos written in Môj obchod (now or scheduled), the shop's Facebook Page connected once (all past posts imported, a daily sync, "Zverejniť aj na Facebooku?" before each post), `/blog` pages with RSS, sitemap, llms.txt, IndexNow and JSON-LD on Cacaduu and own domains; free shops show the 10 newest; privacy and data deletion pages | ✅ built — set up Part AI |

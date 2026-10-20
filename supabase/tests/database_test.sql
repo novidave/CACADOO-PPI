@@ -5375,4 +5375,539 @@ delete from public.domain_orders where hostname = 'potraviny36.sk';
 delete from public.indexnow_hosts;
 delete from public.indexnow_pings;
 
+\echo '--- shop blog: posts as written, the publish dialog''s choice, free limit, Facebook import and publishing, IndexNow (update 37)'
+-- shop B is free (its plan canceled above), shop A has the plan; B's subscription row is put back at the end
+create temporary table blog_b_subscription as
+select status, current_period_end from public.subscriptions where shop_id = (select id from public.shops where slug = 'drogeria-kostolne');
+do $$
+begin
+  assert not public.shop_has_plan((select id from public.shops where slug = 'drogeria-kostolne'));
+  assert public.shop_has_plan((select id from public.shops where slug = 'potraviny-centrum'));
+end $$;
+update public.blog_limits set max_posts = 10 where plan = 'free';
+update public.blog_limits set max_posts = null where plan = 'pro';
+
+-- visitors and other owners read nothing directly
+set role anon;
+do $$
+begin
+  begin
+    perform 1 from public.blog_posts limit 1;
+    raise exception 'a visitor read blog_posts';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform 1 from public.facebook_connections limit 1;
+    raise exception 'a visitor read facebook_connections';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_blog_save((select id from public.shops where slug = 'potraviny-centrum'), null, 'x', 'y');
+    raise exception 'a visitor wrote a post';
+  exception when insufficient_privilege then null;
+  end;
+  assert public.shop_blog_count('potraviny-centrum') = 0, 'no posts yet';
+  assert (public.shop_blog('potraviny-centrum') ->> 'total')::integer = 0;
+  assert public.shop_blog('no-such-shop') is null;
+end $$;
+reset role;
+
+-- owner A writes: the title gives the address (accents dropped, unique), drafts are never public
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_p uuid;
+  v_q uuid;
+  v_r jsonb;
+begin
+  v_p := public.owner_blog_save(v_a, null, '  Čerstvé jahody už sú tu!  ', E'Prvý odsek.\n\nDruhý odsek s odkazom https://example.com a #jahody');
+  assert (select slug from public.blog_posts where id = v_p) = 'cerstve-jahody-uz-su-tu', (select slug from public.blog_posts where id = v_p);
+  assert (select title from public.blog_posts where id = v_p) = 'Čerstvé jahody už sú tu!', 'the title as written (trimmed)';
+  assert (select body from public.blog_posts where id = v_p) like E'Prvý odsek.\n\nDruhý%#jahody', 'the text exactly as written';
+  assert (select status from public.blog_posts where id = v_p) = 'draft';
+  v_q := public.owner_blog_save(v_a, null, 'Čerstvé jahody už sú tu', 'b');
+  assert (select slug from public.blog_posts where id = v_q) = 'cerstve-jahody-uz-su-tu-2', 'addresses are unique in the shop';
+  -- a draft's address follows its title
+  perform public.owner_blog_save(v_a, v_q, 'Malinový týždeň', 'b');
+  assert (select slug from public.blog_posts where id = v_q) = 'malinovy-tyzden';
+  begin
+    perform public.owner_blog_save(v_a, null, '   ', 'x');
+    raise exception 'an empty title accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'title';
+  end;
+  begin
+    perform public.owner_blog_save(v_b, null, 'Cudzí', 'x');
+    raise exception 'owner A wrote into shop B';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.blog_posts set title = 'x' where id = v_p;
+    raise exception 'a post changed directly';
+  exception when insufficient_privilege then null;
+  end;
+  -- "Web + Facebook" needs a connected Page
+  begin
+    perform public.owner_blog_publish(v_p, null, 'web_fb');
+    raise exception 'web_fb without a Page';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'no_facebook';
+  end;
+  begin
+    perform public.owner_blog_publish(v_p, null, 'facebook');
+    raise exception 'an unknown choice';
+  exception when invalid_parameter_value then assert sqlerrm = 'choice';
+  end;
+  -- "Len na web", now
+  v_r := public.owner_blog_publish(v_p, null, 'web');
+  assert (v_r ->> 'scheduled')::boolean = false and (v_r ->> 'facebook_now')::boolean = false, v_r::text;
+  assert (select status = 'published' and fb_choice = 'web' and fb_status is null from public.blog_posts where id = v_p);
+  assert (select last_choice from public.shop_blog_settings where shop_id = v_a) = 'web', 'the choice is remembered';
+  -- live: published again → refused (edits never go to Facebook); the address stays when the title changes
+  begin
+    perform public.owner_blog_publish(v_p, null, 'web');
+    raise exception 'published twice';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'published';
+  end;
+  perform public.owner_blog_save(v_a, v_p, 'Čerstvé jahody sú tu', E'Prvý odsek.\n\nDruhý odsek s odkazom https://example.com a #jahody');
+  assert (select slug from public.blog_posts where id = v_p) = 'cerstve-jahody-uz-su-tu', 'a live post keeps its address';
+  -- scheduled: a time ahead (at most a year)
+  v_r := public.owner_blog_publish(v_q, now() + interval '2 days', 'web');
+  assert (v_r ->> 'scheduled')::boolean, v_r::text;
+  begin
+    perform public.owner_blog_publish(v_q, now() + interval '400 days', 'web');
+    raise exception 'two years ahead';
+  exception when invalid_parameter_value then assert sqlerrm = 'when';
+  end;
+  -- owner A sees its posts, never shop B's; the list says which are visible
+  v_r := public.owner_blog_posts(v_a);
+  assert jsonb_array_length(v_r -> 'posts') = 2 and (v_r -> 'limit') = 'null'::jsonb, v_r::text;
+  assert exists (select 1 from jsonb_array_elements(v_r -> 'posts') e where e.value ->> 'id' = v_p::text and (e.value ->> 'visible')::boolean);
+  assert exists (select 1 from jsonb_array_elements(v_r -> 'posts') e where e.value ->> 'id' = v_q::text and not (e.value ->> 'visible')::boolean);
+  begin
+    perform public.owner_blog_posts(v_b);
+    raise exception 'owner A read shop B''s posts';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- visitors: the published post, as written; the scheduled one only when its time comes
+set role anon;
+do $$
+declare v_b jsonb := public.shop_blog('potraviny-centrum');
+declare v_p jsonb;
+begin
+  assert (v_b ->> 'total')::integer = 1 and public.shop_blog_count('potraviny-centrum') = 1, v_b::text;
+  v_p := public.shop_blog_post('potraviny-centrum', 'cerstve-jahody-uz-su-tu');
+  assert v_p ->> 'title' = 'Čerstvé jahody sú tu' and v_p ->> 'body' like '%#jahody', v_p::text;
+  assert public.shop_blog_post('potraviny-centrum', 'malinovy-tyzden') is null, 'a scheduled post is not public before its time';
+  assert public.shop_blog_post('potraviny-centrum', 'nope') is null;
+  -- the assistant's search: every word, accents and case ignored
+  assert (select count(*) from public.search_shop_blog('potraviny-centrum', 'JAHODY odsek')) = 1;
+  assert (select count(*) from public.search_shop_blog('potraviny-centrum', 'malinovy')) = 0, 'never a post that is not visible';
+  assert (select count(*) from public.blog_index('potraviny-centrum')) = 1;
+end $$;
+reset role;
+update public.blog_posts set publish_at = now() where slug = 'malinovy-tyzden';
+set role anon;
+do $$
+begin
+  assert public.shop_blog_count('potraviny-centrum') = 2, 'the scheduled post is live at its time';
+  assert (public.shop_blog('potraviny-centrum') -> 'posts' -> 0 ->> 'slug') = 'malinovy-tyzden', 'newest first';
+end $$;
+reset role;
+
+-- hide / show; an edit of a live post is dateModified
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare v_p uuid := (select id from public.blog_posts where slug = 'malinovy-tyzden');
+begin
+  perform public.owner_blog_set_hidden(v_p, true);
+  assert public.shop_blog_count('potraviny-centrum') = 1;
+  perform public.owner_blog_set_hidden(v_p, false);
+  assert public.shop_blog_count('potraviny-centrum') = 2;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+update public.blog_posts set edited_at = null where slug = 'malinovy-tyzden';
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare v_p uuid := (select id from public.blog_posts where slug = 'malinovy-tyzden');
+begin
+  perform public.owner_blog_save((select id from public.shops where slug = 'potraviny-centrum'), v_p, 'Malinový týždeň', 'nový text');
+  assert (select edited_at is not null from public.blog_posts where id = v_p), 'an edit of a live post';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the free limit: the newest 10 of a free shop, all with the plan; only the admin changes it
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_id uuid;
+  i integer;
+begin
+  for i in 1..12 loop
+    v_id := public.owner_blog_save(v_b, null, 'Novinka ' || i, 'text ' || i);
+    perform public.owner_blog_publish(v_id, null, 'web');
+  end loop;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+do $$
+declare v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  -- one second apart: 1 oldest, 12 newest
+  update public.blog_posts set publish_at = now() - make_interval(secs => 100 - substring(title from '[0-9]+')::integer)
+  where shop_id = v_b;
+end $$;
+set role anon;
+do $$
+declare v_j jsonb := public.shop_blog('drogeria-kostolne', 1, 12);
+begin
+  assert (v_j ->> 'total')::integer = 10, 'free: the newest 10 ' || v_j::text;
+  assert v_j -> 'posts' -> 0 ->> 'title' = 'Novinka 12' and v_j -> 'posts' -> 9 ->> 'title' = 'Novinka 3', v_j::text;
+  assert public.shop_blog_post('drogeria-kostolne', 'novinka-1') is null, 'the 11th newest is not shown';
+  assert (public.shop_blog('drogeria-kostolne', 2, 6) -> 'posts' -> 0 ->> 'title') = 'Novinka 6', 'page 2';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin
+    perform public.admin_save_blog_limits('free', 50);
+    raise exception 'an owner changed the limits';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+set role authenticated;
+do $$
+begin
+  perform public.admin_save_blog_limits('free', 11);
+  assert public.shop_blog_count('drogeria-kostolne') = 11;
+  perform public.admin_save_blog_limits('free', 10);
+  begin
+    perform public.admin_save_blog_limits('gold', 1);
+    raise exception 'an unknown plan';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+update public.subscriptions set status = 'active', current_period_end = now() + interval '30 days'
+where shop_id = (select id from public.shops where slug = 'drogeria-kostolne');
+set role anon;
+do $$
+begin
+  assert public.shop_blog_count('drogeria-kostolne') = 12, 'the plan: every post';
+end $$;
+reset role;
+update public.subscriptions s set status = b.status, current_period_end = b.current_period_end from blog_b_subscription b
+where s.shop_id = (select id from public.shops where slug = 'drogeria-kostolne');
+
+-- the Facebook Page: OAuth states once, pages only for whoever logged in, the token never for owners
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_s jsonb;
+  v_id uuid := gen_random_uuid();
+begin
+  perform public.facebook_state_save('hash-1', v_a, '00000000-0000-0000-0000-00000000000a', 'https://ppi.example/sk/dashboard/blog?shop=x');
+  v_s := public.facebook_state_take('hash-1');
+  assert v_s ->> 'shop_id' = v_a::text, v_s::text;
+  assert public.facebook_state_take('hash-1') is null, 'a state works once';
+  perform public.facebook_pending_save(v_id, v_a, '00000000-0000-0000-0000-00000000000a', 'v1.enc', 'https://ppi.example/sk/dashboard/blog', 'pages_show_list');
+  assert public.facebook_pending_get(v_id, '00000000-0000-0000-0000-00000000000b') is null, 'another user never sees the pages';
+  assert public.facebook_pending_get(v_id, '00000000-0000-0000-0000-00000000000a') ->> 'pages_enc' = 'v1.enc';
+  assert public.facebook_pending_get(v_id, '00000000-0000-0000-0000-00000000000a', true) is not null;
+  assert public.facebook_pending_get(v_id, '00000000-0000-0000-0000-00000000000a') is null, 'taken';
+  perform public.facebook_connection_save(v_a, '123456789', 'Potraviny Centrum', 'https://scontent.example/p.jpg',
+                                          'v1.secret-token', 'pages_show_list,pages_read_engagement,pages_manage_posts',
+                                          '00000000-0000-0000-0000-00000000000a', 'https://ppi.example');
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  assert (select page_name from public.facebook_connections) = 'Potraviny Centrum', 'the owner sees the Page';
+  begin
+    perform page_token_enc from public.facebook_connections;
+    raise exception 'an owner read the Page token';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  assert not exists (select 1 from public.facebook_connections), 'owner B never sees shop A''s Page';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- "Web + Facebook": now (the function posts it at once), scheduled (the job at its time), retry, never twice
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := public.owner_blog_save(v_a, null, 'Na webe aj na Facebooku', 'Text pre obe miesta.');
+  v_q uuid := public.owner_blog_save(v_a, null, 'Naplánované na Facebook', 'Neskôr.');
+  v_r jsonb;
+begin
+  v_r := public.owner_blog_publish(v_p, null, 'web_fb');
+  assert (v_r ->> 'facebook_now')::boolean, v_r::text;
+  assert (select fb_status from public.blog_posts where id = v_p) = 'waiting';
+  v_r := public.owner_blog_publish(v_q, now() + interval '1 day', 'web_fb');
+  assert not (v_r ->> 'facebook_now')::boolean;
+  -- changeable until its time
+  perform public.owner_blog_set_choice(v_q, 'web');
+  assert (select fb_choice = 'web' and fb_status is null from public.blog_posts where id = v_q);
+  perform public.owner_blog_set_choice(v_q, 'web_fb');
+  assert (select fb_status from public.blog_posts where id = v_q) = 'waiting';
+  begin
+    perform public.owner_blog_set_choice(v_p, 'web');
+    raise exception 'the choice of a live post changed';
+  exception when object_not_in_prerequisite_state then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role service_role;
+do $$
+declare
+  v_p uuid := (select id from public.blog_posts where slug = 'na-webe-aj-na-facebooku');
+  v_q uuid := (select id from public.blog_posts where slug = 'naplanovane-na-facebook');
+  v_c jsonb;
+begin
+  assert v_p in (select public.blog_fb_due(10)) and v_q not in (select public.blog_fb_due(10)), 'only what is live';
+  v_c := public.blog_fb_claim(v_p);
+  assert v_c ->> 'title' = 'Na webe aj na Facebooku' and v_c ->> 'shop_slug' = 'potraviny-centrum', v_c::text;
+  assert public.blog_fb_claim(v_p) is null, 'taken once';
+  perform public.blog_fb_result(v_p, null, null, '(#200) The user hasn''t authorized the application');
+  assert (select fb_status = 'failed' and fb_error like '(#200)%' from public.blog_posts where id = v_p);
+  assert v_p not in (select public.blog_fb_due(10)), 'a failure waits for the owner';
+  assert public.blog_fb_claim(v_p) is null, 'no retry without the owner';
+  assert public.blog_fb_claim(v_p, true) is not null, '"Skúsiť znova na Facebook"';
+  perform public.blog_fb_result(v_p, '123456789_555', 'https://www.facebook.com/123456789/posts/555', null);
+  assert (select fb_status = 'posted' and fb_post_id = '123456789_555' and fb_error is null from public.blog_posts where id = v_p);
+  assert public.blog_fb_claim(v_p, true) is null, 'never posted twice';
+  -- the next import reads that post back from the Page: nothing new
+  v_c := public.blog_import_post((select shop_id from public.blog_posts where id = v_p), '123456789_555', 'Na webe aj na Facebooku',
+                                 E'Text pre obe miesta.\n\nČítať na webe: https://ppi.example/sk/shops/potraviny-centrum/blog/na-webe-aj-na-facebooku',
+                                 now(), now(), null, '[]', '[]');
+  assert v_c ->> 'result' = 'own', v_c::text;
+  -- a stuck attempt (no answer for 10 minutes) is a failure, never sent again by itself
+  update public.blog_posts set publish_at = now() - interval '1 minute' where id = v_q;
+  perform public.blog_fb_claim(v_q);
+  update public.blog_posts set fb_posting_at = now() - interval '11 minutes' where id = v_q;
+  assert public.blog_fb_claim(v_q) is null;
+  assert (select fb_status from public.blog_posts where id = v_q) = 'failed';
+end $$;
+reset role;
+
+-- imports: as written, live or waiting for approval, edits (not comments), deleted → hidden, photos replaced
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_r jsonb;
+  v_id uuid;
+  v_t timestamptz := now() - interval '3 days';
+begin
+  v_r := public.blog_import_post(v_a, '123456789_1001', 'Otvárame v nedeľu', E'Otvárame v nedeľu. Príďte! #nedela',
+                                 v_t, v_t, 'https://www.facebook.com/123456789/posts/1001',
+                                 '[{"kind":"link","url":"https://example.com/akcia","title":"Akcia"}]',
+                                 '[{"kind":"photo","fb_media_id":"9001","source_url":"https://scontent.example/1.jpg"},
+                                   {"kind":"video","fb_media_id":"9002","source_url":"https://scontent.example/v.jpg","link_url":"https://www.facebook.com/watch/?v=9002"}]');
+  assert v_r ->> 'result' = 'new', v_r::text;
+  v_id := (v_r ->> 'post_id')::uuid;
+  assert (select status = 'published' and source = 'facebook' and publish_at = v_t and body = E'Otvárame v nedeľu. Príďte! #nedela'
+          from public.blog_posts where id = v_id);
+  assert (select count(*) from public.blog_photos where post_id = v_id and status = 'pending') = 2;
+  assert (select link_url from public.blog_photos where post_id = v_id and kind = 'video') = 'https://www.facebook.com/watch/?v=9002';
+  -- the same post again: nothing; a later updated_time without a change (a comment): still the same
+  assert public.blog_import_post(v_a, '123456789_1001', 'Otvárame v nedeľu', E'Otvárame v nedeľu. Príďte! #nedela',
+                                 v_t, v_t, null, '[{"kind":"link","url":"https://example.com/akcia","title":"Akcia"}]',
+                                 '[{"fb_media_id":"9001"},{"kind":"video","fb_media_id":"9002"}]') ->> 'result' = 'same';
+  assert public.blog_import_post(v_a, '123456789_1001', 'Otvárame v nedeľu', E'Otvárame v nedeľu. Príďte! #nedela',
+                                 v_t, now(), null, '[{"kind":"link","url":"https://example.com/akcia","title":"Akcia"}]',
+                                 '[{"fb_media_id":"9001"},{"kind":"video","fb_media_id":"9002"}]') ->> 'result' = 'same';
+  assert (select edited_at is null from public.blog_posts where id = v_id), 'a comment is no edit';
+  -- the owner's title stays when Facebook's text changes; the photos changed: the old files are returned
+  update public.blog_posts set title = 'Nedeľa otvorené', title_by_owner = true where id = v_id;
+  update public.blog_photos set status = 'ready', path_large = v_a || '/' || v_id || '/' || id || '-1600.webp' where post_id = v_id;
+  v_r := public.blog_import_post(v_a, '123456789_1001', 'Otvárame v nedeľu od 9', E'Otvárame v nedeľu od 9. Príďte!',
+                                 v_t, now(), null, '[]', '[{"fb_media_id":"9003"}]');
+  assert v_r ->> 'result' = 'updated' and jsonb_array_length(v_r -> 'removed') = 2, v_r::text;
+  assert (select title = 'Nedeľa otvorené' and body = E'Otvárame v nedeľu od 9. Príďte!' and edited_at is not null and links = '[]'
+          from public.blog_posts where id = v_id);
+  assert (select count(*) from public.blog_photos where post_id = v_id) = 1;
+  -- deleted on Facebook → hidden here
+  assert public.blog_posts_deleted_on_facebook(v_a, array['123456789_1001']) = 1;
+  assert (select status = 'hidden' and fb_deleted_at is not null from public.blog_posts where id = v_id);
+  assert public.blog_posts_deleted_on_facebook(v_a, array['123456789_1001']) = 0, 'once';
+  -- a Cacaduu post Facebook gave no id for (an answer lost): linked by its "Čítať na webe" address, never imported
+  update public.blog_posts set fb_post_id = null, fb_status = 'failed' where slug = 'naplanovane-na-facebook';
+  v_r := public.blog_import_post(v_a, '123456789_1002', 'Naplánované na Facebook', 'Neskôr. Čítať na webe: …', now(), now(),
+                                 'https://www.facebook.com/123456789/posts/1002', '[]', '[]', 'naplanovane-na-facebook');
+  assert v_r ->> 'result' = 'linked', v_r::text;
+  assert (select fb_post_id = '123456789_1002' and fb_status = 'posted' from public.blog_posts where slug = 'naplanovane-na-facebook');
+  -- "Schvaľovať pred zverejnením": imported posts wait
+  insert into public.shop_blog_settings (shop_id, auto_publish) values (v_a, false)
+  on conflict (shop_id) do update set auto_publish = false;
+  v_r := public.blog_import_post(v_a, '123456789_1003', 'Čakám na schválenie', 'Text', now(), now(), null, '[]', '[]');
+  assert (select status from public.blog_posts where id = (v_r ->> 'post_id')::uuid) = 'pending';
+  assert not public.blog_post_visible((v_r ->> 'post_id')::uuid), 'not shown before approval';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare v_id uuid := (select id from public.blog_posts where fb_post_id = '123456789_1003');
+begin
+  -- the owner changes the title only; Facebook's text stays
+  begin
+    perform public.owner_blog_save((select id from public.shops where slug = 'potraviny-centrum'), v_id, 'Schválené', 'iný text');
+    raise exception 'an imported text changed';
+  exception when invalid_parameter_value then assert sqlerrm = 'imported_text';
+  end;
+  perform public.owner_blog_save((select id from public.shops where slug = 'potraviny-centrum'), v_id, 'Schválené', '');
+  perform public.owner_blog_set_hidden(v_id, false);
+  assert (select status = 'published' and title = 'Schválené' and title_by_owner and body = 'Text' from public.blog_posts where id = v_id);
+  perform public.owner_blog_settings((select id from public.shops where slug = 'potraviny-centrum'), true);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- photos: at most 10 on a Cacaduu post, ready with both sizes, removed with their files
+set role service_role;
+do $$
+declare
+  v_p uuid := (select id from public.blog_posts where slug = 'cerstve-jahody-uz-su-tu');
+  v_a uuid := (select shop_id from public.blog_posts where slug = 'cerstve-jahody-uz-su-tu');
+  v_f uuid;
+  i integer;
+begin
+  for i in 1..10 loop
+    v_f := public.blog_photo_add(v_p, 'uploading');
+  end loop;
+  begin
+    perform public.blog_photo_add(v_p, 'uploading');
+    raise exception 'an 11th photo';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'photo_limit';
+  end;
+  perform public.blog_photo_stored(v_f, 1600, v_a || '/' || v_p || '/' || v_f || '-1600.webp', 'webp', 1600, 1200);
+  assert (select status from public.blog_photos where id = v_f) = 'uploading', 'not before both sizes';
+  perform public.blog_photo_stored(v_f, 800, v_a || '/' || v_p || '/' || v_f || '-800.webp', 'webp', 800, 600);
+  assert (select status from public.blog_photos where id = v_f) = 'ready';
+  assert jsonb_array_length(public.shop_blog_post('potraviny-centrum', 'cerstve-jahody-uz-su-tu') -> 'photos') = 1;
+  assert (public.shop_blog_post('potraviny-centrum', 'cerstve-jahody-uz-su-tu') -> 'photos' -> 0 ->> 'small') like '%-800.webp';
+  assert array_length(public.blog_photo_delete(v_f), 1) = 2, 'both files to remove';
+  -- unfinished uploads go after an hour
+  update public.blog_photos set created_at = now() - interval '2 hours' where post_id = v_p and status = 'uploading';
+  assert public.blog_stale_uploads() = 9;
+  v_f := public.blog_photo_add(v_p, 'uploading');
+  begin
+    update public.blog_photos set path_large = '../../etc/passwd' where id = v_f;
+    raise exception 'a strange path accepted';
+  exception when check_violation then null;
+  end;
+  perform public.blog_photo_delete(v_f);
+end $$;
+reset role;
+
+-- the e-mail when the connection expires: once; "Odpojiť" deletes the token, waiting posts fail with a reason
+set role service_role;
+do $$
+declare v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  perform public.facebook_connection_result(v_a, 'Error validating access token', true);
+  assert (select status from public.facebook_connections where shop_id = v_a) = 'expired';
+  assert (select emails from public.facebook_alerts_due() where shop_id = v_a) = array['owner-a@example.invalid'];
+  perform public.facebook_alert_sent(v_a);
+  assert not exists (select 1 from public.facebook_alerts_due() where shop_id = v_a), 'one e-mail';
+  assert not public.facebook_import_start(v_a), 'no import while expired';
+  perform public.facebook_connection_save(v_a, '123456789', 'Potraviny Centrum', null, 'v1.new', null, null, null);
+  assert (select status = 'ok' and alert_sent_at is null from public.facebook_connections where shop_id = v_a), 'connected again';
+  -- the import: page by page, one call at a time
+  assert public.facebook_import_start(v_a);
+  assert not public.facebook_import_start(v_a), 'one import at a time';
+  assert public.facebook_import_take(v_a) ->> 'cursor' = '';
+  assert public.facebook_import_take(v_a) is null, 'one call at a time';
+  perform public.facebook_import_step(v_a, 'QVFIUa', 25);
+  assert public.facebook_import_take(v_a) ->> 'cursor' = 'QVFIUa';
+  perform public.facebook_import_step(v_a, null, 3);
+  assert (select import_state = 'done' and import_count = 28 from public.facebook_connections where shop_id = v_a);
+  -- a webhook: that Page syncs soon
+  assert public.facebook_sync_page_soon('123456789') = 1;
+  assert v_a in (select public.facebook_sync_due(5));
+  assert v_a not in (select public.facebook_sync_due(5)), 'taken';
+  perform public.facebook_sync_done(v_a, 'Potraviny Centrum s.r.o.', null);
+  assert (select page_name = 'Potraviny Centrum s.r.o.' and next_sync_at > now() + interval '23 hours' from public.facebook_connections where shop_id = v_a);
+  -- "Odpojiť"
+  update public.blog_posts set fb_status = 'waiting', publish_at = now() + interval '1 day', status = 'published'
+  where slug = 'naplanovane-na-facebook';
+  update public.blog_posts set fb_post_id = null where slug = 'naplanovane-na-facebook';
+  assert public.facebook_disconnect(v_a);
+  assert not exists (select 1 from public.facebook_connections where shop_id = v_a), 'the token is gone';
+  assert (select fb_status = 'failed' and fb_error is not null from public.blog_posts where slug = 'naplanovane-na-facebook');
+  assert exists (select 1 from public.blog_posts where shop_id = v_a and source = 'facebook'), 'imported posts stay';
+end $$;
+reset role;
+
+-- IndexNow: new and changed posts per host, once an hour (shared with the stock), sent only on a 2xx
+delete from public.indexnow_hosts;
+set role service_role;
+do $$
+declare
+  v_c jsonb;
+  v_ids uuid[];
+begin
+  v_c := public.blog_indexnow_claim('ppi.example.com');
+  assert v_c ->> 'host' = 'ppi.example.com' and v_c ->> 'kind' = 'main', coalesce(v_c::text, 'null');
+  assert exists (select 1 from jsonb_array_elements(v_c -> 'posts') e where e.value ->> 'slug' = 'cerstve-jahody-uz-su-tu');
+  assert not exists (select 1 from jsonb_array_elements(v_c -> 'posts') e where e.value ->> 'slug' = 'novinka-1'),
+    'never a post the free limit does not show';
+  assert public.blog_indexnow_claim('ppi.example.com') is null, 'once an hour per host';
+  select array_agg((e.value ->> 'id')::uuid) into v_ids from jsonb_array_elements(v_c -> 'posts') e;
+  perform public.blog_indexnow_done('ppi.example.com', 'main', (v_c ->> 'at')::timestamptz, v_ids, 3, 500, 'error');
+  assert exists (select 1 from public.blog_posts where id = any(v_ids) and indexnow_sent_at is null), 'a failure is sent again';
+  perform public.blog_indexnow_done('ppi.example.com', 'main', (v_c ->> 'at')::timestamptz, v_ids, 3, 200, 'ok');
+  assert not exists (select 1 from public.blog_posts where id = any(v_ids) and indexnow_sent_at is null);
+  assert (select count(*) from public.indexnow_pings where result like 'blog:%') = 2;
+end $$;
+reset role;
+-- only the hour stopped it: nothing left now
+update public.indexnow_hosts set last_ping_at = null;
+set role service_role;
+do $$
+begin
+  assert public.blog_indexnow_claim('ppi.example.com') is null, 'nothing new';
+  assert public.blog_indexnow_claim(null) is null;
+end $$;
+reset role;
+
+do $$
+begin
+  assert exists (select 1 from cron.job where jobname = 'ppi-blog-tick'), 'the blog job is scheduled';
+end $$;
+drop table blog_b_subscription;
+delete from public.indexnow_hosts;
+delete from public.indexnow_pings;
+
 \echo 'ALL DATABASE CHECKS PASSED'

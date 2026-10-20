@@ -1,10 +1,11 @@
 import { locales } from "@/i18n/config";
+import { blogUrl } from "@/lib/blogFormat";
 import { siteItemUrl, siteLang, siteShopUrl } from "@/lib/customDomain";
 import { createPublicClient } from "@/lib/supabase/public";
 
 /**
  * sitemap.xml of a shop's own domain (src/proxy.ts sends "/sitemap.xml" of that domain here):
- * the shop's page and its items, on the domain, each with its other languages. Only while
+ * the shop's page, its blog (update 37) and its items, on the domain, each with its other languages. Only while
  * the domain is live (shop_site); PPI's own sitemap leaves these pages out.
  */
 const MAX_ITEMS = 45_000;
@@ -28,6 +29,15 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/site/[slug]
   const lines = [
     entry(Object.fromEntries(locales.map((l) => [l, siteShopUrl(host, l, defaultLang)])), siteShopUrl(host, defaultLang, defaultLang), shop.latest_file_time),
   ];
+  // The blog (database update 37): "/blog" and every post shown, lastmod = the post's last change.
+  const { data: posts } = await supabase.rpc("blog_index", { p_slug: slug, p_limit: 20_000 });
+  const place = { shopSlug: slug, country: shop.country, host };
+  const blogEntries = ((posts ?? []) as { post_slug: string; modified_at: string }[]).map((p) =>
+    entry(Object.fromEntries(locales.map((l) => [l, blogUrl("", l, place, p.post_slug)])), blogUrl("", defaultLang, place, p.post_slug), p.modified_at),
+  );
+  if (blogEntries.length) {
+    lines.push(entry(Object.fromEntries(locales.map((l) => [l, blogUrl("", l, place)])), blogUrl("", defaultLang, place), (posts as { modified_at: string }[])[0]?.modified_at), ...blogEntries);
+  }
   for (let from = 0; from < MAX_ITEMS; from += PAGE) {
     const { data, error } = await supabase
       .from("public_stock")

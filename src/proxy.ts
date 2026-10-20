@@ -76,11 +76,14 @@ const NOT_CONNECTED =
 /** The IndexNow key file: "/<key>.txt" (8–128 letters, digits or dashes). */
 const KEY_FILE = /^\/([A-Za-z0-9-]{8,128})\.txt$/;
 
+/** A post's address part ("nova-kolekcia-2026"). */
+const POST_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
 /**
  * A shop's own domain: its Pro page is served directly (no redirect): "/" in the shop's
- * language, "/{lang}" in the others, "/{lang}/items/{id}" its items, and its own
- * sitemap.xml, robots.txt, llms.txt and IndexNow key file. One primary host (bare); www redirects to it. Anything else
- * (login, other shops…) goes to PPI's own address.
+ * language, "/{lang}" in the others, "/{lang}/items/{id}" its items, its blog ("/blog", "/blog/{post}",
+ * "/{lang}/blog…", "/blog/rss.xml"; update 37), and its own sitemap.xml, robots.txt, llms.txt and IndexNow key
+ * file. One primary host (bare); www redirects to it. Anything else (login, other shops…) goes to PPI's own address.
  */
 async function shopDomain(request: NextRequest, host: string): Promise<NextResponse> {
   const site = await siteFor(host);
@@ -94,6 +97,7 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
   const goTo = (path: string) => NextResponse.redirect(new URL(`${path}${search}`, request.url), 308);
 
   if (pathname === "/sitemap.xml") return to(`/api/site/${site.slug}/sitemap`);
+  if (pathname === "/blog/rss.xml") return to(`/api/site/${site.slug}/blog-rss`);
   if (pathname === "/robots.txt") return to(`/api/site/${site.slug}/robots`);
   // For AI assistants, and the IndexNow key file (update 33).
   if (pathname === "/llms.txt") return to(`/api/site/${site.slug}/llms`);
@@ -101,12 +105,26 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
   if (keyFile) return to(`/api/site/${site.slug}/indexnow/${keyFile[1]}`);
   // The domain's own pages: src/app/site/[lang]/[slug] (their own layout, no Cacaduu header).
   if (parts.length === 0) return to(`/site/${site.lang}/${site.slug}`);
-  const [first, second, third] = parts;
+  const [first, second, third, fourth, fifth] = parts;
+  // The blog: "/blog" and "/blog/{post}" in the shop's language, "/{lang}/blog…" in the others.
+  const blog = (lang: Locale, post: string | undefined) =>
+    post === undefined ? to(`/site/${lang}/${site.slug}/blog`) : POST_SLUG.test(post) ? to(`/site/${lang}/${site.slug}/blog/${post}`) : null;
+  if (first === "blog" && parts.length <= 2) {
+    const r = blog(site.lang, second);
+    if (r) return r;
+  }
   if (isLocale(first)) {
     if (parts.length === 1) return to(`/site/${first}/${site.slug}`);
     if (second === "items" && third && parts.length === 3) return to(`/site/${first}/${site.slug}/items/${third}`);
+    if (second === "blog" && parts.length <= 3) {
+      const r = blog(first, third);
+      if (r) return r;
+    }
     // The shop's own Cacaduu path → its address on the domain.
     if (second === "shops" && third === site.slug && parts.length === 3) return goTo(first === site.lang ? "/" : `/${first}`);
+    if (second === "shops" && third === site.slug && fourth === "blog" && parts.length <= 5) {
+      return goTo(`${first === site.lang ? "" : `/${first}`}/blog${fifth ? `/${fifth}` : ""}`);
+    }
   }
   if (first === "items" && second && parts.length === 2) return to(`/site/${site.lang}/${site.slug}/items/${second}`);
   return NextResponse.redirect(`${siteUrl()}${pathname}${search}`, 307);
@@ -118,8 +136,10 @@ export async function proxy(request: NextRequest) {
   if (!isMainHost(host)) return await shopDomain(request, host);
 
   const { pathname } = request.nextUrl;
-  // PPI's own sitemap.xml, robots.txt and llms.txt (matched only for shops' domains).
-  if (pathname === "/sitemap.xml" || pathname === "/robots.txt" || pathname === "/llms.txt") return NextResponse.next();
+  // PPI's own sitemap.xml, robots.txt and llms.txt (matched only for shops' domains; "/blog/rss.xml" too).
+  if (pathname === "/sitemap.xml" || pathname === "/robots.txt" || pathname === "/llms.txt" || pathname === "/blog/rss.xml") {
+    return NextResponse.next();
+  }
   // The IndexNow key file of the main domain too (update 36: every host serves the one key).
   const keyFile = KEY_FILE.exec(pathname);
   if (keyFile) return NextResponse.rewrite(new URL(`/api/indexnow/${keyFile[1]}`, request.url));
@@ -130,7 +150,13 @@ export async function proxy(request: NextRequest) {
     const [, lang, slug, kind, id] = pathname.split("/").filter(Boolean);
     const url = request.nextUrl.clone();
     const target = isLocale(lang) ? lang : preferredLocale(request);
-    url.pathname = !slug ? `/${target}` : kind === "items" && id ? `/${target}/items/${id}` : `/${target}/shops/${slug}`;
+    url.pathname = !slug
+      ? `/${target}`
+      : kind === "items" && id
+        ? `/${target}/items/${id}`
+        : kind === "blog"
+          ? `/${target}/shops/${slug}/blog${id ? `/${id}` : ""}`
+          : `/${target}/shops/${slug}`;
     return NextResponse.redirect(url, 308);
   }
 
@@ -144,7 +170,12 @@ export async function proxy(request: NextRequest) {
   const parts = pathname.split("/").filter(Boolean);
   if (parts[1] === "site" && parts[2]) {
     const url = request.nextUrl.clone();
-    url.pathname = parts[3] === "items" && parts[4] ? `/${segment}/items/${parts[4]}` : `/${segment}/shops/${parts[2]}`;
+    url.pathname =
+      parts[3] === "items" && parts[4]
+        ? `/${segment}/items/${parts[4]}`
+        : parts[3] === "blog"
+          ? `/${segment}/shops/${parts[2]}/blog${parts[4] ? `/${parts[4]}` : ""}`
+          : `/${segment}/shops/${parts[2]}`;
     return NextResponse.redirect(url, 308);
   }
 
@@ -157,6 +188,13 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Skip Next internals, API/MCP routes and files with an extension, except sitemap.xml,
-  // robots.txt, llms.txt and the IndexNow key file (a shop's own domain has its own).
-  matcher: ["/((?!_next/|api/|mcp|auth/|.*\\..*).*)", "/sitemap.xml", "/robots.txt", "/llms.txt", "/:file([A-Za-z0-9-]{8,128}\\.txt)"],
+  // robots.txt, llms.txt, the IndexNow key file and the blog's RSS feed (a shop's own domain has its own).
+  matcher: [
+    "/((?!_next/|api/|mcp|auth/|.*\\..*).*)",
+    "/sitemap.xml",
+    "/robots.txt",
+    "/llms.txt",
+    "/blog/rss.xml",
+    "/:file([A-Za-z0-9-]{8,128}\\.txt)",
+  ],
 };

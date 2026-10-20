@@ -6,6 +6,8 @@ import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
 import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopperPdfAllowed, shopSiteHost, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
+import { blogCount } from "@/lib/blog";
+import { blogPath } from "@/lib/blogFormat";
 import { docsKeysEnabled } from "@/lib/docsAccess";
 import { addressLine, directionsUrl, formatPrice } from "@/lib/format";
 import { translatedName } from "@/lib/names";
@@ -91,7 +93,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const q = (first(sp.q) ?? "").trim();
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // The AI assistant is a paid feature: shown only when the database says the shop has the plan.
-  const [{ items, total }, assistant, shopperPdf, calendars, sections] = await Promise.all([
+  const [{ items, total }, assistant, shopperPdf, calendars, sections, posts] = await Promise.all([
     getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
     shopChatEnabled() ? shopHasPlan(shop.id) : Promise.resolve(false),
     // "Stiahnuť túto konverzáciu (PDF)" (database update 24): only with the archive on.
@@ -100,6 +102,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     getShopCalendars([shop.id], 60).catch(() => new Map()),
     // Page sections from PDFs (database update 28): only the ones the database shows.
     getShopSections(shop.slug, shop.id).catch(() => []),
+    // The blog (database update 37): "Novinky" only with at least one post shown.
+    blogCount(shop.slug).catch(() => 0),
   ]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(requestedPage, pages);
@@ -157,6 +161,11 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
             bookingUrl={shop.booking_url}
             bookingLabel={dict.shop.booking}
           />
+          {posts > 0 && (
+            <Link href={blogPath(lang, { shopSlug: shop.slug, country: shop.country, host }, onSite)} className="underline underline-offset-4" data-shop-news>
+              {dict.shop.news}
+            </Link>
+          )}
         </p>
       </header>
 

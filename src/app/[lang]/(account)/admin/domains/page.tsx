@@ -8,6 +8,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings, saveSectionLimits } from "./actions";
+import { BlogAdmin, type BlogAdminInfo } from "./BlogAdmin";
 import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
 import { ExternalSearchAdmin, type SearchSettings, type SourcesEnv } from "./ExternalSearchAdmin";
 import { outsideSearchEnabled, sourcesStatus } from "@/lib/productSources";
@@ -100,7 +101,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     hyear: String(hyear),
   })}`;
 
-  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv] = await Promise.all([
+  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
@@ -114,6 +115,12 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     session.supabase.functions
       .invoke<{ env: PartnerEnv }>("partner-feeds", { body: { action: "admin_status" } })
       .then(({ data, error }) => (error || !data ? null : data.env))
+      .catch(() => null),
+    // "Novinky / Blog" (database update 37): the limits and the Meta app's settings from the shop-blog function.
+    session.supabase.from("blog_limits").select("plan, max_posts"),
+    session.supabase.functions
+      .invoke<BlogAdminInfo>("shop-blog", { body: { action: "admin_info" } })
+      .then(({ data, error }) => (error || !data ? null : data))
       .catch(() => null),
   ]);
   const limitRows = sectionLimits.error ? null : ((sectionLimits.data ?? []) as LimitsRow[]);
@@ -148,10 +155,14 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
         <h1 className="text-2xl font-semibold tracking-tight">{a.title}</h1>
         {ok && (
           <p role="status" className="border border-foreground p-3 font-medium">
-            {ok === "partner_queued" ? dict.admin_partners.queued : a.done}
+            {ok === "partner_queued" ? dict.admin_partners.queued : ok === "blog_limits" ? dict.admin_blog.saved : a.done}
           </p>
         )}
-        {err && <p role="alert" className="border border-line p-3">{searchErr ?? t(a.failed, { message: err })}</p>}
+        {err && (
+          <p role="alert" className="border border-line p-3">
+            {searchErr ?? (err === "blog_limits" ? dict.admin_blog.error : t(a.failed, { message: err }))}
+          </p>
+        )}
       </header>
 
       <section id="credit" className="flex flex-col gap-2" aria-label={a.credit_refresh}>
@@ -404,6 +415,13 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
           </div>
         )}
       </section>
+
+      <BlogAdmin
+        limits={blogLimits.error ? null : ((blogLimits.data ?? []) as { plan: "free" | "pro"; max_posts: number | null }[])}
+        info={blogInfo}
+        dict={dict}
+        hidden={hidden}
+      />
 
       <ExternalSearchAdmin
         settings={searchSettings.error ? null : (searchSettings.data as SearchSettings)}
