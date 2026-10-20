@@ -1206,6 +1206,9 @@ line until the legal text is final).
 ## 9. Design
 
 - Plain white background, black text, thin light-grey lines; mobile-first. No colours, no dark mode, no cart icons.
+- Font: **Quicksand** on every page of the website (PPI's pages, Môj obchod, the admin page and the shops' own domains;
+  also the map's tooltips), served from the site itself. Codes such as DNS records and keys stay monospace; the
+  conversation PDFs keep their embedded font (DejaVu Sans).
   Exceptions at the owner's request: the Cacadoo PPI logo in the header, the blue "Select picture" link for logos and
   the same blue "Vybrať súbor" link of page sections, and (Prompt 10) the **thinking dots of the main page's chat in
   Cacadoo yellow #FFC531**, next to the small Cacadoo pin, only while the AI works (still with "reduce motion").

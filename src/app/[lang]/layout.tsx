@@ -4,6 +4,7 @@ import { isLocale, locales } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
 import { Header } from "@/components/Header";
 import { siteUrl } from "@/lib/site";
+import { quicksand } from "../fonts";
 import "../globals.css";
 
 export function generateStaticParams() {
@@ -39,7 +40,7 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
   const dict = await getDictionary(lang);
 
   return (
-    <html lang={lang} className="h-full antialiased">
+    <html lang={lang} className={`${quicksand.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <Header lang={lang} siteName={dict.site.name} forShops={dict.account.for_shops} />
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>

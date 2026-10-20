@@ -37,7 +37,11 @@ Setup steps for humans are in `SETUP.md`.
 
 ## Design
 
-Plain white background, black text, thin light-grey lines (`border-line`, `text-muted`).
+Plain white background, black text, thin light-grey lines (`border-line`, `text-muted`). **Font: Quicksand everywhere**
+on the website (at the owner's request, 2026-10-20): `src/app/fonts.ts` (`next/font/google`, latin + latin-ext,
+self-hosted at build — no browser request to Google), its variable on `<html>` in both root layouts, used by `body`,
+`--font-sans` and MapLibre's map/tooltips in `globals.css`; code-like values (DNS records, keys) keep `font-mono`. The
+conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 **No colours** (only exceptions, at the owner's request: the Cacadoo PPI logo in the header, `public/brand/cacadoo-ppi.png`,
 the main page chat's small pin `public/brand/cacadoo-pin.png` and its **thinking dots in Cacadoo yellow #FFC531** (Prompt 10),
 the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
