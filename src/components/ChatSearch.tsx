@@ -55,7 +55,7 @@ export interface ChatLabels {
   step_partners: string;
   step_nearby: string;
   step_web: string;
-  group_cacadoo: string;
+  group_cacaduu: string;
   group_partners: string;
   partner_tag: string;
   partner_affiliate: string;
@@ -71,7 +71,7 @@ export interface ChatLabels {
   google_open: string;
   web_from: string;
   deep_links: string;
-  only_cacadoo: string;
+  only_cacaduu: string;
   privacy_link: string;
 }
 
@@ -417,7 +417,7 @@ function Question({ text, label }: { text: string; label: string }) {
   );
 }
 
-/** "Rozumiem otázke…" with three soft dots in Cacadoo yellow next to the small pin (static with reduced motion). */
+/** "Rozumiem otázke…" with three soft dots in Cacaduu yellow next to the small pin (static with reduced motion). */
 function Thinking({ text }: { text: string }) {
   return (
     <div className="flex items-center gap-2" data-thinking>
@@ -470,7 +470,7 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
   const anything = cards.length + partners.length + nearby.length + google.length + web.length + deepLinks.length > 0;
   const shown = more ? cards : cards.slice(0, CARDS_SHOWN);
   const waitingCards = turn.state === "running" && !turn.results && (turn.step !== "understand" || turn.answer);
-  // Only Cacadoo shops go on our map (OpenStreetMap shops have no verified data; Google's never go there).
+  // Only Cacaduu shops go on our map (OpenStreetMap shops have no verified data; Google's never go there).
   const pins = Object.entries(turn.results?.shops ?? {}).filter(([, shop]) => shop.lat !== null && shop.lng !== null);
 
   return (
@@ -495,9 +495,9 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
 
       {waitingCards && <Skeletons />}
 
-      {turn.results?.notes?.includes("only_cacadoo") && (
-        <p className="text-sm text-muted" data-only-cacadoo>
-          {labels.only_cacadoo}
+      {turn.results?.notes?.includes("only_cacaduu") && (
+        <p className="text-sm text-muted" data-only-cacaduu>
+          {labels.only_cacaduu}
         </p>
       )}
 
@@ -509,8 +509,8 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
       )}
 
       {cards.length > 0 && (
-        <section className="flex flex-col gap-2" aria-label={labels.group_cacadoo} data-group="cacadoo">
-          <h3 className="text-sm font-semibold">{labels.group_cacadoo}</h3>
+        <section className="flex flex-col gap-2" aria-label={labels.group_cacaduu} data-group="cacaduu">
+          <h3 className="text-sm font-semibold">{labels.group_cacaduu}</h3>
           <ul className="flex flex-col divide-y divide-line border-y border-line" data-chat-cards>
             {shown.map((card) => (
               <Card key={card.id} card={card} shop={turn.results!.shops[card.shopSlug]} statusLabels={statusLabels} lang={lang} />
@@ -601,7 +601,7 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
 
       {(partners.length > 0 || nearby.length > 0 || google.length > 0 || web.length > 0) && (
         <p className="text-xs text-muted">
-          <a href={`/${lang}/sukromie-asistent#hladanie-mimo-cacadoo`} className="underline underline-offset-4">
+          <a href={`/${lang}/sukromie-asistent#hladanie-mimo-cacaduu`} className="underline underline-offset-4">
             {labels.privacy_link}
           </a>
         </p>

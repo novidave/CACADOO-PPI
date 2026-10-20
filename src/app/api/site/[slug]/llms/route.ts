@@ -11,7 +11,7 @@ const COLUMNS = "id, name, address, city, country, timezone, phone, email, websi
 /**
  * llms.txt of a shop's own domain (src/proxy.ts sends "/llms.txt" of that domain here): the shop's
  * name, address, opening hours (special days, public holidays), what it sells (its own data only),
- * the sitemap, how to read the stock on its pages and Cacadoo's API/MCP for it. Only while the
+ * the sitemap, how to read the stock on its pages and Cacaduu's API/MCP for it. Only while the
  * domain is live (shop_site). Updates 33 and 36.
  */
 export async function GET(_request: Request, ctx: RouteContext<"/api/site/[slug]/llms">) {

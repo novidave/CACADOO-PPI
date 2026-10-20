@@ -106,7 +106,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
     session.supabase.rpc("admin_holidays", { p_country: hcountry, p_year: hyear }),
     session.supabase.from("section_limits").select("plan, max_sections, max_pages, max_mb"),
-    // "Vyhľadávanie mimo Cacadoo" (database update 34) and the product-sources function's switches.
+    // "Vyhľadávanie mimo Cacaduu" (database update 34) and the product-sources function's switches.
     session.supabase.rpc("admin_search_settings"),
     sourcesStatus(session.supabase),
     // "Partnerské feedy" (database update 35) and the partner-feeds function's size limit.

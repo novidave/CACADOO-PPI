@@ -79,7 +79,7 @@ function world(): World {
       { id: SHOP, slug: "potraviny-centrum", name: "Potraviny Centrum", timezone: "Europe/Bratislava" },
       { id: OTHER_SHOP, slug: "drogeria", name: "Drogéria", timezone: "Europe/Budapest" },
     ],
-    settings: [{ id: true, test_domain: "cacadoo-test.sk", search_url: "https://www.websupport.sk", same_price_as_registrar: true, low_credit_eur: 30, credit_alert_at: null }],
+    settings: [{ id: true, test_domain: "cacaduu-test.sk", search_url: "https://www.websupport.sk", same_price_as_registrar: true, low_credit_eur: 30, credit_alert_at: null }],
     prices: [
       { tld: "sk", price_cents: 1990, renewal_cents: 1990, vat_included: true, currency: "EUR", active: true },
       { tld: "eu", price_cents: 1490, renewal_cents: 1590, vat_included: false, currency: "EUR", active: true },
@@ -326,7 +326,7 @@ function fakeRegistrar() {
     available: new Set(["davide.sk", "nove-meno.sk", "obchod.eu"]),
     credit: 100,
     price: 9.5,
-    services: new Map<string, { id: string; expiresAt: string | null }>([["cacadoo-test.sk", { id: "svc-test", expiresAt: "2027-05-01T00:00:00.000Z" }]]),
+    services: new Map<string, { id: string; expiresAt: string | null }>([["cacaduu-test.sk", { id: "svc-test", expiresAt: "2027-05-01T00:00:00.000Z" }]]),
     records: new Map<string, DnsRecord[]>(),
     authCode: "AUTH-CODE-1" as string | null,
     registerAtOnce: true,
@@ -597,7 +597,7 @@ Deno.test("Websupport: the registrant is the shop (its company profile), test mo
   eq(profile, {
     firstName: "Ján Peter", lastName: "Novák", orgName: "Potraviny Centrum s.r.o.", street: "Hlavná 1", city: "Košice", zip: "040 01",
     country: "SK", email: "info@example.invalid", phone: "+421900123456", identCompanyRegistration: "12345678", identVat: "SK2020123456",
-  }, "the shop's own company, never Cacadoo");
+  }, "the shop's own company, never Cacaduu");
 
   const { registrar, calls } = fakeRegistrar();
   const test = testRegistrar(registrar);
@@ -779,7 +779,7 @@ Deno.test("Pay: 3-D Secure → Stripe's invoice page; no card → Checkout; no P
     eq(session.mode, "payment", "only the domain");
     const line = (session.line_items as Params[])[0].price_data as Params;
     eq([line.unit_amount, line.tax_behavior, line.product], [1490, "exclusive", "prod_domain"], "the table's price (VAT on top for this TLD)");
-    eq(((session.invoice_creation as Params).enabled), true, "an invoice from Cacadoo");
+    eq(((session.invoice_creation as Params).enabled), true, "an invoice from Cacaduu");
     eq(String(session.success_url), "https://ppi.example/sk/dashboard/plan?shop=potraviny&domain=paid#domain", "back to the plan page");
     eq(orderOf(w, free.order_id).status, "checkout", "reserved while paying");
   }
@@ -897,13 +897,13 @@ Deno.test("Taken after payment: the domain part is refunded, Pro stays, the shop
 Deno.test("Test mode: a dry run, no credit used, the website goes on the test domain", async () => {
   const { w, deps, reg, ver } = setup({ mode: "test" });
   const o = newOrder(w, { status: "paid", paid_at: isoAt(w), next_attempt_at: isoAt(w), test_mode: true });
-  ver.state.ready.add("cacadoo-test.sk");
-  w.https.add("cacadoo-test.sk");
+  ver.state.ready.add("cacaduu-test.sk");
+  w.https.add("cacaduu-test.sk");
   await tick(deps);
-  eq([o.status, o.site_host, o.hostname], ["live", "cacadoo-test.sk", "davide.sk"], "live on the test domain");
+  eq([o.status, o.site_host, o.hostname], ["live", "cacaduu-test.sk", "davide.sk"], "live on the test domain");
   eq(reg.calls.filter((c) => c.startsWith("order") || c.startsWith("pay") || c === "credit"), ["order davide.sk profile 501 dry"], "a dry run only");
   assert(reg.calls.includes("add A @ 76.76.21.21"), "the test domain's DNS is set");
-  const mail = w.mails.find((m) => m.subject === "Vaša stránka beží na cacadoo-test.sk")!;
+  const mail = w.mails.find((m) => m.subject === "Vaša stránka beží na cacaduu-test.sk")!;
   assert(mail.text.includes("Testovací režim"), "the e-mail says it was a test");
 
   // A second test order: checked (taken → refund) like any other, then it waits for the test domain.
@@ -911,7 +911,7 @@ Deno.test("Test mode: a dry run, no credit used, the website goes on the test do
   const second = newOrder(w, { shop_id: OTHER_SHOP, hostname: "druha.sk", status: "paid", paid_at: isoAt(w), next_attempt_at: isoAt(w), test_mode: true });
   await tick(deps);
   eq([second.status, second.site_host, second.needs_admin], ["registering", null, true], "waits: one website at a time on the test domain");
-  assert((second.log as { detail: string }[]).some((l) => /test domain cacadoo-test\.sk carries another shop's website/.test(l.detail ?? "")), "the reason is logged");
+  assert((second.log as { detail: string }[]).some((l) => /test domain cacaduu-test\.sk carries another shop's website/.test(l.detail ?? "")), "the reason is logged");
 });
 
 // ---------------------------------------------------------------- flow 14
@@ -1000,7 +1000,7 @@ Deno.test("Renewal: charged 30 days before; Websupport renews from credit only a
     w.now += 14 * 86_400_000;
     await daily(deps);
     eq(o.status, "lapsed", "at expiry: lapsed");
-    assert(ver.calls.includes("remove davide.sk"), "the website goes back to its Cacadoo address");
+    assert(ver.calls.includes("remove davide.sk"), "the website goes back to its Cacaduu address");
   }
 });
 
@@ -1121,7 +1121,7 @@ Deno.test("Search Console: the same value already in the DNS is not added, and O
   eq([o.google_verification, o.google_verification_state, o.google_txt_record_id], [null, null, null], "the stored value gone");
 });
 
-Deno.test("Search Console: Odstrániť removes only the record Cacadoo added; a new value replaces only ours", async () => {
+Deno.test("Search Console: Odstrániť removes only the record Cacaduu added; a new value replaces only ours", async () => {
   const { w, deps, reg } = setup();
   const o = newOrder(w, { status: "live", site_host: "davide.sk", registrar_service_id: "svc-davide.sk" });
   const other = `google-site-verification=${"Q".repeat(43)}`;

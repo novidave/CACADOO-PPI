@@ -9,8 +9,8 @@ import type { StatusInput } from "./hours";
 
 /**
  * The real steps of a request, in order (the status line under the thinking dots): the question
- * reached the AI, it searches Cacadoo, its partners' feeds, shops nearby / the web (Prompt 11, only
- * when Cacadoo had too little), the results with availability and hours are back.
+ * reached the AI, it searches Cacaduu, its partners' feeds, shops nearby / the web (Prompt 11, only
+ * when Cacaduu had too little), the results with availability and hours are back.
  */
 export type ChatStep = "understand" | "search" | "partners" | "nearby" | "web" | "verify";
 
@@ -37,15 +37,15 @@ export interface ChatCard {
   freshnessState: "current" | "recent" | "stale";
   /** "2,3 km od centra Košice" — only when the question named a town. */
   distance: string | null;
-  /** Layer 1: verified stock from the shop's own file ("Cacadoo"). */
-  source: "cacadoo";
+  /** Layer 1: verified stock from the shop's own file ("Cacaduu"). */
+  source: "cacaduu";
   /** "overená zásoba" / "staršie údaje" / "bez aktuálnych údajov" (from the freshness). */
   confidence: string;
 }
 
 /**
  * Layer 2: a partner shop's product from its own feed (database update 35), as the partner sent it.
- * Never Cacadoo-verified stock: "skladom podľa partnera". Line: "Decathlon (partner) · 24,99 € ·
+ * Never Cacaduu-verified stock: "skladom podľa partnera". Line: "Decathlon (partner) · 24,99 € ·
  * online skladom / predajňa Košice: skladom podľa partnera · údaje z 08:00".
  */
 export interface PartnerCard {
@@ -140,7 +140,7 @@ export interface ChatShop {
 }
 
 export interface ChatResults {
-  /** Layer 1, Cacadoo: current, then recent, then stale. */
+  /** Layer 1, Cacaduu: current, then recent, then stale. */
   cards: ChatCard[];
   /** Layer 2, partners' feeds ("Partneri"), in the database's order. */
   partners?: PartnerCard[];
@@ -154,11 +154,11 @@ export interface ChatResults {
   /** Layer 4. */
   web?: WebCard[];
   deepLinks?: DeepLink[];
-  /** "only_cacadoo": the daily limit of outside searches was reached, only Cacadoo was searched. */
+  /** "only_cacaduu": the daily limit of outside searches was reached, only Cacaduu was searched. */
   notes?: ChatNote[];
 }
 
-export type ChatNote = "only_cacadoo";
+export type ChatNote = "only_cacaduu";
 
 export type ChatEvent =
   | { type: "step"; step: ChatStep }
@@ -343,7 +343,7 @@ export function answerForHistory(answer: string, cards: ChatCard[], more: Pick<C
   const web = (more.web ?? []).slice(0, 3).map((w) => `${w.retailer}: ${w.title}`).join("; ");
   const parts = [
     shown && `[Shown: ${shown}]`,
-    partners && `[Partners' feeds, not verified by Cacadoo: ${partners}]`,
+    partners && `[Partners' feeds, not verified by Cacaduu: ${partners}]`,
     nearby && `[Nearby, stock not verified: ${nearby}]`,
     web && `[On the web: ${web}]`,
   ].filter(Boolean);

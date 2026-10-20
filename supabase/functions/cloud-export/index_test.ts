@@ -99,18 +99,18 @@ Deno.test("Names and folders: cleaned for both clouds; links and climbing up ref
   eq(cleanName("  ../plot  ..."), ".._plot", "no path, no trailing dots or spaces");
   eq(cleanName("CON.txt"), "_CON.txt", "reserved Windows names");
   eq(cleanName(""), "subor", "never empty");
-  eq(cleanFolderPath("/Cacadoo/Potraviny Centrum"), "/Cacadoo/Potraviny Centrum", "as written");
-  eq(cleanFolderPath("Cacadoo//Obchod: Košice/"), "/Cacadoo/Obchod_ Košice", "made a clean path");
-  eq(cleanFolderPath("/Cacadoo/../Dokumenty"), null, "never climbs up");
+  eq(cleanFolderPath("/Cacaduu/Potraviny Centrum"), "/Cacaduu/Potraviny Centrum", "as written");
+  eq(cleanFolderPath("Cacaduu//Obchod: Košice/"), "/Cacaduu/Obchod_ Košice", "made a clean path");
+  eq(cleanFolderPath("/Cacaduu/../Dokumenty"), null, "never climbs up");
   eq(cleanFolderPath("https://1drv.ms/f/s!AbCdEf"), null, "a share link is not a folder");
   assert(isShareLink("https://www.dropbox.com/scl/fo/abc/xyz?rlkey=1") && isShareLink("onedrive.live.com/?id=1") &&
-    !isShareLink("/Cacadoo/Obchod"), "share links");
+    !isShareLink("/Cacaduu/Obchod"), "share links");
   eq(versionName("konverzacia.pdf", 2), "konverzacia (2).pdf", "suffix before the extension");
   eq(versionName("README", 3), "README (3)", "without an extension");
-  eq(conversationFolder("/Cacadoo/Potraviny Centrum", "2026-10-10T12:05:00Z", "Europe/Bratislava", CONV),
-    "/Cacadoo/Potraviny Centrum/2026-10/2026-10-10_14-05_3f2a9c1b", "month and conversation in the shop's time zone");
+  eq(conversationFolder("/Cacaduu/Potraviny Centrum", "2026-10-10T12:05:00Z", "Europe/Bratislava", CONV),
+    "/Cacaduu/Potraviny Centrum/2026-10/2026-10-10_14-05_3f2a9c1b", "month and conversation in the shop's time zone");
   eq(conversationFolder("/C", "2026-10-31T23:30:00Z", "Europe/Athens", CONV), "/C/2026-11/2026-11-01_01-30_3f2a9c1b", "next month there");
-  eq(dropboxArg({ path: "/Cacadoo/Potraviny Čierna" }), '{"path":"/Cacadoo/Potraviny \\u010cierna"}', "Dropbox header is ASCII");
+  eq(dropboxArg({ path: "/Cacaduu/Potraviny Čierna" }), '{"path":"/Cacaduu/Potraviny \\u010cierna"}', "Dropbox header is ASCII");
 });
 
 // ---------------------------------------------------------------- the clouds: in-memory stand-ins
@@ -315,20 +315,20 @@ Deno.test("OneDrive: consent URL with the narrowest scope and PKCE; folders and 
     (e) => e instanceof CloudError && e.kind === "app", "a wrong app secret is not the owner's expired connection");
 
   const tk = "od-access-1";
-  eq(await od.createFolder(tk, "/Cacadoo"), "created", "mkdir");
-  eq(await od.createFolder(tk, "/Cacadoo"), "exists", "mkdir again");
-  eq(await od.createFolder(tk, "/Cacadoo/Obchod Košice #1"), "created", "special characters");
-  eq(await od.listFolders(tk, "/Cacadoo"), ["Obchod Košice #1"], "folders");
-  const first = await od.upload(tk, "/Cacadoo/a.pdf", enc.encode("first"), "application/pdf");
+  eq(await od.createFolder(tk, "/Cacaduu"), "created", "mkdir");
+  eq(await od.createFolder(tk, "/Cacaduu"), "exists", "mkdir again");
+  eq(await od.createFolder(tk, "/Cacaduu/Obchod Košice #1"), "created", "special characters");
+  eq(await od.listFolders(tk, "/Cacaduu"), ["Obchod Košice #1"], "folders");
+  const first = await od.upload(tk, "/Cacaduu/a.pdf", enc.encode("first"), "application/pdf");
   assert(first !== "exists" && first.size === 5 && first.hash === quickXorHash(enc.encode("first")), "uploaded");
-  eq(await od.upload(tk, "/Cacadoo/a.pdf", enc.encode("second"), "application/pdf"), "exists", "never replaced");
-  eq(new TextDecoder().decode(cloud.files.get("/Cacadoo/a.pdf")!.bytes), "first", "the first file stays");
-  eq((await od.stat(tk, "/Cacadoo/a.pdf"))?.size, 5, "stat");
-  eq(await od.stat(tk, "/Cacadoo/none.pdf"), null, "missing");
-  eq((await od.stat(tk, "/Cacadoo"))?.folder, true, "a folder");
-  await rejects(() => od.stat("expired", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "auth", "401 → renew");
+  eq(await od.upload(tk, "/Cacaduu/a.pdf", enc.encode("second"), "application/pdf"), "exists", "never replaced");
+  eq(new TextDecoder().decode(cloud.files.get("/Cacaduu/a.pdf")!.bytes), "first", "the first file stays");
+  eq((await od.stat(tk, "/Cacaduu/a.pdf"))?.size, 5, "stat");
+  eq(await od.stat(tk, "/Cacaduu/none.pdf"), null, "missing");
+  eq((await od.stat(tk, "/Cacaduu"))?.folder, true, "a folder");
+  await rejects(() => od.stat("expired", "/Cacaduu"), (e) => e instanceof CloudError && e.kind === "auth", "401 → renew");
   cloud.throttleNext(1);
-  await rejects(() => od.stat(tk, "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "throttled" && e.retryAfter === 120, "429");
+  await rejects(() => od.stat(tk, "/Cacaduu"), (e) => e instanceof CloudError && e.kind === "throttled" && e.retryAfter === 120, "429");
   eq((await od.account(tk)).name, "Ján Novák", "account");
 });
 
@@ -342,18 +342,18 @@ Deno.test("Dropbox: consent URL with offline access, scopes and PKCE; never repl
   eq(t.refresh, "dropbox-refresh-new", "refresh token");
   eq((await db.refresh("db-refresh-1")).refresh, "db-refresh-1", "Dropbox keeps the refresh token");
   const tk = "db-access-1";
-  eq(await db.createFolder(tk, "/Cacadoo"), "created", "mkdir");
-  eq(await db.createFolder(tk, "/cacadoo"), "exists", "case does not matter");
-  eq(await db.createFolder(tk, "/Cacadoo/Potraviny Čierna"), "created", "diacritics");
-  const sent = await db.upload(tk, "/Cacadoo/Potraviny Čierna/štítok.jpg", enc.encode("jpeg"), "image/jpeg");
+  eq(await db.createFolder(tk, "/Cacaduu"), "created", "mkdir");
+  eq(await db.createFolder(tk, "/cacaduu"), "exists", "case does not matter");
+  eq(await db.createFolder(tk, "/Cacaduu/Potraviny Čierna"), "created", "diacritics");
+  const sent = await db.upload(tk, "/Cacaduu/Potraviny Čierna/štítok.jpg", enc.encode("jpeg"), "image/jpeg");
   assert(sent !== "exists" && sent.hash === (await dropboxContentHash(enc.encode("jpeg"))), "uploaded with its hash");
-  eq(await db.upload(tk, "/Cacadoo/Potraviny Čierna/štítok.jpg", enc.encode("other"), "image/jpeg"), "exists", "never replaced");
-  eq(await db.listFolders(tk, "/"), ["cacadoo"], "folders at the top");
-  eq(await db.stat(tk, "/Cacadoo/none"), null, "missing");
+  eq(await db.upload(tk, "/Cacaduu/Potraviny Čierna/štítok.jpg", enc.encode("other"), "image/jpeg"), "exists", "never replaced");
+  eq(await db.listFolders(tk, "/"), ["cacaduu"], "folders at the top");
+  eq(await db.stat(tk, "/Cacaduu/none"), null, "missing");
   await rejects(() => db.listFolders(tk, "/Nowhere"), (e) => e instanceof CloudError && e.kind === "not_folder", "no such folder");
   await db.revoke(tk);
   assert(cloud.log.includes("dropbox revoke"), "token revoked");
-  await rejects(() => db.stat(tk, "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "auth", "revoked token");
+  await rejects(() => db.stat(tk, "/Cacaduu"), (e) => e instanceof CloudError && e.kind === "auth", "revoked token");
 });
 
 // ---------------------------------------------------------------- the function: fakes for Supabase
@@ -381,7 +381,7 @@ async function connection(provider: Provider, extra: Record<string, unknown> = {
   return {
     shop_id: SHOP,
     provider,
-    folder_path: "/Cacadoo/Potraviny Centrum",
+    folder_path: "/Cacaduu/Potraviny Centrum",
     access_token_enc: await encryptToken(key, provider === "onedrive" ? "od-access-1" : "db-access-1", `${SHOP}:${provider}:access`),
     refresh_token_enc: await encryptToken(key, provider === "onedrive" ? "od-refresh-1" : "db-refresh-1", `${SHOP}:${provider}:refresh`),
     access_expires_at: new Date(Date.now() + 3600_000).toISOString(),
@@ -502,7 +502,7 @@ function fakes(cloud: ReturnType<typeof fakeClouds>, world: World) {
   return { deps, log, tasks, done, states };
 }
 
-const FOLDER = "/Cacadoo/Potraviny Centrum/2026-10/2026-10-10_14-05_3f2a9c1b";
+const FOLDER = "/Cacaduu/Potraviny Centrum/2026-10/2026-10-10_14-05_3f2a9c1b";
 const finishOf = (log: string[]) => log.filter((l) => l.startsWith("rpc cloud_export_finish")).map((l) => JSON.parse(l.slice(l.indexOf("{"))));
 
 // ---------------------------------------------------------------- copying one conversation
@@ -534,7 +534,7 @@ for (const provider of ["onedrive", "dropbox"] as Provider[]) {
     const cloud = fakeClouds();
     const { deps } = fakes(cloud, { connection: await connection(provider) });
     // a copy that went through before its record was lost, and the owner's own file of the same name
-    for (const p of ["/Cacadoo", "/Cacadoo/Potraviny Centrum", "/Cacadoo/Potraviny Centrum/2026-10", FOLDER, `${FOLDER}/subory`]) cloud.folders.add(key(p));
+    for (const p of ["/Cacaduu", "/Cacaduu/Potraviny Centrum", "/Cacaduu/Potraviny Centrum/2026-10", FOLDER, `${FOLDER}/subory`]) cloud.folders.add(key(p));
     cloud.files.set(key(`${FOLDER}/konverzacia.pdf`), { bytes: PDF, id: "earlier" });
     cloud.files.set(key(`${FOLDER}/subory/IMG_0042.jpg`), { bytes: enc.encode("the owner's own picture"), id: "owners" });
     eq(await exportConversation(deps, CONV), "done", "done");
@@ -635,7 +635,7 @@ Deno.test("Connect: owners of a Pro shop only; a share link is explained; the st
   const state = url.searchParams.get("state")!;
   assert(state.length >= 40 && url.searchParams.get("code_challenge"), "random state and a challenge");
   assert(states.has(await sha256Hex(state)) && !log.some((l) => l.includes(state)), "the state is kept only as its hash");
-  eq(states.get(await sha256Hex(state))!.folder_path, "/Cacadoo/Potraviny Centrum", "default folder /Cacadoo/<shop>");
+  eq(states.get(await sha256Hex(state))!.folder_path, "/Cacaduu/Potraviny Centrum", "default folder /Cacaduu/<shop>");
   eq(url.searchParams.get("redirect_uri"), "https://p.supabase.co/functions/v1/cloud-export/oauth/onedrive", "back to this function");
 });
 
@@ -650,19 +650,19 @@ Deno.test("Dropbox: a missing permission is named (400 text or 401 missing_scope
   const f: typeof fetch = (input) => Promise.resolve(answers[String(input).replace(/^https:\/\/[^/]+/, "")]);
   const db = dropbox({ appKey: "db-key", appSecret: "db-secret" }, f);
   answers["/2/files/create_folder_v2"] = new Response(SCOPE_400, { status: 400 });
-  await rejects(() => db.createFolder("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "scope" && /files\.content\.write/.test(e.message),
+  await rejects(() => db.createFolder("t", "/Cacaduu"), (e) => e instanceof CloudError && e.kind === "scope" && /files\.content\.write/.test(e.message),
     "400: the app lacks files.content.write");
   answers["/2/files/get_metadata"] = new Response(
     JSON.stringify({ error_summary: "missing_scope/..", error: { ".tag": "missing_scope", required_scope: "files.metadata.read" } }),
     { status: 401, headers: { "Content-Type": "application/json" } },
   );
-  await rejects(() => db.stat("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "scope" && /files\.metadata\.read/.test(e.message),
+  await rejects(() => db.stat("t", "/Cacaduu"), (e) => e instanceof CloudError && e.kind === "scope" && /files\.metadata\.read/.test(e.message),
     "401 missing_scope: the sign-in did not grant it");
   answers["/2/files/create_folder_v2"] = new Response('Error in call to API function "files/create_folder_v2": request body: could not decode input as JSON', { status: 400 });
-  await rejects(() => db.createFolder("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "other" && /400: request body: could not decode/.test(e.message),
+  await rejects(() => db.createFolder("t", "/Cacaduu"), (e) => e instanceof CloudError && e.kind === "other" && /400: request body: could not decode/.test(e.message),
     "another 400 keeps Dropbox's reason");
   answers["/2/files/get_metadata"] = new Response(JSON.stringify({ error_summary: "expired_access_token/" }), { status: 401 });
-  await rejects(() => db.stat("t", "/Cacadoo"), (e) => e instanceof CloudError && e.kind === "auth", "an expired sign-in is still renewed");
+  await rejects(() => db.stat("t", "/Cacaduu"), (e) => e instanceof CloudError && e.kind === "auth", "an expired sign-in is still renewed");
 });
 
 Deno.test("Microsoft: the reason number is kept; a redirect address outside the Web platform is named", async () => {
@@ -693,7 +693,7 @@ Deno.test("The provider's answer: tokens encrypted, the folder made, back to Mô
   for (const provider of ["onedrive", "dropbox"] as Provider[]) {
     const cloud = fakeClouds();
     const { deps, log } = fakes(cloud, {});
-    const [, body] = await call(deps, { action: "connect", shop_id: SHOP, provider, folder: "/Cacadoo/Môj obchod", return_url: RETURN });
+    const [, body] = await call(deps, { action: "connect", shop_id: SHOP, provider, folder: "/Cacaduu/Môj obchod", return_url: RETURN });
     const state = new URL(body.url).searchParams.get("state")!;
     const back = `https://p.supabase.co/functions/v1/cloud-export/oauth/${provider}?code=${provider}-code&state=${state}`;
     const res = await handle(new Request(back), deps);
@@ -703,8 +703,8 @@ Deno.test("The provider's answer: tokens encrypted, the folder made, back to Mô
     const args = JSON.parse(saved.slice(saved.indexOf("{")));
     const key = await tokenKey(SECRET);
     eq(await decryptToken(key, args.p_refresh_enc, `${SHOP}:${provider}:refresh`), `${provider}-refresh-new`, "the refresh token opens");
-    eq([args.p_folder, args.p_site_url, args.p_account_email], ["/Cacadoo/Môj obchod", "https://ppi.example", "jan@example.invalid"], "saved");
-    assert(cloud.folders.has(provider === "dropbox" ? "/cacadoo/môj obchod" : "/Cacadoo/Môj obchod"), "the folder exists in the cloud");
+    eq([args.p_folder, args.p_site_url, args.p_account_email], ["/Cacaduu/Môj obchod", "https://ppi.example", "jan@example.invalid"], "saved");
+    assert(cloud.folders.has(provider === "dropbox" ? "/cacaduu/môj obchod" : "/Cacaduu/Môj obchod"), "the folder exists in the cloud");
     assert(cloud.log.some((l) => /token code verifier=64/.test(l)), "the PKCE verifier was sent");
     const again = await handle(new Request(back), deps);
     eq(again.status, 400, "a state works once");
@@ -786,7 +786,7 @@ Deno.test("The provider's answer: tokens encrypted, the folder made, back to Mô
 
 Deno.test("Owners: choose or make the folder, refuse share links, disconnect (Dropbox revoked), retry, older ones", async () => {
   const cloud = fakeClouds();
-  for (const p of ["/cacadoo", "/cacadoo/jar", "/cacadoo/leto"]) cloud.folders.add(p);
+  for (const p of ["/cacaduu", "/cacaduu/jar", "/cacaduu/leto"]) cloud.folders.add(p);
   const { deps, log, tasks } = fakes(cloud, {
     connection: await connection("dropbox"),
     ownerRpc: (name, args) => {
@@ -795,12 +795,12 @@ Deno.test("Owners: choose or make the folder, refuse share links, disconnect (Dr
       return undefined as unknown as Result;
     },
   });
-  eq(await call(deps, { action: "folders", shop_id: SHOP, path: "/Cacadoo" }), [200, { path: "/Cacadoo", folders: ["jar", "leto"] }], "subfolders");
-  eq(await call(deps, { action: "create_folder", shop_id: SHOP, path: "/Cacadoo", name: "Konverzácie" }), [200, { path: "/Cacadoo/Konverzácie" }], "a new folder");
-  assert(cloud.folders.has("/cacadoo/konverzácie"), "made in the cloud");
+  eq(await call(deps, { action: "folders", shop_id: SHOP, path: "/Cacaduu" }), [200, { path: "/Cacaduu", folders: ["jar", "leto"] }], "subfolders");
+  eq(await call(deps, { action: "create_folder", shop_id: SHOP, path: "/Cacaduu", name: "Konverzácie" }), [200, { path: "/Cacaduu/Konverzácie" }], "a new folder");
+  assert(cloud.folders.has("/cacaduu/konverzácie"), "made in the cloud");
   eq(await call(deps, { action: "set_folder", shop_id: SHOP, path: "https://www.dropbox.com/scl/fo/abc" }), [400, { error: "share_link" }], "a share link");
-  eq(await call(deps, { action: "set_folder", shop_id: SHOP, path: "/Cacadoo/Nový/Archív" }), [200, { path: "/Cacadoo/Nový/Archív" }], "set and made");
-  assert(log.some((l) => l.startsWith("rpc cloud_set_folder") && l.includes("/Cacadoo/Nový/Archív")), "saved");
+  eq(await call(deps, { action: "set_folder", shop_id: SHOP, path: "/Cacaduu/Nový/Archív" }), [200, { path: "/Cacaduu/Nový/Archív" }], "set and made");
+  assert(log.some((l) => l.startsWith("rpc cloud_set_folder") && l.includes("/Cacaduu/Nový/Archív")), "saved");
   eq(await call(deps, { action: "folders", shop_id: OTHER_SHOP, path: "/" }), [403, { error: "not_member" }], "another shop");
   eq(await call(deps, { action: "retry", conversation_id: CONV }), [200, { queued: true }], "Uložiť znova");
   eq(tasks.length, 1, "copied right away in the background");

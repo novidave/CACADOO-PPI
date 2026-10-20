@@ -1,5 +1,5 @@
 /**
- * The main chat's search in layers (Prompt 11): Cacadoo first (search_stock), then shops nearby
+ * The main chat's search in layers (Prompt 11): Cacaduu first (search_stock), then shops nearby
  * (OpenStreetMap, optionally Google Places) and the web (Claude's web search on allowed shop
  * websites), both through the product-sources Edge Function. Plain rules shared by the server, the
  * page and the Deno tests (src/lib/chat_test.ts, supabase/functions/product-sources/index_test.ts).
@@ -36,7 +36,7 @@ export const SHOP_CATEGORIES = [
 ] as const;
 export type ShopCategory = (typeof SHOP_CATEGORIES)[number];
 
-/** Layers 3 and 4 run only when Cacadoo gave fewer good results than this. */
+/** Layers 3 and 4 run only when Cacaduu gave fewer good results than this. */
 export const GOOD_ENOUGH = 3;
 
 /** Lower case, no accents, single spaces: "v Michalovciach" → "v michalovciach". */
@@ -65,9 +65,9 @@ export function townInWords(town: string, texts: string[]): boolean {
 }
 
 /**
- * A good Cacadoo result: the shop's data is current or recent (not stale), the item is not sold out,
+ * A good Cacaduu result: the shop's data is current or recent (not stale), the item is not sold out,
  * and — when the shopper named a town — the search really looked around that town (a town without
- * Cacadoo shops searches all shops, which does not answer "in Michalovce").
+ * Cacaduu shops searches all shops, which does not answer "in Michalovce").
  */
 export function isGoodResult(item: { freshness: { state: string }; quantity: number | null }, aroundTown: boolean | null): boolean {
   if (item.freshness.state !== "current" && item.freshness.state !== "recent") return false;

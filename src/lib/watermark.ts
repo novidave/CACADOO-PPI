@@ -22,7 +22,7 @@ function watermarkFont(): Font {
   return font;
 }
 
-/** "Cacadoo Paint shop · VIP · 10. 10. 2026", the date in the shop's time zone. */
+/** "Cacaduu Paint shop · VIP · 10. 10. 2026", the date in the shop's time zone. */
 export function watermarkText(shopName: string, timeZone: string, now = new Date()): string {
   let zone = "UTC";
   try {

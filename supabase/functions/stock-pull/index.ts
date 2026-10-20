@@ -24,7 +24,7 @@
 //   7. also in the background (update 36): IndexNow (Bing, Seznam, Yandex… share it) is told
 //      the item pages that changed in a way a search result shows — new, price, in stock ↔
 //      sold out (inventory.indexnow_at; not 12 → 11 pieces) — on their canonical host: the
-//      shop's live own domain, else the main Cacadoo host. At most one request per upload and
+//      shop's live own domain, else the main Cacaduu host. At most one request per upload and
 //      one per hour per host (indexnow_claim_host); what waits goes with the next one, and a
 //      refused or failed request is sent again with the next one (indexnow_done)
 //
@@ -32,7 +32,7 @@
 // name "stock-pull" → paste this file → Deploy, then switch OFF "Verify JWT"
 // (this function checks its callers itself). Secrets: ANTHROPIC_API_KEY (optional:
 // AI mapping proposals and the item-name translations); INDEXNOW_KEY (the same key as the
-// website's, public by design) and SITE_URL (the website's address, e.g. https://ppi.cacadoo.sk)
+// website's, public by design) and SITE_URL (the website's address, e.g. https://ppi.cacaduu.sk)
 // for IndexNow — without either, no IndexNow request is sent.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
@@ -587,7 +587,7 @@ const HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
 export interface IndexNowSettings {
   /** INDEXNOW_KEY: the same key the website serves as https://<host>/<key>.txt on every host. */
   key: string | null;
-  /** The main Cacadoo host (from SITE_URL), for the shops without a live own domain. */
+  /** The main Cacaduu host (from SITE_URL), for the shops without a live own domain. */
   mainHost: string | null;
   fetch?: typeof fetch;
   endpoint?: string;

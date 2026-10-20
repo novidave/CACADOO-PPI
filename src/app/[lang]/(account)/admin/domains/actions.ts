@@ -169,7 +169,7 @@ function amount(value: FormDataEntryValue | null): number | null {
 }
 
 /**
- * "Vyhľadávanie mimo Cacadoo" (database update 34): a layer's switch and its estimated prices;
+ * "Vyhľadávanie mimo Cacaduu" (database update 34): a layer's switch and its estimated prices;
  * admin_save_search_layer checks is_admin() and the ranges itself.
  */
 export async function saveSearchLayer(formData: FormData) {

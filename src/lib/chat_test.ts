@@ -81,11 +81,11 @@ Deno.test("earlier turns: text only, short, alternating, ending with an answer",
 Deno.test("an answer goes back with the cards it showed, in short", () => {
   const card = (n: number): ChatCard => ({
     id: `id${n}`, href: `/sk/items/id${n}`, name: `Farba ${n}`, translated: null, translatedLang: null, brand: null, price: `${n},00 €`,
-    shopSlug: "s", shop: "Cacadoo Paint shop", shopHref: "/sk/shops/s", place: "Hlavná č.115, Košice", availability: "3 ks na sklade",
+    shopSlug: "s", shop: "Cacaduu Paint shop", shopHref: "/sk/shops/s", place: "Hlavná č.115, Košice", availability: "3 ks na sklade",
     freshness: "Aktualizované pred 8 min", freshnessState: "current", distance: null,
   });
   const text = answerForHistory("Našiel som farby.", Array.from({ length: 9 }, (_, i) => card(i + 1)));
-  assert(text.startsWith("Našiel som farby.\n[Shown: Farba 1 – 1,00 € – Cacadoo Paint shop, Hlavná č.115, Košice"));
+  assert(text.startsWith("Našiel som farby.\n[Shown: Farba 1 – 1,00 € – Cacaduu Paint shop, Hlavná č.115, Košice"));
   assert(!text.includes("Farba 7"), "only the cards shown at once");
   assert(text.length <= MAX_TURN_CHARS);
   assertEquals(answerForHistory("Nič.", []), "Nič.");
@@ -129,13 +129,13 @@ Deno.test("the town only from the shopper's own words, bent as Slovak and Hungar
   assert(!townInWords("", ["v Michalovciach"]), "no town at all");
 });
 
-Deno.test("a good Cacadoo result: fresh data, not sold out, around the town when one was named", () => {
+Deno.test("a good Cacaduu result: fresh data, not sold out, around the town when one was named", () => {
   const item = (state: string, quantity: number | null) => ({ freshness: { state }, quantity });
   assert(isGoodResult(item("current", 3), null));
   assert(isGoodResult(item("recent", 1), true));
   assert(!isGoodResult(item("stale", 5), null), "stale data never counts");
   assert(!isGoodResult(item("current", 0), null), "sold out does not count");
-  assert(!isGoodResult(item("current", 2), false), "a town without Cacadoo shops: results from elsewhere do not count");
+  assert(!isGoodResult(item("current", 2), false), "a town without Cacaduu shops: results from elsewhere do not count");
   assertEquals(GOOD_ENOUGH, 3);
   assertEquals(SHOP_CATEGORIES.length, new Set(SHOP_CATEGORIES).size);
 });
@@ -159,7 +159,7 @@ Deno.test("OpenStreetMap hours in the town's own time zone: open until, opens at
 });
 
 Deno.test("an answer goes back with the shops nearby and web offers it showed", () => {
-  const text = answerForHistory("Cacadoo nemá. V okolí môže mať:", [], {
+  const text = answerForHistory("Cacaduu nemá. V okolí môže mať:", [], {
     nearby: [{ id: "osm:way/22", source: "osm", name: "Turista Michalovce", kind: "Šport", place: "", distance: "0,2 km od centra Michalovce", hours: null, phone: null, phoneHref: null, navigateHref: "", sourceHref: "", checkedAt: "", confidence: "" }],
     web: [{ id: "w", source: "web", retailer: "Decathlon", title: "Turistické topánky MH100", href: "https://www.decathlon.sk/p", price: null, checkedAt: "", confidence: "" }],
   });
@@ -239,5 +239,5 @@ Deno.test("partner refs, logos and the history the browser sends back", () => {
     partners: [{ id: "p", source: "partner", partner: "Decathlon", logo: null, title: "Stan Quechua", brand: null, href: null, affiliate: true,
       price: "24,99 €", regularPrice: null, online: "online skladom", stores: [], checkedAt: "", stale: false, confidence: "" }],
   });
-  assert(text.includes("[Partners' feeds, not verified by Cacadoo: Decathlon: Stan Quechua – 24,99 €]"), text);
+  assert(text.includes("[Partners' feeds, not verified by Cacaduu: Decathlon: Stan Quechua – 24,99 €]"), text);
 });

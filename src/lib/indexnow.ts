@@ -1,7 +1,7 @@
 /**
  * IndexNow (update 36): one key for every host, INDEXNOW_KEY (public by design — the same value
  * is a Supabase secret of stock-pull, which sends the pings). Each host serves it as
- * https://<host>/<key>.txt: the main Cacadoo domain (/api/indexnow/<key>) and every live own
+ * https://<host>/<key>.txt: the main Cacaduu domain (/api/indexnow/<key>) and every live own
  * domain (/api/site/<slug>/indexnow/<key>); src/proxy.ts sends "/<key>.txt" there.
  */
 export const INDEXNOW_KEY_PATTERN = /^[A-Za-z0-9-]{8,128}$/;

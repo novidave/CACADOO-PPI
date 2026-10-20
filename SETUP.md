@@ -97,10 +97,12 @@ Keep this tab open for Part B.
 
 Supabase → **Authentication** → **URL Configuration**:
 
-- **Site URL**: your Vercel production address, e.g. `https://cacadooppivercel.vercel.app` (you get it in Part B)
+- **Site URL**: the site's main address, `https://cacaduu.com` (before the own domain: the Vercel production address
+  `https://cacadooppivercel.vercel.app`, from Part B)
 - **Redirect URLs** → **Add URL**, add each of these:
   - `http://localhost:3000/**`
-  - `https://cacadooppivercel.vercel.app/**` (your real Vercel address)
+  - `https://cacaduu.com/**` (the main domain)
+  - `https://cacadooppivercel.vercel.app/**` (your real Vercel address, until it redirects to cacaduu.com)
   - `https://*-YOUR-VERCEL-TEAM.vercel.app/**` (so preview links can log in too; copy the team part from any preview URL)
 
 ---
@@ -116,7 +118,7 @@ Vercel → your project → **Settings** → **Environment Variables**. Add thes
 |-----|-------|
 | `NEXT_PUBLIC_SUPABASE_URL` | the Project URL from A5 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the anon / publishable key from A5 |
-| `NEXT_PUBLIC_SITE_URL` | your Vercel address, e.g. `https://cacadooppivercel.vercel.app` (no `/` at the end) |
+| `NEXT_PUBLIC_SITE_URL` | the main address `https://cacaduu.com` (no `/` at the end; before the own domain the Vercel address) |
 
 If you connected Supabase through Vercel's **Integrations / Marketplace**, the first two may already exist —
 check the names match exactly. Do **not** add `SUPABASE_SERVICE_ROLE_KEY`; if the integration added it, delete it.
@@ -246,7 +248,7 @@ Supabase → **Authentication** → **Emails** → **Templates**: delete the bod
 <p>Ak ste o to nežiadali, tento e-mail ignorujte.</p>
 ```
 
-Check **Authentication → URL Configuration → Site URL** is `https://cacadooppivercel.vercel.app` (A6).
+Check **Authentication → URL Configuration → Site URL** is `https://cacaduu.com` (A6).
 
 ### E4. Check
 
@@ -265,19 +267,19 @@ Accounts created earlier (e.g. your own from the old magic-link login) have no p
 
 Nothing to configure: no keys, no accounts. After the database update (file 10) and the merge, check:
 
-- [ ] `https://cacadooppivercel.vercel.app/robots.txt` — allows all crawlers incl. GPTBot, ClaudeBot, PerplexityBot; blocks the login-only pages.
-- [ ] `https://cacadooppivercel.vercel.app/sitemap.xml` — every active shop and item (refreshed hourly).
-- [ ] `https://cacadooppivercel.vercel.app/llms.txt` — plain-text guide for AI, lists the shops.
-- [ ] `https://cacadooppivercel.vercel.app/api/v1/search?q=kava&near=Michalovce` — JSON results with price, availability, freshness and `source_url`.
-- [ ] `https://cacadooppivercel.vercel.app/api/openapi.json` — the API description.
+- [ ] `https://cacaduu.com/robots.txt` — allows all crawlers incl. GPTBot, ClaudeBot, PerplexityBot; blocks the login-only pages.
+- [ ] `https://cacaduu.com/sitemap.xml` — every active shop and item (refreshed hourly).
+- [ ] `https://cacaduu.com/llms.txt` — plain-text guide for AI, lists the shops.
+- [ ] `https://cacaduu.com/api/v1/search?q=kava&near=Michalovce` — JSON results with price, availability, freshness and `source_url`.
+- [ ] `https://cacaduu.com/api/openapi.json` — the API description.
 
 **Connect an AI assistant to PPI (MCP):**
 
 - **Claude** (claude.ai): **Settings → Connectors → Add custom connector** → name `PPI`, URL
-  `https://cacadooppivercel.vercel.app/mcp` → **Add**. In a new chat, ask:
+  `https://cacaduu.com/mcp` → **Add**. In a new chat, ask:
   *"Using PPI, who has coffee (káva) in Michalovce right now, and when was it last updated?"*
 - **ChatGPT**: in **Settings → Apps & Connectors** (developer mode may need to be switched on under
-  **Advanced**) → **Create** → MCP server URL `https://cacadooppivercel.vercel.app/mcp`, no authentication.
+  **Advanced**) → **Create** → MCP server URL `https://cacaduu.com/mcp`, no authentication.
 - Other MCP tools (Cursor, VS Code, Claude Desktop…): add a remote / Streamable HTTP server with the same URL.
 
 The API and MCP server are read-only, need no login and allow 60 requests per minute per caller.
@@ -339,16 +341,16 @@ AI assistants answer from web search. A new site on `*.vercel.app` is not in the
 cannot find a new shop by name until it is indexed. Tell the search engines about PPI once:
 
 1. **Bing** (used by ChatGPT, Copilot and others): bing.com/webmasters → sign in → **Add site**
-   `https://cacadooppivercel.vercel.app` → method **HTML Meta Tag** → copy only the `content="…"` value.
+   `https://cacaduu.com` → method **HTML Meta Tag** → copy only the `content="…"` value.
    Vercel → Project → **Settings → Environment Variables** → add `BING_SITE_VERIFICATION` = that value
    (Production) → **Redeploy** → back in Bing → **Verify** → **Sitemaps** → submit
-   `https://cacadooppivercel.vercel.app/sitemap.xml`.
+   `https://cacaduu.com/sitemap.xml`.
 2. **Google**: search.google.com/search-console → **Add property** → **URL prefix**
-   `https://cacadooppivercel.vercel.app` → **HTML tag** → copy the `content="…"` value → Vercel variable
+   `https://cacaduu.com` → **HTML tag** → copy the `content="…"` value → Vercel variable
    `GOOGLE_SITE_VERIFICATION` → **Redeploy** → **Verify** → **Sitemaps** → submit `sitemap.xml`.
 
 Indexing takes days to a few weeks. Until then an assistant finds a shop when you give it the page address
-(e.g. `https://cacadooppivercel.vercel.app/sk/shops/<shop>`), and Claude finds everything at once through the
+(e.g. `https://cacaduu.com/sk/shops/<shop>`), and Claude finds everything at once through the
 MCP connector (Part F). A short own domain (e.g. ppi.sk) instead of `*.vercel.app` helps too.
 
 ---
@@ -574,7 +576,7 @@ read them in **Môj obchod → Konverzácie asistenta**. Do the steps in this or
    Deployments → … → **Redeploy**).
 7. **Logo for the PDFs:** Môj obchod → **Logo** → upload the logo once more (from now on a PNG copy is saved next to it;
    PDFs cannot show WebP).
-8. **Test** on the Cacadoo Paint shop (Pro), the shop page in a private window:
+8. **Test** on the Cacaduu Paint shop (Pro), the shop page in a private window:
    - Open the assistant → under the welcome text: "Konverzácia a nahrané súbory sa ukladajú pre obchod … Viac"
      ("Viac" opens the privacy page, a draft text).
    - **Pridať fotku alebo PDF** → a phone photo and a PDF → wait until "Pripravuje sa…" disappears → ask a question.
@@ -583,7 +585,7 @@ read them in **Môj obchod → Konverzácie asistenta**. Do the steps in this or
      messages, paperclip, first question) → **Otvoriť**: times, "Po slovensky: …" under the foreign messages, the cards
      table, the photo (click → full size), "Zobraziť" for the PDF.
    - Supabase → Storage → shop-assistant-uploads → (shop) → (conversation) → the PDF `2026-…_…_xxxxxxxx.pdf` →
-     download: Slovak letters, the logo, the photo thumbnail, "Vytvorené Cacadoo PPI · konverzácia … · strana 1/1".
+     download: Slovak letters, the logo, the photo thumbnail, "Vytvorené Cacaduu PPI · konverzácia … · strana 1/1".
      In `files/` download the photo → its properties show no location.
    - Open the assistant again, ask something, click **Vymazať moju konverzáciu** → OK → it is not in the list.
    - **Uchovávať konverzácie** → 30 / 90 / 365 dní → Uložiť. Open a conversation → **Vymazať** (tick) → gone.
@@ -615,7 +617,7 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
    file `supabase/functions/assistant-archive/index.ts` → **Deploy** ("Verify JWT" stays off).
 4. **Microsoft app (for OneDrive):** <https://entra.microsoft.com> (or portal.azure.com → Microsoft Entra ID) →
    **App registrations** → **New registration**:
-   - Name `Cacadoo PPI`; Supported account types: **Accounts in any organizational directory and personal Microsoft
+   - Name `Cacaduu PPI`; Supported account types: **Accounts in any organizational directory and personal Microsoft
      accounts**; Redirect URI: **Web** →
      `https://YOUR-PROJECT-ID.supabase.co/functions/v1/cloud-export/oauth/onedrive` → **Register**.
    - **API permissions** → Add a permission → Microsoft Graph → **Delegated** → tick `Files.ReadWrite` and
@@ -629,7 +631,7 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
      or need its IT admin's approval until the app has publisher verification (Branding & properties → Publisher
      verification, needs a Microsoft partner ID).
 5. **Dropbox app:** <https://www.dropbox.com/developers/apps> → **Create app** → **Scoped access** → **Full Dropbox**
-   → a name such as `Cacadoo PPI` → Create.
+   → a name such as `Cacaduu PPI` → Create.
    - **Permissions** tab first: tick `files.metadata.read` and `files.content.write` (`account_info.read` is already
      on) → **Submit**.
    - **Settings** tab: OAuth 2 → Redirect URIs → add
@@ -648,12 +650,12 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
    - `ALERT_EMAIL_FROM` = a sender address verified in Brevo (Senders, domains), e.g. the one used for Part E.
    Nothing new is needed in Vercel.
 7. **Merge the pull request** on GitHub → Vercel deploys.
-8. **Test** on the Cacadoo Paint shop (Pro):
-   - Môj obchod → **Cloudový priečinok** → the folder is `/Cacadoo/Cacadoo Paint shop` → paste a OneDrive share link
+8. **Test** on the Cacaduu Paint shop (Pro):
+   - Môj obchod → **Cloudový priečinok** → the folder is `/Cacaduu/Cacaduu Paint shop` → paste a OneDrive share link
      into the folder field → **Pripojiť OneDrive** → the page explains that share links cannot be written to. Put the
      path back.
    - **Pripojiť OneDrive** → sign in with Microsoft → Accept → back in Môj obchod: "Cloud je pripojený", your account,
-     the folder, "Pripojené". In OneDrive on the web the folder `Cacadoo/Cacadoo Paint shop` exists.
+     the folder, "Pripojené". In OneDrive on the web the folder `Cacaduu/Cacaduu Paint shop` exists.
    - **Prehľadávať priečinky** → **↑ O úroveň vyššie** → **Nový priečinok** `Test` → **Vytvoriť** → **Ukladať sem** →
      "Priečinok je uložený" (you can switch back the same way).
    - The shop page in a private window → the assistant → **Pridať fotku alebo PDF** → a photo → a question → close the
@@ -664,9 +666,9 @@ id (the part before `.supabase.co` in `NEXT_PUBLIC_SUPABASE_URL`).
    - **Uložiť staršie konverzácie** → from a day before Part O was set up to today → "Na uloženie do cloudu čaká
      konverzácií: N" → they appear in OneDrive.
    - **Odpojiť** (tick) → "Cloud je odpojený" → **Pripojiť Dropbox** → sign in → Allow → one more conversation →
-     it appears in Dropbox under `Cacadoo/Cacadoo Paint shop/…`.
+     it appears in Dropbox under `Cacaduu/Cacaduu Paint shop/…`.
    - Optional, the failure e-mail: in your Microsoft account → **Privacy → Apps and services** (or
-     <https://account.live.com/consent/Manage>) → remove "Cacadoo PPI" → the next conversation shows "Cloud: chyba –
+     <https://account.live.com/consent/Manage>) → remove "Cacaduu PPI" → the next conversation shows "Cloud: chyba –
      Pripojenie k cloudu vypršalo – pripojte ho znova" and the section shows **Pripojiť znova**; after 24 hours the
      shop's owners get one e-mail with that subject. **Pripojiť znova** copies what waited.
    - After 10 minutes: `select status, return_message, start_time from cron.job_run_details order by start_time desc
@@ -714,14 +716,14 @@ unlocks, views and downloads. Parts M and O must be done first. Do the steps in 
 5. **Older private PDFs** (uploaded before this update) have no page pictures yet: Môj obchod → **Dokumenty pre
    asistenta** → each such PDF shows "Zobrazenie pre zákazníkov: chýba" → **Pripraviť na zobrazenie** (Edge or Chrome;
    keep the page open until it says "pripravené"). New uploads do this by themselves.
-6. **Test** on the Cacadoo Paint shop (Pro), logged in, Edge or Chrome:
+6. **Test** on the Cacaduu Paint shop (Pro), logged in, Edge or Chrome:
    - Môj obchod → **Dokumenty pre asistenta** → the private folder (e.g. "Veľkoobchod") → **Nastaviť kľúč** → the key
      is shown once → copy it. Under it: "Odomknutia: 0 · Zobrazenia: 0 · Stiahnutia: 0".
    - **Režim prístupu** → **Len zobraziť** → **Uložiť prístup** (the note says that view-only cannot stop screenshots).
    - The shop page in a private window → the assistant → **Mám prístupový kľúč** → type a wrong key → "Nesprávny
      kľúč." (after 5 wrong keys in 15 minutes it waits a while).
    - Paste the right key (or send it as a message) → "Prístup k priečinku Veľkoobchod odomknutý" and the folder's files
-     with **Otvoriť** and no "Stiahnuť". **Otvoriť** a PDF → its pages as pictures with "Cacadoo Paint shop · VIP ·
+     with **Otvoriť** and no "Stiahnuť". **Otvoriť** a PDF → its pages as pictures with "Cacaduu Paint shop · VIP ·
      <date>" → **Zavrieť**. Ask about the price list → the answer uses it.
    - Back in Môj obchod → **Zobraziť a stiahnuť** → **Uložiť prístup**. Set one file to **Len zobraziť** (its own
      "Prístup s kľúčom") → **Uložiť prístup**. In the shop window close and open the assistant, enter the key again →
@@ -846,7 +848,7 @@ the arrows (or a swipe) go through the last 10 files. No new secrets, no Edge Fu
      stránky …" and nothing is saved.
    - The shop page → **Rezervovať termín** with a calendar icon in the row with the e-mail and Facebook → opens in a new
      tab. Empty the field and save → it is gone.
-   - A product of the Cacadoo Paint shop (Pro) → no "Dostupné aj v" and no "V iných obchodoch sme tento výrobok
+   - A product of the Cacaduu Paint shop (Pro) → no "Dostupné aj v" and no "V iných obchodoch sme tento výrobok
      nenašli." (also on its own domain).
    - **Priečinok s exportom** → **Posledné nahrané súbory** → tap a card (or **Rýchly náhľad**) → "Súbor 1 z 10" with
      the full report → **Starší →** / **← Novší** (or the ← → keys; swipe on a phone) → **Zavrieť** or Esc.
@@ -866,7 +868,7 @@ holidays of Slovakia, Hungary and Czechia (2026–2027) are in the database; eac
 **Sviatky a mimoriadne zatvorenie** whether they apply and can add special days (closed, or other hours). The shop page
 has a new order (name and logo with the shop details under them, map, opening hours, assistant always open,
 "Mám prístupový kľúč", items) and on a
-shop's own domain there is no Cacadoo header — only the shop's name, logo and SK · HU · EN. No new secrets, no Edge
+shop's own domain there is no Cacaduu header — only the shop's name, logo and SK · HU · EN. No new secrets, no Edge
 Function changes. Do the steps in order.
 
 1. **Database:** SQL Editor → paste the whole file `supabase/sql/27_shop_status.sql` → Run → "Success. No rows
@@ -887,7 +889,7 @@ Function changes. Do the steps in order.
    - Môj obchod → **Sviatky a mimoriadne zatvorenie** → **Pridať mimoriadny deň** (e.g. tomorrow, Zatvorené celý deň,
      note "Inventúra") → it is listed on the shop page under "Sviatky a mimoriadne dni (najbližších 14 dní)".
      **Vymazať** removes it.
-   - The shop on its own domain → no Cacadoo logo or menu at the top, the shop's name and logo with SK · HU · EN.
+   - The shop on its own domain → no Cacaduu logo or menu at the top, the shop's name and logo with SK · HU · EN.
 4. Opening hours that run past midnight (e.g. a bar 18:00–02:00): enter 18:00 – 02:00; the editor explains it under
    the days.
 5. **Next year's holidays** (once a year, e.g. in November): `node scripts/holidays.mjs 2028` prints the SQL rows; paste
@@ -916,7 +918,7 @@ and logo are back on the page above its details. No new secrets. Do the steps in
    `supabase/functions/shop-files/index.ts` → **Deploy** ("Verify JWT" stays off). Without it "Stiahnuť PDF" answers 404.
 4. **Merge the pull request** on GitHub → Vercel deploys. (Merged before step 1 the website still works: Môj obchod
    says "Táto časť bude dostupná po aktualizácii databázy 28" and shop pages have no sections.)
-5. **Test the sections** (on the Cacadoo Paint shop or another Pro shop):
+5. **Test the sections** (on the Cacaduu Paint shop or another Pro shop):
    - Môj obchod → **Sekcie stránky (PDF)** → **Pridať sekciu**: title `Novinky október`, a 3-page A4 PDF, "Rozbaľovacie –
      zatvorené", "Za údajmi obchodu" → **Pridať a nahrať PDF** → wait for "Hotovo. Pozrite si náhľad a sekciu
      zverejnite." (a PDF with a password, more than 20 pages or over 10 MB is refused with a message).
@@ -1100,7 +1102,7 @@ No database change, no new secret, no function to update (it uses the assistant-
 - **Predplatné a doména** gets, under a live own domain, **Aby vás našli Google a AI asistenti**:
   - **Overiť v Google Search Console**: the owner adds the domain in Search Console (Pridať vlastníctvo → Doména),
     copies the TXT value `google-site-verification=…` and pastes it. A domain bought through PPI (or an own domain in
-    our Websupport account): **Zapísať do DNS** — Cacadoo adds that one TXT record through the Websupport DNS API and
+    our Websupport account): **Zapísať do DNS** — Cacaduu adds that one TXT record through the Websupport DNS API and
     never changes or removes any other record (MX, SPF, DKIM, DMARC, other TXT). An own domain at another registrar:
     **Zobraziť záznam** shows the record to add there. Then **Overiť** in Search Console.
   - **Odoslať sitemap: https://<doména>/sitemap.xml** — the steps in Search Console.
@@ -1111,7 +1113,7 @@ No database change, no new secret, no function to update (it uses the assistant-
   stock), a `robots.txt` that lets search engines and AI crawlers read the public pages (never Môj obchod, private
   folders or access-key content) and the IndexNow key file.
 - Item pages on the own domain: Product + Offer (only while the stock data is fresh) + Store (LocalBusiness) JSON-LD,
-  canonical on the own domain; the main Cacadoo search, its map and the AI search link these shops to their own domain.
+  canonical on the own domain; the main Cacaduu search, its map and the AI search link these shops to their own domain.
 
 No new secret. Do the steps in order.
 
@@ -1141,10 +1143,10 @@ No new secret. Do the steps in order.
 
 ## Part AD — The main page as one AI chat (14 October 2026)
 
-- The main page is now **one chat search**, like Perplexity or Claude: the small Cacadoo pin, **Čo dnes hľadáte?**,
+- The main page is now **one chat search**, like Perplexity or Claude: the small Cacaduu pin, **Čo dnes hľadáte?**,
   one input in the middle of the screen and three example questions. No filters, no other search box, no
   "Len dostupné teraz".
-- After a question: three dots in Cacadoo yellow and the real steps ("Rozumiem otázke…" → "Hľadám v obchodoch…" →
+- After a question: three dots in Cacaduu yellow and the real steps ("Rozumiem otázke…" → "Hľadám v obchodoch…" →
   "Overujem dostupnosť a otváracie hodiny…"), the answer word by word, then cards from the search (original name +
   translation, price, shop, street, town, availability with its freshness, the status dot with words; "x km od centra
   Košice" when the question named a town). Follow-ups keep the context ("a v Michalovciach?"); **+ Nový chat** starts
@@ -1158,7 +1160,7 @@ the ones from Part J; the optional `AI_MODEL` in Vercel (Part M) now also choose
 (default `claude-haiku-5-5`).
 
 1. **Merge the pull request** on GitHub → Vercel deploys.
-2. **Test** on `https://cacadooppivercel.vercel.app/sk`:
+2. **Test** on `https://cacaduu.com/sk`:
    - The page shows only the pin, "Čo dnes hľadáte?", the input and the three examples; a click on an example fills
      the input.
    - Ask **biela farba 15 l v Košiciach** → the yellow dots and the steps, the answer appears word by word, cards of
@@ -1174,13 +1176,13 @@ the ones from Part J; the optional `AI_MODEL` in Vercel (Part M) now also choose
 ## Part AE — The chat finds products in layers: shops nearby and the web (15 October 2026)
 
 - The main chat now has one job — finding a product in a town — and politely declines anything else.
-- It always searches **Cacadoo** first. Only when Cacadoo has fewer than 3 good results and the question names a town, it
+- It always searches **Cacaduu** first. Only when Cacaduu has fewer than 3 good results and the question names a town, it
   also shows **shops nearby** that may have it (OpenStreetMap; "Môže mať · …", "zásoby neoverené", Zavolať, Navigovať)
   and **offers on larger shops' websites** ("Z webu · Decathlon · cena podľa webu: … · overte dostupnosť na stránke →")
   with links to each shop's own search. No town → it asks "V ktorom meste hľadáte?".
 - Only the product and the town go to OpenStreetMap, Google (if you switch it on) and Anthropic; nothing about the
   visitor. Nothing from Google and no web result is stored.
-- Admin page "Predplatné a domény" → **Vyhľadávanie mimo Cacadoo**: a switch per source, the prices for the cost
+- Admin page "Predplatné a domény" → **Vyhľadávanie mimo Cacaduu**: a switch per source, the prices for the cost
   estimate, the allowed web domains and their search links, the calls and the estimated cost per day.
 
 Do the steps in order.
@@ -1206,16 +1208,16 @@ Do the steps in order.
 5. **New function** `product-sources`: Supabase → Edge Functions → **Deploy a new function** → **Via Editor** → name
    `product-sources` → paste the whole file `supabase/functions/product-sources/index.ts` → **Deploy** → in its
    settings switch **OFF "Verify JWT"** (it checks the website's secret itself).
-6. **Merge the pull request** on GitHub → Vercel deploys. (Before step 2 the chat searches only Cacadoo, as before.)
-7. **Admin page** `https://cacadooppivercel.vercel.app/sk/admin/domains#external-search` (your admin account):
-   - **Vyhľadávanie mimo Cacadoo:** all three sources show their switch; next to each "Prostredie: zapnuté" or which
+6. **Merge the pull request** on GitHub → Vercel deploys. (Before step 2 the chat searches only Cacaduu, as before.)
+7. **Admin page** `https://cacaduu.com/sk/admin/domains#external-search` (your admin account):
+   - **Vyhľadávanie mimo Cacaduu:** all three sources show their switch; next to each "Prostredie: zapnuté" or which
      setting is missing.
    - **Povolené webové domény a odkazy na vyhľadávanie:** Decathlon, dm, Exisport, Intersport and Action are there
      without a search link. For each: open the shop's website, search for any word, copy the address of the results page,
      put `{query}` where your word was (e.g. `https://www.decathlon.sk/search?Ntt={query}`) → paste into "Odkaz na
      vyhľadávanie" → **Uložiť**. Note: dm's Slovak e-shop may be `mojadm.sk` — add that domain too if so.
-8. **Test** on `https://cacadooppivercel.vercel.app/sk`:
-   - **biela farba v Košiciach** (or anything Cacadoo has 3+ times) → only "Overené v Cacadoo".
+8. **Test** on `https://cacaduu.com/sk`:
+   - **biela farba v Košiciach** (or anything Cacaduu has 3+ times) → only "Overené v Cacaduu".
    - **turistické topánky v Michalovciach** → "Hľadám obchody v okolí…", "Hľadám na webe…" → "Obchody v okolí
      (neoverené)" with "© OpenStreetMap contributors" and "Na webe" with "cena podľa webu" where the page shows one and
      "Hľadať priamo v e-shope:" links.
@@ -1230,7 +1232,7 @@ Do the steps in order.
 - Partner shops (e.g. a large sports chain) can send their **product feed**: Google Merchant XML or CSV/TSV (with its
   **local inventory feed** for stock per store), Heureka XML, or a plain CSV. PPI reads it on a schedule (daily by
   default) into its own tables — never mixed with the shops' stock — and shows it exactly as the partner sent it.
-- In the chat, when Cacadoo has fewer than 3 good results, the partners come under **"Partneri"**, between Cacadoo and the
+- In the chat, when Cacaduu has fewer than 3 good results, the partners come under **"Partneri"**, between Cacaduu and the
   shops nearby: "Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera · údaje z
   08:00". Stock in a store only when the partner's local inventory feed says so. A feed older than 48 hours shows no
   availability, only "údaje z <dátum>". Affiliate links say "partnerský odkaz" and never rank higher.
@@ -1256,7 +1258,7 @@ Do the steps in order.
 3. **Secret (optional):** Supabase → Edge Functions → **Secrets** → `PARTNER_FEED_MAX_MB` = e.g. `100` (whole MB; default
    50, at most 500). Nothing to add in Vercel.
 4. **Merge the pull request** on GitHub → Vercel deploys. (With no partner the chat works exactly as before.)
-5. **Admin page** `https://cacadooppivercel.vercel.app/sk/admin/domains#partner-feeds` (your admin account):
+5. **Admin page** `https://cacaduu.com/sk/admin/domains#partner-feeds` (your admin account):
    - The line "Funkcia partner-feeds: limit veľkosti feedu 50 MB …" shows the function answers.
    - **Pridať partnera:** name (e.g. Decathlon), format (Google Merchant XML for a Google feed), the feed address the
      partner gave you (https), the local inventory feed address if they have one (for stock per store), time zone
@@ -1267,9 +1269,9 @@ Do the steps in order.
      `store_code` of their local inventory feed; the name is shown as "predajňa <name>") → **Uložiť predajne**. Upload
      the **logo** (PNG/JPG/WebP ≤ 1 MB).
    - No address, only a file? Leave the address empty, save, then use **Súbor feedu** in the partner's row.
-6. **Test** on `https://cacadooppivercel.vercel.app/sk`: ask for a product the partner's feed has and Cacadoo has few of,
+6. **Test** on `https://cacaduu.com/sk`: ask for a product the partner's feed has and Cacaduu has few of,
    with a town where the partner has a store, e.g. **"Kde kúpim stan v Košiciach?"** → "Hľadám u partnerov…" → the group
-   **Partneri** after "Overené v Cacadoo" and before "Obchody v okolí (neoverené)", with the price, "online skladom", the
+   **Partneri** after "Overené v Cacaduu" and before "Obchody v okolí (neoverené)", with the price, "online skladom", the
    store line (only with a local inventory feed), "údaje z HH:MM" and "partnerský odkaz" on affiliate partners.
    Problems: the partner's row on the admin page shows the last imports with their reason; Supabase → Edge Functions →
    partner-feeds → Logs (feed addresses are never written there).
@@ -1277,21 +1279,21 @@ Do the steps in order.
 ## Part AG — Own domains fully findable: Search Console, Bing, IndexNow on every host (15 October 2026)
 
 - **Predplatné a doména → "Aby vás našli Google a AI asistenti"** (a live own domain):
-  - **A domain Cacadoo runs** (bought here): paste the whole TXT value `google-site-verification=…` → **Zapísať do
-    DNS** → Cacadoo adds one TXT record at the domain (SPF, MX, DKIM, DMARC and every other record stay as they are;
-    the same value is never added twice). **Odstrániť** removes only the record Cacadoo added.
+  - **A domain Cacaduu runs** (bought here): paste the whole TXT value `google-site-verification=…` → **Zapísať do
+    DNS** → Cacaduu adds one TXT record at the domain (SPF, MX, DKIM, DMARC and every other record stay as they are;
+    the same value is never added twice). **Odstrániť** removes only the record Cacaduu added.
   - **An own domain connected from elsewhere**: **a) HTML značka (odporúčané)** — in Search Console choose "Predpona
-    webovej adresy" `https://<doména>/`, copy Google's meta tag, paste it → **Uložiť značku** → Cacadoo puts it on the
+    webovej adresy" `https://<doména>/`, copy Google's meta tag, paste it → **Uložiť značku** → Cacaduu puts it on the
     shop's pages on that domain → **Overiť**. **b) Záznam TXT** — the record to add at your registrar, with
     "Kopírovať".
   - **Overiť v Bing Webmaster Tools**: easiest "Importovať" from Search Console; else Bing's meta tag the same way.
   - **Odoslať sitemap**: the steps for Google and for Bing.
 - **IndexNow on every host**: after a stock upload, only product pages that really changed (new or removed product,
   another price, back in stock or sold out — not 12 → 11 pieces) are announced to Bing, Seznam, Yandex and others, on
-  their canonical address: the shop's own domain, or the main Cacadoo address for shops without one. At most once per
+  their canonical address: the shop's own domain, or the main Cacaduu address for shops without one. At most once per
   upload and once an hour per address; what waits goes with the next one. One key for everything: `INDEXNOW_KEY`.
 - **llms.txt of an own domain** also says whether the shop follows public holidays, the item categories and how AI
-  assistants can read the shop through Cacadoo's API/MCP. The API's and MCP's links (`source_url`) and Cacadoo's own
+  assistants can read the shop through Cacaduu's API/MCP. The API's and MCP's links (`source_url`) and Cacaduu's own
   llms.txt now point to the shop's own domain.
 
 Do the steps in order.
@@ -1307,7 +1309,7 @@ Do the steps in order.
 4. **Supabase** → Edge Functions → **Secrets** → add:
    - **`INDEXNOW_KEY`** = the same key.
    - **`SITE_URL`** = the website's main address with https and without a slash at the end, e.g.
-     `https://cacadooppivercel.vercel.app` (later your own Cacadoo domain). Without it, shops without an own domain
+     `https://cacaduu.com`. Without it, shops without an own domain
      are not announced (shops with a live own domain still are).
 5. **Functions** (Supabase → Edge Functions → the function → Code → paste the whole file → Deploy; "Verify JWT" stays
    OFF):
@@ -1315,12 +1317,12 @@ Do the steps in order.
    - `stock-pull` ← `supabase/functions/stock-pull/index.ts` (IndexNow on every host).
 6. **Merge the pull request** on GitHub → Vercel deploys with `INDEXNOW_KEY`. (If you added the variable after the
    deploy started: Deployments → ⋯ → Redeploy.)
-7. **Check the key files:** `https://cacadooppivercel.vercel.app/<key>.txt` and `https://<own domain>/<key>.txt` both
+7. **Check the key files:** `https://cacaduu.com/<key>.txt` and `https://<own domain>/<key>.txt` both
    show the key. A wrong name shows "Not found".
 8. **Test on a live own domain** (Predplatné a doména, the shop with the domain):
    - Bought domain: Search Console → Pridať vlastníctvo → **Doména** → the domain → copy the TXT value → paste →
      **Zapísať do DNS** → "Záznam TXT je zapísaný …" → in Search Console **Overiť** (a few minutes later if not found).
-     Optional: **Odstrániť** → "Záznam, ktorý pridal Cacadoo, je odstránený z DNS …" (check at Websupport: only that
+     Optional: **Odstrániť** → "Záznam, ktorý pridal Cacaduu, je odstránený z DNS …" (check at Websupport: only that
      one record is gone).
    - Connected domain: Search Console → Pridať vlastníctvo → **Predpona webovej adresy** → `https://<doména>/` →
      Ďalšie metódy overenia → **HTML značka** → copy → paste → **Uložiť značku** → open `https://<doména>/`, view the
@@ -1337,6 +1339,39 @@ Do the steps in order.
     for merchant listings is expected: PPI has no product pictures and never invents any.
 
 The key of update 33 (`domain_settings.indexnow_key`) is no longer used; the key file now shows `INDEXNOW_KEY`.
+
+## Part AH — cacaduu.com: the main domain and the name Cacaduu (20 October 2026)
+
+- The site's name is now **Cacaduu PPI** everywhere: the logo, every text on the pages (SK, HU, EN), the e-mails
+  ("Cacaduu PPI" as the sender's name), the conversation PDFs ("Vytvorené Cacaduu PPI …") and the programs' names
+  towards OpenStreetMap and partner feeds.
+- **Cloud folder:** a shop that connects OneDrive or Dropbox from now on gets the folder `/Cacaduu/<obchod>` by default.
+  Shops already connected keep their folder (`/Cacadoo/…`) — nothing moves in their cloud.
+- Kept as they are, because they are real names elsewhere: the GitHub repository (`novidave/cacadoo-ppi`), the Vercel
+  project and its address `cacadooppivercel.vercel.app`, and one internal database function (`cacadoo_shops_near`,
+  never shown to anyone).
+
+Do the steps in order.
+
+1. **Merge the pull request** on GitHub → Vercel deploys the new name and logo.
+2. **Main domain** (once, if not done yet): Vercel → Settings → Domains: `cacaduu.com` and `www.cacaduu.com`, the www
+   one set to **Redirect to cacaduu.com**. Vercel → Environment Variables: `NEXT_PUBLIC_SITE_URL` = `https://cacaduu.com`
+   → **Redeploy**. Supabase → Authentication → URL Configuration: Site URL `https://cacaduu.com`, Redirect URLs +
+   `https://cacaduu.com/**`. Supabase → Edge Functions → Secrets: `SITE_URL` = `https://cacaduu.com`.
+3. **Functions with the new name in what they send** (Supabase → Edge Functions → the function → Code → paste the whole
+   file → Deploy; "Verify JWT" stays OFF):
+   - `assistant-archive` ← `supabase/functions/assistant-archive/index.ts` (the PDFs' footer and author)
+   - `cloud-export` ← `supabase/functions/cloud-export/index.ts` (e-mail, the folder for new connections)
+   - `domains` ← `supabase/functions/domains/index.ts` (e-mails)
+   - `product-sources` ← `supabase/functions/product-sources/index.ts` (the name towards OpenStreetMap)
+   - `partner-feeds` ← `supabase/functions/partner-feeds/index.ts` (the name towards partners' servers)
+   - `stock-pull` changed only in comments: no need to paste it again.
+4. **Optional:** if your sender address for e-mails (`ALERT_EMAIL_FROM`, Brevo) should be on the new domain, add
+   cacaduu.com in Brevo (Senders & Domains) and change the secret. The OneDrive help texts now call the Microsoft app
+   "Cacaduu PPI": Microsoft Entra → App registrations → your app → Branding & properties → Name → `Cacaduu PPI` (the
+   name shops see when they connect; nothing else changes). The same for the Dropbox app's name if Dropbox lets you.
+5. **Check:** `https://cacaduu.com/sk` shows the Cacaduu logo and "Overené v Cacaduu" under a chat answer; a new
+   conversation PDF ends with "Vytvorené Cacaduu PPI".
 
 ---
 
@@ -1373,7 +1408,7 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 15. Access keys for shoppers (paid plan): "Mám prístupový kľúč" in the assistant, folder files in a watermarked viewer, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, ZIP, folder key and counts, the shopper's own conversation PDF | ✅ built — set up Part Q |
 | 16. Own domains (Pro): buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one; the shop page on its own domain; renewals, transfer code; admin page "Predplatné a domény" | ✅ built (test mode) — set up Part R |
 | 17. Booking link on the shop page (every shop); no other shops on product pages of shops with a domain of their own; quick view of the recently uploaded stock files | ✅ built — set up Part S |
-| 18. Open / lunch break / closed / holiday status (dots + words) everywhere, public holidays SK/HU/CZ, special days, "+ Obedňajšia prestávka"; Pro shop page order, assistant always open, no Cacadoo header on own domains | ✅ built — set up Part T |
+| 18. Open / lunch break / closed / holiday status (dots + words) everywhere, public holidays SK/HU/CZ, special days, "+ Obedňajšia prestávka"; Pro shop page order, assistant always open, no Cacaduu header on own domains | ✅ built — set up Part T |
 | 19. Page sections from PDFs (Pro): up to 10 per shop, cleaned on the server, pages with their text, collapsed or always open in four places, dates, preview, download on/off, the assistant names them; the header picture of an own domain, the name and logo back on the page | ✅ built — set up Part U |
 | 20. "Zobrazenie strán" per section: slider (swipe, ‹ ›, keys, "2 / 5" + dots, no jumping, current + next page loaded) or "Pod sebou"; full-screen viewer with zoom and swipe; "Stiahnuť PDF" button | ✅ built — set up Part V |
 | 21. Page sections for free shops: limits per plan set by the admin (free 1 / 5 pages / 10 MB, Pro 10 / 20 / 10 MB), "Pre viac sekcií prejdite na Pro", after the opening hours on free pages, Pro → free shows the first one | ✅ built — set up Part W |
@@ -1384,6 +1419,7 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 26. "Konverzácie do počítača": finished conversations saved by themselves as PDFs into a folder on the shop PC | ✅ built — set up Part AB |
 | 27. Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS, only added), "Odoslať sitemap", llms.txt and robots.txt per domain with "Kategórie tovaru", IndexNow after each upload (only changed pages), Product/Offer + Store JSON-LD, search results linking to the own domain | ✅ built — set up Part AC |
 | 28. The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots and the real steps, the answer streamed, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback | ✅ built — set up Part AD |
-| 29. The chat finds products in layers: Cacadoo, then shops nearby (OpenStreetMap, optional Google Places) and offers on allowed shop websites (web search), only with too little in Cacadoo and a town; admin switches, domains, search links, usage and cost | ✅ built — set up Part AE |
-| 30. Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule, shown in the chat under "Partneri" between Cacadoo and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" | ✅ built — set up Part AF |
-| 31. Own domains fully findable: "Odstrániť" removes only Cacadoo's TXT record; the Google HTML tag for connected domains; Bing Webmaster Tools; sitemap steps for Google and Bing; llms.txt with holidays and API/MCP; IndexNow on every host (one `INDEXNOW_KEY`, only real changes, once an hour per address); API/MCP links and Cacadoo's llms.txt point to the own domain | ✅ built — set up Part AG |
+| 29. The chat finds products in layers: Cacaduu, then shops nearby (OpenStreetMap, optional Google Places) and offers on allowed shop websites (web search), only with too little in Cacaduu and a town; admin switches, domains, search links, usage and cost | ✅ built — set up Part AE |
+| 30. Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule, shown in the chat under "Partneri" between Cacaduu and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" | ✅ built — set up Part AF |
+| 31. Own domains fully findable: "Odstrániť" removes only Cacaduu's TXT record; the Google HTML tag for connected domains; Bing Webmaster Tools; sitemap steps for Google and Bing; llms.txt with holidays and API/MCP; IndexNow on every host (one `INDEXNOW_KEY`, only real changes, once an hour per address); API/MCP links and Cacaduu's llms.txt point to the own domain | ✅ built — set up Part AG |
+| 32. Quicksand font; the Cacaduu PPI logo and icons; the name Cacaduu everywhere; cacaduu.com as the main domain | ✅ built — set up Part AH |

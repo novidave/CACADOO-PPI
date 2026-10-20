@@ -38,7 +38,7 @@ export async function loadCloud(supabase: Supabase, shopId: string): Promise<{ c
   return { connection: (data as CloudRow | null) ?? null };
 }
 
-/** One line while the section is closed: "OneDrive · /Cacadoo/Obchod" or "Nepripojený". */
+/** One line while the section is closed: "OneDrive · /Cacaduu/Obchod" or "Nepripojený". */
 export function cloudSummary(cloud: { connection: CloudRow | null } | null, dict: Dictionary): string {
   const c = dict.cloud;
   if (!cloud) return c.unavailable;
@@ -48,8 +48,8 @@ export function cloudSummary(cloud: { connection: CloudRow | null } | null, dict
   return k.status === "expired" ? t(c.summary_expired, { provider }) : t(c.summary_on, { provider, folder: k.folder_path });
 }
 
-/** The default target folder: /Cacadoo/<shop name> (the function cleans the name for the cloud). */
-const defaultFolder = (shop: MyShop) => `/Cacadoo/${shop.name.replace(/[\\/]/g, "-").trim() || "Obchod"}`;
+/** The default target folder: /Cacaduu/<shop name> (the function cleans the name for the cloud). */
+const defaultFolder = (shop: MyShop) => `/Cacaduu/${shop.name.replace(/[\\/]/g, "-").trim() || "Obchod"}`;
 
 /**
  * "Cloudový priečinok" in Môj obchod (paid plan): connect OneDrive or Dropbox with OAuth,

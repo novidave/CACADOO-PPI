@@ -540,7 +540,7 @@ function MetaTagForm({
 
 /**
  * "Aby vás našli Google a AI asistenti" (database updates 33 and 36), on a live domain:
- * "Overiť v Google Search Console" — a domain whose DNS Cacadoo runs (bought here, or an own domain
+ * "Overiť v Google Search Console" — a domain whose DNS Cacaduu runs (bought here, or an own domain
  * in our Websupport account) gets the TXT value added to its DNS (only added; "Odstrániť" removes
  * only that record); an own domain elsewhere gets a) the "HTML značka" on its pages (recommended,
  * property "Predpona webovej adresy") or b) the TXT record to add by hand. Bing Webmaster Tools: the
@@ -570,7 +570,7 @@ function FindableSection({
   const host = order.site_host ?? order.hostname;
   const base = `https://${host}`;
   const prefix = `${base}/`;
-  // Cacadoo writes the record when it runs the domain's DNS (a domain bought here, or one in our Websupport account).
+  // Cacaduu writes the record when it runs the domain's DNS (a domain bought here, or one in our Websupport account).
   const auto = Boolean(order.registrar_service_id);
   const value = findable.google_verification;
   const state = findable.google_verification_state;

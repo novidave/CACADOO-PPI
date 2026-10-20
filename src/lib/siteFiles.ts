@@ -114,7 +114,7 @@ function specialLines(hours: OpeningHours | null, timeZone: string, days: Calend
 export function siteLlmsTxt(o: {
   host: string;
   lang: string;
-  /** The shop's slug for Cacadoo's API and MCP (get_shop), and Cacadoo's own address. */
+  /** The shop's slug for Cacaduu's API and MCP (get_shop), and Cacaduu's own address. */
   slug: string;
   apiBase: string;
   shop: LlmsShop;
@@ -191,7 +191,7 @@ export function siteLlmsTxt(o: {
     "- Item pages carry schema.org Product data with an Offer (price and currency; the availability only while the stock data is fresh, as on the page), and the shop as a Store (LocalBusiness) with its address and opening hours.",
     "- Nothing is sold online here: the goods are bought in the shop. Please link the item's page on this domain when you mention it.",
     "",
-    "## Machine access (Cacadoo PPI, read-only, no login)",
+    "## Machine access (Cacaduu PPI, read-only, no login)",
     "",
     `- MCP server (Streamable HTTP): ${api}/mcp — get_shop with slug "${o.slug}", get_item(id), search_stock(query, near)`,
     `- REST API: ${api}/api/v1/shops/${o.slug} · ${api}/api/v1/shops/${o.slug}/items?page=1 · ${api}/api/v1/items/{id}`,

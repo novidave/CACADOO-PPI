@@ -1,6 +1,6 @@
 # PPI — Product Requirements (as built)
 
-Version 3.1 · status 15 October 2026 · live at <https://cacadooppivercel.vercel.app> (brand: **Cacadoo PPI**)
+Version 3.1 · status 15 October 2026 · live at <https://cacaduu.com> (brand: **Cacaduu PPI**; the Vercel address cacadooppivercel.vercel.app still answers)
 
 This document describes **what PPI is and what it does today**. How the parts work together is in
 `docs/ARCHITECTURE.md`; setup steps for people are in `SETUP.md` and `docs/SHOP_PC_SETUP.md`.
@@ -21,8 +21,8 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Item names in Slovak, Hungarian and English; search across the three languages | Built and tested; live after migration 17, the new stock function and the Anthropic key in Supabase |
 | AI search on the main page (Claude Haiku) | Built and tested; switched on by the Anthropic key in Vercel |
 | The main page as one AI chat (Prompt 10): "Čo dnes hľadáte?" with one centred input and example questions; thinking dots and the real steps, the answer streamed word by word, result cards from the search with freshness and status, follow-up questions, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page | Built and tested against a Claude stand-in; live after the merge, no database change (SETUP.md part AD) |
-| The chat finds products in layers (Prompt 11, phase A): Cacadoo first; with fewer than 3 good Cacadoo results and a town the shopper wrote, also shops of the right kind nearby (OpenStreetMap, optionally Google Places; "Môže mať", stock not verified) and offers on allowed shop websites (Claude's web search; "Z webu", price as the page shows it) with links to each shop's own search; groups "Overené v Cacadoo" / "Obchody v okolí (neoverené)" / "Na webe"; anything not about finding a product is declined; admin: switches, allowed domains, search links, calls and estimated cost per day | Built and tested against stand-ins for Claude, Nominatim, Overpass and Google; live after database update 34, the product-sources function, its secrets and the merge (SETUP.md part AE) |
-| Partner feeds (Prompt 11, phase B): partner shops' product feeds (Google Merchant XML/CSV with its local inventory feed, Heureka XML, a plain CSV) read on a schedule into their own tables and shown in the chat under "Partneri" between Cacadoo and shops nearby ("Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera · údaje z 08:00"; older than 48 hours: only "údaje z <dátum>"); affiliate links marked "partnerský odkaz", never ranked higher; admin "Partnerské feedy" | Built and tested against stand-ins for the partners' servers, Claude and Storage; live after database update 35, the partner-feeds function and the merge (SETUP.md part AF) |
+| The chat finds products in layers (Prompt 11, phase A): Cacaduu first; with fewer than 3 good Cacaduu results and a town the shopper wrote, also shops of the right kind nearby (OpenStreetMap, optionally Google Places; "Môže mať", stock not verified) and offers on allowed shop websites (Claude's web search; "Z webu", price as the page shows it) with links to each shop's own search; groups "Overené v Cacaduu" / "Obchody v okolí (neoverené)" / "Na webe"; anything not about finding a product is declined; admin: switches, allowed domains, search links, calls and estimated cost per day | Built and tested against stand-ins for Claude, Nominatim, Overpass and Google; live after database update 34, the product-sources function, its secrets and the merge (SETUP.md part AE) |
+| Partner feeds (Prompt 11, phase B): partner shops' product feeds (Google Merchant XML/CSV with its local inventory feed, Heureka XML, a plain CSV) read on a schedule into their own tables and shown in the chat under "Partneri" between Cacaduu and shops nearby ("Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera · údaje z 08:00"; older than 48 hours: only "údaje z <dátum>"); affiliate links marked "partnerský odkaz", never ranked higher; admin "Partnerské feedy" | Built and tested against stand-ins for the partners' servers, Claude and Storage; live after database update 35, the partner-feeds function and the merge (SETUP.md part AF) |
 | Paid plan per shop (Stripe: monthly subscription, VAT invoices) | Built and tested against a Stripe stand-in; Stripe **test mode** first (SETUP.md part K) |
 | AI assistant on the shop page (paid plan only, Claude Haiku) | Built and tested against a Claude stand-in; live after migration 19 (SETUP.md part L) |
 | Documents and pictures for the assistant; private folders with access keys (paid plan only) | Built and tested against Claude and Storage stand-ins; live after migration 20 and two new functions (SETUP.md part M) |
@@ -30,7 +30,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Cloud folder for the archive (paid plan only): each finished conversation's PDF and files copied into the shop's own OneDrive or Dropbox; "Cloudový priečinok" in My shop | Built and tested against OneDrive, Dropbox and Brevo stand-ins; live after database update 23, the cloud-export function, the Microsoft and Dropbox app registrations and the secrets (SETUP.md part P) |
 | Access keys for shoppers (paid plan only): a valid key opens a private folder in the chat for 24 hours; its files open in a built-in viewer (pages with a watermark) or, when the owner allows, download one by one or as a ZIP; "Režim prístupu" and a key per folder in My shop; shoppers may download their own conversation as a PDF | Built and tested against Storage and Claude stand-ins; live after database update 24, three updated functions and the merge (SETUP.md part Q) |
 | Booking link (every shop): "Rezervovať termín" link on the shop page, next to the e-mail and Facebook page, opening the shop's booking app; product pages of shops with a domain of their own show no other shops; quick view of the recently uploaded stock files | Built and tested; live after database update 26 and the merge (SETUP.md part S) |
-| Shop status and Pro page layout: open / lunch break / closed / holiday / no hours (dots on the maps and lists, API, MCP, JSON-LD), public holidays SK/HU/CZ, the owner's special days, "Automatické štátne sviatky"; new section order; the assistant always open; no Cacadoo header on own domains | Built and tested; live after database update 27 and the merge (SETUP.md part T) |
+| Shop status and Pro page layout: open / lunch break / closed / holiday / no hours (dots on the maps and lists, API, MCP, JSON-LD), public holidays SK/HU/CZ, the owner's special days, "Automatické štátne sviatky"; new section order; the assistant always open; no Cacaduu header on own domains | Built and tested; live after database update 27 and the merge (SETUP.md part T) |
 | Page sections from PDFs (Pro): up to 10 per shop ("Novinky október", "Leták" …), shown as pages with their text, collapsed or always open, in four positions, with dates, preview and download on/off; the assistant uses them; the header picture of an own domain, the shop's name and logo back on its page | Built and tested; live after database update 28, the page-sections function, the updated shop-files function and the merge (SETUP.md part U) |
 | "Zobrazenie strán" per section: a slider (one page at a time, swipe, ‹ ›, keys, "2 / 5" and dots; the default) or "Pod sebou"; a full-screen viewer with pinch / wheel zoom and swipe; "Stiahnuť PDF" as a button | Built and tested; live after database update 29 and the merge (SETUP.md part V) |
 | Page sections for free shops too: the same upload and display options; limits per plan set by the admin (default free 1 section, 5 pages, 10 MB; Pro 10, 20, 10 MB); "Pre viac sekcií prejdite na Pro" at the limit; on a free page after the opening hours; Pro → free keeps every section, shows the first one | Built and tested; live after database update 30, the updated page-sections function and the merge (SETUP.md part W) |
@@ -39,8 +39,8 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Ticks on "Vaše mimoriadne dni" (delete several at once, "Vybrať všetko"); a blue "Vybrať súbor" link instead of the browser's file box in page sections | Built and tested; live after the merge, no database change (SETUP.md part Z) |
 | Assistant conversations as PDF straight to the PC: "Stiahnuť PDF" on each, ticks + "Stiahnuť vybrané"; the shopper's pictures large in the PDF | Built and tested; live after the updated assistant-archive function and the merge (SETUP.md part AA) |
 | "Konverzácie do počítača": every finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open; never replaces anything) | Built and tested; live after the merge, no database change (SETUP.md part AB) |
-| Own domains easy to find: "Overiť v Google Search Console" (the TXT record written into DNS for domains Cacadoo runs, shown to add by hand otherwise) and "Odoslať sitemap"; llms.txt and robots.txt per own domain (with "Kategórie tovaru"); IndexNow after every stock upload (only changed pages); search results, map pins and AI cards link to the own domain; item pages carry Product/Offer + Store JSON-LD | Built and tested; live after database update 33, the updated domains and stock-pull functions and the merge (SETUP.md part AC) |
-| Own domains fully findable: "Overiť v Google Search Console" — a TXT record added to the DNS of a domain Cacadoo runs ("Odstrániť" removes only that record), or for a connected domain the **HTML značka** on its pages (recommended) or the TXT record to add by hand; **Bing Webmaster Tools** (the same meta tag, or the import from Search Console); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacadoo's API/MCP; **IndexNow on every host** (the main domain too) with only meaningful changes, once per upload and once an hour per host; the Offer keeps the price on stale pages (no availability); API/MCP `source_url` and PPI's llms.txt point to the own domain | Built and tested; live after database update 36, `INDEXNOW_KEY` (Vercel + Supabase) and `SITE_URL` (Supabase), the updated domains and stock-pull functions and the merge (SETUP.md part AG) |
+| Own domains easy to find: "Overiť v Google Search Console" (the TXT record written into DNS for domains Cacaduu runs, shown to add by hand otherwise) and "Odoslať sitemap"; llms.txt and robots.txt per own domain (with "Kategórie tovaru"); IndexNow after every stock upload (only changed pages); search results, map pins and AI cards link to the own domain; item pages carry Product/Offer + Store JSON-LD | Built and tested; live after database update 33, the updated domains and stock-pull functions and the merge (SETUP.md part AC) |
+| Own domains fully findable: "Overiť v Google Search Console" — a TXT record added to the DNS of a domain Cacaduu runs ("Odstrániť" removes only that record), or for a connected domain the **HTML značka** on its pages (recommended) or the TXT record to add by hand; **Bing Webmaster Tools** (the same meta tag, or the import from Search Console); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; **IndexNow on every host** (the main domain too) with only meaningful changes, once per upload and once an hour per host; the Offer keeps the price on stale pages (no availability); API/MCP `source_url` and PPI's llms.txt point to the own domain | Built and tested; live after database update 36, `INDEXNOW_KEY` (Vercel + Supabase) and `SITE_URL` (Supabase), the updated domains and stock-pull functions and the merge (SETUP.md part AG) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -71,7 +71,7 @@ Center.
 
 **Self-service:** there is no approval step by the operator and no admin area for shops or stock. The only operator page
 is "Predplatné a domény" (`/[lang]/admin/domains`, own domains, update 25; only for accounts with `profiles.is_admin`); since
-update 34 it also holds "Vyhľadávanie mimo Cacadoo" and the allowed web domains of the main chat's search (6.5), and
+update 34 it also holds "Vyhľadávanie mimo Cacaduu" and the allowed web domains of the main chat's search (6.5), and
 since update 35 "Partnerské feedy" (6.5b).
 The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
@@ -89,8 +89,8 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   background, correctable by the owner), so a search in any of the three languages finds it
 - The main page is one AI chat search (Prompt 10); the plain database search is its hidden fallback and the first
   HTML of `/[lang]?q=…`
-- The main chat's search in layers (Prompt 11): Cacadoo, then the partners' own product feeds, then shops nearby
-  (OpenStreetMap, optionally Google Places) and offers on larger shops' websites, only when Cacadoo has too little (and,
+- The main chat's search in layers (Prompt 11): Cacaduu, then the partners' own product feeds, then shops nearby
+  (OpenStreetMap, optionally Google Places) and offers on larger shops' websites, only when Cacaduu has too little (and,
   for shops nearby and the web, the shopper wrote a town)
 - Paid plan per shop: a monthly Stripe subscription (Stripe Checkout to subscribe, the Stripe customer portal to
   cancel or change the card), invoices with VAT; one database function says whether a shop has it
@@ -110,7 +110,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 - Location services: the website never asks for the visitor's location and never guesses it from the IP address
   (decided 2026-10-06). Search is by text.
-- Colours: plain black and white design; only exceptions are the Cacadoo PPI logo and the blue "Select picture" link
+- Colours: plain black and white design; only exceptions are the Cacaduu PPI logo and the blue "Select picture" link
   (and, since 2026-10-14, the same blue "Vybrať súbor" link of page sections)
 - An admin area for shops and stock on the website (removed 2026-10-06; the one operator page since update 25 is
   "Predplatné a domény" for own domains)
@@ -157,7 +157,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 The main page is **one AI chat** (Prompt 10), like Perplexity or Claude: nothing else above the fold.
 
-- **Empty page:** in the middle of the screen the small Cacadoo pin, the headline "Čo dnes hľadáte?", one large rounded
+- **Empty page:** in the middle of the screen the small Cacaduu pin, the headline "Čo dnes hľadáte?", one large rounded
   input that grows with the text (placeholder "Napíšte, čo hľadáte a kde – napr. biela farba 15 l v Košiciach") with a
   send arrow, and three example questions that fill the input ("Kto má AdBlue v Michalovciach?", "Nabíjačka USB-C
   otvorené teraz", "Farba na plot a štetec v Košiciach"). No filters, no other search box, no "Len dostupné teraz", no
@@ -168,7 +168,7 @@ The main page is **one AI chat** (Prompt 10), like Perplexity or Claude: nothing
   buttons stay in the page language). Enter sends, Shift+Enter makes a new line, Esc or "Zastaviť" stops the answer
   (and the AI call on the server). "+ Nový chat" clears everything. The conversation lives only in that browser tab;
   the server keeps none.
-- **Thinking:** three dots pulsing in Cacadoo yellow next to the small pin, and a line that follows the **real** steps:
+- **Thinking:** three dots pulsing in Cacaduu yellow next to the small pin, and a line that follows the **real** steps:
   "Rozumiem otázke…" (the question is with the AI), "Hľadám v obchodoch…" (the AI calls the search), "Overujem
   dostupnosť a otváracie hodiny…" (the results with availability and status are back), then the answer. Grey
   placeholder cards while the search runs. CSS only; with "reduce motion" the dots stand still. Screen readers hear
@@ -202,11 +202,11 @@ The main page is **one AI chat** (Prompt 10), like Perplexity or Claude: nothing
 where, at what price and how fresh that is. Anything else gets "Pomáham len s hľadaním produktov v obchodoch v okolí."
 (in the language of the question) and no search.
 
-- **Layer 1 – Cacadoo** (always first): the shops' own stock files, with the freshness badges and status dots above.
-- **Layer 2 – partners** (phase B; only when Cacadoo gave fewer than 3 good results, skipped when no partner has rows):
+- **Layer 1 – Cacaduu** (always first): the shops' own stock files, with the freshness badges and status dots above.
+- **Layer 2 – partners** (phase B; only when Cacaduu gave fewer than 3 good results, skipped when no partner has rows):
   the product feeds of partner shops (6.5b), searched with the same accent-insensitive search as the shops' items. A
   card: "Decathlon (partner) · 24,99 € · online skladom / predajňa Košice: skladom podľa partnera · údaje z 08:00", then
-  the product's name as the partner wrote it (link to the partner's page) and "údaje partnera, neoverené v Cacadoo".
+  the product's name as the partner wrote it (link to the partner's page) and "údaje partnera, neoverené v Cacaduu".
   "online …" is the feed's own availability (skladom / vypredané / na objednávku / na predobjednávku / do N dní, or the
   partner's own word); the stores come only from the partner's local inventory feed, only those in the town the shopper
   wrote (by the store list's town, or within 20 km of the town's centre). The time is the time of the partner's data
@@ -214,27 +214,27 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   time zone. **Data older than 48 hours shows no availability and no stores**, only "údaje z 12. 10. 2026", and comes
   last. An affiliate link is marked "partnerský odkaz" (`rel="sponsored"`); the order never depends on it (the AI does
   not even see it). The partner's logo is shown in grey, like the rest of the site.
-- **Layer 3 – shops nearby** (only when Cacadoo and the partners together gave fewer than 3 good results — Cacadoo:
+- **Layer 3 – shops nearby** (only when Cacaduu and the partners together gave fewer than 3 good results — Cacaduu:
   current or recent data, not sold out, around the town; a partner: data under 48 hours and in stock in one of its
   stores in the town by the partner's word — and the shopper wrote a town): shops of the right kind around the town's centre from OpenStreetMap
   (the AI picks 1–3 kinds of shop for the product, e.g. AdBlue → čerpacie stanice, autodiely). A card: "Môže mať ·
   Turista Michalovce", the kind, street, "180 m od centra Michalovce", the opening hours from OpenStreetMap as text
   ("otvorené do 17:00 (podľa OpenStreetMap)", nothing when OpenStreetMap has none), **zásoby neoverené**, buttons
   Zavolať (only with a phone in the data) and Navigovať, the shop on OpenStreetMap, "údaje z OpenStreetMap (pred 3 h)";
-  "© OpenStreetMap contributors" under the list. A shop that is already in Cacadoo is not repeated. With Google Places
+  "© OpenStreetMap contributors" under the list. A shop that is already in Cacaduu is not repeated. With Google Places
   switched on, a second list from Google Maps (with "Google Maps" under it; never on the map, never seen by the AI).
 - **Layer 4 – the web**: the product on the larger shops' websites the admin allowed (Decathlon, dm, Exisport,
   Intersport, Action …), searched by Claude's web search for a shopper in that town. A card: "Z webu · Decathlon", the
   page's title (link to the page), "cena podľa webu: 39,99 €" (only when the page's own text shows a price), "overte
   dostupnosť na stránke →", "zistené (práve teraz)". Never a store stock claim. Under them "Hľadať priamo v e-shope:"
   with a link to each shop's own search for the product (the admin's search address).
-- **Order and groups:** Overené v Cacadoo (current, then recent, then stale) → Partneri (fresh first) → Obchody v okolí
+- **Order and groups:** Overené v Cacaduu (current, then recent, then stale) → Partneri (fresh first) → Obchody v okolí
   (neoverené) → Na webe. The thinking line follows the real steps ("Hľadám v obchodoch…", "Hľadám u partnerov…",
-  "Hľadám obchody v okolí…", "Hľadám na webe…"). Only Cacadoo shops go on "Ukázať na mape".
-- **No town** in the question and too little in Cacadoo: the answer shows what Cacadoo has and asks "V ktorom meste
+  "Hľadám obchody v okolí…", "Hľadám na webe…"). Only Cacaduu shops go on "Ukázať na mape".
+- **No town** in the question and too little in Cacaduu: the answer shows what Cacaduu has and asks "V ktorom meste
   hľadáte?"; the follow-up ("v Michalovciach") searches nearby and on the web for the same product.
 - **Nothing anywhere:** the answer says so and shows what was searched. "Opýtajte sa obchodov" / "Upozorniť ma" do not
-  exist yet. When the day's limit of outside searches is used up: "Prehľadali sme len ponuky v Cacadoo."
+  exist yet. When the day's limit of outside searches is used up: "Prehľadali sme len ponuky v Cacaduu."
 - A link "Súkromie a zdroje" under the outside results leads to the list of services on the privacy page.
 
 ### 5.2 Shop page (`/[lang]/shops/{slug}`)
@@ -251,12 +251,12 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   after the map, after the opening hours (between the hours and the assistant; update 31), before the items or at the
   end. Shops without the plan: the same without the assistant and the key; their page sections (update 30) sit
   directly after the opening hours, before the items.
-- **On the shop's own domain** there is no Cacadoo header: the shop's own header is as before update 28 — a **small
+- **On the shop's own domain** there is no Cacaduu header: the shop's own header is as before update 28 — a **small
   logo at the top left that leads to the shop's home page** (its "Logo v hlavičke webu", update 31; without one the
   shop's logo; without a logo its name), or to the address the owner set as "Odkaz loga" (update 32, e.g. the shop's
   main website; same window), and the SK · HU · EN switch on the right, a thin line under it (the header
   picture of update 28 is no longer shown); the shop's name and logo are on the page itself, above its details, as
-  on the Cacadoo address ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
+  on the Cacaduu address ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
   with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
 - **Booking link** (update 26, every shop, optional): "Rezervovať termín" in the same row and style as the e-mail
@@ -571,7 +571,7 @@ choose "exact number / in stock–low stock / available" and hide items; migrati
   caches, the daily limit, the switches and the outside keys. Only the product and the town go out — nothing about the
   visitor; distances are from the town's centre. No scraping of any website or internal API: only OpenStreetMap
   (Nominatim, Overpass API), Google Places (API, optional) and Claude's web search.
-- **The server decides the order**, not the AI: shops nearby and the web are refused unless Cacadoo was searched first in
+- **The server decides the order**, not the AI: shops nearby and the web are refused unless Cacaduu was searched first in
   that question, while it has fewer than 3 good results, and with a town the shopper wrote (the town must appear in the
   shopper's own words, bent or not: "v Michalovciach" = Michalovce). Each is asked at most once per question.
 - **OpenStreetMap:** a town is geocoded with Nominatim once and kept for good (a town not found: asked again after 30
@@ -590,12 +590,12 @@ choose "exact number / in stock–low stock / available" and hide items; migrati
 - **Cards only from the tool results** (as in Prompt 10): the AI's refs only choose and order them. Text from shops,
   maps and web pages is data, never instructions (the system prompts say so; the web search's own text is never shown).
 - **Cost and limits:** `EXTERNAL_SEARCH_DAILY_LIMIT` (default 300) counts every outside call of the day together; over
-  it, shops nearby and the web are skipped (even what is cached) and the answer says only Cacadoo was searched. Every
+  it, shops nearby and the web are skipped (even what is cached) and the answer says only Cacaduu was searched. Every
   call is counted per day, layer and service with its estimated cost (web search $10 per 1,000 searches plus the
   model's tokens; Google per the admin's price per call), shown to the admin. A layer runs only when its environment
   switch (`WEB_SEARCH_ENABLED`, `GOOGLE_PLACES_ENABLED`) and the admin's switch are both on. The per-visitor limits of
   the AI search stay. Ranking never depends on payment or affiliate commission.
-- **Admin** ("Predplatné a domény" → "Vyhľadávanie mimo Cacadoo"): a switch per layer next to the environment's state,
+- **Admin** ("Predplatné a domény" → "Vyhľadávanie mimo Cacaduu"): a switch per layer next to the environment's state,
   the estimated prices, the allowed web domains (ASCII only, no wildcard) with their search addresses (https on the
   shop's own host, `{query}` once), today's calls and the calls and cost per day and layer. Every read and write is
   checked by `is_admin()` in the database.
@@ -742,7 +742,7 @@ all as days off (shops-closed rules there depend on the shop's size and type; th
   the shopper's language, every message with its time and "Zákazník"/"Asistent", foreign messages with a smaller grey
   Slovak version, each answer's cards as a table (Tovar, Cena, Dostupnosť, Údaje k), the shopper's photos large where
   they were sent (across the text width, at most about half a page high, never enlarged; since 2026-10-14 — earlier
-  PDFs keep their small thumbnails) with their names, other files listed, and on every page "Vytvorené Cacadoo PPI · konverzácia <id> · strana X/Y". The font
+  PDFs keep their small thumbnails) with their names, other files listed, and on every page "Vytvorené Cacaduu PPI · konverzácia <id> · strana X/Y". The font
   (DejaVu Sans) covers every Central European letter, Greek and Cyrillic; anything else (emoji) shows as "?". Kept in
   the same private folder; the owner takes it home with "Stiahnuť PDF" or through the cloud folder (6.11).
 - **Who sees it:** only the shop's owners (RLS), in "Konverzácie asistenta"; never shoppers, other shops, pages, the
@@ -770,7 +770,7 @@ all as days off (shops-closed rules there depend on the shop's size and type; th
   The page says so before connecting. The tokens are encrypted (AES-GCM, key from `EXPORT_TOKEN_ENCRYPTION_KEY`), kept
   only in the database, read only by the cloud-export function, renewed automatically; "Odpojiť" deletes them (Dropbox's
   token is also revoked; for Microsoft the page says where to remove the app).
-- **Target folder:** default `/Cacadoo/<shop name>`; the owner types another path or browses the cloud's folders and
+- **Target folder:** default `/Cacaduu/<shop name>`; the owner types another path or browses the cloud's folders and
   makes a new one ("Prehľadávať priečinky", "Nový priečinok", "Ukladať sem"). A missing folder is made. A pasted share
   link (1drv.ms, onedrive.live.com, SharePoint, dropbox.com/scl…) is refused with an explanation that share links
   usually cannot be written to, and the OAuth buttons are offered instead.
@@ -877,7 +877,7 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
   tick) removes it.
 - **Registrar (Websupport) in the shop's name.** Every order is placed only after Stripe confirmed the payment, with a
   Websupport domain profile holding the shop's company details (the shop is the registrant and legal owner; never
-  Cacadoo), paid from PPI's prepaid Websupport credit. Low credit → the order waits ("Registrujem doménu"), the admin
+  Cacaduu), paid from PPI's prepaid Websupport credit. Low credit → the order waits ("Registrujem doménu"), the admin
   gets "Dobite kredit na Websupport", and it continues by itself. DNS: only the website records Vercel asks for are
   added or replaced; MX, SPF, DKIM, DMARC and every other record are never touched. A repeated Stripe event never
   orders twice; every step is written to the order's log. `REGISTRAR_MODE=test` (the default): Websupport orders are
@@ -886,7 +886,7 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
   else en), `/hu`, `/en`, items at `/{lang}/items/{id}`, its own `sitemap.xml`, `robots.txt`, `llms.txt` and IndexNow
   key file (update 33, below); `www` → 308 to the bare
   domain; anything else (login, other shops) → PPI's own address; an unknown host → "Táto doména zatiaľ nie je
-  pripojená". Canonical = the own domain; the Cacadoo shop and item pages point their canonical there, and the main
+  pripojená". Canonical = the own domain; the Cacaduu shop and item pages point their canonical there, and the main
   sitemap leaves them out. JSON-LD stays honest (the shop's own data); Pro product pages show no other shops (6.7).
 - **Easy to find (update 33).** Under the live domain on "Predplatné a doména", the box **"Aby vás našli Google a AI
   asistenti"**:
@@ -894,7 +894,7 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
     copy the TXT value "google-site-verification=…"; click Overiť), a field for the value (since update 36 only the
     whole value "google-site-verification=…", quotes allowed; the token alone, an HTML tag or any other text is refused:
     "Toto nie je hodnota TXT zo Search Console …").
-    A domain whose DNS Cacadoo runs (bought here, or an own domain in PPI's Websupport account): **"Zapísať do DNS"**
+    A domain whose DNS Cacaduu runs (bought here, or an own domain in PPI's Websupport account): **"Zapísať do DNS"**
     adds one TXT record at the domain itself through the Websupport DNS API — **only added**: no record is ever
     replaced or removed (MX, SPF, DKIM, DMARC and every other TXT stay), the same value is never added twice, at most
     5 Google values per domain ("Doména už má 5 overovacích záznamov Google …"), at most once in 10 seconds ("Chvíľu
@@ -923,23 +923,23 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
   own domain: the shop's home page (three languages) and every item whose quantity, price, currency, name, EAN or brand
   changed in that upload (each language; ≤ 10 000 addresses). An upload that changed nothing sends nothing. Only for a
   live own domain of a shop with the plan. One random key for PPI, served on every own domain as `/<key>.txt`.
-- **Item pages on the own domain**: canonical = the own domain (also on the Cacadoo address); JSON-LD `@graph` of a
+- **Item pages on the own domain**: canonical = the own domain (also on the Cacaduu address); JSON-LD `@graph` of a
   Product (name, brand, GTIN, the address on the domain) with an **Offer** (price, currency, InStock / OutOfStock,
   `seller` and `availableAtOrFrom` = the shop) **only while the stock data is not stale** — exactly when the page shows
   the quantity — and the shop as a **Store** (a LocalBusiness: address, place, opening hours, special days, contact
   links, facilities; the same node as on the shop page).
-- **Main Cacadoo search** (results, map pins, the AI search cards) and the "Dostupné aj v" list link a shop with a
+- **Main Cacaduu search** (results, map pins, the AI search cards) and the "Dostupné aj v" list link a shop with a
   live own domain straight to it (its item `https://<doména>/<lang>/items/<id>` and its home page); other shops stay on
   PPI's pages. Payment never affects the order of the results.
 - **Fully findable (update 36, Prompt 12).** What changed and was added on top of update 33:
-  - **Search Console on a domain Cacadoo runs**: Cacadoo keeps the id of the TXT record it added
+  - **Search Console on a domain Cacaduu runs**: Cacaduu keeps the id of the TXT record it added
     (`google_txt_record_id`); the same value already in the DNS → nothing is added ("Táto hodnota už v DNS domény …
     je — nič sme nepridali."; state `present`). **"Odstrániť"** forgets the value and removes from the DNS **only the
-    record Cacadoo added** (its id and still its value; a record someone changed is left alone) — never a record that
-    was there before, never SPF, MX, DKIM, DMARC or anything else ("Záznam, ktorý pridal Cacadoo, je odstránený z
-    DNS. Ostatné záznamy sme nezmenili."). A new value replaces only Cacadoo's own earlier record (the new one first).
+    record Cacaduu added** (its id and still its value; a record someone changed is left alone) — never a record that
+    was there before, never SPF, MX, DKIM, DMARC or anything else ("Záznam, ktorý pridal Cacaduu, je odstránený z
+    DNS. Ostatné záznamy sme nezmenili."). A new value replaces only Cacaduu's own earlier record (the new one first).
   - **Search Console on a connected domain**: **a) "HTML značka (odporúčané)"** — property type "Predpona webovej
-    adresy" `https://<doména>/`; the owner pastes Google's whole meta tag (or its content); Cacadoo adds
+    adresy" `https://<doména>/`; the owner pastes Google's whole meta tag (or its content); Cacaduu adds
     `<meta name="google-site-verification" content="…">` to the shop's pages **on that domain only**; **b) "Záznam
     TXT"** — the record with "Kopírovať" next to its name and its value.
   - **"Overiť v Bing Webmaster Tools"** (every own domain): "Najjednoduchšie: … Importovať …" (Bing takes over a site
@@ -952,14 +952,14 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
     Webmaster Tools.
   - **llms.txt of an own domain** also says whether the shop follows public holidays ("the shop follows them — on
     those days the hours above may not apply" / "keeps its regular hours"), the item categories its pages show (only
-    data that exists; never invented), and **"Machine access"**: Cacadoo's MCP server (`get_shop` with this shop's
+    data that exists; never invented), and **"Machine access"**: Cacaduu's MCP server (`get_shop` with this shop's
     slug), REST API and OpenAPI, whose `source_url` points back to the domain.
   - **IndexNow on every host** (replaces update 33's per-domain ping): one key `INDEXNOW_KEY` (public by design; the
-    same value in Vercel and as a Supabase secret), served as `https://<host>/<key>.txt` on the main Cacadoo domain
+    same value in Vercel and as a Supabase secret), served as `https://<host>/<key>.txt` on the main Cacaduu domain
     and on every live own domain. After stock-pull applied a file, in the background (never delays the stock): only
     **meaningful changes** — a new item, a price or currency change, in stock ↔ sold out (a removed item becomes sold
     out); not 12 → 11 pieces (`inventory.indexnow_at`, set by the trigger). The item pages go to their **canonical
-    host** (the shop's live own domain, else the main Cacadoo host from `SITE_URL`), each in sk/hu/en, ≤ 10 000
+    host** (the shop's live own domain, else the main Cacaduu host from `SITE_URL`), each in sk/hu/en, ≤ 10 000
     addresses per request, one host per request, **at most once per upload and once an hour per host**; what
     changed in between goes with the next ping; a refused or failed ping is sent again with the next one (only an
     accepted answer moves on). Every ping is logged (`indexnow_pings`: host, number of addresses, answer); the owner
@@ -972,7 +972,7 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
     leaves those pages out.
 - **Renewal and cancellation.** 30 days before expiry the renewal is charged to the saved card (a Stripe invoice); only
   after it is paid does Websupport renew from PPI's credit. E-mails 30 and 7 days before expiry; a failed renewal: a
-  reminder every week with the payment link, then at expiry the domain lapses and the page is back on its Cacadoo
+  reminder every week with the payment link, then at expiry the domain lapses and the page is back on its Cacaduu
   address. Pro cancelled: the domain keeps working until the period ends; then the website goes back, the domain stays
   the shop's and the **transfer (auth) code** is shown on the page and e-mailed ("Prevod domény k inému
   registrátorovi") — PPI never holds a domain back. A connected domain is removed from Vercel when Pro ends.
@@ -1120,7 +1120,7 @@ too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 | `domain_settings` | one row: `search_url` (https), `same_price_as_registrar`, `low_credit_eur`, `test_domain`, `credit_eur`, `credit_checked_at`, `credit_alert_at`, `indexnow_key` (update 33: random; no longer used since update 36 — the key is `INDEXNOW_KEY`) | Update 25; only the admin (owners read the search address and the switch through `domain_shop_settings()`) |
 | `domain_prices` | `tld` (key), `price_cents`, `renewal_cents`, `vat_included`, `currency` (EUR), `sort_order`, `active` | The admin's price table; everyone reads active rows |
 | `shop_legal` | `shop_id` (key), `company_name`, `contact_name`, `street`, `city`, `zip`, `country`, `ico`, `dic`, `ic_dph`, `email`, `phone` | The domain owner's details; members and the admin read, owners write through `owner_save_legal()` |
-| `domain_orders` | `shop_id`, `kind` (`bought`/`connected`), `hostname`, `site_host`, `www`, `status` (quoted → checkout → paid → registering → configuring → securing → live; waiting_dns → verified; taken, failed, dns_timeout, lapsed, ended, canceled), the frozen price, Stripe session/invoice/payment/refund, Websupport profile/order/service, `test_mode`, `waiting_credit`, `dns_records`, checks, tries, `live_at`, `live_email_at`, `expires_at`, renewal state and notices, `auth_code`, `last_error`, `needs_admin`, `log`; update 33: `google_verification` (`google-site-verification=…`), `google_verification_state` (added/manual; update 36: present), `google_verification_at`, `indexnow_upload_at` (the upload last announced), `indexnow_at`, `indexnow_urls`, `indexnow_result`; update 36: `google_txt_record_id` (the record Cacadoo added, only with added) | One open domain per shop and per host; members and the admin read; only the domains and Stripe functions write |
+| `domain_orders` | `shop_id`, `kind` (`bought`/`connected`), `hostname`, `site_host`, `www`, `status` (quoted → checkout → paid → registering → configuring → securing → live; waiting_dns → verified; taken, failed, dns_timeout, lapsed, ended, canceled), the frozen price, Stripe session/invoice/payment/refund, Websupport profile/order/service, `test_mode`, `waiting_credit`, `dns_records`, checks, tries, `live_at`, `live_email_at`, `expires_at`, renewal state and notices, `auth_code`, `last_error`, `needs_admin`, `log`; update 33: `google_verification` (`google-site-verification=…`), `google_verification_state` (added/manual; update 36: present), `google_verification_at`, `indexnow_upload_at` (the upload last announced), `indexnow_at`, `indexnow_urls`, `indexnow_result`; update 36: `google_txt_record_id` (the record Cacaduu added, only with added) | One open domain per shop and per host; members and the admin read; only the domains and Stripe functions write |
 | `domain_site_verifications` | `order_id` (key), `shop_id`, `google_meta` (Google's token), `bing_meta` (Bing's hex code), `updated_at` | Update 36; RLS: the shop's members read; written only through `owner_set_site_verification()` |
 | `indexnow_hosts` | `host` (key), `sent_upto` + `sent_upto_id` (what was sent and accepted), `last_ping_at`, `last_status`, `last_result`, `last_urls` | Update 36; RLS on, service role only (stock-pull through `indexnow_claim_host()` / `indexnow_done()`) |
 | `indexnow_pings` | `host`, `kind` (main/site), `urls`, `status`, `result`, `upto`, `sent_at` (the last 100 per host) | Update 36; RLS on, service role only |
@@ -1209,9 +1209,9 @@ line until the legal text is final).
 - Font: **Quicksand** on every page of the website (PPI's pages, Môj obchod, the admin page and the shops' own domains;
   also the map's tooltips), served from the site itself. Codes such as DNS records and keys stay monospace; the
   conversation PDFs keep their embedded font (DejaVu Sans).
-  Exceptions at the owner's request: the Cacadoo PPI logo in the header, the blue "Select picture" link for logos and
+  Exceptions at the owner's request: the Cacaduu PPI logo in the header, the blue "Select picture" link for logos and
   the same blue "Vybrať súbor" link of page sections, and (Prompt 10) the **thinking dots of the main page's chat in
-  Cacadoo yellow #FFC531**, next to the small Cacadoo pin, only while the AI works (still with "reduce motion").
+  Cacaduu yellow #FFC531**, next to the small Cacaduu pin, only while the AI works (still with "reduce motion").
 - Availability always written out as text, in bold, always next to its freshness.
 - Translated names in grey under the shop's own name. The main page's chat: the shopper's question in a light-grey
   bubble on the right, the answer on the left without a border, cards with thin grey lines; the input large and rounded.
@@ -1220,7 +1220,7 @@ line until the legal text is final).
   blue #2F6FED lunch break, red #D64545 closed, yellow #F2B705 public holiday, grey #9AA5B1 no hours; always shown
   together with the status in words, never colour alone (on the page next to the shop; on a map pin in its tooltip
   and label — no legend under the maps, at the owner's request); on maps a white outline and a thin dark ring.
-- On a shop's own domain: no Cacadoo header; the shop's small logo at the top left (a link home; its colours are the
+- On a shop's own domain: no Cacaduu header; the shop's small logo at the top left (a link home; its colours are the
   shop's own logo) and SK · HU · EN on the right, a thin line under them (update 31); the shop's name and logo on the
   page above its details.
 - Language switch SK · HU · EN in the header; "For shops" link to the login.
@@ -1251,7 +1251,8 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   the translations can be wrong; owners can correct translations. The first translation of each shop's names happens
   with its next new stock file.
 - **The four sample shops** from the build are still live (their names have no translations).
-- The site runs on `cacadooppivercel.vercel.app`; an own domain for PPI itself is still to come (shops can have theirs: 6.13).
+- The site's main domain is `cacaduu.com` (since 20 October 2026: `NEXT_PUBLIC_SITE_URL`); `cacadooppivercel.vercel.app` still
+  answers and points search engines to it with its canonical links (shops can have their own domains: 6.13).
 - **Paid plan in test mode.** Stripe runs with test keys (test cards only) until it is switched to live; the shop
   assistant, its texts, its documents and hiding other shops on product pages are the features that check
   `shop_has_plan()` so far (other shops are also hidden while a domain of the shop's own is being set up or live). If Stripe cannot reach the webhook, the plan
@@ -1301,7 +1302,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   1 GB in all). Storage's own file limit (50 MB on the free plan) also caps a file the admin uploads; an address has
   no such cap. Store stock needs the partner's local inventory feed in Google's format (Heureka's availability feed is
   not read). A store is matched to the shopper's town by the store list's town or, with coordinates, by the town's
-  centre when Cacadoo or OpenStreetMap already knows it. The partner layer is in the main chat only (not in the public
+  centre when Cacaduu or OpenStreetMap already knows it. The partner layer is in the main chat only (not in the public
   API, MCP or the plain search).
 - **Outside sources (update 34).** The deep links need the admin's search addresses (none are set for the five domains
   of the brief: their search pages could not be checked from here). OpenStreetMap is only as complete as its volunteers
@@ -1359,7 +1360,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-01 | Phase 1–2: Next.js foundation, Supabase database, rules in SQL, automatic checks |
 | 2026-10-03 | Europe-wide (no home town, any currency/time zone); phase 3 public pages + map + JSON-LD; phase 4 login, owner dashboard, admin area |
 | 2026-10-04 | Shop facilities; phase 5 AI access (robots, sitemap, llms.txt, API, MCP); phase 6 automatic stock pull with AI mapping; shop PC tunnel installer (later replaced) |
-| 2026-10-06 | Shop PC as a browser app instead of a tunnel; self-service sign-up with passwords; admin area removed; no location services, text search incl. shop name/street/town; logo upload fixes; Cacadoo PPI logo; search-engine verification tags |
+| 2026-10-06 | Shop PC as a browser app instead of a tunnel; self-service sign-up with passwords; admin area removed; no location services, text search incl. shop name/street/town; logo upload fixes; Cacaduu PPI logo; search-engine verification tags |
 | 2026-10-07 | "Upload file" button |
 | 2026-10-08 | This as-built PRD and architecture document |
 | 2026-10-08 | Cloud links (built 2026-10-07) removed: stock arrives only by upload — the PPI app window and "Upload file" |
@@ -1373,7 +1374,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-10 | Access keys for shoppers: unlock in the chat (also by typing the key), viewer with watermarked pages, "Len zobraziť" / "Zobraziť a stiahnuť" per folder and file, downloads and ZIP (20 per session), a key per folder, counts; the shopper's own conversation PDF |
 | 2026-10-11 | Own domains for Pro shops: buy one through PPI (search on websupport.sk, paste, pay once; registered in the shop's name at Websupport) or connect one the shop already has; the shop page served on its own domain; renewals, transfer code, admin page "Predplatné a domény" |
 | 2026-10-11 | Booking link on the shop page ("Rezervovať termín", every shop); no other shops on product pages of shops with a domain of their own; quick view (slideshow) of the recently uploaded stock files |
-| 2026-10-13 | Pro page layout and shop status: open / lunch break / closed / holiday / no hours with coloured dots on maps, lists, the shop page, API, MCP and JSON-LD; public holidays (SK, HU, CZ) and the owner's special days; "Automatické štátne sviatky"; new section order (details under the name), the assistant always open, "Mám prístupový kľúč" as a dropdown; no Cacadoo header on own domains |
+| 2026-10-13 | Pro page layout and shop status: open / lunch break / closed / holiday / no hours with coloured dots on maps, lists, the shop page, API, MCP and JSON-LD; public holidays (SK, HU, CZ) and the owner's special days; "Automatické štátne sviatky"; new section order (details under the name), the assistant always open, "Mám prístupový kľúč" as a dropdown; no Cacaduu header on own domains |
 | 2026-10-13 | Page sections from PDFs (Pro): up to 10 per shop, cleaned on the server, pages as 800/1600 px pictures with their text, collapsed or always open in four positions, dates, preview, download on/off, the assistant names them; public pictures only while shown (hourly job); own domains get the shop's header picture, the name and logo back on the page |
 | 2026-10-13 | Page sections: "Zobrazenie strán" (slider or one under another), full-screen viewer; page sections for free shops too (limits per plan set by the admin, "Pre viac sekcií prejdite na Pro", after the opening hours on a free page, Pro → free shows the first one) |
 | 2026-10-14 | Own domain header back to a small clickable logo ("Logo v hlavičke webu" replaces the header picture) with SK · HU · EN; the section position "Za otváracími hodinami"; page sections made of pictures (JPG, PNG, WebP) |
@@ -1382,7 +1383,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-14 | Assistant conversations: "Stiahnuť PDF" and "Stiahnuť vybrané" (each its own PDF, straight to the PC); the shopper's pictures large in the PDF |
 | 2026-10-14 | "Konverzácie do počítača": each finished conversation saved by itself as a PDF into a folder on the shop PC (Edge/Chrome, while the PPI window is open) |
 | 2026-10-14 | Own domains easy to find: "Overiť v Google Search Console" (TXT record into DNS only by adding, or shown to add), "Odoslať sitemap", llms.txt and robots.txt per own domain with "Kategórie tovaru", IndexNow once per upload with only the changed pages, Product/Offer + Store JSON-LD on own-domain item pages, search results linking to the own domain |
-| 2026-10-14 | The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots in Cacadoo yellow with the real steps, the answer streamed word by word, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page (the API and MCP keep `only_available`) |
-| 2026-10-15 | The chat finds products in layers: Cacadoo first, then shops nearby (OpenStreetMap, optionally Google Places) and offers on allowed shop websites (Claude's web search) with deep links, only when Cacadoo has fewer than 3 good results and the shopper wrote a town; other questions declined; admin switches, allowed domains, calls and cost per day |
-| 2026-10-15 | Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule in parts, shown in the chat under "Partneri" between Cacadoo and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" |
-| 2026-10-15 | Own domains fully findable: "Odstrániť" removes only the TXT record Cacadoo added, the same value is never added twice; the Google "HTML značka" for connected domains (recommended) next to the TXT record; Bing Webmaster Tools (meta tag or import); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacadoo's API/MCP; IndexNow on every host with one `INDEXNOW_KEY`, only meaningful changes, once per upload and once an hour per host, logged; the Offer keeps the price on stale pages; `x-default` hreflang; API/MCP `source_url` and PPI's llms.txt point to the own domain |
+| 2026-10-14 | The main page as one AI chat: "Čo dnes hľadáte?", example questions, thinking dots in Cacaduu yellow with the real steps, the answer streamed word by word, result cards with freshness, status and distance from the named town, follow-ups, "Nový chat", "Zastaviť"; the plain search as a hidden fallback; "Len dostupné teraz" removed from the page (the API and MCP keep `only_available`) |
+| 2026-10-15 | The chat finds products in layers: Cacaduu first, then shops nearby (OpenStreetMap, optionally Google Places) and offers on allowed shop websites (Claude's web search) with deep links, only when Cacaduu has fewer than 3 good results and the shopper wrote a town; other questions declined; admin switches, allowed domains, calls and cost per day |
+| 2026-10-15 | Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule in parts, shown in the chat under "Partneri" between Cacaduu and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" |
+| 2026-10-15 | Own domains fully findable: "Odstrániť" removes only the TXT record Cacaduu added, the same value is never added twice; the Google "HTML značka" for connected domains (recommended) next to the TXT record; Bing Webmaster Tools (meta tag or import); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; IndexNow on every host with one `INDEXNOW_KEY`, only meaningful changes, once per upload and once an hour per host, logged; the Offer keeps the price on stale pages; `x-default` hreflang; API/MCP `source_url` and PPI's llms.txt point to the own domain |
