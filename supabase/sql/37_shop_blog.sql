@@ -1147,7 +1147,8 @@ security definer
 set search_path = ''
 as $$
   select jsonb_build_object('shop_id', c.shop_id, 'page_id', c.page_id, 'page_name', c.page_name,
-                            'page_token_enc', c.page_token_enc, 'status', c.status, 'import_state', c.import_state,
+                            'page_token_enc', c.page_token_enc, 'status', c.status, 'connected_at', c.connected_at,
+                            'import_state', c.import_state,
                             'import_cursor', c.import_cursor, 'shop_slug', s.slug, 'shop_country', s.country)
   from public.facebook_connections c join public.shops s on s.id = c.shop_id
   where c.shop_id = p_shop_id
