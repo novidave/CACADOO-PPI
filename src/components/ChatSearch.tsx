@@ -353,7 +353,7 @@ export function ChatSearch({
     return (
       <div className="flex min-h-[calc(100dvh-8.5rem)] flex-col items-center justify-center gap-6 py-6" data-chat-empty>
         {/* eslint-disable-next-line @next/next/no-img-element -- small static logo, exact size given */}
-        <img src="/brand/cacadoo-pin.png" alt="" width={32} height={48} className="h-12 w-auto" />
+        <img src="/brand/cacaduu-pin.svg" alt="" width={94} height={148} className="h-12 w-auto" />
         <h1 className="text-center text-2xl font-semibold tracking-tight sm:text-3xl">{labels.headline}</h1>
         <div className="w-full max-w-2xl">{form}</div>
         <ul className="flex max-w-2xl flex-wrap justify-center gap-2" aria-label={labels.examples_label}>
@@ -422,7 +422,7 @@ function Thinking({ text }: { text: string }) {
   return (
     <div className="flex items-center gap-2" data-thinking>
       {/* eslint-disable-next-line @next/next/no-img-element -- small static icon, exact size given */}
-      <img src="/brand/cacadoo-pin.png" alt="" width={13} height={20} className="h-5 w-auto" />
+      <img src="/brand/cacaduu-pin.svg" alt="" width={94} height={148} className="h-5 w-auto" />
       <span className="ppi-dots" aria-hidden>
         <span />
         <span />

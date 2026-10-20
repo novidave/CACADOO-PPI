@@ -343,7 +343,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   links and browsers without JavaScript get the plain results in the first HTML; with JavaScript `ChatSearch` asks that
   question at once and shows the plain rows under it until the chat answer arrives. `viewport-fit=cover` so the input
   sits above the phone's home bar (`env(safe-area-inset-bottom)`).
-- **`ChatSearch`** (client): empty state = small pin (`public/brand/cacadoo-pin.png`), "Čo dnes hľadáte?", one
+- **`ChatSearch`** (client): empty state = small pin (`public/brand/cacaduu-pin.svg`), "Čo dnes hľadáte?", one
   auto-growing textarea in a plain `GET /[lang]` form (works without JavaScript) and three example chips that fill it.
   Chat mode: the turns (question bubble right, answer left), the input sticky at the bottom; Enter sends, Shift+Enter
   is a new line, Esc / "Zastaviť" aborts the fetch, "+ Nový chat" clears the turns and the address. The history lives

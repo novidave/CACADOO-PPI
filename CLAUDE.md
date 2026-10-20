@@ -42,8 +42,9 @@ on the website (at the owner's request, 2026-10-20): `src/app/fonts.ts` (`next/f
 self-hosted at build — no browser request to Google), its variable on `<html>` in both root layouts, used by `body`,
 `--font-sans` and MapLibre's map/tooltips in `globals.css`; code-like values (DNS records, keys) keep `font-mono`. The
 conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
-**No colours** (only exceptions, at the owner's request: the Cacadoo PPI logo in the header, `public/brand/cacadoo-ppi.png`,
-the main page chat's small pin `public/brand/cacadoo-pin.png` and its **thinking dots in Cacadoo yellow #FFC531** (Prompt 10),
+**No colours** (only exceptions, at the owner's request: the Cacaduu PPI logo in the header, `public/brand/cacaduu-ppi.svg`
+(cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
+the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
 the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
