@@ -32,6 +32,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { data: shops } = await supabase.from("public_shops").select("slug, latest_file_time").order("slug");
   for (const shop of shops ?? []) if (!onOwnDomain.has(shop.slug)) urls.push(entry(`/shops/${shop.slug}`, shop.latest_file_time));
 
+  // The shops' blogs (database update 37): each shop's "Novinky" and its posts, lastmod = the post's last change.
+  const { data: posts } = await supabase.rpc("blog_index", { p_slug: null, p_limit: 20_000 });
+  const newest = new Map<string, string>();
+  for (const post of (posts ?? []) as { shop_slug: string; post_slug: string; modified_at: string }[]) {
+    if (onOwnDomain.has(post.shop_slug)) continue;
+    if (!newest.has(post.shop_slug) || newest.get(post.shop_slug)! < post.modified_at) newest.set(post.shop_slug, post.modified_at);
+    urls.push(entry(`/shops/${post.shop_slug}/blog/${post.post_slug}`, post.modified_at));
+  }
+  for (const [slug, at] of newest) urls.push(entry(`/shops/${slug}/blog`, at));
+
   // Items: lastmod = the shop's latest stock file.
   for (let from = 0; from < MAX_ITEMS; from += PAGE) {
     const { data, error } = await supabase

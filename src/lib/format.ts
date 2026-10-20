@@ -113,6 +113,43 @@ export function endOfLocalDay(day: string, timeZone?: string | null): Date | nul
   return new Date(guess - (shown - guess));
 }
 
+function zoneParts(at: Date, timeZone?: string | null): Record<string, string> {
+  return Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: zone(timeZone),
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+      .formatToParts(at)
+      .map((p) => [p.type, p.value]),
+  );
+}
+
+/** A wall-clock time typed by the owner ("2026-10-21T10:00", in the shop's time zone) as a UTC instant, or null. */
+export function localToUtc(value: string, timeZone?: string | null): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!m) return null;
+  const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  if (!Number.isFinite(guess)) return null;
+  // The zone's offset at that moment (summer time included), from how it shows the guess; twice near a change.
+  let at = guess;
+  for (let i = 0; i < 2; i++) {
+    const p = zoneParts(new Date(at), timeZone);
+    at += guess - Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+  }
+  return new Date(at);
+}
+
+/** A UTC instant as the value of a datetime-local field in the shop's time zone ("2026-10-21T10:00"). */
+export function utcToLocalInput(iso: string | Date, timeZone?: string | null): string {
+  const p = zoneParts(typeof iso === "string" ? new Date(iso) : iso, timeZone);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
 /** Whether a stored time (UTC) has passed. */
 export function isPast(iso: string | null | undefined): boolean {
   return Boolean(iso) && new Date(iso as string).getTime() <= Date.now();

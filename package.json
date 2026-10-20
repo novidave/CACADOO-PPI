@@ -14,6 +14,7 @@
     "test:status": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/hours_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/hours_test.ts",
     "test:site": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/findable_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/findable_test.ts",
     "test:chat": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/chat_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/chat_test.ts",
+    "test:blog": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/blog_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/blog_test.ts",
     "check:functions": "cd supabase/functions && (deno check --config deno.json */index.ts || npx -y deno check --config deno.json */index.ts)",
     "test:functions": "cd supabase/functions && (PPI_STOCK_PULL_TEST=1 PPI_FUNCTION_TEST=1 deno test --config deno.json --allow-env --allow-read=. . || PPI_STOCK_PULL_TEST=1 PPI_FUNCTION_TEST=1 npx -y deno test --config deno.json --allow-env --allow-read=. .)"
   },

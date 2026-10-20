@@ -121,6 +121,8 @@ export function siteLlmsTxt(o: {
   calendar: CalendarDay[];
   facts: LlmsFacts | null;
   words: StockWords;
+  /** The newest posts of the shop's blog (update 37), newest first. */
+  news?: { title: string; date: string; url: string }[];
   now?: Date;
 }): string {
   const { host, lang, shop, facts, words } = o;
@@ -182,7 +184,17 @@ export function siteLlmsTxt(o: {
     `- Shop and its items: ${base}/ (search: ${base}/?q={words})`,
     `- One item: ${base}/${lang}/items/{id}`,
     `- Languages: ${["sk", "hu", "en"].map((l) => (l === lang ? `${base}/` : `${base}/${l}`)).join(" · ")}`,
+    ...(o.news?.length ? [`- News (the shop's blog): ${base}/blog · RSS: ${base}/blog/rss.xml`] : []),
     "",
+    ...(o.news?.length
+      ? [
+          "## Latest news",
+          "",
+          ...o.news.map((n) => `- [${line(n.title)}](${n.url}) (${n.date.slice(0, 10)})`),
+          "- The posts are the shop's own words, as written (in its language).",
+          "",
+        ]
+      : []),
     "## How to read the stock",
     "",
     `- Every item shows its price and the quantity exactly as in the shop's stock file: "${example(words.in_stock_count, "12")}" means 12 pieces in stock, "${words.out_of_stock}" means sold out (0 or less).`,

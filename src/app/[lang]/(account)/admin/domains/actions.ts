@@ -118,6 +118,19 @@ export async function saveSectionLimits(formData: FormData) {
   back(error ? { err: error.message.slice(0, 200) } : { ok: "limits" }, "section-limits");
 }
 
+/** "Novinky / Blog": the newest N articles per plan (empty = all); admin_save_blog_limits checks is_admin() itself. */
+export async function saveBlogLimits(formData: FormData) {
+  const { session, back } = await start(formData);
+  for (const plan of ["free", "pro"] as const) {
+    const text = String(formData.get(plan) ?? "").trim();
+    const n = text === "" ? null : Number(text);
+    if (n !== null && (!Number.isInteger(n) || n < 0 || n > 10_000)) back({ err: "blog_limits" }, "blog");
+    const { error } = await session.supabase.rpc("admin_save_blog_limits", { p_plan: plan, p_max_posts: n });
+    if (error) back({ err: error.message.slice(0, 200) }, "blog");
+  }
+  back({ ok: "blog_limits" }, "blog");
+}
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
