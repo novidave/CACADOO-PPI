@@ -166,7 +166,7 @@ export async function verifyGoogle(formData: FormData) {
 
 /**
  * "Odstrániť" (update 36): the Search Console value is forgotten; from the DNS the function removes
- * only the record Cacadoo added (never one that was there already, never another record).
+ * only the record Cacaduu added (never one that was there already, never another record).
  */
 export async function removeGoogle(formData: FormData) {
   const { session, back } = await start(formData);

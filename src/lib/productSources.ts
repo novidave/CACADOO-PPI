@@ -25,7 +25,7 @@ export interface SourceTown {
   lat: number;
   lng: number;
   country: string | null;
-  source: "nominatim" | "cacadoo";
+  source: "nominatim" | "cacaduu";
 }
 
 export interface OsmShop {

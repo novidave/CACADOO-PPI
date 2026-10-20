@@ -659,7 +659,7 @@ export interface Order {
   google_verification?: string | null;
   google_verification_state?: "added" | "present" | "manual" | null;
   google_verification_at?: string | null;
-  /** Update 36: the DNS record Cacadoo added (only with "added") — the one record "Odstrániť" may remove. */
+  /** Update 36: the DNS record Cacaduu added (only with "added") — the one record "Odstrániť" may remove. */
   google_txt_record_id?: string | null;
 }
 
@@ -746,7 +746,7 @@ async function send(deps: Deps, mail: Mail): Promise<boolean> {
     method: "POST",
     headers: { "api-key": deps.email.apiKey, "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
-      sender: { name: "Cacadoo PPI", email: deps.email.from },
+      sender: { name: "Cacaduu PPI", email: deps.email.from },
       to: mail.to.map((email) => ({ email })),
       subject: mail.subject,
       textContent: mail.text,
@@ -795,7 +795,7 @@ export function liveMail(o: Order, shop: ShopInfo, to: string[]): Mail {
     `Predplatné a doména: ${planPage(o, shop)}`,
     ...(o.invoice_url ? [`Faktúra: ${o.invoice_url}`] : []),
     ``,
-    `Cacadoo PPI`,
+    `Cacaduu PPI`,
   ];
   const a = (href: string, text: string) =>
     `<a href="${escapeHtml(href)}" style="color:#000;text-decoration:underline">${escapeHtml(text)}</a>`;
@@ -817,7 +817,7 @@ export function liveMail(o: Order, shop: ShopInfo, to: string[]): Mail {
       : "",
     o.test_mode ? `<p>(Testovací režim: doména ${escapeHtml(o.hostname)} sa nekúpila, stránka beží na testovacej doméne.)</p>` : "",
     `<p>${a(planPage(o, shop), "Predplatné a doména")}${o.invoice_url ? ` · ${a(o.invoice_url, "Faktúra")}` : ""}</p>`,
-    `<p>Cacadoo PPI</p>`,
+    `<p>Cacaduu PPI</p>`,
     `</div>`,
   ].join("");
   return { to, subject: `Vaša stránka beží na ${host}`, text: lines.join("\n"), html };
@@ -997,7 +997,7 @@ async function ownerDetailsRefused(deps: Deps, o: Order, fields: string[], reaso
       await send(deps, {
         to: await shopMail(deps, o.shop_id),
         subject: `Opravte údaje majiteľa domény ${o.hostname}`,
-        text: `Dobrý deň,\n\nregistrátor Websupport neprijal tieto údaje majiteľa domény ${o.hostname}: ${fields.map((f) => OWNER_LABEL_SK[f] ?? f).join(", ")}.\nOpravte ich na stránke Predplatné a doména – registrácia potom pokračuje sama:\n${planPage(o, shop)}\n\nCacadoo PPI`,
+        text: `Dobrý deň,\n\nregistrátor Websupport neprijal tieto údaje majiteľa domény ${o.hostname}: ${fields.map((f) => OWNER_LABEL_SK[f] ?? f).join(", ")}.\nOpravte ich na stránke Predplatné a doména – registrácia potom pokračuje sama:\n${planPage(o, shop)}\n\nCacaduu PPI`,
       });
     }
   }
@@ -1136,7 +1136,7 @@ async function waitForDns(deps: Deps, o: Order) {
       await send(deps, {
         to: await shopMail(deps, o.shop_id),
         subject: `Doménu ${host} sa nepodarilo pripojiť`,
-        text: `Dobrý deň,\n\nza 7 dní sme u domény ${host} nenašli potrebné DNS záznamy, preto sme pripájanie zastavili. Môžete ho kedykoľvek začať znova:\n${planPage(o, shop)}\n\nCacadoo PPI`,
+        text: `Dobrý deň,\n\nza 7 dní sme u domény ${host} nenašli potrebné DNS záznamy, preto sme pripájanie zastavili. Môžete ho kedykoľvek začať znova:\n${planPage(o, shop)}\n\nCacaduu PPI`,
       });
     }
     return;
@@ -1149,7 +1149,7 @@ async function waitForDns(deps: Deps, o: Order) {
       await send(deps, {
         to: await shopMail(deps, o.shop_id),
         subject: `Pripojte doménu ${host}: chýbajú DNS záznamy`,
-        text: `Dobrý deň,\n\nu domény ${host} ešte nevidíme záznamy pre vašu stránku. Prihláste sa u svojho registrátora a pridajte tieto záznamy:\n\n${records}\n\nNeodstraňujte existujúce MX záznamy, inak prestane fungovať e-mail.\n\nPodrobnosti a tlačidlo Skontrolovať: ${planPage(o, shop)}\n\nCacadoo PPI`,
+        text: `Dobrý deň,\n\nu domény ${host} ešte nevidíme záznamy pre vašu stránku. Prihláste sa u svojho registrátora a pridajte tieto záznamy:\n\n${records}\n\nNeodstraňujte existujúce MX záznamy, inak prestane fungovať e-mail.\n\nPodrobnosti a tlačidlo Skontrolovať: ${planPage(o, shop)}\n\nCacaduu PPI`,
       });
     }
   }
@@ -1224,7 +1224,7 @@ async function domainTaken(deps: Deps, o: Order) {
     await send(deps, {
       to: await shopMail(deps, o.shop_id),
       subject: `Doména ${o.hostname} už nie je voľná – peniaze za doménu vraciame`,
-      text: `Dobrý deň,\n\ndoménu ${o.hostname} medzičasom zaregistroval niekto iný. ${refunded ? `Sumu za doménu (${money(o.price_cents)}) sme vrátili na vašu kartu` : "Sumu za doménu vám vrátime"}; predplatné Pro zostáva.\n\nVyberte si prosím iný názov na Websupport.sk a vložte ho znova:\n${planPage(o, shop)}\n\nCacadoo PPI`,
+      text: `Dobrý deň,\n\ndoménu ${o.hostname} medzičasom zaregistroval niekto iný. ${refunded ? `Sumu za doménu (${money(o.price_cents)}) sme vrátili na vašu kartu` : "Sumu za doménu vám vrátime"}; predplatné Pro zostáva.\n\nVyberte si prosím iný názov na Websupport.sk a vložte ho znova:\n${planPage(o, shop)}\n\nCacaduu PPI`,
     });
   }
   if (!refunded) await adminMail(deps, `Vrátenie peňazí zlyhalo: ${o.hostname}`, `Doména ${o.hostname} bola obsadená, ale peniaze sa nepodarilo vrátiť automaticky. Vráťte ich v Stripe.`);
@@ -1247,7 +1247,7 @@ async function registrationFailed(deps: Deps, o: Order, reason: string) {
     await send(deps, {
       to: await shopMail(deps, o.shop_id),
       subject: `Doménu ${o.hostname} sa nepodarilo zaregistrovať`,
-      text: `Dobrý deň,\n\ndoménu ${o.hostname} sa nám nepodarilo zaregistrovať. ${refunded ? `Sumu za doménu (${money(o.price_cents)}) sme vrátili na vašu kartu` : "Sumu za doménu vám vrátime do niekoľkých dní"}; predplatné Pro zostáva. Ozveme sa vám, alebo si môžete vybrať iný názov:\n${planPage(o, shop)}\n\nCacadoo PPI`,
+      text: `Dobrý deň,\n\ndoménu ${o.hostname} sa nám nepodarilo zaregistrovať. ${refunded ? `Sumu za doménu (${money(o.price_cents)}) sme vrátili na vašu kartu` : "Sumu za doménu vám vrátime do niekoľkých dní"}; predplatné Pro zostáva. Ozveme sa vám, alebo si môžete vybrať iný názov:\n${planPage(o, shop)}\n\nCacaduu PPI`,
     });
   }
 }
@@ -1344,7 +1344,7 @@ export async function daily(deps: Deps): Promise<Record<string, number>> {
   return out;
 }
 
-/** Pro ended: the website goes back to its Cacadoo address; a bought domain stays the shop's. */
+/** Pro ended: the website goes back to its Cacaduu address; a bought domain stays the shop's. */
 async function endDomain(deps: Deps, o: Order, reason: string) {
   const host = o.site_host ?? o.hostname;
   if (deps.vercel) {
@@ -1364,17 +1364,17 @@ async function endDomain(deps: Deps, o: Order, reason: string) {
       await send(deps, {
         to: await shopMail(deps, o.shop_id),
         subject: `Doména ${o.hostname} zostáva vaša`,
-        text: `Dobrý deň,\n\npredplatné Pro sa skončilo, stránka sa vrátila na adresu v Cacadoo. Doména ${o.hostname} je zaregistrovaná na vašu firmu${o.expires_at ? ` do ${dateIn(o.expires_at, shop.timezone)}` : ""} a zostáva vaša.\n${authCode ? `Kód na prevod k inému registrátorovi: ${authCode}\n` : "Kód na prevod nájdete na stránke Predplatné a doména.\n"}Prevod: u nového registrátora zvoľte „prevod domény“ a vložte tento kód.\n\n${planPage(o, shop)}\n\nCacadoo PPI`,
+        text: `Dobrý deň,\n\npredplatné Pro sa skončilo, stránka sa vrátila na adresu v Cacaduu. Doména ${o.hostname} je zaregistrovaná na vašu firmu${o.expires_at ? ` do ${dateIn(o.expires_at, shop.timezone)}` : ""} a zostáva vaša.\n${authCode ? `Kód na prevod k inému registrátorovi: ${authCode}\n` : "Kód na prevod nájdete na stránke Predplatné a doména.\n"}Prevod: u nového registrátora zvoľte „prevod domény“ a vložte tento kód.\n\n${planPage(o, shop)}\n\nCacaduu PPI`,
       });
     }
   }
 }
 
 /**
- * 30 days before expiry: the renewal is charged to the saved card (an invoice from Cacadoo).
+ * 30 days before expiry: the renewal is charged to the saved card (an invoice from Cacaduu).
  * Paid → Websupport renews from our credit (its renewal switch is turned on only now).
  * Not paid → a reminder every week with the payment link; at expiry the domain lapses and
- * the website goes back to its Cacadoo address.
+ * the website goes back to its Cacaduu address.
  */
 async function renewal(deps: Deps, o: Order): Promise<{ charged: number; lapsed: number; reminders: number }> {
   const result = { charged: 0, lapsed: 0, reminders: 0 };
@@ -1406,7 +1406,7 @@ async function renewal(deps: Deps, o: Order): Promise<{ charged: number; lapsed:
       await send(deps, {
         to,
         subject: `Doména ${o.hostname} vypršala`,
-        text: `Dobrý deň,\n\nobnova domény ${o.hostname} nebola zaplatená, preto doména ${until} vypršala a stránka sa vrátila na adresu v Cacadoo.\n\n${planPage(o, shop)}\n\nCacadoo PPI`,
+        text: `Dobrý deň,\n\nobnova domény ${o.hostname} nebola zaplatená, preto doména ${until} vypršala a stránka sa vrátila na adresu v Cacaduu.\n\n${planPage(o, shop)}\n\nCacaduu PPI`,
       });
       result.lapsed++;
     }
@@ -1424,7 +1424,7 @@ async function renewal(deps: Deps, o: Order): Promise<{ charged: number; lapsed:
       await send(deps, {
         to,
         subject: `Doména ${o.hostname} sa obnoví ${until}`,
-        text: `Dobrý deň,\n\nobnovu domény ${o.hostname} na ďalší rok (${money(o.renewal_cents)}) sme zaplatili z vašej karty${charge.url ? `; faktúra: ${charge.url}` : ""}. Doména sa obnoví ${until}.\n\nCacadoo PPI`,
+        text: `Dobrý deň,\n\nobnovu domény ${o.hostname} na ďalší rok (${money(o.renewal_cents)}) sme zaplatili z vašej karty${charge.url ? `; faktúra: ${charge.url}` : ""}. Doména sa obnoví ${until}.\n\nCacaduu PPI`,
       });
       result.charged++;
     } else {
@@ -1433,7 +1433,7 @@ async function renewal(deps: Deps, o: Order): Promise<{ charged: number; lapsed:
       await send(deps, {
         to,
         subject: `Platba za obnovu domény ${o.hostname} sa nepodarila`,
-        text: `Dobrý deň,\n\nobnovu domény ${o.hostname} (${money(o.renewal_cents)}) sa nepodarilo zaplatiť z vašej karty. Zaplaťte ju prosím do ${until}${charge.url ? `:\n${charge.url}` : " na stránke Predplatné a doména"}.\nInak doména ${until} vyprší a stránka sa vráti na adresu v Cacadoo.\n\n${planPage(o, shop)}\n\nCacadoo PPI`,
+        text: `Dobrý deň,\n\nobnovu domény ${o.hostname} (${money(o.renewal_cents)}) sa nepodarilo zaplatiť z vašej karty. Zaplaťte ju prosím do ${until}${charge.url ? `:\n${charge.url}` : " na stránke Predplatné a doména"}.\nInak doména ${until} vyprší a stránka sa vráti na adresu v Cacaduu.\n\n${planPage(o, shop)}\n\nCacaduu PPI`,
       });
       result.reminders++;
     }
@@ -1458,7 +1458,7 @@ async function renewal(deps: Deps, o: Order): Promise<{ charged: number; lapsed:
       await send(deps, {
         to,
         subject: `Pripomienka: zaplaťte obnovu domény ${o.hostname} do ${until}`,
-        text: `Dobrý deň,\n\nobnova domény ${o.hostname} (${money(o.renewal_cents)}) ešte nie je zaplatená. Bez platby doména ${until} vyprší a stránka sa vráti na adresu v Cacadoo.${o.renewal_invoice_url ? `\nZaplatiť: ${o.renewal_invoice_url}` : ""}\n\n${planPage(o, shop)}\n\nCacadoo PPI`,
+        text: `Dobrý deň,\n\nobnova domény ${o.hostname} (${money(o.renewal_cents)}) ešte nie je zaplatená. Bez platby doména ${until} vyprší a stránka sa vráti na adresu v Cacaduu.${o.renewal_invoice_url ? `\nZaplatiť: ${o.renewal_invoice_url}` : ""}\n\n${planPage(o, shop)}\n\nCacaduu PPI`,
       });
       result.reminders++;
     }
@@ -1471,7 +1471,7 @@ async function renewal(deps: Deps, o: Order): Promise<{ charged: number; lapsed:
     await send(deps, {
       to,
       subject: `Doména ${o.hostname} sa obnoví ${until}`,
-      text: `Dobrý deň,\n\nobnova domény ${o.hostname} je zaplatená; doména sa obnoví ${until}. Nemusíte nič robiť.\n\nCacadoo PPI`,
+      text: `Dobrý deň,\n\nobnova domény ${o.hostname} je zaplatená; doména sa obnoví ${until}. Nemusíte nič robiť.\n\nCacaduu PPI`,
     });
     result.reminders++;
   }
@@ -1855,7 +1855,7 @@ async function recheckAction(deps: Deps, who: { authorization: string }, body: J
   return reply(200, { status: fresh?.status ?? o.status });
 }
 
-/** "Odpojiť doménu" (own domains): removed from Vercel; the website goes back to its Cacadoo address. */
+/** "Odpojiť doménu" (own domains): removed from Vercel; the website goes back to its Cacaduu address. */
 async function disconnectAction(deps: Deps, who: { authorization: string }, body: Json): Promise<Response> {
   const id = String(body.order_id ?? "");
   const o = UUID.test(id) ? await load(deps, id) : null;
@@ -1930,10 +1930,10 @@ function ownRecord(o: Order, records: DnsRecord[], host: string): DnsRecord | nu
 
 /**
  * "Overiť v Google Search Console" (live domains): the value goes into the domain's DNS as a new TXT
- * record at the domain itself when Cacadoo runs its DNS (a domain bought here, or an own domain in
+ * record at the domain itself when Cacaduu runs its DNS (a domain bought here, or an own domain in
  * our Websupport account) — only added: MX, SPF, DKIM, DMARC and every other record stay as they
  * are. The same value already there → nothing is added ("present"). A new value replaces only the
- * record Cacadoo added earlier (the new one first, so the domain stays verified). Otherwise the owner
+ * record Cacaduu added earlier (the new one first, so the domain stays verified). Otherwise the owner
  * gets the record to add at their own registrar.
  */
 async function googleVerifyAction(deps: Deps, who: { authorization: string }, body: Json): Promise<Response> {
@@ -1985,7 +1985,7 @@ async function googleVerifyAction(deps: Deps, who: { authorization: string }, bo
 }
 
 /**
- * "Odstrániť": forgets the Search Console value and removes from the DNS only the record Cacadoo
+ * "Odstrániť": forgets the Search Console value and removes from the DNS only the record Cacaduu
  * added (its id and still its value). A value that was already there ("present"), one the owner adds
  * by hand ("manual") and every other record are never touched.
  */

@@ -69,7 +69,7 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
     step_partners: s.step_partners,
     step_nearby: s.step_nearby,
     step_web: s.step_web,
-    group_cacadoo: s.group_cacadoo,
+    group_cacaduu: s.group_cacaduu,
     group_partners: s.group_partners,
     partner_tag: s.partner_tag,
     partner_affiliate: s.partner_affiliate,
@@ -85,7 +85,7 @@ export default async function HomePage({ params, searchParams }: PageProps<"/[la
     google_open: s.google_open,
     web_from: s.web_from,
     deep_links: s.deep_links,
-    only_cacadoo: s.only_cacadoo,
+    only_cacaduu: s.only_cacaduu,
     privacy_link: s.privacy_link,
   };
 

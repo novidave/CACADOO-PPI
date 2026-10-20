@@ -14,7 +14,7 @@ export async function generateMetadata({ params }: PageProps<"/[lang]/sukromie-a
 /**
  * What the shop assistant's archive keeps, who sees it, for how long and how to delete it
  * (linked from the line under the chat box), and what the main page's search sends to services
- * outside Cacadoo (Prompt 11). TODO: the final legal text from Cacadoo replaces this draft (texts in
+ * outside Cacaduu (Prompt 11). TODO: the final legal text from Cacaduu replaces this draft (texts in
  * privacy_assistant.* in the three message files), including the outside services (external_todo).
  */
 export default async function AssistantPrivacyPage({ params }: PageProps<"/[lang]/sukromie-asistent">) {
@@ -37,8 +37,8 @@ export default async function AssistantPrivacyPage({ params }: PageProps<"/[lang
           <p>{text}</p>
         </section>
       ))}
-      {/* The main page's search beyond Cacadoo (Prompt 11): what goes to which service. */}
-      <section id="hladanie-mimo-cacadoo" className="flex flex-col gap-1">
+      {/* The main page's search beyond Cacaduu (Prompt 11): what goes to which service. */}
+      <section id="hladanie-mimo-cacaduu" className="flex flex-col gap-1">
         <h2 className="font-semibold">{p.external_title}</h2>
         <p>{p.external}</p>
         <p data-privacy-partners>{p.external_partners}</p>

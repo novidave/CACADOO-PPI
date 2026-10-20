@@ -43,7 +43,7 @@ export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> 
 }
 
 /**
- * An item's page: on the Cacadoo address, or on its shop's own domain (siteSlug: only that
+ * An item's page: on the Cacaduu address, or on its shop's own domain (siteSlug: only that
  * shop's items exist there; links stay on the domain). One canonical for both.
  */
 export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: string; siteSlug: string | null }) {

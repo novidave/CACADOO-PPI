@@ -7,7 +7,7 @@ import type { StockRow } from "./stock";
 
 /**
  * schema.org data of the shop and item pages (what search engines and AI assistants read), on the
- * Cacadoo address or the shop's own domain (host: the canonical address once it is live). Plain
+ * Cacaduu address or the shop's own domain (host: the canonical address once it is live). Plain
  * functions: the pages pass the address of PPI (siteUrl()) and the data.
  */
 

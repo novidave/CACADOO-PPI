@@ -269,7 +269,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `data-assistant`; the conversation scrolls in `data-chat-log`, max 55vh / 65vh) → "Mám prístupový kľúč"
   (`<details data-key-access>`, closed; open while a folder is unlocked; `FolderAccess inline`) → [sections
   "before_items"] → items → [sections "end"]; [sections "after_hours"] (update 31) sit right after the opening hours,
-  before the assistant. The shop's own domain renders under `src/app/site/[lang]/[slug]/layout.tsx`: no Cacadoo
+  before the assistant. The shop's own domain renders under `src/app/site/[lang]/[slug]/layout.tsx`: no Cacaduu
   header; as before update 28, a small logo at the top left as a link home (`data-site-home="home"`: `getSiteLogo` →
   `shop_site_logo()`, update 31; else `shops.logo_url`; else the name; 36 / 40 px high, ≤ 200 px wide), or a plain
   `<a rel="noopener">` to the owner's "Odkaz loga" (`data-site-home="link"`, `shop_site_logo().link`, update 32; same
@@ -390,13 +390,13 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   word; no cards). The answer format is `{language, answer, item_refs, ask_town, off_topic}`.
 - **Three tools** when `EXTERNAL_SEARCH_SECRET` is set (else only `search_stock`, exactly as in Prompt 10):
   `search_stock` (layer 1), `search_nearby_shops` {town, categories ⊂ `SHOP_CATEGORIES`} (layer 3) and `search_web`
-  {query, town} (layer 4). **The server enforces the order** (`refusal()` in `runChatSearch`): Cacadoo calls of a turn
-  run first; an outside call is refused (an error tool result the model reads) unless Cacadoo was searched in this
+  {query, town} (layer 4). **The server enforces the order** (`refusal()` in `runChatSearch`): Cacaduu calls of a turn
+  run first; an outside call is refused (an error tool result the model reads) unless Cacaduu was searched in this
   question, it has fewer than `GOOD_ENOUGH` = 3 good results (`isGoodResult`: current or recent, not sold out, and
-  around the town when one was named — a town without Cacadoo shops searches all shops, which does not count), and the
+  around the town when one was named — a town without Cacaduu shops searches all shops, which does not count), and the
   town is in the shopper's own words (`townInWords`: accents and case ignored, the bent forms "v Michalovciach",
   "Budapesten" match by the start of each word of 4+ letters). Each outside layer runs at most once per question. No
-  town → the model answers with Cacadoo's results and `ask_town`; the server appends "V ktorom meste hľadáte?" (sk/hu/en)
+  town → the model answers with Cacaduu's results and `ask_town`; the server appends "V ktorom meste hľadáte?" (sk/hu/en)
   if the text lacks it.
 - **Steps and time:** `step` events `search` / `nearby` / `web` / `verify` follow the real tool calls; while an outside
   source runs the route sends `{type: "ping"}` every 4 s (the page's 15-second watchdog). The 12-second rule now applies
@@ -407,30 +407,30 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   with a valid phone, Navigovať = Google Maps directions, the element on openstreetmap.org, "údaje z OpenStreetMap
   (pred …)", "zásoby neoverené"), `GoogleCard` (own list, Google's attribution, never on the map, never in a model
   message), `WebCard` ("Z webu", retailer, title linked to the page, "cena podľa webu: …" only from the cited text,
-  "overte dostupnosť na stránke →", "zistené …") and `DeepLink`s; `notes: ["only_cacadoo"]` over the daily limit.
+  "overte dostupnosť na stránke →", "zistené …") and `DeepLink`s; `notes: ["only_cacaduu"]` over the daily limit.
   The AI's refs (`r…`, `n…`, `w…`) only choose and order; with no ref of a kind, all of that kind are shown. Every
-  card carries `source`, a checked-at text and a `confidence` label (Cacadoo: "overená zásoba" / "staršie údaje" /
-  "bez aktuálnych údajov" with its freshness badge). `ChatSearch` shows the groups "Overené v Cacadoo", "Obchody v okolí
+  card carries `source`, a checked-at text and a `confidence` label (Cacaduu: "overená zásoba" / "staršie údaje" /
+  "bez aktuálnych údajov" with its freshness badge). `ChatSearch` shows the groups "Overené v Cacaduu", "Obchody v okolí
   (neoverené)" (+ "© OpenStreetMap contributors", "Google Maps") and "Na webe" (+ "Hľadať priamo v e-shope:"); outside
-  links open in a new tab with `rel="noopener noreferrer"`; only Cacadoo shops go on "Ukázať na mape".
+  links open in a new tab with `rel="noopener noreferrer"`; only Cacaduu shops go on "Ukázať na mape".
 - **product-sources** (Edge Function, one file, Verify JWT off): `nearby` and `web` with the header
   `x-ppi-sources` = `EXTERNAL_SEARCH_SECRET`; `admin_status` with the admin's login (`is_admin()`; only which switches
   are on). It first checks today's calls against `EXTERNAL_SEARCH_DAILY_LIMIT` (over it: `limit`, nothing — not even the
   cache — is used), then:
   - **Town** (`geocode()`): `town_geocodes` (kept for good; not found retried after 30 days) → Nominatim
     (`/search?q=<town>&format=jsonv2&featureType=settlement&email=<ADMIN_EMAIL>`, User-Agent
-    `CacadooPPI/1.0 (… contact: <ADMIN_EMAIL>)`, 5 s) after `external_slot('nominatim', 1100, 3000)` (one request per
+    `CacaduuPPI/1.0 (… contact: <ADMIN_EMAIL>)`, 5 s) after `external_slot('nominatim', 1100, 3000)` (one request per
     second for the whole site; after waiting it looks in the cache again, since nearby and web ask for the same town at
-    once) and `external_search_claim('geocode', 'nominatim', limit)`; without Nominatim, `town_center()` (Cacadoo's shops)
+    once) and `external_search_claim('geocode', 'nominatim', limit)`; without Nominatim, `town_center()` (Cacaduu's shops)
     as a fallback. No `ADMIN_EMAIL` → OpenStreetMap is not asked.
   - **Nearby (osm)**: the admin's `search_layers.osm` switch; `osm_shop_cache` per town, kind and radius (24 h); the
     missing kinds in one Overpass query (`nwr["shop"="…"](around:7000,lat,lng)`, `out center tags`, 12 s), split per kind,
-    the 30 nearest kept (`osm_cache_put()`); merged, without Cacadoo shops (`cacadoo_shops_near()` + `samePlace()`: within
+    the 30 nearest kept (`osm_cache_put()`); merged, without Cacaduu shops (`cacadoo_shops_near()` + `samePlace()`: within
     60 m, or a similar name within 400 m), the 8 nearest.
   - **Google Places** (`GOOGLE_PLACES_ENABLED=true` + `GOOGLE_PLACES_API_KEY` + the admin switch): `places:searchNearby`
     with `includedTypes` of the kinds, `rankPreference: DISTANCE`, the circle of 7 km, `X-Goog-FieldMask:
     places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri` (Pro fields only); without
-    Cacadoo and OpenStreetMap duplicates; only Google Maps links kept; never stored.
+    Cacaduu and OpenStreetMap duplicates; only Google Maps links kept; never stored.
   - **Web** (`WEB_SEARCH_ENABLED=true` + `ANTHROPIC_API_KEY` + the admin switch + at least one enabled domain): one
     Messages API request (`AI_MODEL`, `web_search_20250305`, `max_uses: 3`, `allowed_domains`, `user_location
     {type: approximate, city, country}`), `pause_turn` continued up to twice; `webResults()` keeps the cited pages on the
@@ -490,17 +490,17 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   fresh, in stock in a store in the town, in stock online, `similarity`, price, partner name, title — never `affiliate`.
   `partner_layer_ready()`: an enabled partner with rows.
 - **In the chat** (`runChatSearch`): `search_partners` {query, town} is offered only when `partner_layer_ready()`. The
-  server processes a turn's calls Cacadoo → partners → outside; the partners are refused before Cacadoo or with 3+ good
-  Cacadoo results; a town not in the shopper's words is dropped (no stores). Shops nearby and the web need the partners
-  searched first (or in the same turn) and fewer than 3 good results of Cacadoo and the partners together
+  server processes a turn's calls Cacaduu → partners → outside; the partners are refused before Cacaduu or with 3+ good
+  Cacaduu results; a town not in the shopper's words is dropped (no stores). Shops nearby and the web need the partners
+  searched first (or in the same turn) and fewer than 3 good results of Cacaduu and the partners together
   (`isGoodPartner`: fresh and in stock in a store in the town). The model sees partner, title, brand, price, the online
   state, the stores' states and whether the data is old — never the affiliate flag. `partnerResults()` builds
   `PartnerCard`s from the rows only (refs `p…` choose; the database's order, old data last; ≤ 6): "Šport Partner
   (partner) · 19,99 € (pôvodne 24,99 €) · online skladom / predajňa Michalovce: skladom podľa partnera · údaje z 09:48"
   (`partnerOnlineText`, `partnerStoreText`, `partnerTimeText` in the partner's time zone), the title linked
   (`rel="sponsored noopener noreferrer"` + "partnerský odkaz" for affiliate partners), "údaje partnera, neoverené v
-  Cacadoo"; the logo from the public bucket in grey. Step `partners` ("Hľadám u partnerov…"); the group "Partneri" sits
-  between "Overené v Cacadoo" and "Obchody v okolí (neoverené)"; the history line names the partners' offers.
+  Cacaduu"; the logo from the public bucket in grey. Step `partners` ("Hľadám u partnerov…"); the group "Partneri" sits
+  between "Overené v Cacaduu" and "Obchody v okolí (neoverené)"; the history line names the partners' offers.
 - **Admin** (`PartnerFeedsAdmin.tsx`, `partnerActions.ts`): `admin_partner_settings()`, `admin_save_partner()` (another
   address, format or currency → a full import soon; an address replaces an uploaded file), `admin_set_partner_file()`
   (the browser uploaded `<partner>/feed-<ms>.xml` straight into `partner-feeds` — storage policy: admin, that name
@@ -766,7 +766,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   left after a shopper's deletion.
 - **The function** (`cloud-export`, one file, Verify JWT off) checks every caller itself:
   - the shop's owners (their login; `is_shop_member`, and `shop_has_plan` for connecting): `connect` (shop, provider,
-    folder or default `/Cacadoo/<shop name>`, return address `…/<lang>/dashboard?…`; a share link → `share_link`) →
+    folder or default `/Cacaduu/<shop name>`, return address `…/<lang>/dashboard?…`; a share link → `share_link`) →
     the provider's consent URL with a random state and a PKCE S256 challenge; `folders`, `create_folder`, `set_folder`
     (made when missing), `disconnect` (Dropbox: `token/revoke`), `retry`, `backfill`;
   - the provider's redirect `GET …/cloud-export/oauth/<onedrive|dropbox>?code&state`: state taken once → code
@@ -868,12 +868,12 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   → Websupport renewal switched on; notices 30/7 days; failed → weekly reminders, at expiry `lapsed`).
 - **Website:** `proxy.ts` — a host that is not PPI's own (`NEXT_PUBLIC_SITE_URL`'s host, `www.` of it, localhost,
   `*.vercel.app`, `PPI_MAIN_HOSTS`) is looked up with `shop_for_host` (kept 60 s, unknown 20 s): `/` →
-  rewrite to `/site/{lang}/{slug}` (`src/app/site/[lang]/[slug]`: its own root layout without the Cacadoo header — the shop's small header logo as a link home and `SiteLanguageSwitch` (update 31); the shop's name and logo on the page), `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml`, `/robots.txt`, `/llms.txt` and `/<IndexNow key>.txt`
+  rewrite to `/site/{lang}/{slug}` (`src/app/site/[lang]/[slug]`: its own root layout without the Cacaduu header — the shop's small header logo as a link home and `SiteLanguageSwitch` (update 31); the shop's name and logo on the page), `/{lang}` and `/{lang}/items/{id}` likewise, `/sitemap.xml`, `/robots.txt`, `/llms.txt` and `/<IndexNow key>.txt`
   (update 33) → `/api/site/{slug}/sitemap|robots|llms|indexnow/<key>` (the matcher lists `/llms.txt` and
   `/:file([A-Za-z0-9-]{8,128}\.txt)`; on PPI's own host the first three pass through and `/<key>.txt` → `/api/indexnow/<key>`
-  since update 36), `www` → 308 bare, the shop's Cacadoo path → 308 to `/`, anything else → 307 to PPI's address,
-  unknown → 404 page. On PPI's own host `/site/…` (and the old `/{lang}/site/…`) → 308 to the Cacadoo page. `ShopView` / `ItemView` render both
-  (`onSite`: canonical and links on the own domain); the Cacadoo pages put `rel=canonical` on the own domain
+  since update 36), `www` → 308 bare, the shop's Cacaduu path → 308 to `/`, anything else → 307 to PPI's address,
+  unknown → 404 page. On PPI's own host `/site/…` (and the old `/{lang}/site/…`) → 308 to the Cacaduu page. `ShopView` / `ItemView` render both
+  (`onSite`: canonical and links on the own domain); the Cacaduu pages put `rel=canonical` on the own domain
   (`shopSiteHost` → `shop_site`); `sitemap.ts` leaves those shops out; `robots.ts` disallows `/site/`, `/*/site/` and
   `/*/admin`. Owner page `dashboard/plan` (`PlanDetails`, `DomainWizard`, `DomainStatus` polling
   `/api/owner/domains/[id]` every 3 s, 15 s while waiting for DNS), server actions in `plan/actions.ts`
@@ -1103,16 +1103,16 @@ searched near Michalovce.
 the model calls `search_nearby_shops` {Michalovce, [sports, shoes]} and `search_web` {turistické topánky, Michalovce}
 in one turn → the server checks the order, the count and the town → "Hľadám obchody v okolí…" + pings →
 product-sources `nearby`: the town from `town_geocodes` or Nominatim (1/s), the shops from `osm_shop_cache` or Overpass,
-Cacadoo's shops left out (+ Google's list when on) → "Hľadám na webe…" → product-sources `web`: Claude's web search on
+Cacaduu's shops left out (+ Google's list when on) → "Hľadám na webe…" → product-sources `web`: Claude's web search on
 the allowed domains → "Overujem…" → the answer streams ("Môže ich mať …", "Na webe ich ponúka …") → the cards: "Obchody
-v okolí (neoverené)" and "Na webe" with the deep links. "turistické topánky" without a town → the Cacadoo answer + "V
+v okolí (neoverené)" and "Na webe" with the deep links. "turistické topánky" without a town → the Cacaduu answer + "V
 ktorom meste hľadáte?" → "v Michalovciach" → the same with the town.
 
 **A shopper asks "Kde kúpim kladivo v Michalovciach?" with partner feeds (Prompt 11 phase B):** `search_stock` near
 Michalovce → one hammer, sold out (no good result) → the model calls `search_partners` {kladivo, Michalovce},
 `search_nearby_shops` and `search_web` in one turn → the server runs the partners first ("Hľadám u partnerov…"):
 `search_partner_products` → 1 good partner result (in stock in the partner's Michalovce store) → still fewer than 3 →
-shops nearby and the web run → the answer → the groups "Overené v Cacadoo", "Partneri" ("Šport Partner (partner) ·
+shops nearby and the web run → the answer → the groups "Overené v Cacaduu", "Partneri" ("Šport Partner (partner) ·
 19,99 € · online skladom / predajňa Michalovce: skladom podľa partnera · údaje z 09:48", "partnerský odkaz"; a 3-day-old
 feed only "údaje z 12. 10. 2026"), "Obchody v okolí (neoverené)", "Na webe". **A partner feed is imported:** pg_cron →
 partner-feeds `tick` → `partner_start_due` → `work` (download: the feed into 4 MB parts) → `work` per part (rows) →
@@ -1160,9 +1160,9 @@ asistenta" and reads it.
 
 **An owner connects OneDrive and a conversation lands there:** Môj obchod → Cloudový priečinok → "Pripojiť OneDrive"
 → `connectCloud` → cloud-export `connect` (owner, plan) → Microsoft's consent page → `…/cloud-export/oauth/onedrive`
-→ tokens encrypted, `/Cacadoo/<shop>` made → back to Môj obchod "Cloud je pripojený". A shopper closes the chat →
+→ tokens encrypted, `/Cacaduu/<shop>` made → back to Môj obchod "Cloud je pripojený". A shopper closes the chat →
 `assistant-archive` makes the PDF → `assistant_pdf_done` queues it → `export` → `cloud_export_claim` →
-`/Cacadoo/<shop>/2026-10/2026-10-10_14-05_3f2a9c1b/konverzacia.pdf` + `subory/…` → "Uložené v cloude" in the list.
+`/Cacaduu/<shop>/2026-10/2026-10-10_14-05_3f2a9c1b/konverzacia.pdf` + `subory/…` → "Uložené v cloude" in the list.
 
 **The connection expires:** a copy gets `invalid_grant` → the conversation shows "Cloud: chyba – Pripojenie k cloudu
 vypršalo – pripojte ho znova", the connection is expired and claims stop → 24 hours later the job e-mails the owners
@@ -1193,10 +1193,10 @@ Worst case from sale to PPI: export interval + about 15 minutes (30–45 minutes
 | `stock-pull` failing | stock ages, then hidden after 24 h | `last_error` on the dashboard |
 | Translation fails (Claude unavailable, no key) | stock as usual; new names found only by their original words | names without translation ("made with the next stock file"); `last_error` "Item names could not be translated (the stock is fine): …" until the next applied file; retried with the next file |
 | AI search fails, is slow (no answer in 12 s) or is over a limit | the plain search's cards in the same chat with "Zobrazujem jednoduché výsledky vyhľadávania." | when logged in: the reason under the note; Vercel log line `ai-search: …` |
-| product-sources missing, failing or switched off; Nominatim / Overpass / Google / web search down | Cacadoo's answer as usual, without that group (the AI is told the source is unavailable) | Vercel log `ai-search: product-sources … failed (…)`, Supabase function log `product-sources: …`; the admin page shows the environment's switches |
+| product-sources missing, failing or switched off; Nominatim / Overpass / Google / web search down | Cacaduu's answer as usual, without that group (the AI is told the source is unavailable) | Vercel log `ai-search: product-sources … failed (…)`, Supabase function log `product-sources: …`; the admin page shows the environment's switches |
 | A partner feed fails (server error, wrong format, too big, unreadable) | the partner's earlier rows; after 48 hours without a new import no availability, only "údaje z <dátum>" | admin page: the import with its reason ("Feed je väčší ako limit PARTNER_FEED_MAX_MB…"); Supabase function log `partner-feeds: …` (never the address) |
 | partner-feeds not deployed / no partner with rows | the chat without "Partneri" (the layer is skipped) | admin page: "Funkcia partner-feeds neodpovedá…" / "Zatiaľ žiadny partner…" |
-| Daily limit of outside calls reached | Cacadoo only, with "Prehľadali sme len ponuky v Cacadoo." | today's calls on the admin page |
+| Daily limit of outside calls reached | Cacaduu only, with "Prehľadali sme len ponuky v Cacaduu." | today's calls on the admin page |
 | E-mail sending fails (SMTP) | — | no confirmation / reset e-mails (check Brevo and Supabase Auth logs) |
 | Stripe not set up (secrets missing) or function not deployed | — | "Paid plans are not available yet" / "Stripe could not be opened: …" in the Plan section |
 | Stripe refuses (wrong key, tax or portal not set up) | — | "Stripe could not be opened: <Stripe's reason>" |
@@ -1296,7 +1296,7 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (optional) | `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION` | search-engine ownership tags |
 | Vercel env (optional, server only) | `ANTHROPIC_API_KEY` | switches on the main page's AI chat (without it: the plain search in the chat) and the shop assistant |
 | Vercel env (optional) | `AI_MODEL` | the Claude model of the main page's chat and the shop assistant (default `claude-haiku-5-5`) |
-| Vercel env (server only, Sensitive) **and** Supabase function secret | `EXTERNAL_SEARCH_SECRET` | the same 32+ random characters in both: the website proves itself to `product-sources`; without it the chat searches only Cacadoo |
+| Vercel env (server only, Sensitive) **and** Supabase function secret | `EXTERNAL_SEARCH_SECRET` | the same 32+ random characters in both: the website proves itself to `product-sources`; without it the chat searches only Cacaduu |
 | Supabase function secret | `EXTERNAL_SEARCH_DAILY_LIMIT` | outside calls per day, all layers together (default 300; 0 = none) |
 | Supabase function secret | `WEB_SEARCH_ENABLED`, `GOOGLE_PLACES_ENABLED` | `true` switches the web search / Google Places on (the hard off; the admin's switch can also turn a layer off) |
 | Supabase function secret (optional) | `GOOGLE_PLACES_API_KEY` | Google Places API (New), only with `GOOGLE_PLACES_ENABLED=true` |
@@ -1521,7 +1521,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 - `npm run test:site` (Deno, `src/lib/findable_test.ts`, updates 33 and 36): the own domain's robots.txt (AI crawlers,
   the private paths in both groups, the sitemap, never the whole site), llms.txt (name, address, phone, e-mail, hours,
   a special day with its note, whether holidays apply, categories, the stock's categories, brands, the page's own stock
-  words, Cacadoo's MCP/API with the slug; missing data said, never invented; page addresses only on the own domain;
+  words, Cacaduu's MCP/API with the slug; missing data said, never invented; page addresses only on the own domain;
   nothing private), PPI's llms.txt shop list (own domain when live), the item JSON-LD (Product + Offer + Store on the
   own domain; stale → the price without availability; sold out → OutOfStock; no price → no Offer; PPI addresses
   without a domain), the Rich Results fields (Product snippet and Store) fresh and stale, the Store's e-mail, sameAs
@@ -1533,7 +1533,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   the AI may point to (unknown ones dropped, each once, ≤ 12), the earlier turns the browser sends (no system turns,
   ≤ 6, ≤ 700 characters, a question first and an answer last), an answer sent back with the cards it showed, NDJSON
   lines (broken ones skipped) and the answer's two-letter language; Prompt 11: the town only from the shopper's words
-  (bent forms, short words, another town, none), a good result (stale, sold out, a town without Cacadoo shops), the
+  (bent forms, short words, another town, none), a good result (stale, sold out, a town without Cacaduu shops), the
   refs of one kind, OpenStreetMap hours in the town's own time zone (open until, opens at, tomorrow, unknown) and the
   history line with shops nearby and web offers.
 - `npm run test:functions` also runs 20 tests of `partner-feeds` (update 35): prices and currencies as the text names
@@ -1552,7 +1552,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   shop; a price only from the page's text; allowed domains (subdomains yes, look-alikes and other paths no); deep links
   URL-encoded; web results only cited pages on allowed domains, never the model's words; the switches from the
   environment; only the website's secret; Nominatim once (User-Agent, e-mail, only the town, the 1-per-second slot,
-  the cached town for a second request), Overpass per kind for 24 hours, Cacadoo shops never repeated; busy slot, daily
+  the cached town for a second request), Overpass per kind for 24 hours, Cacaduu shops never repeated; busy slot, daily
   limit (also over cached data), admin switch, no contact, unknown town (not asked again), Overpass down; Google only
   when on, only the fields shown, nothing stored, nothing repeated; the web search's tool (allowed domains, max_uses 3,
   the town as location, only the product and the town), its cost, `pause_turn`, off / no domains / limit; `admin_status`
@@ -1589,7 +1589,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   GPS and places gone and the picture unchanged; the AI gets the photo once, the PDF text and the HEIC note; turns,
   cards with Slovak availability and data time, Hungarian messages with their Slovak versions; a file taken back is
   deleted; closing ends the conversation and the PDF (read with pdftotext) has the shop, both languages, file names and
-  "Vytvorené Cacadoo PPI · konverzácia … · strana 1/1"; "Vymazať moju konverzáciu"; leaving the page ends it; the
+  "Vytvorené Cacaduu PPI · konverzácia … · strana 1/1"; "Vymazať moju konverzáciu"; leaving the page ends it; the
   owner's list, search, dates, keep time, the conversation with photos shown and files opened inline, no download
   buttons; another user sees nothing and gets no links; the owner's delete removes rows, files and PDF; the idle and
   keep-time jobs; a pasted access key hidden from the AI and the archive; the logo's PNG copy in the PDF); the cloud
@@ -1624,8 +1624,8 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   `ReserveAction`, in the API, OpenAPI and llms.txt, removed when emptied; the quick view on a computer and a phone:
   "File 1 of 10", newer/older buttons and their ends, ← → keys, a swipe, Esc, "Close", full screen on a phone, no
   sideways scroll);
-  Prompt 9A (95 checks: on the own domain no Cacadoo header, the shop's name and SK · HU · EN ("/hu", items kept), the
-  Cacadoo URL keeps its header; the section order on desktop and phone, also for a free shop without assistant and key;
+  Prompt 9A (95 checks: on the own domain no Cacaduu header, the shop's name and SK · HU · EN ("/hu", items kept), the
+  Cacaduu URL keeps its header; the section order on desktop and phone, also for a free shop without assistant and key;
   one assistant, always open, its conversation scrolling on a phone; the key dropdown closed and unlocking as before,
   the key never in the conversation; every status with the database changed live — open, lunch break, a 3-hour gap,
   after closing, closed day, day off, shops closed (also from a time), a holiday with special hours and a break, a
@@ -1723,7 +1723,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   records what it receives: the empty page with the pin, "Čo dnes hľadáte?", the input in the middle of the screen and
   nothing else, the chips fill the input; Shift+Enter a new line, Enter sends; the dots in #FFC531 and the real steps in
   order, skeleton cards while the search runs, the answer growing word by word; "biela farba 15 l v Košiciach" → the
-  Cacadoo Paint shop's paints as cards (original name + translation, price, shop, street, town, bold availability,
+  Cacaduu Paint shop's paints as cards (original name + translation, price, shop, street, town, bold availability,
   freshness badge, status dot with words, "km od centra Košice"; no distance without a town), an invented ref dropped,
   the model from `AI_MODEL` (default when unset); "a v Michalovciach?" sends the earlier turn and searches the same
   product near Michalovce; "Zobraziť viac", "Ukázať na mape" loads the map only then; Esc and "Zastaviť" stop the
@@ -1739,7 +1739,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   web search — Nominatim, Overpass and Google, and the real admin page: a non-admin gets no admin page; the section with
   a switch per layer and the environment's state; a search link saved, one on another host and a wildcard domain
   refused, a domain written with https:// kept clean and removed, a domain switched off; "biela farba v Košiciach" → only
-  "Overené v Cacadoo", nothing went outside; "turistické topánky v Michalovciach" → the steps in order, "Obchody v okolí
+  "Overené v Cacaduu", nothing went outside; "turistické topánky v Michalovciach" → the steps in order, "Obchody v okolí
   (neoverené)" then "Na webe", "Môže mať · Turista Michalovce", kind, street, "180 m od centra Michalovce", the hours
   "(podľa OpenStreetMap)", bold "zásoby neoverené", Zavolať only with a phone, Navigovať in a new tab, "© OpenStreetMap
   contributors", a name with an instruction shown as text, "Z webu · Decathlon", "cena podľa webu: 39,99 €", a page
@@ -1749,10 +1749,10 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   e-mail, Overpass once for both kinds, Google not asked; no location, no outside request from the browser; the calls
   and the cost counted; the same question again → OpenStreetMap from the cache, the web asked again; no town → "V
   ktorom meste hľadáte?" and nothing outside, the follow-up "v Michalovciach" searches; an invented town, nearby before
-  Cacadoo and nearby with 3+ good results refused by the server; an off-topic question declined without a search; a
-  Cacadoo shop not repeated nearby; the admin's OpenStreetMap switch, `WEB_SEARCH_ENABLED` off, Google on (own list,
+  Cacaduu and nearby with 3+ good results refused by the server; an off-topic question declined without a search; a
+  Cacaduu shop not repeated nearby; the admin's OpenStreetMap switch, `WEB_SEARCH_ENABLED` off, Google on (own list,
   the OpenStreetMap shop not repeated, "Google Maps", the field mask, nothing of Google in the AI's requests or the
-  database, not on the map); the daily limit → "Prehľadali sme len ponuky v Cacadoo."; an Italian question; the fallback;
+  database, not on the map); the daily limit → "Prehľadali sme len ponuky v Cacaduu."; an Italian question; the fallback;
   a phone without sideways scroll; English labels; the usage on the admin page; the privacy page's TODO line), and the
   Prompt 10 script again with the outside layers off (65 checks, unchanged); partner feeds (Prompt 11 phase B, 76
   checks against the partner-feeds function running locally with PARTNER_FEED_MAX_MB=1, stand-in partner servers, the
@@ -1762,7 +1762,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   public); a Heureka feed 3 days old; an own CSV uploaded from the browser straight to storage (a private column never
   stored); a 2 MB feed stops with the reason and nothing imported; "Importovať teraz" reads in full; the job with its
   secret → 304 → unchanged; only the service key and the admin may start steps; "kladivo v Michalovciach" → the groups
-  Cacadoo → Partneri → shops nearby → web, the step "Hľadám u partnerov…", "Šport Partner (partner) · 19,99 € (pôvodne
+  Cacaduu → Partneri → shops nearby → web, the step "Hľadám u partnerov…", "Šport Partner (partner) · 19,99 € (pôvodne
   24,99 €) · online skladom / predajňa Michalovce: skladom podľa partnera · údaje z HH:MM", the sold-out one, the CSV
   partner online only, the old feed "údaje z 12. 10. 2026" without availability and last, "partnerský odkaz" with
   `rel="sponsored"` only on affiliate partners, the logo in grey, the AI never sees the affiliate flag, partners before
@@ -1783,7 +1783,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   cannot set or read a tag, "Odstrániť značku"; uploads: three changed items → one request (9 addresses) accepted, a
   new price + a sale 2 → 1 → one request with only that item's three pages, logged `site 3 200`; a removed item within
   the hour → no request, sent with the next ping an hour later; a free shop's price change → the main test host with
-  Cacadoo item pages only; "Naposledy oznámené …: 3 stránok."; Product + Offer (19,40 €, InStock; sold out →
+  Cacaduu item pages only; "Naposledy oznámené …: 3 stránok."; Product + Offer (19,40 €, InStock; sold out →
   OutOfStock) + Store JSON-LD, canonical and hreflang sk/hu/en/x-default on the own domain, PPI's item and shop pages
   canonical there; Store with hours, e-mail, Facebook and a special day; stale → the Offer's price without
   availability; the Rich Results fields fresh and stale; plain search, API search/shop and MCP `get_item` `source_url`

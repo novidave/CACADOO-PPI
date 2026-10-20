@@ -493,7 +493,7 @@ const TEXTS = {
   noPreview: "náhľad nie je k dispozícii",
   otherFiles: "Ďalšie súbory",
   pieces: "ks",
-  footer: (id: string, page: number, pages: number) => `Vytvorené Cacadoo PPI · konverzácia ${id} · strana ${page}/${pages}`,
+  footer: (id: string, page: number, pages: number) => `Vytvorené Cacaduu PPI · konverzácia ${id} · strana ${page}/${pages}`,
 };
 type Texts = typeof TEXTS;
 const OWNER_TEXTS = TEXTS;
@@ -519,7 +519,7 @@ export const SHOPPER_TEXTS: Record<"sk" | "hu" | "en", Texts> = {
     noPreview: "nincs előnézet",
     otherFiles: "További fájlok",
     pieces: "db",
-    footer: (id, page, pages) => `Készítette: Cacadoo PPI · beszélgetés ${id} · ${page}/${pages}. oldal`,
+    footer: (id, page, pages) => `Készítette: Cacaduu PPI · beszélgetés ${id} · ${page}/${pages}. oldal`,
   },
   en: {
     ...TEXTS,
@@ -536,7 +536,7 @@ export const SHOPPER_TEXTS: Record<"sk" | "hu" | "en", Texts> = {
     noPreview: "no preview",
     otherFiles: "Other files",
     pieces: "pcs",
-    footer: (id, page, pages) => `Made by Cacadoo PPI · conversation ${id} · page ${page}/${pages}`,
+    footer: (id, page, pages) => `Made by Cacaduu PPI · conversation ${id} · page ${page}/${pages}`,
   },
 };
 
@@ -705,8 +705,8 @@ export async function buildPdf(data: PdfData, assets: PdfAssets, options: { shop
   const regular = await doc.embedFont(fontBytes("regular"), { subset: true });
   const bold = await doc.embedFont(fontBytes("bold"), { subset: true });
   doc.setTitle(`${TEXTS.title} ${shortId(conv.id)} – ${data.shop.name}`);
-  doc.setCreator("Cacadoo PPI");
-  doc.setProducer("Cacadoo PPI");
+  doc.setCreator("Cacaduu PPI");
+  doc.setProducer("Cacaduu PPI");
   doc.setLanguage(options.shopper ? shopperLang : OWNER_LANG);
   const w = new Writer(doc, regular, bold);
 

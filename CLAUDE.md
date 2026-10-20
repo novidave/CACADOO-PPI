@@ -105,9 +105,9 @@ server-renders the plain results (crawlers, no JavaScript); with JavaScript it s
 is finding a product in a town; anything else → `off_topic` → "Pomáham len s hľadaním produktov v obchodoch v okolí."
 Tools: `search_stock` (layer 1) always; `search_nearby_shops` (layer 3, OpenStreetMap; optional Google Places) and
 `search_web` (layer 4, Claude's web search on the admin's allowed domains) only with `EXTERNAL_SEARCH_SECRET`. **The
-server enforces the order** (`refusal()` in `runChatSearch`): Cacadoo first in the question, fewer than `GOOD_ENOUGH` (3)
+server enforces the order** (`refusal()` in `runChatSearch`): Cacaduu first in the question, fewer than `GOOD_ENOUGH` (3)
 good results (`isGoodResult`), a town from the shopper's own words (`townInWords`; never a guess, never the visitor's
-location → "V ktorom meste hľadáte?" via `ask_town`), each outside layer once. Groups: Overené v Cacadoo → Partneri
+location → "V ktorom meste hľadáte?" via `ask_town`), each outside layer once. Groups: Overené v Cacaduu → Partneri
 (phase B, below) → Obchody v okolí (neoverené) → Na webe; every card carries `source`, a checked-at text and
 `confidence`; cards only from tool results (refs `r`/`p`/`n`/`w` only choose). **Never** present layer 3/4 as stock, never scrape (only
 Nominatim, Overpass, Google Places API, web search), never put Google content in a model request, on our map or in the
@@ -125,9 +125,9 @@ page lists the services). Admin texts `admin_search`; every admin read/write via
 `supabase/sql/35_partner_feeds.sql` + `supabase/functions/partner-feeds` (one file, Verify JWT off) + `@/lib/partnerSearch`
 / `@/lib/partners` (card texts) + `admin/domains/PartnerFeedsAdmin.tsx` / `partnerActions.ts` + `@/components/PartnerFileUpload`.
 Layer 2 of the chat: tool `search_partners` {query, town} only when `partner_layer_ready()` (no partner with rows → the
-layer is skipped); refused before Cacadoo or with 3+ good Cacadoo results; a town not in the shopper's words is dropped.
+layer is skipped); refused before Cacaduu or with 3+ good Cacaduu results; a town not in the shopper's words is dropped.
 Shops nearby and the web need the partners searched first (or in the same turn) and fewer than 3 good results of
-Cacadoo + partners (`isGoodPartner`: under 48 h and in stock in a store in the town). **Partner rows are never mixed with
+Cacaduu + partners (`isGoodPartner`: under 48 h and in stock in a store in the town). **Partner rows are never mixed with
 shop data**: own tables (`partners`, `partner_stores`, `partner_products`, `partner_store_stock`, `partner_imports`; RLS,
 no grants), read only through `search_partner_products()` (same `search_text` / `matches_all_words` search); never in
 `public_stock`, `search_stock`, pages, API or MCP. Shown **as the partner sent it** (never edited; a row over the limits
@@ -201,7 +201,7 @@ conversation's token (kept as SHA-256): real type by content (JPEG/PNG/WebP/HEIC
 (their JWT + RLS) get 10-minute links and delete. Ends after 30 minutes idle (pg_cron tick every 5 minutes, Vault
 `ppi_project_url` + `ppi_assistant_cron`) or when the shopper closes the box / starts a new one / leaves the page;
 then one PDF (pdf-lib + DejaVu Sans subset in the file: `<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`, footer "Vytvorené
-Cacadoo PPI · konverzácia <id> · strana X/Y"). Keep time 30/90/365 days (default 90), daily job. "Konverzácie asistenta"
+Cacaduu PPI · konverzácia <id> · strana X/Y"). Keep time 30/90/365 days (default 90), daily job. "Konverzácie asistenta"
 (dashboard `Conversations.tsx`, page `dashboard/conversations/[id]`): read, delete and, since 2026-10-14, **"Stiahnuť
 PDF"** (finished conversations only; `owner_pdfs` in the function, RLS decides; `/api/owner/conversations/[id]/pdf`) and
 ticks + "Stiahnuť vybrané" (`ConversationDownloadBar`, each conversation its own PDF, no ZIP); the PDF shows the
@@ -220,7 +220,7 @@ Graph, Dropbox; no Google Drive): OAuth code + PKCE, state SHA-256 single use 10
 `…/functions/v1/cloud-export/oauth/<provider>`; scopes OneDrive `offline_access Files.ReadWrite`, Dropbox
 `files.metadata.read files.content.write account_info.read` offline. Tokens **only encrypted** (AES-GCM,
 `EXPORT_TOKEN_ENCRYPTION_KEY`, bound to shop/provider/kind) in `cloud_connections` (owners have no grant on the token
-columns), renewed automatically; "Odpojiť" deletes them. Default target `/Cacadoo/<shop name>`; share links refused
+columns), renewed automatically; "Odpojiť" deletes them. Default target `/Cacaduu/<shop name>`; share links refused
 with an explanation. After `assistant_pdf_done` queues it, assistant-archive calls `export` (service role key) →
 `<target>/<YYYY-MM>/<YYYY-MM-DD_HH-MM_id>/konverzacia.pdf` + `…/subory/`; job `ppi-cloud-export-tick` every 5 min.
 **Never overwrite or delete in the shop's cloud** (OneDrive `conflictBehavior=fail`, Dropbox `mode: add`; same file →
@@ -262,13 +262,13 @@ dashboard `dashboard/plan` ("Predplatné a doména": `PlanDetails`, `@/component
 owner details in `shop_legal` (`owner_save_legal`, never invented); pay: Pro + saved card → one-click invoice, else
 Checkout (Pro + domain together when no Pro). Order at the registrar **only after Stripe confirmed the payment**
 (`domain_payment_received` once; webhook → `run`), **registrant = the shop** (Websupport domain profile; never
-Cacadoo's name), paid by our prepaid credit; low credit waits + `ADMIN_EMAIL`. `REGISTRAR_MODE=test` (default) = dry
+Cacaduu's name), paid by our prepaid credit; low credit waits + `ADMIN_EMAIL`. `REGISTRAR_MODE=test` (default) = dry
 runs, website on the admin's test domain. DNS: only Vercel's records (A/CNAME/TXT from the Vercel API), **never touch
 MX/SPF/DKIM/DMARC/other records**. 14: own domain → Vercel → the exact records shown → checks 7 days → Beží. Registrars
 behind the `Registrar` interface. Every step in `domain_orders.log`; never log keys or signatures. Live → one e-mail
 (Brevo, `live_email_at`), page countdown → `https://<domain>`. Renewal charged first, then Websupport renews;
 Pro ended → website back, auth code shown and e-mailed; **never hold a domain back**. `proxy.ts`: a host that is not
-PPI's own → `shop_for_host` → rewrite to `/site/[lang]/[slug]` (own root layout: no Cacadoo header, `SiteLanguageSwitch` +
+PPI's own → `shop_for_host` → rewrite to `/site/[lang]/[slug]` (own root layout: no Cacaduu header, `SiteLanguageSwitch` +
 the shop's small header logo as a link home (update 31); + items, `/api/site/[slug]/sitemap|robots`), www →
 bare; canonical = the own domain; payment never affects search ranking. `PlanDetails`/`DomainStatus` labels from the
 `domains` i18n namespace; admin texts `admin_domains`.
@@ -280,7 +280,7 @@ asistenti" on `dashboard/plan` (`FindableSection`, live orders only; hidden befo
 Console"** → domains action `google_verify` (owner, live; only `google-site-verification=<token>`): on a zone we run
 (`registrar_service_id`) it **only adds** one TXT `@` through `registrar.addRecord`, keeps its id
 (`google_txt_record_id`), never twice; the same value already there → `present`, nothing added; ≤ 5 Google values.
-**"Odstrániť"** = action `google_remove`: deletes **only the record Cacadoo added** (stored id **and** still the stored
+**"Odstrániť"** = action `google_remove`: deletes **only the record Cacaduu added** (stored id **and** still the stored
 value); never SPF/MX/DKIM/DMARC, a `present` or `manual` record or any other. A connected domain: a) **"HTML značka"
 (recommended)** — `owner_set_site_verification()` (owner, live, format checked) into `domain_site_verifications`; the
 own domain's root layout adds `<meta name="google-site-verification">` / `<meta name="msvalidate.01">` (Bing) only on
@@ -290,7 +290,7 @@ steps for Google and Bing. Per own domain (`src/proxy.ts` → `/api/site/[slug]/
 `shop_site()`): robots.txt from `@/lib/siteFiles` (`AI_BOTS` shared with `app/robots.ts`; never `/api/`, `/auth/`, login
 pages; the Sitemap line), llms.txt (English, the shop's data as written, `shop_llms_facts()`: the owner's "Kategórie
 tovaru" `shops.product_categories` only through `owner_set_categories()` — never invented —, the stock file's brands,
-the items' categories, whether holidays apply; the page's own stock words; Cacadoo's MCP/API with the slug). **IndexNow
+the items' categories, whether holidays apply; the page's own stock words; Cacaduu's MCP/API with the slug). **IndexNow
 (update 36):** one key **`INDEXNOW_KEY`** (public; Vercel + Supabase secret), every host serves `/<key>.txt` (main host:
 `/api/indexnow/[key]`). stock-pull after `updated`, in the background, `pingIndexNow()` → `indexnow_claim_host()` (the
 shop's live own domain, else the main host from `SITE_URL`; **at most once per upload and once an hour per host**; only
@@ -350,7 +350,7 @@ next_change} on every shop), JSON-LD `specialOpeningHoursSpecification`. Input =
 or shops_closed (closed by law, red "Zatvorené – štátny sviatok"; `closed_from` e.g. 24.12 12:00); `shops.auto_holidays` (`owner_set_auto_holidays()`, default on)
 — off = regular hours every day. Shop page order: name + logo with the details right under it, map, opening hours (today
 highlighted, status line, special days next 14 days), assistant (always open, own scroll), "Mám prístupový kľúč" (collapsed), items. On an own domain
-the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacadoo header; the shop's small logo as a
+the page is under `src/app/site/[lang]/[slug]/` with its own root layout (no Cacaduu header; the shop's small logo as a
 link home + SK · HU · EN, update 31; the name and logo on the page itself, above the details). These are shop profile
 data, never stock.
 
@@ -430,7 +430,7 @@ hand, any browser, same POST). Guide: `docs/SHOP_PC_SETUP.md`.
 ## Auth
 
 Self-service, shop owners only — **no admin area on the website** except "Predplatné a domény" (`/[lang]/admin/domains`,
-own domains and, since update 34, "Vyhľadávanie mimo Cacadoo", since update 35 "Partnerské feedy"; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
+own domains and, since update 34, "Vyhľadávanie mimo Cacaduu", since update 35 "Partnerské feedy"; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
 sends a confirmation e-mail), `/login`, `/forgot` (reset e-mail → `/auth/confirm` → `/[lang]/password`). `/auth/confirm`
 handles `token_hash` (templates in SETUP.md E3), `code` (default templates) and `#access_token` (→ `/[lang]/login/finish`).
 Owners create/edit shops via `owner_save_shop()`, read them via `my_shops()`, approve columns via `owner_set_mapping()`,

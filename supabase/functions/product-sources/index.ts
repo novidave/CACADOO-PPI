@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 // PPI · product-sources Edge Function (database update 34, Prompt 11 phase A)
 //
-// The main chat's search goes outside Cacadoo only through this function, and only when Cacadoo itself
+// The main chat's search goes outside Cacaduu only through this function, and only when Cacaduu itself
 // gave fewer than 3 good results (the website decides that). Two layers, behind one adapter shape
 // (search(query, town, radius) → results with source, confidence, checked_at and links):
 //   nearby (layer 3) — shops of the right kind around the centre of the town the shopper wrote:
@@ -224,7 +224,7 @@ export function deepLink(template: string, query: string): string | null {
 
 /** Nominatim and Overpass ask apps to say who they are. */
 export function userAgent(contact: string): string {
-  return `CacadooPPI/1.0 (product finder for local shops; contact: ${contact})`;
+  return `CacaduuPPI/1.0 (product finder for local shops; contact: ${contact})`;
 }
 
 // ---------------------------------------------------------------- dependencies (stand-ins in tests)
@@ -288,7 +288,7 @@ async function claim(deps: Deps, layer: string, service: string): Promise<boolea
 
 /**
  * Today's outside calls already reached the limit: layers 3 and 4 are skipped as a whole (also
- * what is cached), so the answer can say truthfully that only Cacadoo was searched.
+ * what is cached), so the answer can say truthfully that only Cacaduu was searched.
  */
 async function overLimit(deps: Deps): Promise<boolean> {
   if (deps.env.dailyLimit <= 0) return true;
@@ -322,7 +322,7 @@ export interface Town {
   lat: number;
   lng: number;
   country: string | null;
-  source: "nominatim" | "cacadoo";
+  source: "nominatim" | "cacaduu";
 }
 
 type TownResult = { town: Town } | { problem: "not_found" | "limit" | "busy" | "unavailable" };
@@ -336,23 +336,23 @@ export async function geocode(deps: Deps, query: string): Promise<TownResult> {
     return { town: { name: row.name ?? query, lat: row.lat, lng: row.lng, country: row.country_code, source: "nominatim" } };
   }
   const notFoundFresh = row && !row.found && deps.now() - Date.parse(row.fetched_at) < NOT_FOUND_RETRY_DAYS * 86_400_000;
-  const fromCacadoo = async (): Promise<Town | null> => {
-    // A town where Cacadoo has shops: their centre is good enough when Nominatim cannot be asked.
+  const fromCacaduu = async (): Promise<Town | null> => {
+    // A town where Cacaduu has shops: their centre is good enough when Nominatim cannot be asked.
     const { data } = await deps.db.rpc("town_center", { p_town: query });
     const t = ((data ?? []) as { lat: number; lng: number; town: string; country: string | null }[])[0];
-    return t && Number.isFinite(t.lat) ? { name: t.town, lat: t.lat, lng: t.lng, country: /^[A-Z]{2}$/.test(t.country ?? "") ? t.country : null, source: "cacadoo" } : null;
+    return t && Number.isFinite(t.lat) ? { name: t.town, lat: t.lat, lng: t.lng, country: /^[A-Z]{2}$/.test(t.country ?? "") ? t.country : null, source: "cacaduu" } : null;
   };
   if (notFoundFresh) {
-    const town = await fromCacadoo();
+    const town = await fromCacaduu();
     return town ? { town } : { problem: "not_found" };
   }
   if (!deps.env.contact) {
-    const town = await fromCacadoo();
+    const town = await fromCacaduu();
     return town ? { town } : { problem: "unavailable" };
   }
   const { data: wait } = await deps.db.rpc("external_slot", { p_service: "nominatim", p_interval_ms: NOMINATIM_INTERVAL_MS, p_max_wait_ms: NOMINATIM_MAX_WAIT_MS });
   if (typeof wait !== "number" || wait < 0) {
-    const town = await fromCacadoo();
+    const town = await fromCacaduu();
     return town ? { town } : { problem: "busy" };
   }
   if (wait > 0) {
@@ -366,7 +366,7 @@ export async function geocode(deps: Deps, query: string): Promise<TownResult> {
     }
   }
   if (!(await claim(deps, "geocode", "nominatim"))) {
-    const town = await fromCacadoo();
+    const town = await fromCacaduu();
     return town ? { town } : { problem: "limit" };
   }
   const url = new URL(`${deps.env.nominatimUrl.replace(/\/+$/, "")}/search`);
@@ -388,7 +388,7 @@ export async function geocode(deps: Deps, query: string): Promise<TownResult> {
     }
   } catch (e) {
     console.error("product-sources: nominatim", (e instanceof Error ? e.message : String(e)).slice(0, 120));
-    const town = await fromCacadoo();
+    const town = await fromCacaduu();
     return town ? { town } : { problem: "unavailable" };
   }
   await deps.db.from("town_geocodes").upsert({
@@ -402,21 +402,21 @@ export async function geocode(deps: Deps, query: string): Promise<TownResult> {
     fetched_at: new Date(deps.now()).toISOString(),
   });
   if (found) return { town: { ...found, source: "nominatim" } };
-  const town = await fromCacadoo();
+  const town = await fromCacaduu();
   return town ? { town } : { problem: "not_found" };
 }
 
 // ---------------------------------------------------------------- layer 3: shops nearby
 
-interface CacadooShop {
+interface CacaduuShop {
   name: string;
   lat: number;
   lng: number;
 }
 
-async function cacadooNear(deps: Deps, town: Town): Promise<CacadooShop[]> {
+async function cacaduuNear(deps: Deps, town: Town): Promise<CacaduuShop[]> {
   const { data } = await deps.db.rpc("cacadoo_shops_near", { p_lat: town.lat, p_lng: town.lng, p_km: RADIUS_KM + 1 });
-  return ((data ?? []) as CacadooShop[]).filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+  return ((data ?? []) as CacaduuShop[]).filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
 }
 
 async function osmShops(deps: Deps, town: Town, categories: string[]): Promise<{ status: string; shops: OsmShop[]; fetched_at: string | null }> {
@@ -461,9 +461,9 @@ async function osmShops(deps: Deps, town: Town, categories: string[]): Promise<{
   }
   const byId = new Map<string, OsmShop>();
   for (const { results } of fresh.values()) for (const s of results) if (!byId.has(s.id)) byId.set(s.id, s);
-  const cacadoo = await cacadooNear(deps, town);
+  const cacaduu = await cacaduuNear(deps, town);
   const shops = [...byId.values()]
-    .filter((s) => !cacadoo.some((c) => samePlace(s, c)))
+    .filter((s) => !cacaduu.some((c) => samePlace(s, c)))
     .sort((a, b) => a.distance_km - b.distance_km)
     .slice(0, MAX_NEARBY);
   const times = [...fresh.values()].map((r) => r.fetched_at).sort();
@@ -505,7 +505,7 @@ async function googleShops(deps: Deps, town: Town, categories: string[], lang: s
     await cost(deps, "google_places", "google_places", layer.cost_per_call_usd);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = (await response.json()) as { places?: { id?: unknown; displayName?: { text?: unknown }; formattedAddress?: unknown; location?: { latitude?: unknown; longitude?: unknown }; googleMapsUri?: unknown }[] };
-    const cacadoo = await cacadooNear(deps, town);
+    const cacaduu = await cacaduuNear(deps, town);
     const shops: GoogleShop[] = [];
     for (const p of body.places ?? []) {
       const id = clean(p.id, 300);
@@ -514,8 +514,8 @@ async function googleShops(deps: Deps, town: Town, categories: string[], lang: s
       const lng = Number(p.location?.longitude);
       if (!id || !name || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       const place = { name, lat, lng };
-      // Already in Cacadoo or already in the OpenStreetMap list: not repeated.
-      if (cacadoo.some((c) => samePlace(place, c)) || osm.some((o) => samePlace(place, o))) continue;
+      // Already in Cacaduu or already in the OpenStreetMap list: not repeated.
+      if (cacaduu.some((c) => samePlace(place, c)) || osm.some((o) => samePlace(place, o))) continue;
       const maps = clean(p.googleMapsUri, 500);
       shops.push({
         id,

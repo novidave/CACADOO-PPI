@@ -473,7 +473,7 @@ Deno.test("PDF: Slovak and other letters read back exactly; times, both versions
   has("Súbor: farba.heic (HEIC, 3,0 MB) – náhľad nie je k dispozícii");
   has("Ďalšie súbory");
   has("neodoslané.png");
-  has(`Vytvorené Cacadoo PPI · konverzácia 3f2a9c1b · strana 1/${pages.length}`);
+  has(`Vytvorené Cacaduu PPI · konverzácia 3f2a9c1b · strana 1/${pages.length}`);
   assert(!all.includes("�"), "every character has its glyph");
   eq(images, 3, "logo + the two previews");
   eq(title, "Konverzácia s asistentom obchodu 3f2a9c1b – Farby Ľubica – Košice", "title");
@@ -722,7 +722,7 @@ function archiveWorld(extra: World = {}): World {
     [`logos/${SHOP}/logo.png`, TINY_PNG],
   ]);
   const data = pdfData({
-    shop: { name: "Cacadoo Paint shop", logo_url: `https://p.supabase.co/storage/v1/object/public/logos/${SHOP}/logo.webp?v=2`, timezone: "Europe/Bratislava" },
+    shop: { name: "Cacaduu Paint shop", logo_url: `https://p.supabase.co/storage/v1/object/public/logos/${SHOP}/logo.webp?v=2`, timezone: "Europe/Bratislava" },
     attachments: [
       { id: IMG, name: "IMG_0042.jpg", kind: "jpeg", bytes: 2_400_000, path: `${SHOP}/${CONV}/files/${IMG}.jpg`, preview_path: `${SHOP}/${CONV}/files/${IMG}.preview.jpg` },
     ],
@@ -750,7 +750,7 @@ Deno.test("Ending a conversation makes its PDF after the reply, named by the sta
   const pdf = files.get(`shop-assistant-uploads/${path}`);
   assert(pdf && text(pdf.subarray(0, 5)) === "%PDF-", "the PDF is stored");
   const { pages, images } = await readPdf(pdf!);
-  assert(pages[0].includes("Cacadoo Paint shop"), "shop name");
+  assert(pages[0].includes("Cacaduu Paint shop"), "shop name");
   eq(images, 2, "logo (PNG twin) + the picture's preview");
   assert(log.includes(`download logos/${SHOP}/logo.png`), "the PNG twin of the WebP logo");
   assert(log.includes(`upload shop-assistant-uploads/${path} application/pdf upsert`), "stored");
@@ -1012,7 +1012,7 @@ Deno.test("'Stiahnuť túto konverzáciu (PDF)': only with the conversation's to
   const all = pages.join("\n");
   eq([all.includes("Beszélgetés az üzlet asszisztensével"), all.includes("Van zöld festékük?"), all.includes("Ügyfél")], [true, true, true], "Hungarian labels");
   eq([all.includes("Po slovensky"), all.includes("Máte zelenú farbu?"), all.includes("Jazyk zákazníka")], [false, false, false], "nothing meant only for the owner");
-  eq(all.includes("Készítette: Cacadoo PPI · beszélgetés 3f2a9c1b · 1/"), true, "footer");
+  eq(all.includes("Készítette: Cacaduu PPI · beszélgetés 3f2a9c1b · 1/"), true, "footer");
   eq(log.some((l) => l.startsWith("upload")), false, "never stored");
 
   for (const [body, label] of [

@@ -112,7 +112,7 @@ const post = (deps: Deps, body: Record<string, unknown>) =>
 const viewData = {
   name: "Cenník VIP",
   can_download: false,
-  shop: { name: "Cacadoo Paint shop", timezone: "Europe/Bratislava" },
+  shop: { name: "Cacaduu Paint shop", timezone: "Europe/Bratislava" },
   pages: [
     { page: 1, path: "s/d/pages/1-a.webp", width: 1100, height: 1568 },
     { page: 2, path: "s/d/pages/2-b.webp", width: 1100, height: 1568 },

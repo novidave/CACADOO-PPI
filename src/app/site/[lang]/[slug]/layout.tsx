@@ -13,7 +13,7 @@ import { quicksand } from "../../../fonts";
 import "../../../globals.css";
 
 /**
- * The layout of a shop's own domain (database update 25): no Cacadoo header. The shop's own
+ * The layout of a shop's own domain (database update 25): no Cacaduu header. The shop's own
  * header, as before update 28: a small logo at the top left that leads to the shop's home page
  * (its header logo, database update 31; else the shop's logo; else its name), or to the address
  * the owner chose for it ("Odkaz loga", database update 32; same window), and the SK · HU · EN

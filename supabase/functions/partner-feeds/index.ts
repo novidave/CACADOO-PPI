@@ -39,7 +39,7 @@ const LEASE_SECONDS = 170;
 const DOWNLOAD_MS = 120_000;
 const MAX_REDIRECTS = 5;
 const BUCKET = "partner-feeds";
-const USER_AGENT = "CacadooPPI-PartnerFeeds/1.0";
+const USER_AGENT = "CacaduuPPI-PartnerFeeds/1.0";
 const MB = 1024 * 1024;
 
 export type Format = "google_xml" | "google_csv" | "heureka_xml" | "csv" | "google_local_xml" | "google_local_csv";

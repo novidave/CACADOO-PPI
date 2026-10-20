@@ -180,7 +180,7 @@ export function isShareLink(text: string): boolean {
   return /^\s*(https?:\/\/|www\.)/i.test(text) || /(1drv\.ms|onedrive\.live\.com|sharepoint\.com|dropbox\.com|db\.tt)/i.test(text);
 }
 
-/** "/Cacadoo/Potraviny Centrum": every part cleaned; null for a link or a path that climbs up. */
+/** "/Cacaduu/Potraviny Centrum": every part cleaned; null for a link or a path that climbs up. */
 export function cleanFolderPath(path: string): string | null {
   if (!path || isShareLink(path)) return null;
   const parts = path.replace(/\\/g, "/").split("/").map((p) => p.trim()).filter(Boolean);
@@ -189,7 +189,7 @@ export function cleanFolderPath(path: string): string | null {
   return clean.length <= 400 ? clean : null;
 }
 
-export const defaultFolder = (shopName: string) => `/Cacadoo/${cleanName(shopName)}`;
+export const defaultFolder = (shopName: string) => `/Cacaduu/${cleanName(shopName)}`;
 
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
 const join = (dir: string, name: string) => (dir === "/" ? `/${name}` : `${dir}/${name}`);
@@ -898,9 +898,9 @@ export function alertText(a: Alert): string {
     "",
     "Pripojte cloud znova v Môj obchod → Cloudový priečinok" + (link ? `:\n${link}` : "."),
     "",
-    "Konverzácie sa medzitým ukladajú v Cacadoo PPI a po pripojení sa do cloudu doplnia.",
+    "Konverzácie sa medzitým ukladajú v Cacaduu PPI a po pripojení sa do cloudu doplnia.",
     "",
-    "Cacadoo PPI",
+    "Cacaduu PPI",
   ]
     .filter((line, i, all) => line !== "" || all[i - 1] !== "")
     .join("\n");
@@ -921,7 +921,7 @@ async function sendAlerts(deps: Deps): Promise<number> {
       method: "POST",
       headers: { "api-key": deps.email.apiKey, "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
-        sender: { name: "Cacadoo PPI", email: deps.email.from },
+        sender: { name: "Cacaduu PPI", email: deps.email.from },
         to: alert.emails.map((email) => ({ email })),
         subject: ALERT_SUBJECT,
         textContent: alertText(alert),
@@ -992,7 +992,7 @@ async function connect(deps: Deps, who: { authorization: string; userId: string 
 function errorPage(text: string) {
   return new Response(
     `<!doctype html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
-      `<title>Cacadoo PPI</title></head><body style="font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem">` +
+      `<title>Cacaduu PPI</title></head><body style="font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem">` +
       `<h1 style="font-size:1.25rem">Pripojenie cloudu sa nepodarilo</h1><p>${text}</p></body></html>`,
     { status: 400, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } },
   );

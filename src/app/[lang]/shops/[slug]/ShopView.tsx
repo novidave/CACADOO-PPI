@@ -46,7 +46,7 @@ type SearchParams = Record<string, string | string[] | undefined>;
 
 /**
  * The canonical address: the shop's own domain once it is live (database update 25), on the
- * Cacadoo address and on the domain alike; else the Cacadoo address.
+ * Cacaduu address and on the domain alike; else the Cacaduu address.
  */
 function alternates(shop: PublicShop, lang: Locale, host: string | null) {
   if (!host) return pageAlternates(lang, `/shops/${shop.slug}`, locales);
@@ -73,7 +73,7 @@ export async function shopMetadata(lang: Locale, slug: string): Promise<Metadata
 }
 
 /**
- * The shop's page: on its Cacadoo address, or on its own domain (onSite: under the domain's own
+ * The shop's page: on its Cacaduu address, or on its own domain (onSite: under the domain's own
  * header with its picture; the links stay on the domain, "/" is the shop's language). Both say
  * the same and point to one canonical. Order: name and logo with the shop's details, map with the
  * status dot, opening hours (status line, today, breaks, the coming special days), then — with

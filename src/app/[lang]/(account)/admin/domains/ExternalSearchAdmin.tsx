@@ -27,7 +27,7 @@ export interface SourcesEnv {
 const input = "rounded border border-line px-2 py-1 outline-none focus:border-foreground";
 
 /**
- * "Vyhľadávanie mimo Cacadoo" on the admin page: a switch per outside layer (with the function's
+ * "Vyhľadávanie mimo Cacaduu" on the admin page: a switch per outside layer (with the function's
  * environment switch next to it — a layer runs only when both are on), the estimated prices, the
  * allowed web domains with their search addresses (deep links), and the calls and estimated cost
  * per day and layer. Every read and write goes through the admin_* functions (is_admin() in SQL).

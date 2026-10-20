@@ -108,10 +108,10 @@ Deno.test("llms.txt of an own domain: name, address, hours, categories, sitemap 
   assert(text.includes("- Phone: +421 900 000 000") && text.includes("- E-mail: obchod@example.invalid"), "phone and e-mail");
   assert(text.includes("- Public holidays (SK): the shop follows them"), "whether public holidays apply");
   assert(text.includes("Item categories on its item pages: Káva a čaj."), "the categories its items have");
-  assert(text.includes('get_shop with slug "potraviny-centrum"') && text.includes("https://ppi.example/mcp"), "Cacadoo's MCP for this shop");
-  assert(text.includes("https://ppi.example/api/v1/shops/potraviny-centrum"), "Cacadoo's REST API for this shop");
+  assert(text.includes('get_shop with slug "potraviny-centrum"') && text.includes("https://ppi.example/mcp"), "Cacaduu's MCP for this shop");
+  assert(text.includes("https://ppi.example/api/v1/shops/potraviny-centrum"), "Cacaduu's REST API for this shop");
   assert(text.includes("every source_url points to https://potraviny.sk/"), "the API links back to the domain");
-  // Every page address is on the shop's own domain; Cacadoo is named only for its API and MCP.
+  // Every page address is on the shop's own domain; Cacaduu is named only for its API and MCP.
   const urls = text.match(/https:\/\/[^\s)"]+/g) ?? [];
   assert(urls.length > 5 && urls.every((u) => u.startsWith("https://potraviny.sk/") || /^https:\/\/ppi\.example\/(mcp|api\/)/.test(u)), urls.join(" "));
   assert(!text.includes("/shops/potraviny-centrum\n") && !/dashboard|folder|access key|\/api\/shops\//i.test(text), "no private pages or routes");
@@ -225,7 +225,7 @@ Deno.test("Rich Results checks pass for a product page on the own domain, fresh 
   const special = storeJsonLd(SHOP, "sk", "potraviny.sk", {
     ...input,
     days: [{ date: "2026-10-16", special: { closed: true, ranges: [], note: null }, holiday: null }],
-  }, "https://ppi.example") as Record<string, unknown>;
+  }, "https://ppi.example", new Date("2026-10-14T10:00:00Z")) as Record<string, unknown>;
   assert(Array.isArray(special.specialOpeningHoursSpecification), "specialOpeningHoursSpecification for a special day");
   // The rule itself: without an Offer (no price) the Product snippet fails — so a price is never left out when the page has one.
   assertEquals(richResultsProblems([{ "@type": "Product", name: "x" }]), ["Product: offers, review or aggregateRating"]);

@@ -5,8 +5,8 @@ import { ShopView, shopMetadata } from "../../../[lang]/shops/[slug]/ShopView";
 
 /**
  * The shop's page on its own domain (database update 25), under the domain's own layout (no
- * Cacadoo header). Only src/proxy.ts sends visitors here (a request for "/" or "/{lang}" on
- * the shop's domain); on the Cacadoo address this path redirects to /{lang}/shops/{slug}.
+ * Cacaduu header). Only src/proxy.ts sends visitors here (a request for "/" or "/{lang}" on
+ * the shop's domain); on the Cacaduu address this path redirects to /{lang}/shops/{slug}.
  * 404 unless the domain is live.
  */
 export async function generateMetadata({ params }: PageProps<"/site/[lang]/[slug]">): Promise<Metadata> {

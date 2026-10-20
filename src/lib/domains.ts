@@ -131,7 +131,7 @@ export async function loadDomainPage(supabase: SupabaseClient, shopId: string): 
 /** "Aby vás našli Google a AI asistenti" on a live domain (database updates 33 and 36). */
 export interface Findable {
   google_verification: string | null;
-  /** added: Cacadoo wrote it into DNS (and may remove it); present: it was there already; manual: shown to add by hand. */
+  /** added: Cacaduu wrote it into DNS (and may remove it); present: it was there already; manual: shown to add by hand. */
   google_verification_state: "added" | "present" | "manual" | null;
   google_verification_at: string | null;
   indexnow_at: string | null;

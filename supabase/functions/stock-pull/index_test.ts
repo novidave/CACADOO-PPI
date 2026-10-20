@@ -256,7 +256,7 @@ Deno.test("IndexNow: only the changed item pages on their canonical host, every 
   eq(indexNowUrls({ ...SITE_CLAIM, lang: "hu", items: [{ id: ITEM_A, slug: "x" }] })[0], `https://potraviny.sk/hu/items/${ITEM_A}`, "a Hungarian domain");
   eq(indexNowUrls(MAIN_CLAIM), [
     `https://ppi.example.com/sk/items/${ITEM_A}`, `https://ppi.example.com/hu/items/${ITEM_A}`, `https://ppi.example.com/en/items/${ITEM_A}`,
-  ], "the main host: the Cacadoo item page");
+  ], "the main host: the Cacaduu item page");
   eq(indexNowUrls({ ...SITE_CLAIM, items: [] }), [], "nothing changed: no address");
   eq(indexNowUrls({ ...SITE_CLAIM, items: [{ id: "../../admin", slug: "x" }] }), [], "only item ids");
   const many = Array.from({ length: 5000 }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, slug: "x" }));
@@ -311,12 +311,12 @@ Deno.test("IndexNow: at most once an hour per host; nothing for a file already a
   eq(net.sent.length, 1, "one request");
 });
 
-Deno.test("IndexNow: a shop without its own domain pings the main Cacadoo host", async () => {
+Deno.test("IndexNow: a shop without its own domain pings the main Cacaduu host", async () => {
   const net = fakeIndexNow(200);
   const main = claimDb(MAIN_CLAIM);
   eq(await pingIndexNow(main.db, SHOP, { ...SETTINGS, fetch: net.f }), { host: "ppi.example.com", sent: 3, status: 200 }, "sent");
   eq([net.sent[0].body.host, net.sent[0].body.keyLocation], ["ppi.example.com", `https://ppi.example.com/${KEY}.txt`], "the main host's key file");
-  assert((net.sent[0].body.urlList as string[]).every((u) => u.startsWith("https://ppi.example.com/")), "only Cacadoo addresses");
+  assert((net.sent[0].body.urlList as string[]).every((u) => u.startsWith("https://ppi.example.com/")), "only Cacaduu addresses");
   eq(main.calls.find((c) => c.name === "indexnow_done")!.args.p_kind, "main", "noted for the main host");
 });
 

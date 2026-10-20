@@ -2208,13 +2208,13 @@ declare
   v_third uuid;
 begin
   -- OAuth round trips: once, for 10 minutes
-  perform public.cloud_state_save('state-1', v_a, 'onedrive', v_owner, 'verifier-1', '/Cacadoo/Potraviny Centrum',
+  perform public.cloud_state_save('state-1', v_a, 'onedrive', v_owner, 'verifier-1', '/Cacaduu/Potraviny Centrum',
                                    'https://ppi.example/sk/dashboard?shop=potraviny-centrum&at=cloud');
   v_take := public.cloud_state_take('state-1');
   assert v_take ->> 'shop_id' = v_a::text and v_take ->> 'provider' = 'onedrive' and v_take ->> 'verifier' = 'verifier-1'
-     and v_take ->> 'folder_path' = '/Cacadoo/Potraviny Centrum' and v_take ->> 'user_id' = v_owner::text, 'the state';
+     and v_take ->> 'folder_path' = '/Cacaduu/Potraviny Centrum' and v_take ->> 'user_id' = v_owner::text, 'the state';
   assert public.cloud_state_take('state-1') is null, 'a state works only once';
-  perform public.cloud_state_save('state-2', v_a, 'dropbox', v_owner, 'v', '/Cacadoo/A', 'https://ppi.example/');
+  perform public.cloud_state_save('state-2', v_a, 'dropbox', v_owner, 'v', '/Cacaduu/A', 'https://ppi.example/');
   update public.cloud_oauth_states set expires_at = now() - interval '1 second' where state_hash = 'state-2';
   assert public.cloud_state_take('state-2') is null, 'an expired state is refused';
   assert public.cloud_state_take('made-up') is null;
@@ -2243,10 +2243,10 @@ begin
   assert not public.cloud_export_enqueue(v_id);
 
   -- connecting (one per shop)
-  perform public.cloud_connection_save(v_a, 'onedrive', 'Ján Novák', 'jan@example.invalid', '/Cacadoo/Potraviny Centrum',
+  perform public.cloud_connection_save(v_a, 'onedrive', 'Ján Novák', 'jan@example.invalid', '/Cacaduu/Potraviny Centrum',
     'enc:access', 'enc:refresh', now() + interval '1 hour', 'Files.ReadWrite offline_access', 'https://ppi.example', v_owner);
   begin
-    perform public.cloud_connection_save(v_b, 'onedrive', null, null, 'Cacadoo/B', 'a', 'r', null, null, null, v_owner);
+    perform public.cloud_connection_save(v_b, 'onedrive', null, null, 'Cacaduu/B', 'a', 'r', null, null, null, v_owner);
     raise exception 'a folder without a leading / was accepted';
   exception when check_violation then null;
   end;
@@ -2264,10 +2264,10 @@ begin
      and public.cloud_export_data(v_id) -> 'attachments' -> 0 ->> 'name' = 'štítok.jpg', 'the shopper''s files';
 
   -- what is copied is kept once
-  perform public.cloud_export_item_done(v_id, 'pdf', '/Cacadoo/Potraviny Centrum/2026-10/2026-10-10_14-05_abcd1234/konverzacia.pdf', 'r1', 1234);
+  perform public.cloud_export_item_done(v_id, 'pdf', '/Cacaduu/Potraviny Centrum/2026-10/2026-10-10_14-05_abcd1234/konverzacia.pdf', 'r1', 1234);
   perform public.cloud_export_item_done(v_id, 'pdf', '/elsewhere/konverzacia.pdf', 'r2', 1234);
   assert (select count(*) from public.cloud_export_items where conversation_id = v_id) = 1
-     and (select remote_path from public.cloud_export_items where conversation_id = v_id) like '/Cacadoo/%', 'never twice';
+     and (select remote_path from public.cloud_export_items where conversation_id = v_id) like '/Cacaduu/%', 'never twice';
   assert public.cloud_export_data(v_id) -> 'done' ->> 'pdf' like '%/konverzacia.pdf';
 
   -- failures: again after 5, 10 … minutes, at most every 6 hours, 20 times
@@ -2295,7 +2295,7 @@ begin
 
   -- done
   update public.assistant_conversations set export_status = 'running' where id = v_id;
-  perform public.cloud_export_finish(v_id, '/Cacadoo/Potraviny Centrum/2026-10/2026-10-10_14-05_abcd1234', null);
+  perform public.cloud_export_finish(v_id, '/Cacaduu/Potraviny Centrum/2026-10/2026-10-10_14-05_abcd1234', null);
   assert (select export_status = 'done' and exported_at is not null and export_error is null and export_provider = 'onedrive'
                  and export_path like '%_abcd1234' from public.assistant_conversations where id = v_id);
   assert not public.cloud_export_enqueue(v_id), 'a copied conversation is not copied again by itself';
@@ -2335,7 +2335,7 @@ begin
   -- connecting again retries the failed copies at once
   update public.assistant_conversations set export_status = 'failed', export_next_try = null, export_attempts = 20
   where id = v_second;
-  perform public.cloud_connection_save(v_a, 'dropbox', 'Ján', null, '/Cacadoo/Potraviny Centrum', 'enc:a3', 'enc:r3',
+  perform public.cloud_connection_save(v_a, 'dropbox', 'Ján', null, '/Cacaduu/Potraviny Centrum', 'enc:a3', 'enc:r3',
                                        null, null, null, v_owner);
   assert (select export_status = 'pending' and export_attempts = 0 and export_next_try <= now()
           from public.assistant_conversations where id = v_second), 'failed copies are tried again';
@@ -2397,7 +2397,7 @@ declare
   v_today date := (now() at time zone 'Europe/Bratislava')::date;
   v_ready uuid;
 begin
-  assert (select provider = 'dropbox' and folder_path = '/Cacadoo/Potraviny Centrum' and status = 'ok'
+  assert (select provider = 'dropbox' and folder_path = '/Cacaduu/Potraviny Centrum' and status = 'ok'
           from public.cloud_connections where shop_id = v_a), 'owner A sees the connection';
   begin
     perform access_token_enc from public.cloud_connections;
@@ -3098,7 +3098,7 @@ do $$ begin
 end $$;
 reset role;
 
--- the plan ends: the domain is no longer served (the shop is back on its Cacadoo address)
+-- the plan ends: the domain is no longer served (the shop is back on its Cacaduu address)
 set role service_role;
 do $$
 declare
@@ -4612,7 +4612,7 @@ begin
   exception when check_violation then null;
   end;
 
-  -- Cacadoo shops near the town centre: the nearby list leaves them out
+  -- Cacaduu shops near the town centre: the nearby list leaves them out
   assert exists (select 1 from public.cacadoo_shops_near(48.7553, 21.9184, 3) where slug = 'potraviny-centrum');
   assert not exists (select 1 from public.cacadoo_shops_near(48.7553, 21.9184, 3) where slug = 'kisbolt-budapest');
 
@@ -5094,7 +5094,7 @@ begin
 end $$;
 reset role;
 
--- the Search Console TXT: a record id only for a record Cacadoo added; a value already in DNS is "present"
+-- the Search Console TXT: a record id only for a record Cacaduu added; a value already in DNS is "present"
 do $$
 declare v_o uuid := (select id from public.domain_orders where hostname = 'potraviny36.sk');
 begin
@@ -5102,7 +5102,7 @@ begin
     google_verification_state = 'present', google_verification_at = now() where id = v_o;
   begin
     update public.domain_orders set google_txt_record_id = '123' where id = v_o;
-    raise exception 'a record id for a record Cacadoo did not add';
+    raise exception 'a record id for a record Cacaduu did not add';
   exception when check_violation then null;
   end;
   update public.domain_orders set google_verification_state = 'added', google_txt_record_id = '123' where id = v_o;
@@ -5299,7 +5299,7 @@ begin
 end $$;
 reset role;
 
--- the main Cacadoo host: every shop without a live own domain, never shop A's items; no main host given → nothing
+-- the main Cacaduu host: every shop without a live own domain, never shop A's items; no main host given → nothing
 set session_replication_role = replica;
 update public.inventory set indexnow_at = now() + interval '2 seconds'
 where shop_item_id in (select si.id from public.shop_items si join public.shops s on s.id = si.shop_id where s.slug in ('drogeria-kostolne', 'potraviny-centrum'));

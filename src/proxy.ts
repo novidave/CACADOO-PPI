@@ -70,7 +70,7 @@ async function siteFor(host: string): Promise<Site | null> {
 
 const NOT_CONNECTED =
   '<!doctype html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-  '<meta name="robots" content="noindex"><title>Cacadoo PPI</title></head><body style="font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem">' +
+  '<meta name="robots" content="noindex"><title>Cacaduu PPI</title></head><body style="font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem">' +
   "<h1>Táto doména zatiaľ nie je pripojená</h1><p>This domain is not connected (yet).</p></body></html>";
 
 /** The IndexNow key file: "/<key>.txt" (8–128 letters, digits or dashes). */
@@ -99,13 +99,13 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
   if (pathname === "/llms.txt") return to(`/api/site/${site.slug}/llms`);
   const keyFile = KEY_FILE.exec(pathname);
   if (keyFile) return to(`/api/site/${site.slug}/indexnow/${keyFile[1]}`);
-  // The domain's own pages: src/app/site/[lang]/[slug] (their own layout, no Cacadoo header).
+  // The domain's own pages: src/app/site/[lang]/[slug] (their own layout, no Cacaduu header).
   if (parts.length === 0) return to(`/site/${site.lang}/${site.slug}`);
   const [first, second, third] = parts;
   if (isLocale(first)) {
     if (parts.length === 1) return to(`/site/${first}/${site.slug}`);
     if (second === "items" && third && parts.length === 3) return to(`/site/${first}/${site.slug}/items/${third}`);
-    // The shop's own Cacadoo path → its address on the domain.
+    // The shop's own Cacaduu path → its address on the domain.
     if (second === "shops" && third === site.slug && parts.length === 3) return goTo(first === site.lang ? "/" : `/${first}`);
   }
   if (first === "items" && second && parts.length === 2) return to(`/site/${site.lang}/${site.slug}/items/${second}`);
@@ -125,7 +125,7 @@ export async function proxy(request: NextRequest) {
   if (keyFile) return NextResponse.rewrite(new URL(`/api/indexnow/${keyFile[1]}`, request.url));
   const segment = pathname.split("/")[1];
 
-  // A shop's domain page asked for on PPI's own address (/site/{lang}/{slug}…): the Cacadoo page.
+  // A shop's domain page asked for on PPI's own address (/site/{lang}/{slug}…): the Cacaduu page.
   if (segment === "site") {
     const [, lang, slug, kind, id] = pathname.split("/").filter(Boolean);
     const url = request.nextUrl.clone();
@@ -140,7 +140,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // A shop's domain page asked for on PPI's own address: the Cacadoo page instead.
+  // A shop's domain page asked for on PPI's own address: the Cacaduu page instead.
   const parts = pathname.split("/").filter(Boolean);
   if (parts[1] === "site" && parts[2]) {
     const url = request.nextUrl.clone();
