@@ -27,11 +27,11 @@ import { statusInput } from "@/lib/shopCalendar";
 import { shopChatEnabled } from "@/lib/shopChat";
 import { storeJsonLd } from "@/lib/jsonLd";
 import { pageAlternates, siteUrl } from "@/lib/site";
-import { getShopSections } from "@/lib/sections";
+import { getShopContent, slideViews } from "@/lib/sections";
 import { freshnessText } from "@/lib/stock";
 import { ContactLinks } from "@/components/ContactLinks";
 import { JsonLd } from "@/components/JsonLd";
-import { PageSections } from "@/components/PageSections";
+import { ContentSlider } from "@/components/ContentSlider";
 import { SectionZoom } from "@/components/SectionZoom";
 import { ShopChat } from "@/components/ShopChat";
 import { ShopMap } from "@/components/ShopMap";
@@ -78,10 +78,9 @@ export async function shopMetadata(lang: Locale, slug: string): Promise<Metadata
  * The shop's page: on its Cacaduu address, or on its own domain (onSite: under the domain's own
  * header with its picture; the links stay on the domain, "/" is the shop's language). Both say
  * the same and point to one canonical. Order: name and logo with the shop's details, map with the
- * status dot, opening hours (status line, today, breaks, the coming special days), then — with
- * the paid plan — the assistant (always open) and "Mám prístupový kľúč", then the items. The
- * shop's page sections from PDFs (paid plan, update 28) sit where the owner put them: after the
- * details, after the map, before the items or at the end.
+ * status dot, opening hours (status line, today, breaks, the coming special days), "Obsah stránky" (update 38: ONE
+ * slider of blog posts, PDFs and pictures in the owner's order), then — with the paid plan — the assistant (always
+ * open) and "Mám prístupový kľúč", then the items (a free page: the slider right before the items).
  */
 export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug: string; sp: SearchParams; onSite: boolean }) {
   const [dict, shop] = await Promise.all([getDictionary(lang), getShop(slug)]);
@@ -93,15 +92,15 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const q = (first(sp.q) ?? "").trim();
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // The AI assistant is a paid feature: shown only when the database says the shop has the plan.
-  const [{ items, total }, assistant, shopperPdf, calendars, sections, posts] = await Promise.all([
+  const [{ items, total }, assistant, shopperPdf, calendars, content, posts] = await Promise.all([
     getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
     shopChatEnabled() ? shopHasPlan(shop.id) : Promise.resolve(false),
     // "Stiahnuť túto konverzáciu (PDF)" (database update 24): only with the archive on.
     archiveEnabled() ? shopperPdfAllowed(shop.slug).catch(() => false) : Promise.resolve(false),
     // Special days and holidays (database update 27): the status and the next 60 days.
     getShopCalendars([shop.id], 60).catch(() => new Map()),
-    // Page sections from PDFs (database update 28): only the ones the database shows.
-    getShopSections(shop.slug, shop.id).catch(() => []),
+    // "Obsah stránky" (database update 38): the slides the database shows (none before it).
+    getShopContent(shop.slug).catch(() => null),
     // The blog (database update 37): "Novinky" only with at least one post shown.
     blogCount(shop.slug).catch(() => 0),
   ]);
@@ -114,6 +113,11 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const hasLocation = shop.lat !== null && shop.lng !== null;
   const input = statusInput(shop, calendars);
   const renderedAt = requestTime();
+  const place = { shopSlug: shop.slug, country: shop.country, host };
+  const slides = content ? slideViews(content, { shopId: shop.id, slug: shop.slug, lang, timeZone: shop.timezone, place, onSite }) : [];
+  const newsHref = blogPath(lang, place, onSite);
+  // "Všetky novinky" under the slider when the shop has posts; else the "Novinky" link in the details (never both).
+  const sliderNews = slides.length > 0 && Boolean(content?.has_posts);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -161,15 +165,13 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
             bookingUrl={shop.booking_url}
             bookingLabel={dict.shop.booking}
           />
-          {posts > 0 && (
-            <Link href={blogPath(lang, { shopSlug: shop.slug, country: shop.country, host }, onSite)} className="underline underline-offset-4" data-shop-news>
+          {posts > 0 && !sliderNews && (
+            <Link href={newsHref} className="underline underline-offset-4" data-shop-news>
               {dict.shop.news}
             </Link>
           )}
         </p>
       </header>
-
-      <PageSections sections={sections} position="after_details" slug={shop.slug} dict={dict} />
 
       {/* 2. The map with the shop's status dot (an extra: the page works without it). */}
       {hasLocation && (
@@ -182,13 +184,21 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         />
       )}
 
-      <PageSections sections={sections} position="after_map" slug={shop.slug} dict={dict} />
-
       {/* 3. Opening hours: status line, the week (today marked, breaks in the row), the coming special days. */}
       <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} />
 
-      {/* Sections "Za otváracími hodinami" (update 31), and a free shop's: before the assistant. */}
-      <PageSections sections={sections} position="after_hours" slug={shop.slug} dict={dict} />
+      {/* "Obsah stránky" (update 38): after the opening hours, before the assistant (a free page: before the items). */}
+      {slides.length > 0 && content && (
+        <ContentSlider
+          views={slides}
+          title={content.title ?? dict.content.default_title}
+          showTitle={content.show_title}
+          display={content.display}
+          allNews={sliderNews ? newsHref : null}
+          labels={dict.content}
+          lang={lang}
+        />
+      )}
 
       {/* 4. and 5. The assistant (paid plan): always open; "Mám prístupový kľúč" as a closed dropdown under it. */}
       {assistant && (
@@ -205,8 +215,6 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           shopperPdf={shopperPdf}
         />
       )}
-
-      <PageSections sections={sections} position="before_items" slug={shop.slug} dict={dict} />
 
       {/* 6. The items. */}
       <section className="flex flex-col gap-3" aria-labelledby="items-heading">
@@ -278,8 +286,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         )}
       </section>
 
-      <PageSections sections={sections} position="end" slug={shop.slug} dict={dict} />
-      {sections.length > 0 && <SectionZoom labels={dict.sections} />}
+      {slides.some((v) => v.kind !== "post") && <SectionZoom labels={dict.sections} />}
     </div>
   );
 }

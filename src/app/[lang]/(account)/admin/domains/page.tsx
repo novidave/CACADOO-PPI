@@ -5,6 +5,7 @@ import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { euros } from "@/lib/domains";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { missingColumn } from "@/lib/missingColumn";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings, saveSectionLimits } from "./actions";
@@ -53,12 +54,18 @@ interface Overview {
   renewal_state: string | null;
 }
 
-/** "Limity sekcií (PDF)" (database update 30): per plan. */
+/**
+ * "Limity obsahu stránky" per plan: slides, of which PDFs, and files in the library (database update 38), pages and
+ * MB per file (update 30; before update 38 only the number of sections, pages and MB).
+ */
 interface LimitsRow {
   plan: "free" | "pro";
   max_sections: number;
   max_pages: number;
   max_mb: number;
+  max_slides?: number;
+  max_pdf_slides?: number;
+  max_items?: number;
 }
 
 interface PriceRow {
@@ -106,7 +113,10 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
     session.supabase.rpc("admin_holidays", { p_country: hcountry, p_year: hyear }),
-    session.supabase.from("section_limits").select("plan, max_sections, max_pages, max_mb"),
+    session.supabase
+      .from("section_limits")
+      .select("plan, max_sections, max_pages, max_mb, max_slides, max_pdf_slides, max_items")
+      .then(async (r) => (missingColumn(r.error, "max_slides") ? await session.supabase.from("section_limits").select("plan, max_sections, max_pages, max_mb") : r)),
     // "Vyhľadávanie mimo Cacaduu" (database update 34) and the product-sources function's switches.
     session.supabase.rpc("admin_search_settings"),
     sourcesStatus(session.supabase),
@@ -394,10 +404,29 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
                   {hidden}
                   <input type="hidden" name="plan" value={plan} />
                   <span className="w-24 pb-1 font-medium">{plan === "pro" ? a.plan_pro : a.plan_free}</span>
-                  <label className="flex flex-col gap-1">
-                    <span>{a.limits_sections}</span>
-                    <input name="max_sections" type="number" min={0} max={50} required defaultValue={row?.max_sections ?? ""} className={`${input} w-20`} />
-                  </label>
+                  {row?.max_slides === undefined ? (
+                    <label className="flex flex-col gap-1">
+                      <span>{a.limits_sections}</span>
+                      <input name="max_sections" type="number" min={0} max={50} required defaultValue={row?.max_sections ?? ""} className={`${input} w-20`} />
+                    </label>
+                  ) : (
+                    <>
+                      {/* The number of sections of update 30 stays as it is (the slider decides what is shown). */}
+                      <input type="hidden" name="max_sections" value={row.max_sections} />
+                      <label className="flex flex-col gap-1">
+                        <span>{a.limits_slides}</span>
+                        <input name="max_slides" type="number" min={0} max={10} required defaultValue={row.max_slides} className={`${input} w-20`} />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span>{a.limits_pdf_slides}</span>
+                        <input name="max_pdf_slides" type="number" min={0} max={10} required defaultValue={row.max_pdf_slides} className={`${input} w-20`} />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span>{a.limits_items}</span>
+                        <input name="max_items" type="number" min={0} max={100} required defaultValue={row.max_items} className={`${input} w-20`} />
+                      </label>
+                    </>
+                  )}
                   <label className="flex flex-col gap-1">
                     <span>{a.limits_pages}</span>
                     <input name="max_pages" type="number" min={1} max={50} required defaultValue={row?.max_pages ?? ""} className={`${input} w-20`} />

@@ -1,12 +1,25 @@
 import Link from "next/link";
+import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
+import { formatDateTime, formatTime, localDay } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { PendingButton } from "@/components/PendingButton";
 
 /**
- * What the three Môj obchod pages share: the messages after a form, the shop switcher and
- * the small form parts. Each page keeps a form's message inside that form's section.
+ * What the Môj obchod pages share: the messages after a form, the shop switcher and the
+ * small form parts. Each page keeps a form's message inside that form's section.
  */
+
+/** "dnes 14:20" / "včera 14:20" / the date, in the shop's time zone (a closed section's summary line). */
+export function recentlyText(iso: string, lang: Locale, timeZone: string, dict: Dictionary, now: Date): string {
+  const d = dict.dashboard;
+  const date = new Date(iso);
+  const day = localDay(date, timeZone);
+  const time = formatTime(date, timeZone);
+  if (day === localDay(now, timeZone)) return t(d.today_at, { time });
+  if (day === localDay(new Date(now.getTime() - 86_400_000), timeZone)) return t(d.yesterday_at, { time });
+  return formatDateTime(iso, lang, timeZone);
+}
 
 const ERRORS = [
   "name",
@@ -32,6 +45,10 @@ export function errorText(dict: Dictionary, err: string): string {
   if (err.startsWith("sections_failed:")) return t(dict.sections.error_failed, { message: err.slice("sections_failed:".length) });
   if (err.startsWith("sections_")) {
     const text = (dict.sections as Record<string, string>)[`error_${err.slice("sections_".length)}`];
+    if (text) return text;
+  }
+  if (err.startsWith("content_")) {
+    const text = (dict.content as Record<string, string>)[`error_${err.slice("content_".length)}`];
     if (text) return text;
   }
   if (err.startsWith("docs:")) return t(dict.docs.error_failed, { message: err.slice("docs:".length) });
@@ -78,13 +95,12 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     special_saved: dict.holidays.special_saved,
     special_deleted: dict.holidays.special_deleted,
     special_deleted_many: dict.holidays.special_deleted_many,
-    section_uploaded: dict.sections.done,
-    section_uploaded_removed: `${dict.sections.done} ${dict.sections.removed}`,
-    section_saved: dict.sections.ok_saved,
-    section_published: dict.sections.ok_published,
-    section_hidden: dict.sections.ok_hidden,
-    section_shown: dict.sections.ok_shown,
-    section_deleted: dict.sections.ok_deleted,
+    section_uploaded: dict.content.ok_uploaded,
+    section_uploaded_removed: `${dict.content.ok_uploaded} ${dict.sections.removed}`,
+    section_saved: dict.content.ok_saved,
+    section_hidden: dict.content.ok_hidden,
+    section_shown: dict.content.ok_shown,
+    section_deleted: dict.content.ok_deleted,
     site_logo_saved: dict.sections.ok_site_logo,
     site_logo_removed: dict.sections.ok_site_logo_removed,
     site_logo_link_saved: dict.sections.ok_site_logo_link,
@@ -183,4 +199,16 @@ export function hiddenFields(lang: string, shop: MyShop) {
       </>
     );
   };
+}
+
+/** A paid part on a free shop (update 38): "Dostupné v Pro" with the way to the plan. */
+export function ProOnly({ dict, href }: { dict: Dictionary; href: string }) {
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border border-line p-3 text-sm" data-pro-only>
+      <span className="font-semibold">{dict.dashboard.pro_only}</span>
+      <Link href={href} className="underline underline-offset-4">
+        {dict.dashboard.pro_only_link}
+      </Link>
+    </p>
+  );
 }

@@ -65,6 +65,9 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
   rule) (`src/lib/chat_test.ts`)
 - `npm run test:blog` — unit tests (Deno) of the shop blog (`src/lib/blog_test.ts`): addresses on Cacaduu and own
   domains, the text as written, the Facebook message, BlogPosting/BreadcrumbList JSON-LD, RSS, scheduling time zones
+- `npm run test:content` — unit tests (Deno) of "Obsah stránky" (`src/lib/content_test.ts`): the slide rule
+  (pinned never repeated, fewer posts, hidden files, plan limits), counters, srcset, excerpts and where Môj obchod's
+  sections live (old addresses forwarded)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook, page-sections PDF cleaning and limits, partner-feeds formats, parts and size limit
@@ -324,18 +327,21 @@ PPI's sitemap leaves those pages out.
 - Assistant button label (≤ 40) and welcome text (≤ 300), paid plan: `owner_set_assistant_texts()`; the database keeps
   plain text only (`plain_text()`: no HTML, links or e-mail addresses); empty = NULL = the i18n default (`chat.title`,
   `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`).
-- Môj obchod is three pages (menu: Môj obchod · AI asistent · Priečinok s exportom · Predplatné a doména · Heslo; the
-  menu keeps `?shop=`): `/dashboard` (columns, details, logo, items, plan, delete), `/dashboard/assistant` "AI asistent"
-  (Shop assistant texts, Konverzácie asistenta, Cloudový priečinok, Dokumenty pre asistenta) and `/sync` "Priečinok s
-  exportom" (export folder + `FolderSync`, files in private folders, recently uploaded files). Which page holds a section:
-  `@/lib/dashboardPages` (`sectionUrl(lang, at, query)` for every form's way back; `/dashboard?at=<moved section>` is
-  forwarded there, e.g. cloud-export's `…/dashboard?at=cloud`). Shared messages/switcher/form parts:
-  `dashboard/shared.tsx`. Sections are `@/components/DashboardSection` dropdowns (heading + summary line; phone: only the
-  first open; remembered per device in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). Files in private
-  folders: `PrivateFiles` (data from `loadShopDocs()`, Open via `/api/owner/files/{kind}/{id}` → `doc-ingest`
-  `open_file`, delete via `deleteDocOrPicture`); recently uploaded files: `@/components/RecentImports` (the last 10
-  `stock_imports` rows as cards; a tap opens the quick view: a `<dialog>` slideshow of the full reports, "Súbor n z 10",
-  Novší/Starší, ← → keys, swipe, Esc).
+- Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
+  Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (columns, details, logo, header logo, items, plan,
+  delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`
+  "Asistent" (update 38: **four sections, each once, in this order** — "Nastavenia asistenta", "Konverzácie asistenta"
+  with the cloud folder as its part `#cloud`, "Súkromné priečinky" = `ShopDocuments` (documents, folders, access keys,
+  "Len zobraziť" / "Zobraziť a stiahnuť"), "Posledné nahrané súbory" = `@/components/RecentImports`; a free shop sees
+  `ProOnly` "Dostupné v Pro" where it has nothing yet, what it has stays reachable) and `/sync` "Priečinok s exportom"
+  (export folder + `FolderSync`, conversations to the PC). **Which page holds a section: only `@/lib/dashboardPages`**
+  (`sectionUrl(lang, at, query)` for every form's way back; `movedFrom()` / `forwardUrl()` forward old addresses with
+  their query, old names merged: `private` → `docs`, `sections` → `content`; `/dashboard/sections/[id]` → the library).
+  Never put a section on two pages. Shared messages/switcher/form parts: `dashboard/shared.tsx`. Sections are
+  `@/components/DashboardSection` dropdowns (heading + summary line; phone: only the first open; remembered per device
+  in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). `RecentImports`: the last 10 `stock_imports` rows as
+  cards; a tap opens the quick view (a `<dialog>` slideshow of the full reports, "Súbor n z 10", Novší/Starší, ← → keys,
+  swipe, Esc).
 
 ## Shop status and Pro page layout (update 27)
 
@@ -358,10 +364,11 @@ data, never stock.
 
 ## Page sections from PDFs or pictures and the own domain's header logo (update 28; every shop since 30; 31)
 
+**Since update 38 the sections are the files of "Obsah stránky" (below): the positions, `shop_sections()`, the
+section blocks, `PageSectionsPanel`, `SectionOrder`, `PageSections`, `SectionSlider`, `sectionLimits` and the preview
+page are gone; the upload pipeline, cleaning, buckets, sync and download below still apply.**
 `supabase/sql/28_pdf_sections.sql` + `supabase/functions/page-sections` (one file, Verify JWT off) + shop-files
-`section_pdf` + dashboard `PageSectionsPanel.tsx` / `sectionActions.ts` / page `dashboard/sections/[id]` (preview) +
-`@/components/SectionUploader`, `SectionOrder`, `PageSections`, `SectionZoom`, `HeaderPictureInput` + `@/lib/sections`
-(server) / `@/lib/sectionLimits` (shared with the browser). ≤ 10 sections per shop; PDF only, ≤ 10 MB, ≤ 20 pages,
+`section_pdf` + `sectionActions.ts` + `@/components/SectionUploader`, `SectionZoom` + `@/lib/sections`. ≤ 10 sections per shop; PDF only, ≤ 10 MB, ≤ 20 pages,
 encrypted refused. The owner's browser draws every page (pdf.js `sectionPage()`: 800 and 1600 px wide, WebP 0.8, JPEG
 fallback) and reads its text; the function checks the real type, **cleans with pdf-lib** (JavaScript, open/automatic
 actions, Launch and other unsafe actions, links to programs, embedded/attached files, media, XFA, unreachable objects;
@@ -439,6 +446,36 @@ results "Zverejnené na webe ✓" / "Zverejnené na Facebooku ✓" / error + "Sk
 Expired token → banner + dialog + one Brevo e-mail (`facebook_alerts_due`). **No Facebook SDK, pixel, plugin or embedded
 widget on any public page.** Privacy draft `/[lang]/sukromie` + `/[lang]/sukromie/vymazanie-udajov` (the Meta app's
 URLs; TODO lines). Texts `blog`, `owner_blog`, `admin_blog`, `privacy`.
+
+## "Obsah stránky": one slider of posts, PDFs and pictures (update 38)
+
+`supabase/sql/38_page_content.sql` + `@/lib/pageContent` (shared rules, also the browser and `content_test.ts`) +
+`@/lib/sections` (`getShopContent()`, `slideViews()`) + `@/components/ContentSlider` (visitors and the live preview) +
+`@/components/ContentEditor` + `@/components/SectionUploader` + page `dashboard/content` ("Obsah stránky": the slider
+and the "Knižnica súborov"). **One slider per shop page**, after the opening hours and before the assistant (a free page:
+before "Tovar v obchode"), on the Cacaduu address and the own domain; no other sections, no separate "Novinky" preview
+(the details' "Novinky" link only when the slider has no "Všetky novinky"). Settings `shop_page_content` (title ≤ 80 as
+written, NULL = "Novinky a ponuky" from i18n; `show_title`; `display` open|collapsed); slots `shop_content_slots`
+(position, kind auto_post|pinned_post|pdf|picture, `item_id` / `post_id`; RLS: members read; written only by
+`owner_save_content()`); the library = `shop_page_sections` with `kind` pdf|picture. **Only SQL decides what visitors
+see:** `content_slots_shown()` (a shop never arranged gets virtual slots: its old visible sections, then 3 automatic),
+`section_item_ready()` (uploaded, not hidden, inside its dates), `section_visible()` = in a shown slot, `shop_content()`
+(the only public read; automatic slots = the newest visible posts not pinned in a shown slot, fewer posts → fewer
+slides, never an empty one; hidden/expired/deleted files drop out, the rest keep their order). `arrangeSlides()` is the
+same rule for the editor's preview only. Limits are the admin's (`section_limits.max_slides` / `max_pdf_slides` /
+`max_items`, defaults free 5/1/10, Pro 10/10/30, hard cap 10 slides; `admin_save_content_limits()`; admin "Limity
+obsahu stránky"); a shop back on free keeps every slot and shows the first within the free numbers. Uploads: PDF as
+before (≤ plan's pages/MB, real type, cleaned, encrypted refused with a clear message) + **pictures** (JPG/PNG/WebP/
+HEIC/HEIF; HEIC via `heic-to`, loaded only in Môj obchod): drawn in the owner's browser (`preparePicture()` in
+`@/lib/pdfRead`: upright from EXIF, every EXIF/GPS gone, < 600 px wide refused "Nahrajte aspoň 800 px na šírku", > 4000
+made smaller, never enlarged, cropped or stretched, PNG transparency kept in WebP), the original kept privately
+(`original_path`, the function's `original` action) for "Stiahnuť", 800/1600 WebP pages; optional alt text, else the AI
+writes `alt_ai` (never invents). Slides: post card (photo, date, title, two lines, "Čítať"); PDF = first page + title +
+page count, a tap opens `SectionZoom` ("Slider" page by page or "Pod sebou" all pages, per PDF); picture = zoom,
+optional title, optional "Stiahnuť". Swipe, ‹ › and ← →, "3 / 10" + dots, height of the current slide ≤ 80vh, only the
+current and next slide get an `<img>` (`<noscript>` for the rest), `prefers-reduced-motion` = no smooth scroll.
+Downloads only `/api/shops/[slug]/sections/[id]/download` → shop-files (10-minute signed URL, only when allowed; the
+old `/pdf` address re-exports it). Texts `content` (sk/hu/en). Tests: `npm run test:content`.
 
 ## Stock upload
 

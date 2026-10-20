@@ -326,32 +326,112 @@ export async function sectionPage(
   return { small: small.blob, large: large.blob, width: 1600, height: large.height, text };
 }
 
+/** A picture file (update 38): never narrower ("Nahrajte aspoň 800 px na šírku"; refused under 600 px). */
+export const MIN_PICTURE_WIDTH = 600;
+/** Its original is made at most this big on either side (larger photos are scaled down, never cropped). */
+export const MAX_ORIGINAL_SIDE = 4000;
+
+/** Why a picture cannot be used (the uploader shows it in the page language). */
+export class PictureProblem extends Error {
+  constructor(readonly code: "picture" | "too_small" | "too_big", message: string) {
+    super(message);
+  }
+}
+
+const isHeic = (file: File) => /^image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
+
 /**
- * A picture as one section page (database update 31): drawn 800 and 1600 px wide on white, like a
- * PDF page (WebP 0.8, JPEG where the browser cannot write WebP). Redrawing also drops the photo's
- * own data (place, camera). Throws when the browser cannot open the picture (e.g. HEIC outside Safari).
+ * The photo as the browser shows it, upright (EXIF orientation applied). HEIC/HEIF: Safari opens it itself, other
+ * browsers through heic-to (libheif, loaded only now, only in Môj obchod).
  */
-export async function picturePage(file: Blob): Promise<{ small: Blob; large: Blob; width: number; height: number }> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+async function openPicture(file: File): Promise<ImageBitmap> {
   try {
-    const draw = async (width: number) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = Math.max(1, Math.round((bitmap.height * width) / bitmap.width));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("The picture could not be drawn");
+    return await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    if (!isHeic(file)) throw new PictureProblem("picture", file.name);
+    try {
+      const { heicTo } = await import("heic-to/next");
+      return await heicTo({ blob: file, type: "bitmap", options: { imageOrientation: "from-image" } });
+    } catch {
+      throw new PictureProblem("picture", file.name);
+    }
+  }
+}
+
+/** Whether a picture has see-through pixels (a PNG or WebP logo): looked at small, so it is quick. */
+function hasTransparency(bitmap: ImageBitmap): boolean {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.min(64, bitmap.width));
+  canvas.height = Math.max(1, Math.round((bitmap.height * canvas.width) / bitmap.width));
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return false;
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 250) return true;
+  return false;
+}
+
+/**
+ * Draws the picture `width` px wide (never wider than it is) as the first of `types` the browser can write; see-through
+ * pixels stay only in WebP or PNG (a JPEG gets a white background).
+ */
+async function drawPicture(bitmap: ImageBitmap, width: number, keepAlpha: boolean, types: string[], quality: number) {
+  const w = Math.min(width, bitmap.width);
+  const h = Math.max(1, Math.round((bitmap.height * w) / bitmap.width));
+  for (const type of types) {
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("The picture could not be drawn");
+    if (!keepAlpha || type === "image/jpeg") {
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const encode = (type: string) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.8));
-      const webp = await encode("image/webp");
-      const blob = webp && webp.type === "image/webp" ? webp : await encode("image/jpeg");
-      if (!blob) throw new Error("The picture could not be drawn");
-      return { blob, height: canvas.height };
-    };
-    const large = await draw(1600);
-    const small = await draw(800);
-    return { small: small.blob, large: large.blob, width: 1600, height: large.height };
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, type === "image/png" ? undefined : quality));
+    if (blob && blob.type === type) return { blob, width: w, height: h };
+  }
+  throw new Error("The picture could not be saved");
+}
+
+export interface PreparedPicture {
+  /** The pictures shown: at most 800 and 1600 px wide (a smaller photo keeps its size), WebP 0.8 (JPEG in Safari). */
+  small: Blob;
+  large: Blob;
+  width: number;
+  height: number;
+  /** The original kept privately for "Stiahnuť": upright, at most 4000 px, WebP, or PNG / JPEG where WebP cannot be written. */
+  original: Blob;
+}
+
+/**
+ * A picture file of "Obsah stránky" (update 38): opened upright, refused under 600 px wide, drawn again — so the
+ * photo's place (GPS) and camera data are gone — never cropped, stretched or made larger; transparency (PNG, WebP)
+ * kept where the browser can write WebP. `maxBytes`: the plan's MB per file (the original is made smaller until it fits).
+ */
+export async function preparePicture(file: File, maxBytes: number): Promise<PreparedPicture> {
+  const bitmap = await openPicture(file);
+  try {
+    if (bitmap.width < MIN_PICTURE_WIDTH) throw new PictureProblem("too_small", file.name);
+    const alpha = hasTransparency(bitmap);
+    // The shown pictures: transparency stays in WebP; a JPEG (Safari) gets a white background.
+    const shown = (width: number) => drawPicture(bitmap, width, alpha, ["image/webp", "image/jpeg"], 0.8);
+    const large = await shown(1600);
+    const small = await shown(800);
+    const fit = Math.min(1, MAX_ORIGINAL_SIDE / Math.max(bitmap.width, bitmap.height));
+    let original: Blob | null = null;
+    for (let scale = fit, tries = 0; tries < 6; scale *= 0.8, tries++) {
+      const drawn = await drawPicture(bitmap, Math.round(bitmap.width * scale), alpha, alpha ? ["image/webp", "image/png"] : ["image/webp", "image/jpeg"], 0.9);
+      if (drawn.blob.size <= maxBytes && drawn.width >= MIN_PICTURE_WIDTH) {
+        original = drawn.blob;
+        break;
+      }
+      if (drawn.width * 0.8 < MIN_PICTURE_WIDTH) break;
+    }
+    if (!original) throw new PictureProblem("too_big", file.name);
+    return { small: small.blob, large: large.blob, width: large.width, height: large.height, original };
   } finally {
     bitmap.close();
   }

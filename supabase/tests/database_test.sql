@@ -5910,4 +5910,444 @@ drop table blog_b_subscription;
 delete from public.indexnow_hosts;
 delete from public.indexnow_pings;
 
+\echo '--- "Obsah stránky": one slider of posts, PDFs and pictures, the owner''s order, limits per plan (update 38)'
+-- shop B (owner B, free) starts empty; shop A (owner A, Pro) keeps its sections of updates 28–31 (not arranged yet)
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  delete from public.shop_content_slots where shop_id = v_b;
+  delete from public.shop_page_content where shop_id = v_b;
+  delete from public.shop_page_sections where shop_id = v_b;
+  delete from public.blog_posts where shop_id = v_b;
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'canceled', 'pro', now() - interval '1 day', null);
+  assert not public.shop_has_plan(v_b);
+  -- the update's defaults: free 5 slides of which 1 PDF and 10 files, Pro 10 / 10 / 30
+  update public.section_limits set max_slides = 5, max_pdf_slides = 1, max_items = 10, max_pages = 5, max_mb = 10 where plan = 'free';
+  update public.section_limits set max_slides = 10, max_pdf_slides = 10, max_items = 30, max_pages = 20, max_mb = 10 where plan = 'pro';
+end $$;
+
+-- visitors read nothing directly; the slides only through shop_content()
+set role anon;
+do $$
+begin
+  begin
+    perform 1 from public.shop_content_slots limit 1;
+    raise exception 'a visitor read the slots';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform 1 from public.shop_page_content limit 1;
+    raise exception 'a visitor read the settings';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.owner_content((select id from public.shops where slug = 'drogeria-kostolne'));
+    raise exception 'a visitor read the editor';
+  exception when insufficient_privilege then null;
+  end;
+  -- not arranged, no posts, no files: three automatic slots and nothing to show (no blank slides)
+  assert jsonb_array_length(public.shop_content('drogeria-kostolne') -> 'slides') = 0;
+  assert not (public.shop_content('drogeria-kostolne') ->> 'has_posts')::boolean;
+  assert public.shop_content('drogeria-kostolne') ->> 'display' = 'open';
+  assert (public.shop_content('drogeria-kostolne') ->> 'show_title')::boolean;
+  assert public.shop_content('no-such-shop') is null;
+end $$;
+reset role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  assert (select count(*) from public.content_slots(v_b) where kind = 'auto_post') = 3, 'three automatic posts by default';
+  -- two posts: two slides (fewer posts than automatic slots: no empty slide)
+  insert into public.blog_posts (shop_id, slug, title, body, status, publish_at)
+  values (v_b, 'clanok-1', 'Článok 1', 'Prvý.', 'published', now() - interval '4 days'),
+         (v_b, 'clanok-2', 'Článok 2', 'Druhý.', 'published', now() - interval '3 days');
+  assert jsonb_array_length(public.shop_content('drogeria-kostolne') -> 'slides') = 2;
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,0,post,slug}' = 'clanok-2', 'newest first';
+  -- a new post: the automatic slots move on by themselves
+  insert into public.blog_posts (shop_id, slug, title, body, status, publish_at)
+  values (v_b, 'clanok-3', 'Článok 3', 'Tretí.', 'published', now() - interval '2 days'),
+         (v_b, 'clanok-4', 'Článok 4', 'Štvrtý.', 'published', now() - interval '1 day'),
+         (v_b, 'koncept', 'Koncept', 'Nie.', 'draft', null);
+  assert jsonb_array_length(public.shop_content('drogeria-kostolne') -> 'slides') = 3;
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,0,post,slug}' = 'clanok-4';
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,2,post,slug}' = 'clanok-2';
+  assert (public.shop_content('drogeria-kostolne') #>> '{slides,0,auto}')::boolean;
+  assert (public.shop_content('drogeria-kostolne') ->> 'has_posts')::boolean;
+end $$;
+
+-- owner B: files in the library (a PDF needs a title; a picture may go without one), each into a free slot
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pdf uuid;
+  v_pic uuid;
+  v_i integer;
+begin
+  begin
+    perform public.owner_save_item(v_b, null, 'pdf', '  ', 'leták.pdf', false, 'slider', null, null, null);
+    raise exception 'a PDF without a title';
+  exception when raise_exception then assert sqlerrm = 'title', sqlerrm;
+  end;
+  foreach v_i in array array[1, 2, 3] loop
+    begin
+      if v_i = 1 then perform public.owner_save_item(v_b, null, 'video', 'x', null, false, 'slider', null, null, null); end if;
+      if v_i = 2 then perform public.owner_save_item(v_b, null, 'pdf', 'x', null, false, 'wide', null, null, null); end if;
+      if v_i = 3 then perform public.owner_save_item(v_b, null, 'pdf', 'x', null, false, 'slider', current_date, current_date - 1, null); end if;
+      raise exception 'bad file accepted (%)', v_i;
+    exception when raise_exception then assert sqlerrm in ('bad', 'dates'), sqlerrm;
+    end;
+  end loop;
+  begin
+    perform public.owner_save_item(v_a, null, 'pdf', 'Cudzí', null, false, 'slider', null, null, null);
+    raise exception 'owner B added a file to shop A';
+  exception when insufficient_privilege then null;
+  end;
+  v_pdf := public.owner_save_item(v_b, null, 'pdf', '<b>Novinky</b> október', 'novinky-oktober.pdf', true, 'stacked', null, null, null);
+  assert (select title = 'Novinky október' and kind = 'pdf' and published and version = 0 from public.shop_page_sections where id = v_pdf);
+  v_pic := public.owner_save_item(v_b, null, 'picture', '', 'leto-akcia.JPG', false, 'slider', null, null, null);
+  assert (select title = 'leto-akcia' and not show_title and kind = 'picture' from public.shop_page_sections where id = v_pic),
+    'a picture without a title keeps its file name as its name (not shown)';
+  -- the slider is arranged now: the three automatic posts it showed, then the new files
+  assert (select string_agg(kind, ',' order by position) from public.shop_content_slots where shop_id = v_b)
+         = 'auto_post,auto_post,auto_post,pdf,picture', (select string_agg(kind, ',' order by position) from public.shop_content_slots where shop_id = v_b);
+  -- the owner reads the settings and slots, never another shop's
+  assert (select count(*) from public.shop_content_slots) = 5, 'owner B reads only B''s slots';
+  assert (public.owner_content(v_b) -> 'limits' ->> 'max_slides')::integer = 5;
+  assert jsonb_array_length(public.owner_content(v_b) -> 'items') = 2;
+  assert jsonb_array_length(public.owner_content(v_b) -> 'posts') = 4, 'every visible post can be pinned';
+  begin
+    perform public.owner_content(v_a);
+    raise exception 'owner B read shop A''s editor';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.shop_content_slots (shop_id, position, kind) values (v_b, 9, 'auto_post');
+    raise exception 'a slot written directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the function's steps: the PDF (3 pages) and the picture (1 picture + its original) go live
+set role service_role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_pdf uuid := (select id from public.shop_page_sections where shop_id = v_b and kind = 'pdf');
+  v_pic uuid := (select id from public.shop_page_sections where shop_id = v_b and kind = 'picture');
+  v_r record;
+  v_path text;
+begin
+  -- nothing uploaded yet: not shown
+  assert not public.section_visible(v_pdf) and not public.section_visible(v_pic);
+  select * into v_r from public.sections_begin_upload(v_pdf, 3, 250000);
+  for i in 1..3 loop
+    perform public.sections_page_stored(v_pdf, v_r.version, i, 800, 'webp', 60000, 800, 1131);
+    perform public.sections_page_stored(v_pdf, v_r.version, i, 1600, 'webp', 200000, 1600, 2263);
+  end loop;
+  perform public.sections_save_text(v_pdf, v_r.version, '[{"page":1,"text":"Novinky október"},{"page":2,"text":"Akcie"},{"page":3,"text":"Kontakt"}]', 'sk');
+  perform public.sections_finish(v_pdf, v_r.version);
+  -- a picture takes exactly one picture
+  begin
+    perform public.sections_begin_upload(v_pic, 2, 1000, 'pictures');
+    raise exception 'two pictures for one picture';
+  exception when raise_exception then assert sqlerrm = 'bad', sqlerrm;
+  end;
+  begin
+    perform public.sections_begin_upload(v_pic, 1, 1000, 'pdf');
+    raise exception 'a PDF for a picture';
+  exception when raise_exception then assert sqlerrm = 'bad', sqlerrm;
+  end;
+  select * into v_r from public.sections_begin_upload(v_pic, 1, 900000, 'pictures');
+  assert v_r.pdf_path is null;
+  perform public.sections_page_stored(v_pic, v_r.version, 1, 800, 'webp', 50000, 800, 1000);
+  perform public.sections_page_stored(v_pic, v_r.version, 1, 1600, 'webp', 150000, 1600, 2000);
+  perform public.sections_save_text(v_pic, v_r.version, '[{"page":1,"text":""}]', null);
+  begin
+    perform public.sections_finish(v_pic, v_r.version);
+    raise exception 'a picture went live without its original';
+  exception when raise_exception then assert sqlerrm = 'incomplete', sqlerrm;
+  end;
+  begin
+    perform public.sections_original_stored(v_pic, v_r.version, 'gif', 1000);
+    raise exception 'a GIF original';
+  exception when raise_exception then assert sqlerrm = 'limits', sqlerrm;
+  end;
+  begin
+    perform public.sections_original_stored(v_pic, v_r.version, 'webp', 11 * 1048576);
+    raise exception 'an original over the plan''s MB';
+  exception when raise_exception then assert sqlerrm = 'limits', sqlerrm;
+  end;
+  begin
+    perform public.sections_original_stored(v_pdf, (select version from public.shop_page_sections where id = v_pdf), 'webp', 1000);
+    raise exception 'an original for a PDF';
+  exception when raise_exception then assert sqlerrm = 'version', sqlerrm;
+  end;
+  v_path := public.sections_original_stored(v_pic, v_r.version, 'webp', 400000);
+  assert v_path = format('%s/%s/v%s/original.webp', v_b, v_pic, v_r.version);
+  perform public.sections_finish(v_pic, v_r.version);
+  assert (select original_path = v_path and upload_original_path is null from public.shop_page_sections where id = v_pic);
+  -- shown now (in a shown slot), but on the page only once their pictures are public
+  assert public.section_visible(v_pdf) and public.section_visible(v_pic);
+  assert jsonb_array_length(public.shop_content('drogeria-kostolne') -> 'slides') = 3;
+  assert (select count(*) from public.sections_to_sync(null, v_b) where visible) = 2;
+  perform public.sections_mark_public(v_pdf, (select version from public.shop_page_sections where id = v_pdf));
+  perform public.sections_mark_public(v_pic, (select version from public.shop_page_sections where id = v_pic));
+  assert jsonb_array_length(public.shop_content('drogeria-kostolne') -> 'slides') = 5;
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,3,kind}' = 'pdf';
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,3,item,title}' = 'Novinky október';
+  assert jsonb_array_length(public.shop_content('drogeria-kostolne') #> '{slides,3,item,pages}') = 3;
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,3,item,page_layout}' = 'stacked';
+  assert (public.shop_content('drogeria-kostolne') #>> '{slides,3,item,download}')::boolean, 'the PDF may be downloaded';
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,4,kind}' = 'picture';
+  assert not (public.shop_content('drogeria-kostolne') #>> '{slides,4,item,show_title}')::boolean;
+  assert not (public.shop_content('drogeria-kostolne') #>> '{slides,4,item,download}')::boolean;
+  -- the download: the cleaned PDF; the picture's original only once its owner allows it
+  assert (select path from public.shop_section_pdf('drogeria-kostolne', v_pdf)) like '%/section.pdf';
+  assert not exists (select 1 from public.shop_section_pdf('drogeria-kostolne', v_pic));
+  -- the AI reads the picture: its text and a short alt text (the owner's alt text wins)
+  assert exists (select 1 from public.sections_claim_ai(v_pic, 3) c where c.kind = 'picture' and c.wants_alt);
+  perform public.sections_save_ai_text((select id from public.shop_section_pages where section_id = v_pic), 'LETO -20 %', null,
+                                       'Plagát letnej akcie: zľava 20 %');
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,4,item,alt}' = 'Plagát letnej akcie: zľava 20 %';
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,4,item,pages,0,text}' = 'LETO -20 %';
+end $$;
+reset role;
+
+-- owner B arranges the slider: checks, a pinned post never repeated, hidden / expired / deleted drop out
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pdf uuid := (select id from public.shop_page_sections where shop_id = v_b and kind = 'pdf');
+  v_pic uuid := (select id from public.shop_page_sections where shop_id = v_b and kind = 'picture');
+  v_p2 uuid := (select id from public.blog_posts where slug = 'clanok-2' and shop_id = v_b);
+  v_draft uuid := (select id from public.blog_posts where slug = 'koncept' and shop_id = v_b);
+  v_pdf2 uuid;
+  v_i integer;
+begin
+  perform public.owner_save_item(v_b, v_pic, null, 'Letná akcia', null, true, 'slider', null, null, ' Plagát: <i>leto</i> ');
+  assert (select show_title and title = 'Letná akcia' and alt = 'Plagát: leto' from public.shop_page_sections where id = v_pic);
+  v_pdf2 := public.owner_save_item(v_b, null, 'pdf', 'Leták 2', 'letak-2.pdf', false, 'slider', null, null, null, false);
+  assert not exists (select 1 from public.shop_content_slots where item_id = v_pdf2), 'p_add_slot false: only in the library';
+  foreach v_i in array array[1, 2, 3, 4, 5, 6, 7, 8] loop
+    begin
+      if v_i = 1 then -- 6 slides on a free shop
+        perform public.owner_save_content(v_b, null, true, 'open', '[{"kind":"auto_post"},{"kind":"auto_post"},{"kind":"auto_post"},{"kind":"auto_post"},{"kind":"auto_post"},{"kind":"auto_post"}]');
+      elsif v_i = 2 then -- two PDFs on a free shop
+        perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(
+          jsonb_build_object('kind', 'pdf', 'item_id', v_pdf), jsonb_build_object('kind', 'pdf', 'item_id', v_pdf2)));
+      elsif v_i = 3 then -- one file twice
+        perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(
+          jsonb_build_object('kind', 'picture', 'item_id', v_pic), jsonb_build_object('kind', 'picture', 'item_id', v_pic)));
+      elsif v_i = 4 then -- a picture in a PDF slot
+        perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(jsonb_build_object('kind', 'pdf', 'item_id', v_pic)));
+      elsif v_i = 5 then -- a file that is not this shop's (owner B cannot even see another shop's ids)
+        perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(jsonb_build_object('kind', 'pdf', 'item_id', gen_random_uuid())));
+      elsif v_i = 6 then -- a draft pinned
+        perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(jsonb_build_object('kind', 'pinned_post', 'post_id', v_draft)));
+      elsif v_i = 7 then
+        perform public.owner_save_content(v_b, null, true, 'wide', '[]');
+      else
+        perform public.owner_save_content(v_b, null, true, 'open', '[{"kind":"video"}]');
+      end if;
+      raise exception 'bad slider accepted (%)', v_i;
+    exception when raise_exception then
+      assert sqlerrm in ('limit', 'pdf_limit', 'duplicate', 'item', 'post', 'bad'), sqlerrm;
+      assert (v_i = 1) = (sqlerrm = 'limit') and (v_i = 2) = (sqlerrm = 'pdf_limit') and (v_i = 3) = (sqlerrm = 'duplicate'), v_i || ' ' || sqlerrm;
+    end;
+  end loop;
+  -- pinned "Článok 2" first, two automatic posts, the PDF, the picture; own title, collapsed, title shown
+  assert public.owner_save_content(v_b, ' <b>Akcie</b> týždňa ', false, 'collapsed', jsonb_build_array(
+    jsonb_build_object('kind', 'pinned_post', 'post_id', v_p2), jsonb_build_object('kind', 'auto_post'),
+    jsonb_build_object('kind', 'auto_post'), jsonb_build_object('kind', 'pdf', 'item_id', v_pdf),
+    jsonb_build_object('kind', 'picture', 'item_id', v_pic))) = 5;
+  assert (select title = 'Akcie týždňa' and not show_title and display = 'collapsed' from public.shop_page_content where shop_id = v_b);
+  begin
+    perform public.owner_save_content(v_a, null, true, 'open', '[]');
+    raise exception 'owner B arranged shop A''s slider';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_pdf uuid := (select id from public.shop_page_sections where shop_id = v_b and kind = 'pdf' and title = 'Novinky október');
+  v_pic uuid := (select id from public.shop_page_sections where shop_id = v_b and kind = 'picture');
+  v_c jsonb := public.shop_content('drogeria-kostolne');
+  v_order text;
+begin
+  select string_agg(coalesce(e ->> 'kind', '') || ':' || coalesce(e #>> '{post,slug}', e #>> '{item,title}'), ',' order by n)
+  into v_order from jsonb_array_elements(v_c -> 'slides') with ordinality as x(e, n);
+  assert v_order = 'post:clanok-2,post:clanok-4,post:clanok-3,pdf:Novinky október,picture:Letná akcia', v_order;
+  assert not (v_c #>> '{slides,0,auto}')::boolean and (v_c #>> '{slides,1,auto}')::boolean, 'the pinned post is never repeated';
+  assert v_c ->> 'title' = 'Akcie týždňa' and v_c ->> 'display' = 'collapsed' and not (v_c ->> 'show_title')::boolean;
+  assert v_c #>> '{slides,4,item,alt}' = 'Plagát: leto', 'the owner''s alt text wins over the AI''s';
+  assert (v_c #>> '{slides,4,item,download}')::boolean;
+  assert (select path from public.shop_section_pdf('drogeria-kostolne', v_pic)) like '%/original.webp';
+  -- a hidden file drops out, the rest keep their order
+  update public.shop_page_sections set hidden = true where id = v_pdf;
+  assert not public.section_visible(v_pdf);
+  select string_agg(e ->> 'kind', ',' order by n) into v_order
+  from jsonb_array_elements(public.shop_content('drogeria-kostolne') -> 'slides') with ordinality as x(e, n);
+  assert v_order = 'post,post,post,picture', v_order;
+  update public.shop_page_sections set hidden = false where id = v_pdf;
+  -- an expired one too (the shop's day)
+  update public.shop_page_sections set visible_until = public.shop_today(v_b) - 1 where id = v_pic;
+  assert not public.section_visible(v_pic);
+  assert jsonb_array_length(public.shop_content('drogeria-kostolne') -> 'slides') = 4;
+  update public.shop_page_sections set visible_until = null where id = v_pic;
+  -- a newer post: the automatic slots take it, the pinned one stays
+  insert into public.blog_posts (shop_id, slug, title, body, status, publish_at)
+  values (v_b, 'clanok-5', 'Článok 5', 'Piaty.', 'published', now() - interval '1 hour');
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,1,post,slug}' = 'clanok-5';
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,2,post,slug}' = 'clanok-4';
+  -- the pinned post deleted: its slot shows nothing, the automatic ones go on (and may show it no more)
+  delete from public.blog_posts where slug = 'clanok-2' and shop_id = v_b;
+  select string_agg(e #>> '{post,slug}', ',' order by n) into v_order
+  from jsonb_array_elements(public.shop_content('drogeria-kostolne') -> 'slides') with ordinality as x(e, n) where e ->> 'kind' = 'post';
+  assert v_order = 'clanok-5,clanok-4', v_order;
+  assert exists (select 1 from public.shop_content_slots where shop_id = v_b and kind = 'pinned_post' and post_id is null), 'the slot stays, empty';
+  -- a deleted file: its slot stays empty, nothing shown for it
+  delete from public.shop_page_sections where id = v_pic;
+  assert exists (select 1 from public.shop_content_slots where shop_id = v_b and kind = 'picture' and item_id is null);
+  assert not exists (select 1 from jsonb_array_elements(public.shop_content('drogeria-kostolne') -> 'slides') e where e ->> 'kind' = 'picture');
+end $$;
+
+-- a post imported from Facebook fills the first automatic slot at once
+set role service_role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  perform public.blog_import_post(v_b, '1234567890_42', 'Z Facebooku', 'Nový tovar z Facebooku.', now() - interval '5 minutes',
+                                  now() - interval '5 minutes', 'https://www.facebook.com/1234567890/posts/42', '[]', '[]');
+  assert public.shop_content('drogeria-kostolne') #>> '{slides,0,post,source}' = 'facebook',
+    coalesce(public.shop_content('drogeria-kostolne') #>> '{slides,0,post,slug}', 'null');
+end $$;
+reset role;
+
+-- Pro → free: every setting stays; only the first slides within the free limit (5, one PDF) are shown
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_pdf uuid := (select id from public.shop_page_sections where shop_id = v_b and title = 'Novinky október');
+  v_pdf2 uuid := (select id from public.shop_page_sections where shop_id = v_b and title = 'Leták 2');
+  v_slots jsonb;
+begin
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'active', 'pro', now() + interval '30 days', null);
+  update public.shop_page_sections set version = 1, pages = 1, source = 'pdf', pdf_path = format('%s/%s/v1/section.pdf', v_b, v_pdf2),
+         public_version = 1 where id = v_pdf2;
+  insert into public.shop_section_pages (section_id, shop_id, version, page, width, height, ext, small_bytes, large_bytes, text, text_done)
+  values (v_pdf2, v_b, 1, 1, 1600, 2263, 'webp', 1, 1, 'Leták', true);
+  v_slots := jsonb_build_array(
+    jsonb_build_object('kind', 'pdf', 'item_id', v_pdf), jsonb_build_object('kind', 'pdf', 'item_id', v_pdf2),
+    jsonb_build_object('kind', 'auto_post'), jsonb_build_object('kind', 'auto_post'), jsonb_build_object('kind', 'auto_post'),
+    jsonb_build_object('kind', 'auto_post'), jsonb_build_object('kind', 'auto_post'));
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', true);
+  set local role authenticated;
+  assert public.owner_save_content(v_b, null, true, 'open', v_slots) = 7, 'Pro: 7 slides, two PDFs';
+  reset role;
+  assert (select count(*) from public.content_slots_shown(v_b)) = 7;
+  perform public.apply_stripe_subscription(v_b, 'cus_B1', 'sub_B1', 'canceled', 'pro', now() - interval '1 day', null);
+  assert (select count(*) from public.shop_content_slots where shop_id = v_b) = 7, 'the settings stay';
+  assert (select string_agg(kind, ',' order by n) from public.content_slots_shown(v_b)) = 'pdf,auto_post,auto_post,auto_post,auto_post',
+    (select string_agg(kind, ',' order by n) from public.content_slots_shown(v_b));
+  assert public.section_visible(v_pdf) and not public.section_visible(v_pdf2), 'the second PDF is over the free limit';
+  -- the owner may keep what was stored, never add
+  set local role authenticated;
+  assert public.owner_save_content(v_b, null, true, 'open', v_slots) = 7;
+  begin
+    perform public.owner_save_content(v_b, null, true, 'open', v_slots || '[{"kind":"auto_post"}]'::jsonb);
+    raise exception 'a free shop added a slide';
+  exception when raise_exception then assert sqlerrm = 'limit', sqlerrm;
+  end;
+  reset role;
+end $$;
+
+-- shop A, never arranged: shows its sections as before (rule of update 31), then three automatic posts; stored once
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_before text;
+  v_n integer;
+begin
+  assert not exists (select 1 from public.shop_page_content where shop_id = v_a);
+  select string_agg(coalesce(item_id::text, kind), ',' order by position) into v_before from public.content_slots(v_a);
+  assert v_before like '%auto_post,auto_post,auto_post', v_before;
+  assert (select count(*) from public.content_slots(v_a) c where c.item_id is not null and not public.section_visible_legacy(c.item_id)) = 0;
+  assert public.content_materialize(v_a);
+  assert not public.content_materialize(v_a), 'only once';
+  select count(*) into v_n from public.shop_page_sections where shop_id = v_a and published and not hidden and version > 0;
+  assert (select count(*) from public.shop_content_slots where shop_id = v_a and item_id is not null) = least(v_n, 10);
+  assert (select count(*) from public.shop_content_slots where shop_id = v_a and kind = 'auto_post') = least(3, 10 - least(v_n, 10));
+  assert (select min(position) from public.shop_content_slots where shop_id = v_a and kind = 'auto_post')
+         > coalesce((select max(position) from public.shop_content_slots where shop_id = v_a and item_id is not null), -1),
+    'the sections first, in their old order';
+end $$;
+
+-- the admin's limits
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin
+    perform public.admin_save_content_limits('free', 3, 1, 5);
+    raise exception 'an owner changed the limits';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+begin
+  begin
+    perform public.admin_save_content_limits('free', 11, 1, 5);
+    raise exception 'eleven slides';
+  exception when raise_exception then assert sqlerrm = 'limits', sqlerrm;
+  end;
+  perform public.admin_save_content_limits('free', 4, 0, 8);
+  assert (select max_slides = 4 and max_pdf_slides = 0 and max_items = 8 from public.section_limits where plan = 'free');
+  perform public.admin_save_content_limits('free', 5, 1, 10);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the files a free shop may keep in its library (max_items)
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  update public.section_limits set max_items = (select count(*) from public.shop_page_sections where shop_id = v_b) where plan = 'free';
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', true);
+  set local role authenticated;
+  begin
+    perform public.owner_save_item(v_b, null, 'picture', 'Ďalší', null, false, 'slider', null, null, null);
+    raise exception 'a file over the plan''s number';
+  exception when raise_exception then assert sqlerrm = 'limit', sqlerrm;
+  end;
+  reset role;
+  update public.section_limits set max_items = 10 where plan = 'free';
+end $$;
+
+-- back as it was: shop B without the slider, its posts and files
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  delete from public.shop_content_slots where shop_id = v_b;
+  delete from public.shop_page_content where shop_id = v_b;
+  delete from public.shop_page_sections where shop_id = v_b;
+  delete from public.blog_posts where shop_id = v_b;
+end $$;
+
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -251,6 +251,10 @@ Deno.test("Section PDF: only when the database allows it, from the sections' buc
     expires_in: 600,
   }], "signed for 10 minutes");
   eq(log.at(-1), "sign shop-sections s/sec/v2/section.pdf 600 download=Novinky_ október.pdf", "the cleaned PDF, as a download");
+  const pic = fakes({ rpc: { shop_section_pdf: () => [{ path: "s/sec/v3/original.webp", title: "Letná akcia" }] } });
+  const picResult = await post(pic.deps, { action: "section_pdf", slug: "potraviny-centrum", section_id: SECTION });
+  eq(picResult[0], 200, "a picture's original (update 38)");
+  eq(pic.log.at(-1), "sign shop-sections s/sec/v3/original.webp 600 download=Letná akcia.webp", "named with its own type");
   const off = fakes({ rpc: { shop_section_pdf: () => [] } });
   eq((await post(off.deps, { action: "section_pdf", slug: "potraviny-centrum", section_id: SECTION }))[0], 404, "download off, hidden or expired");
   eq(off.log.some((l) => l.startsWith("sign")), false, "nothing signed");

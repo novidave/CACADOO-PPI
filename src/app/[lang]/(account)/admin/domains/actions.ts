@@ -100,8 +100,9 @@ export async function domainAction(formData: FormData) {
 }
 
 /**
- * "Limity sekcií (PDF)" (database update 30): the number of sections, pages and MB per PDF of
- * one plan; admin_save_section_limits checks is_admin() and the ranges itself.
+ * "Limity obsahu stránky" of one plan: slides, of which PDFs, and files in the library (database update 38:
+ * admin_save_content_limits), pages and MB per file (update 30: admin_save_section_limits). Both check is_admin()
+ * and the ranges themselves.
  */
 export async function saveSectionLimits(formData: FormData) {
   const { session, back } = await start(formData);
@@ -109,6 +110,15 @@ export async function saveSectionLimits(formData: FormData) {
     const n = Number(formData.get(name));
     return Number.isInteger(n) ? n : null;
   };
+  if (formData.has("max_slides")) {
+    const { error } = await session.supabase.rpc("admin_save_content_limits", {
+      p_plan: String(formData.get("plan") ?? ""),
+      p_max_slides: whole("max_slides"),
+      p_max_pdf_slides: whole("max_pdf_slides"),
+      p_max_items: whole("max_items"),
+    });
+    if (error) back({ err: error.message.slice(0, 200) }, "section-limits");
+  }
   const { error } = await session.supabase.rpc("admin_save_section_limits", {
     p_plan: String(formData.get("plan") ?? ""),
     p_max_sections: whole("max_sections"),

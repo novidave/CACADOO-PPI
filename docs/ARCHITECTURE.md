@@ -283,7 +283,8 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   `<a rel="noopener">` to the owner's "Odkaz loga" (`data-site-home="link"`, `shop_site_logo().link`, update 32; same
   window; only an `https://` address is used), and `SiteLanguageSwitch` on the right, a thin line under them (the
   header picture of update 28 is no longer shown).
-- **Page sections** (update 28, every shop since update 30; `lib/sections.ts`, `lib/sectionLimits.ts` for the browser:
+- **Page sections** (update 28, every shop since update 30; **replaced on the page by "Obsah stránky" in update 38,
+  section 2.17** — the text below describes updates 28–37; `lib/sections.ts`, `lib/sectionLimits.ts` for the browser:
   `POSITIONS`, `SectionLimits`, `PRO_BEFORE_30`): `getShopSections(slug, shopId)` → `shop_sections()` (only shown
   sections; a free shop's come with the position `before_items`, which on a free page is directly after the opening
   hours; none before update 28 or on any error); `components/PageSections`
@@ -319,7 +320,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   page holds a section (`sectionUrl` for every action's way back; `/dashboard?at=<moved>` forwards, so cloud-export's
   return address `…/dashboard?at=cloud` still works); `dashboard/shared.tsx` has the messages, the shop switcher and
   form parts; `AccountNav` keeps `?shop=` between the shop pages. On "Priečinok s exportom":
-  `PrivateFiles.tsx` (files of private folders, from the same `loadShopDocs()` data as "Documents for the assistant";
+  (until update 38) `PrivateFiles.tsx` (files of private folders, from the same `loadShopDocs()` data as "Documents for the assistant";
   Open via `/api/owner/files`, Delete via `deleteDocOrPicture`) and `components/RecentImports.tsx` (the last 10
   `stock_imports` rows: scroll-snap cards, arrow buttons from 640 px; a tap or "Rýchly náhľad" opens the quick view, a
   native `<dialog>` (full screen on a phone) with the full report, "Súbor n z 10", "← Novší" / "Starší →", ← → keys,
@@ -1183,6 +1184,64 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   dostupná po aktualizácii databázy 37."; without `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` (`config` → false, or the
   function not deployed) no Facebook button, panel or dialog is shown.
 
+### 2.17 Asistent page and "Obsah stránky" (database update 38, `supabase/sql/38_page_content.sql`)
+
+**Môj obchod's pages.** `lib/dashboardPages.ts` is the one place that says which page holds a section:
+`ASSISTANT_SECTIONS` (assistant, conversations, cloud, docs, imports; old `private` merged into `docs`),
+`EXPORT_SECTIONS` (export, conversations-pc), `CONTENT_SECTIONS` (content, library; old `sections` merged into
+`content`). `movedFrom(page, at)` + `forwardUrl()` forward every old address with its query (`/sync?at=imports`,
+`/dashboard?at=cloud`, …); `/dashboard/sections/[id]` (the old preview) redirects to the library. `dashboard/assistant`
+renders four `DashboardSection`s: "Nastavenia asistenta", "Konverzácie asistenta" (`Conversations` + `CloudFolder` as
+its `#cloud` part), "Súkromné priečinky" (`ShopDocuments`; the duplicate `PrivateFiles.tsx` was removed), "Posledné
+nahrané súbory" (`RecentImports`, its loader moved from `/sync`). `ProOnly` ("Dostupné v Pro") where a free shop has
+nothing; `shop_has_plan()` stays the only check.
+
+**Data.** `shop_page_sections` is the library (`kind` pdf|picture, `show_title`, `file_name`, `alt`, `alt_ai`,
+`original_path`, `original_bytes`, `upload_original_*`); `shop_page_content` (title, show_title, display) and
+`shop_content_slots` (position, kind, item_id, post_id; partial unique per item and post) hold the owner's choice;
+`section_limits` gains `max_slides`, `max_pdf_slides`, `max_items` → `content_limits_for(shop)`. RLS: members read; every
+write through `owner_save_content()` (whole list, checks plan, PDF count, kinds, published posts of the shop, no
+duplicates) and `owner_save_item()` (new file: library limit, `content_materialize()` so a shop not arranged keeps what
+it showed, into a free slot when asked; edit: title, alt, download, viewer, dates).
+
+**What is shown — SQL only.** `content_slots(shop)` (stored slots, or for a shop never arranged: its old visible sections
+in page order, then three automatic slots) → `content_slots_shown(shop)` (automatic and pinned slots always count, a
+file slot only when `section_item_ready()` and of its kind; the plan's PDF number, then the first `max_slides`) →
+`section_visible()` (a file is public only while in a shown slot; `sections_to_sync()` and the hourly job move its
+pictures in or out of `shop-sections-public`) → `shop_content(slug)` (anon; automatic slots = the newest
+`blog_visible_posts()` not pinned in a shown slot, in order; an empty automatic or pinned slot gives no slide).
+`lib/pageContent.ts` `shownSlots()` / `arrangeSlides()` repeat this rule for the editor's unsaved preview only.
+
+**Website.** `lib/sections.ts` `getShopContent()` + `slideViews()` (post links on the canonical place, dates in the
+shop's time zone, page pictures from the public bucket); `ShopView` renders `components/ContentSlider` after the hours
+(the same file serves the own domain). `ContentSlider` (client): a region with `aria-roledescription`, scroll-snap
+track, ‹ ›, ← →, counter + dots, the box as high as the current slide (ResizeObserver, ≤ 80vh), a "wanted" set (the
+first slide at render, current ± 1 once an IntersectionObserver sees the slider; a collapsed `<details>` loads nothing
+until opened), `<noscript>` pictures for the rest, reduced motion = `behavior: auto`. A PDF's other pages are hidden
+links for `SectionZoom`, which now also has the "Pod sebou" mode (`data-zoom-mode="stacked"`: all pages in one scroll).
+Downloads: `/api/shops/[slug]/sections/[id]/download` → shop-files `section_pdf` (the PDF, or a picture's original;
+10-minute signed URL; the file name takes the path's extension); the old `/pdf` route re-exports it.
+
+**Editor.** `dashboard/content/page.tsx` loads `owner_content()` and the first pages of the library (page-sections
+`library`: 10-minute signed URLs) and renders `components/ContentEditor` (settings, counters with "Zostáva X slotov",
+the slot list with HTML5 drag and drop and ↑ ↓, choices per slot, "teraz: …" / "nezobrazí sa: …", the live preview on
+375 px and 760 px with `ContentSlider preview`, `saveContent` → `owner_save_content` + sync) and the library (state,
+details, Upraviť / Skryť / Nahradiť / Vymazať as server actions, `SectionUploader`).
+
+**Uploads.** `SectionUploader`: a PDF is opened and counted first (pdf.js; a password → "PDF je chránený heslom…"),
+then `createItem` → page-sections `pdf` (real type, pdf-lib cleaning) → pages → text → finish → AI for pages without
+text. A picture is prepared first in the browser (`preparePicture()` in `lib/pdfRead.ts`: `createImageBitmap` with
+`imageOrientation: "from-image"`, HEIC/HEIF through `heic-to` loaded on demand, < 600 px wide refused, transparency
+detected, the original ≤ 4000 px re-encoded (WebP, else PNG with alpha or JPEG on white) so EXIF and GPS never leave the
+browser, 800/1600 page pictures never enlarged) → `createItem` → `pictures` (pages 1) → `original` (checked by its
+bytes: WebP/PNG/JPEG, ≥ 600 px wide, within the plan's MB, stored `…/v<n>/original.<ext>`) → the page → finish → the AI
+writes the text and, without the owner's alt text, `alt_ai` (`wantAlt` in the reader's JSON schema). A failed upload
+deletes the file it created.
+
+**Migration.** SQL 38 adds the columns and tables, turns single-picture sections into `picture`, materializes every
+shop's slider from its visible sections (old page order: after_details, after_map, after_hours, before_items, end; then
+three automatic slots) and publishes the uploaded files (publishing now means "in a shown slot").
+
 ## 3. Main flows step by step
 
 **A shopper searches "farba":** browser → Vercel → `/[lang]?q=farba` server component → `search_stock('farba')` with
@@ -1515,6 +1574,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 34 | `supabase/sql/34_layered_search.sql` | the chat's search in layers: `search_layers` (switch + estimated prices per outside layer), `web_search_domains` (+ `valid_web_domain`, `valid_search_url`), `external_search_usage` (+ `external_search_claim`, `external_search_cost`), `town_geocodes`, `osm_shop_cache` (+ `osm_cache_put`), `external_throttle` (+ `external_slot`), `cacadoo_shops_near` (all service role only), `admin_search_settings`, `admin_save_search_layer`, `admin_save_web_domain`, `admin_delete_web_domain` (`is_admin()`). RLS on every table, no grant for visitors or owners. Safe to run twice |
 | 35 | `supabase/sql/35_partner_feeds.sql` | partner feeds: `partners`, `partner_stores`, `partner_products` (+ `search_blob`, trigram index), `partner_store_stock`, `partner_imports`; helpers `valid_feed_url`, `partner_schedule_interval`, `partner_data_fresh`; the function's steps `partner_start_due`, `partner_imports_waiting`, `partner_import_claim`, `partner_import_release`, `partner_import_downloaded`, `partner_import_unchanged`, `partner_import_rows`, `partner_import_finish`, `partner_import_fail`, `partner_retry_soon` (service role only); `search_partner_products`, `partner_layer_ready` (visitors); `admin_partner_settings`, `admin_save_partner`, `admin_set_partner_file`, `admin_set_partner_logo`, `admin_save_partner_stores`, `admin_queue_partner_import`, `admin_delete_partner` (`is_admin()`); buckets `partner-feeds` (private) and `partner-logos` (public); job `ppi-partner-feeds-tick`. RLS on every table. Safe to run twice |
 | 36 | `supabase/sql/36_domain_findability.sql` | own domains fully findable: `domain_orders.google_txt_record_id` (+ checks, state `present`), `domain_site_verifications` (RLS: members read) + `clean_site_verification`, `owner_set_site_verification`, `site_verification_meta` (anon); `inventory.indexnow_at` (+ `track_inventory_change` redefined, index), `indexnow_hosts`, `indexnow_pings` (RLS on, service role only), `indexnow_claim_host`, `indexnow_done` (service role); `shop_llms_facts` + `stock_categories`, `auto_holidays`. Needs 25 and 33; safe to run twice |
+| 38 | `supabase/sql/38_page_content.sql` | "Obsah stránky": `section_limits.max_slides` / `max_pdf_slides` / `max_items` (+ `content_limits_for`, `admin_save_content_limits`), library columns on `shop_page_sections` (`kind`, `show_title`, `file_name`, `alt`, `alt_ai`, originals), `shop_page_content`, `shop_content_slots` (RLS), `section_item_ready`, `content_slots`, `content_slots_shown`, `section_visible` via slots, `content_materialize`, `shop_content`, `owner_content`, `owner_save_content`, `owner_save_item`, picture originals in the upload steps, the migration of every shop's sections |
 | 37 | `supabase/sql/37_shop_blog.sql` | the shop blog and its Facebook Page: `blog_limits` (+ `admin_save_blog_limits`), `blog_posts`, `blog_photos`, `shop_blog_settings`, `facebook_connections` (owners: no grant on the token), `facebook_oauth_states`, `facebook_pending_pages` (RLS on every table); `blog_slug`, `blog_visible_posts` / `blog_visible_ids` / `blog_post_visible` (the one rule), triggers `blog_posts_touch` / `blog_photos_touch`; visitors `shop_blog`, `shop_blog_post`, `shop_blog_count`, `blog_index`, `search_shop_blog`; owners `owner_blog_posts`, `owner_blog_post`, `owner_blog_save`, `owner_blog_publish`, `owner_blog_set_choice`, `owner_blog_set_hidden`, `owner_blog_settings`, `owner_blog_photo_order`; the function's steps (service role) `blog_photo_*`, `blog_post_files`, `blog_post_remove`, `blog_stale_uploads`, `blog_orphan_files`, `facebook_state_*`, `facebook_pending_*`, `facebook_connection_*`, `facebook_disconnect`, `facebook_import_*`, `facebook_imports_stalled`, `facebook_sync_*`, `facebook_newest_import`, `blog_import_post`, `blog_posts_to_check` / `_checked` / `_deleted_on_facebook`, `blog_fb_due` / `_claim` / `_result`, `facebook_alerts_due` / `_alert_sent`, `blog_indexnow_claim` / `_done`; bucket `blog-photos` (public); job `ppi-blog-tick`. Needs 36; safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
 | 26 | `supabase/sql/26_booking_link.sql` | `shops.booking_url` (check: https, real host, ≤ 500), `owner_save_shop` (booking link, kept when not sent), `public_shops` and `my_shops` with it (last column), `shop_stands_alone()` (plan or a domain being set up or live; anon may call). Needs 21 and 25; safe to run twice |
@@ -1689,6 +1749,11 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   48-hour alert; taken after payment → only the domain refunded; own domain Čaká na DNS → Overené → Beží, reminder,
   7-day stop, automatic DNS in our account; renewals charged before Websupport renews, lapse; Pro ended → auth code;
   callers (cron secret, owners, admin).
+- `npm run test:content` (Deno, `src/lib/content_test.ts`, update 38): the slide rule shared with `shop_content()`
+  (the owner's order with 5 automatic, 3 PDF, 1 pinned, 1 picture; a pinned post never repeated; fewer posts → no blank
+  slide; a new post first; hidden/deleted/empty files drop out with the order kept; free 5 slides / 1 PDF, empty
+  automatic slots still count), counters and "Zostáva X slotov", srcset only above 800 px, card excerpts, and where
+  Môj obchod's sections live (old addresses forwarded).
 - `npm run test:blog` (Deno, `src/lib/blog_test.ts`, update 37): blog addresses on Cacaduu and on the own domain
   (`/blog` in the shop's language, `/hu/blog` in the others, canonical, hreflang + x-default, RSS); the text as written
   (paragraphs and lines, links clickable without a trailing dot, hashtags kept); excerpts cut at a word; the Facebook
@@ -1950,6 +2015,21 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   once an hour; a free shop: the 10 newest, the 11th 404, canonical and RSS on Cacaduu, the dashboard's note; an
   expired token → one e-mail and the banner, posts stay; "Odpojiť" deletes the token; without the app's secrets no
   Facebook panel and "Zverejniť" publishes straight to the web; /sukromie and the data deletion page); those scripts are not part of the repository.
+- "Obsah stránky" (update 38, 108 checks against this branch's build with the page-sections and shop-files functions
+  running locally, after SQL 38 was pasted over sections made through the old UI of origin/main): the Asistent page's
+  four sections in order, each section once across all Môj obchod pages, the menu, old addresses forwarded with their
+  query, the free view; the migrated slider (old page order + 3 automatic posts), one slider after the hours and
+  before the assistant (free: before the items), no old blocks, "Všetky novinky"; uploads refused (under 600 px, an
+  encrypted PDF, 21 pages, 10 MB, not a picture, no title), a dangerous PDF cleaned; two pictures at once (JPEG + HEIC),
+  the original upright without EXIF/GPS, WebP 1600×2400, AI alt text, PNG transparency kept, the owner's alt kept,
+  4000 px cap, a 700 px picture never enlarged, the PDF's own text; the editor (empty → 10 slots, counters, all + off
+  at 10, choices, the pinned post offered once, "teraz: …", drag and drop and ↑ ↓, previews with 10 slides, save) and
+  the shop page in exactly the chosen order; a new post and a Facebook import first, a post waiting for approval not;
+  on a phone: lazy pictures (first only, then current + next), ›, keys, swipe, ≤ 80vh, the post card; viewer "Slider"
+  and "Pod sebou"; "Zobraziť text"; download through a signed address only when allowed, never the raw PDF; reduced
+  motion; title, "Rozbaľovacie" (nothing loaded while closed) and the hidden title; hide, expire, show again, delete
+  (both buckets); free limits, fewer posts, Pro ended (first 5 within the free limit, settings kept) and back; the own
+  domain. Lighthouse mobile on the Pro shop page: 94/94/94 with the slider, 94/95/95 without.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).
