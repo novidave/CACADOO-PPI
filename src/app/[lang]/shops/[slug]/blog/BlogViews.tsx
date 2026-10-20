@@ -119,7 +119,7 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
               <li key={post.slug} className="flex flex-col gap-3 py-5 sm:flex-row" data-blog-post={post.slug}>
                 {photo && (
                   <Link href={href} className="block shrink-0 sm:w-48" tabIndex={-1} aria-hidden>
-                    <BlogPhoto large={photoSrc(photo.large)} small={photoSrc(photo.small)} width={photo.width} height={photo.height} shown={384} alt="" className="aspect-[4/3] h-auto w-full border border-line object-cover" />
+                    <BlogPhoto large={photoSrc(photo.large)} small={photoSrc(photo.small)} width={photo.width} height={photo.height} shown={192} alt="" className="aspect-[4/3] h-auto w-full border border-line object-cover" />
                   </Link>
                 )}
                 <div className="flex min-w-0 flex-col gap-1">

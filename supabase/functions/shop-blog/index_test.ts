@@ -68,6 +68,8 @@ Deno.test("Imported titles: the first sentence, at most 70 characters cut at a w
   eq(importTitle("", "Akcia týždňa", null), "Akcia týždňa", "a link's title");
   eq(importTitle("   ", null, "2026-10-12T08:30:00+0000"), "Facebook · 12. 10. 2026", "the date");
   eq(importTitle("#jahody 🍓 sú tu.", null, null), "#jahody 🍓 sú tu.", "as written, emoji and hashtags too");
+  eq(importTitle("Novinka č. 10 z našej predajne. Príďte sa pozrieť!", null, null), "Novinka č. 10 z našej predajne.", "an abbreviation is no end");
+  eq(importTitle("Otvorené 8.00 – 17.00 aj v sobotu", null, null), "Otvorené 8.00 – 17.00 aj v sobotu", "times are no end");
 });
 
 Deno.test("The Facebook message: the text as written and the last line 'Čítať na webe: <address>'", () => {

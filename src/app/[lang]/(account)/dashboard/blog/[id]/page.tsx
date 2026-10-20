@@ -98,7 +98,8 @@ export default async function BlogEditorPage({ params, searchParams }: PageProps
       )}
       {fbOn && pick && <FacebookPagePicker pendingId={pick} doneUrl={here} labels={{ ...b, saving: b.saving }} />}
       <BlogEditor
-        key={`${post?.id ?? "new"}:${pick ? "pick" : resume ? "resume" : ""}`}
+        // Only the way back from Facebook's login (pick → resume) starts the editor again, with the dialog open.
+        key={pick ? "pick" : resume ? "resume" : "edit"}
         lang={lang}
         shopId={shop.id}
         shopSlug={shop.slug}

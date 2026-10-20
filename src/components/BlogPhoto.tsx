@@ -4,7 +4,8 @@ import Image from "next/image";
 
 /**
  * One photo of a blog post through next/image, straight from the bucket: its own loader picks the stored WebP 800 px
- * wide up to 800 and the 1600 px one above (1x / 2x by the shown width); nothing goes through image optimisation.
+ * wide up to 800 and the 1600 px one above (1x / 2x by the shown width: next/image rounds it up to its own widths, so a
+ * 750 px photo gets 800 at 1x and 1600 at 2x); nothing goes through image optimisation.
  */
 export function BlogPhoto({
   large,

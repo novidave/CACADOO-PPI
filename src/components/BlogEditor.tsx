@@ -123,11 +123,9 @@ export function BlogEditor({
       return null;
     }
     if (r.slug) setSlug(r.slug);
-    if (r.id !== postId) {
-      setPostId(r.id);
-      // The editor's own address from now on (a reload, or Facebook's login, comes back to this post).
-      window.history.replaceState(null, "", `/${lang}/dashboard/blog/${r.id}?${new URLSearchParams({ shop: shopSlug })}`);
-    }
+    // The address stays (/new): changing it would make the next refresh another page and lose this editor's state.
+    // Facebook's login comes back to /<id>; the list shows the draft.
+    if (r.id !== postId) setPostId(r.id);
     return r.id;
   };
 

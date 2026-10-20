@@ -159,13 +159,16 @@ const pendingBind = (pendingId: string) => `${pendingId}:pages`;
 // ---------------------------------------------------------------- texts: titles, the Facebook message, addresses
 
 /**
- * An imported post's title: its first sentence (or line), at most 70 characters, cut at a word ("…"); without
+ * An imported post's title: its first sentence (or line; an abbreviation like "č." does not end it), at most 70
+ * characters, cut at a word ("…"); without
  * text, a shared link's title; else "Facebook · d. m. yyyy". The owner can change it.
  */
 export function importTitle(message: string, linkTitle: string | null, created: string | null): string {
   const text = message.replace(/\s+$/g, "");
   const firstLine = text.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-  const sentence = (/^(.+?[.!?…])(\s|$)/u.exec(firstLine)?.[1] ?? firstLine).trim();
+  // A sentence ends at ! ? … before a space, at "." only before a capital letter (abbreviations: "Novinka č. 10 z
+  // predajne. Príďte!" → "Novinka č. 10 z predajne."), or at the end of the line.
+  const sentence = (/^(.+?(?:[!?…](?=\s)|\.(?=\s+["„“(]?\p{Lu})|[.!?…]?$))/u.exec(firstLine)?.[1] ?? firstLine).trim();
   const base = sentence || (linkTitle ?? "").trim();
   if (!base) {
     const d = created ? new Date(created) : null;

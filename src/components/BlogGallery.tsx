@@ -22,7 +22,7 @@ export function BlogGallery({ photos, group, title, src, dict }: { photos: Photo
         if (p.kind === "video") {
           return (
             <a key={p.id} href={p.link ?? large} target="_blank" rel="noopener" className={`relative block ${box}`} data-blog-video>
-              <BlogPhoto large={large} small={small} width={p.width} height={p.height} shown={first ? 760 : 380} alt={t(b.video_label, { n: i + 1 })} className="h-auto w-full border border-line" preload={first} />
+              <BlogPhoto large={large} small={small} width={p.width} height={p.height} shown={first ? 750 : 380} alt={t(b.video_label, { n: i + 1 })} className="h-auto w-full border border-line" preload={first} />
               <span className="absolute bottom-2 left-2 bg-white px-2 py-1 text-sm font-medium underline underline-offset-4">{b.video}</span>
             </a>
           );
@@ -36,7 +36,7 @@ export function BlogGallery({ photos, group, title, src, dict }: { photos: Photo
               small={small}
               width={p.width}
               height={p.height}
-              shown={first ? 760 : 380}
+              shown={first ? 750 : 380}
               alt={zoomable.length > 1 ? `${title} – ${label}` : title}
               className={`h-auto w-full border border-line ${first ? "" : "aspect-square object-cover"}`}
               preload={first}

@@ -112,13 +112,13 @@ export function PublishDialog({
               {message}
             </p>
             {shown.length > 0 && (
-              <div className={`grid gap-1 ${shown.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+              <div className="grid grid-cols-4 gap-1">
                 {shown.map((src, i) => (
                   <span key={src} className="relative block">
                     {/* eslint-disable-next-line @next/next/no-img-element -- the post's own photos */}
                     <img src={src} alt="" className="aspect-square h-auto w-full border border-line object-cover" />
                     {i === shown.length - 1 && more > 0 && (
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-2xl font-semibold text-white" data-more-photos>
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-lg font-semibold text-white" data-more-photos>
                         {labels.more_photos.replace("{n}", String(more))}
                       </span>
                     )}
