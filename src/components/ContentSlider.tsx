@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { srcSet, type SlideImage, type SlideView } from "@/lib/pageContent";
+import { PlayMark } from "./YouTubePlay";
 
 export interface ContentSliderLabels {
   slider: string;
@@ -20,6 +21,9 @@ export interface ContentSliderLabels {
   open_picture: string;
   page_of: string;
   page_alt: string;
+  play_post: string;
+  play_facebook: string;
+  video: string;
 }
 
 /** The slide and the ones on either side of it (once the slider is near the screen). */
@@ -54,6 +58,9 @@ function Picture({ image, alt, load, priority, className }: { image: SlideImage;
   // Only the slides that are needed get their picture; without JavaScript every picture is there.
   return load ? img : <noscript>{img}</noscript>;
 }
+
+/** ▶ in black and white (no colours): the blog's mark, smaller next to a word. */
+const PlayIcon = ({ small = false }: { small?: boolean }) => <PlayMark size={small ? 28 : 64} />;
 
 /**
  * "Obsah stránky" (database update 38): ONE slider on the shop page with blog posts, PDFs and pictures in the owner's
@@ -169,11 +176,36 @@ export function ContentSlider({
     const load = wanted.has(i);
     const focus = i === current ? 0 : -1;
     if (view.kind === "post") {
+      // A video post (update 39): a ▶ that leads where the owner chose (the article, or the post on Facebook).
+      const video = view.video;
+      const play = video
+        ? {
+            href: video.href,
+            ...(video.external ? { target: "_blank", rel: "noopener" } : {}),
+            "aria-label": video.facebook ? labels.play_facebook : labels.play_post,
+            tabIndex: focus,
+            "data-slide-play": video.facebook ? "facebook" : "post",
+            ...inert,
+          }
+        : null;
       return (
-        <article className="flex flex-col gap-2" data-slide-kind="post">
+        <article className="flex flex-col gap-2" data-slide-kind="post" data-slide-video={video ? "" : undefined}>
           {view.image && (
-            <a href={view.href} tabIndex={-1} aria-hidden="true" {...inert} className="block">
-              <Picture image={view.image} alt="" load={load} priority={first && i === 0} className="mx-auto block h-auto max-h-[55vh] w-auto max-w-full object-contain" />
+            <div className="relative">
+              <a href={view.href} tabIndex={-1} aria-hidden="true" {...inert} className="block">
+                <Picture image={view.image} alt="" load={load} priority={first && i === 0} className="mx-auto block h-auto max-h-[55vh] w-auto max-w-full object-contain" />
+              </a>
+              {play && (
+                <a {...play} className="absolute inset-0 flex items-center justify-center">
+                  <PlayIcon />
+                </a>
+              )}
+            </div>
+          )}
+          {play && !view.image && (
+            <a {...play} className="flex items-center gap-2 self-start font-medium underline underline-offset-4">
+              <PlayIcon small />
+              {labels.video}
             </a>
           )}
           <time dateTime={view.dateTime} className="text-sm text-muted">

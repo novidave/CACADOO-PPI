@@ -6350,4 +6350,130 @@ begin
   delete from public.blog_posts where shop_id = v_b;
 end $$;
 
+\echo '--- videos in the blog and the slider: Facebook videos, YouTube shares, "Tlačidlo ▶ pri videách otvorí" (update 39)'
+do $$
+begin
+  assert public.youtube_id('https://www.youtube.com/watch?v=dQw4w9WgXcQ') = 'dQw4w9WgXcQ';
+  assert public.youtube_id('https://youtube.com/watch?feature=share&v=dQw4w9WgXcQ&t=10') = 'dQw4w9WgXcQ';
+  assert public.youtube_id('https://m.youtube.com/watch?v=dQw4w9WgXcQ') = 'dQw4w9WgXcQ';
+  assert public.youtube_id('https://youtu.be/dQw4w9WgXcQ?si=abc') = 'dQw4w9WgXcQ';
+  assert public.youtube_id('https://www.youtube.com/shorts/dQw4w9WgXcQ') = 'dQw4w9WgXcQ';
+  assert public.youtube_id('https://www.youtube.com/live/dQw4w9WgXcQ') = 'dQw4w9WgXcQ';
+  assert public.youtube_id('https://www.youtube.com/channel/UCxyz') is null;
+  assert public.youtube_id('https://www.youtube.com/watch?v=short') is null;
+  assert public.youtube_id('https://evil.example/watch?v=dQw4w9WgXcQ') is null;
+  assert public.youtube_id('https://notyoutube.com/watch?v=dQw4w9WgXcQ') is null;
+  assert public.youtube_id(null) is null;
+end $$;
+
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_fb uuid;
+  v_yt uuid;
+  v_own uuid;
+  v_n integer;
+  v jsonb;
+begin
+  -- a Facebook video, a YouTube share imported before update 39 (only a link card) and a post without a video
+  insert into public.blog_posts (shop_id, slug, title, body, source, status, publish_at, fb_post_id, fb_permalink, links)
+  values (v_b, 'video-fb', 'Video z predajne', 'Pozrite si video.', 'facebook', 'published', now() - interval '3 hours',
+          '111_901', 'https://www.facebook.com/111/posts/901', '[]'::jsonb)
+  returning id into v_fb;
+  perform public.blog_photo_add(v_fb, 'pending', 'video', '901', 'https://scontent.fbcdn.net/v/901.jpg',
+                                'https://www.facebook.com/111/videos/901');
+  insert into public.blog_posts (shop_id, slug, title, body, source, status, publish_at, fb_post_id, fb_permalink, links)
+  values (v_b, 'video-yt', 'Recept na koláč', '', 'facebook', 'published', now() - interval '2 hours',
+          '111_902', 'https://www.facebook.com/111/posts/902',
+          '[{"kind": "link", "url": "https://youtu.be/dQw4w9WgXcQ", "title": "Recept na koláč", "description": null}]'::jsonb)
+  returning id into v_yt;
+  insert into public.blog_posts (shop_id, slug, title, body, status, publish_at)
+  values (v_b, 'bez-videa', 'Bez videa', 'Text.', 'published', now() - interval '1 hour')
+  returning id into v_own;
+
+  -- the YouTube link counts as a video before its picture exists
+  assert public.blog_post_video(v_yt) ->> 'kind' = 'youtube';
+  assert public.blog_post_video(v_yt) ->> 'youtube_id' = 'dQw4w9WgXcQ';
+  assert public.blog_post_video(v_yt) ->> 'facebook_url' = 'https://www.facebook.com/111/posts/902';
+  assert public.blog_post_video(v_fb) ->> 'kind' = 'facebook';
+  assert public.blog_post_video(v_fb) ->> 'link' = 'https://www.facebook.com/111/videos/901';
+  assert public.blog_post_video(v_fb) ->> 'youtube_id' is null;
+  assert public.blog_post_video(v_own) is null, 'no video';
+
+  -- the backfill: one YouTube picture row for the share, none for the others; again = nothing new
+  v_n := public.blog_youtube_backfill();
+  assert v_n = 1, v_n::text;
+  assert (select count(*) from public.blog_photos where post_id = v_yt and kind = 'video' and status = 'pending'
+          and source_url = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'
+          and link_url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ') = 1;
+  assert public.blog_youtube_backfill() = 0, 'never twice';
+  assert public.blog_post_video(v_yt) ->> 'link' = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+
+  -- the slider carries the video and the owner's choice (default: the article on Cacaduu)
+  v := public.shop_content('drogeria-kostolne');
+  assert v ->> 'video_target' = 'post';
+  assert v #>> '{slides,0,post,slug}' = 'bez-videa' and v #> '{slides,0,post,video}' = 'null'::jsonb;
+  assert v #>> '{slides,1,post,video,kind}' = 'youtube';
+  assert v #>> '{slides,2,post,video,kind}' = 'facebook';
+  assert v #>> '{slides,2,post,video,facebook_url}' = 'https://www.facebook.com/111/posts/901';
+end $$;
+
+-- the owner's setting: only through owner_save_content; null keeps it; anything else is refused
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_slots jsonb := '[{"kind": "auto_post"}, {"kind": "auto_post"}, {"kind": "auto_post"}]';
+begin
+  begin
+    update public.shop_page_content set video_target = 'facebook' where shop_id = v_b;
+    raise exception 'an owner wrote the setting directly';
+  exception when insufficient_privilege then null;
+  end;
+  perform public.owner_save_content(v_b, null, true, 'open', v_slots, 'facebook');
+  assert public.owner_content(v_b) ->> 'video_target' = 'facebook';
+  assert public.shop_content('drogeria-kostolne') ->> 'video_target' = 'facebook';
+  perform public.owner_save_content(v_b, 'Novinky', true, 'open', v_slots);
+  assert public.owner_content(v_b) ->> 'video_target' = 'facebook', 'kept when not sent';
+  assert public.owner_content(v_b) #>> '{posts,1,video,kind}' = 'youtube', 'the editor sees the videos too';
+  begin
+    perform public.owner_save_content(v_b, null, true, 'open', v_slots, 'app');
+    raise exception 'a wrong target saved';
+  exception when raise_exception then assert sqlerrm = 'bad', sqlerrm;
+  end;
+  perform public.owner_save_content(v_b, null, true, 'open', v_slots, 'post');
+  assert public.owner_content(v_b) ->> 'video_target' = 'post';
+  begin
+    perform public.owner_save_content((select id from public.shops where slug = 'potraviny-centrum'), null, true, 'open', v_slots, 'facebook');
+    raise exception 'another shop''s setting saved';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$
+begin
+  begin
+    perform public.blog_post_video((select id from public.blog_posts where slug = 'video-yt'));
+    raise exception 'a visitor called blog_post_video directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.blog_youtube_backfill();
+    raise exception 'a visitor ran the backfill';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  delete from public.shop_content_slots where shop_id = v_b;
+  delete from public.shop_page_content where shop_id = v_b;
+  delete from public.blog_posts where shop_id = v_b;
+end $$;
+
 \echo 'ALL DATABASE CHECKS PASSED'

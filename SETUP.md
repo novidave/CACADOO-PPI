@@ -1505,6 +1505,28 @@ Do the steps in order.
 6. **Limits** (optional): "Predplatné a domény" → **Limity obsahu stránky**: slides, of which PDFs, files in the
    library, pages per PDF and MB per file — per plan (defaults free 5 / 1 / 10 / 5 / 10, Pro 10 / 10 / 30 / 20 / 10).
 
+## Part AK — Videos: ▶ in the slider, YouTube plays in the article (21 October 2026)
+
+- A post with a **video** (a video or reel uploaded to the Facebook Page, or a **YouTube video shared on the Page**)
+  shows a **▶** on its card in the slider and in the blog list.
+- **Môj obchod → Obsah stránky → "Tlačidlo ▶ pri videách otvorí"**: *Článok na Cacaduu* (default — a YouTube video plays
+  right in the article after a tap) or *Príspevok na Facebooku* (the post opens on Facebook; on a phone with the
+  Facebook app it opens in the app). A post that is not on Facebook always opens the article.
+- Facebook's own player is never put on your pages (no Facebook scripts): a Facebook video always plays on Facebook.
+
+Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/39_video_posts.sql` → Run → "Success" (a small table
+   with one number = how many older YouTube posts got their picture queued). Safe to run again.
+2. **Function `shop-blog`:** Edge Functions → `shop-blog` → **Code** → replace everything with
+   `supabase/functions/shop-blog/index.ts` → **Deploy** ("Verify JWT" stays OFF). No new secret.
+3. **Merge the pull request** → Vercel deploys. Nothing to add in Vercel.
+4. **Check on davide.sk:** post a YouTube link and a short video on the davide.sk Facebook Page (or wait for the next
+   import; within minutes with the webhook) → in a few minutes the posts are in Novinky with their pictures →
+   the shop page's slider shows ▶ on them → tap ▶: the article opens at the video, the YouTube video plays after a tap.
+   Then Môj obchod → Obsah stránky → "Príspevok na Facebooku" → **Uložiť** → on the phone ▶ opens the post in the
+   Facebook app.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

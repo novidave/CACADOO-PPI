@@ -23,6 +23,8 @@ import { shopPageUrl } from "@/lib/jsonLd";
 import { siteUrl } from "@/lib/site";
 import { BlogGallery } from "@/components/BlogGallery";
 import { BlogPhoto } from "@/components/BlogPhoto";
+import { PlayMark } from "@/components/YouTubePlay";
+import { youtubeId } from "@/lib/video";
 import { BlogText } from "@/components/BlogText";
 import { JsonLd } from "@/components/JsonLd";
 import { SectionZoom } from "@/components/SectionZoom";
@@ -118,8 +120,13 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
             return (
               <li key={post.slug} className="flex flex-col gap-3 py-5 sm:flex-row" data-blog-post={post.slug}>
                 {photo && (
-                  <Link href={href} className="block shrink-0 sm:w-48" tabIndex={-1} aria-hidden>
+                  <Link href={href} className="relative block shrink-0 sm:w-48" tabIndex={-1} aria-hidden>
                     <BlogPhoto large={photoSrc(photo.large)} small={photoSrc(photo.small)} width={photo.width} height={photo.height} shown={192} alt="" className="aspect-[4/3] h-auto w-full border border-line object-cover" />
+                    {post.photos.some((p) => p.kind === "video") && (
+                      <span className="absolute inset-0 flex items-center justify-center" data-blog-list-video>
+                        <PlayMark size={44} />
+                      </span>
+                    )}
                   </Link>
                 )}
                 <div className="flex min-w-0 flex-col gap-1">
@@ -208,6 +215,9 @@ export async function BlogPostView({ lang, slug, postSlug, onSite }: { lang: Loc
   const listPath = blogPath(lang, place, onSite);
   const images = post.photos.filter((p) => p.kind === "photo").map((p) => photoSrc(p.large));
 
+  // A YouTube video shown in the gallery (update 39) is not repeated as a link card.
+  const shownVideos = new Set(post.photos.filter((p) => p.kind === "video").map((p) => youtubeId(p.link)).filter(Boolean));
+  const links = post.links.filter((l) => !shownVideos.has(youtubeId(l.url)));
   return (
     <article className="mx-auto flex max-w-3xl flex-col gap-5" data-blog-article={post.slug}>
       <JsonLd
@@ -237,9 +247,9 @@ export async function BlogPostView({ lang, slug, postSlug, onSite }: { lang: Loc
       <BlogGallery photos={post.photos} group={`blog-${post.slug}`} title={post.title} src={photoSrc} dict={dict} />
       <BlogText body={post.body} />
 
-      {post.links.length > 0 && (
+      {links.length > 0 && (
         <ul className="flex flex-col gap-2" data-blog-links>
-          {post.links.map((link) => (
+          {links.map((link) => (
             <li key={link.url}>
               <a href={link.url} target="_blank" rel="noopener" className="flex flex-col gap-0.5 border border-line p-3 hover:border-foreground">
                 <span className="text-xs uppercase tracking-wide text-muted">{link.kind === "event" ? b.event : b.link}</span>

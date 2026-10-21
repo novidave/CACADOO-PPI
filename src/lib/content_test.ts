@@ -112,3 +112,41 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(forwardUrl("sk", "private", { shop: "davide", at: "private" }), "/sk/dashboard/assistant?shop=davide&at=docs#docs", "private → docs");
   eq(forwardUrl("sk", "sections", { shop: "davide", at: "sections", ok: "x" }), "/sk/dashboard/content?shop=davide&at=content&ok=x#content", "sections");
 });
+
+// ---------------------------------------------------------------- videos (update 39)
+import { isFacebookUrl, videoHref, videoSlide, youtubeEmbed, youtubeId, type PostVideo } from "./video.ts";
+
+Deno.test("YouTube addresses: the video id from watch, youtu.be, shorts, live, embed; nothing from other sites", () => {
+  for (const url of [
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://youtube.com/watch?feature=share&v=dQw4w9WgXcQ&t=10",
+    "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://youtu.be/dQw4w9WgXcQ?si=abc",
+    "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+    "https://www.youtube.com/live/dQw4w9WgXcQ",
+    "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+  ]) eq(youtubeId(url), "dQw4w9WgXcQ", url);
+  for (const url of ["https://www.youtube.com/channel/UCx", "https://www.youtube.com/watch?v=short", "https://evil.example/watch?v=dQw4w9WgXcQ",
+    "https://notyoutube.com/watch?v=dQw4w9WgXcQ", "https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ", "javascript:alert(1)", "", null]) {
+    eq(youtubeId(url), null, String(url));
+  }
+  eq(youtubeEmbed("dQw4w9WgXcQ").startsWith("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1"), true, "the private player");
+});
+
+Deno.test("The slider's ▶: the article (at its video) or the post on Facebook, as the owner chose", () => {
+  const fbVideo: PostVideo = { kind: "facebook", youtube_id: null, link: "https://www.facebook.com/111/videos/901", facebook_url: "https://www.facebook.com/111/posts/901" };
+  const ytShare: PostVideo = { kind: "youtube", youtube_id: "dQw4w9WgXcQ", link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", facebook_url: "https://www.facebook.com/111/posts/902" };
+  const own: PostVideo = { kind: "youtube", youtube_id: "dQw4w9WgXcQ", link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", facebook_url: null };
+  const post = "/sk/shops/davide/blog/recept";
+  eq(videoHref(fbVideo, "post", post), { href: `${post}#video`, external: false }, "Facebook video → the article");
+  eq(videoHref(ytShare, "post", post), { href: `${post}#video`, external: false }, "YouTube → the article (plays there)");
+  eq(videoHref(fbVideo, "facebook", post), { href: "https://www.facebook.com/111/posts/901", external: true }, "the Facebook post, not just the video");
+  eq(videoHref(ytShare, "facebook", post), { href: "https://www.facebook.com/111/posts/902", external: true }, "a YouTube share → its Facebook post");
+  eq(videoHref({ ...fbVideo, facebook_url: null }, "facebook", post), { href: "https://www.facebook.com/111/videos/901", external: true }, "no post address: the Facebook video");
+  eq(videoHref(own, "facebook", post), { href: `${post}#video`, external: false }, "not on Facebook → always the article");
+  eq(videoHref({ ...ytShare, facebook_url: "https://evil.example/x" }, "facebook", post).external, false, "only Facebook addresses");
+  eq(videoSlide(null, "facebook", post), null, "not a video post");
+  eq(videoSlide(ytShare, "facebook", post)?.facebook, true, "the Facebook label");
+  eq(isFacebookUrl("https://fb.watch/abc") && isFacebookUrl("https://m.facebook.com/x") && !isFacebookUrl("http://www.facebook.com/x"), true, "https Facebook only");
+});

@@ -63,8 +63,8 @@ const FB_POST_ID = /^[0-9]{1,40}(_[0-9]{1,40})?$/;
 const FB_ID = /^[0-9]{1,40}$/;
 const PERMALINK = /^https:\/\/([a-z0-9-]+\.)?facebook\.com\//;
 const HOST = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
-/** Where Facebook keeps pictures: nothing else is downloaded. */
-export const MEDIA_HOSTS = [".fbcdn.net", ".fbsbx.com", ".facebook.com"];
+/** Where Facebook keeps pictures, and YouTube's video pictures (update 39): nothing else is downloaded. */
+export const MEDIA_HOSTS = [".fbcdn.net", ".fbsbx.com", ".facebook.com", "i.ytimg.com"];
 const TICK_BUDGET_MS = 90_000;
 
 // ---------------------------------------------------------------- small helpers
@@ -289,12 +289,52 @@ export function unwrapLink(url: string): string {
   return url;
 }
 
+/**
+ * The 11-character id of a YouTube video address (watch, youtu.be, shorts, embed, live; www., m., music.), else null.
+ * The same rule as public.youtube_id() and youtubeId() in src/lib/video.ts.
+ */
+export function youtubeId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    const host = u.hostname.toLowerCase();
+    let id: string | null = null;
+    if (host === "youtu.be") id = u.pathname.split("/")[1] ?? null;
+    else if (/^(www\.|m\.|music\.)?youtube(-nocookie)?\.com$/.test(host)) {
+      if (u.pathname === "/watch") id = u.searchParams.get("v");
+      else {
+        const m = /^\/(shorts|embed|live|v)\/([^/?#]+)/.exec(u.pathname);
+        id = m ? m[2] : null;
+      }
+    }
+    return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A YouTube video as a blog "video": its picture (the job tries the largest one first) and its address. */
+export const youtubeMedia = (id: string): BlogMedia => ({
+  kind: "video",
+  fb_media_id: null,
+  source_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+  link_url: `https://www.youtube.com/watch?v=${id}`,
+});
+
+/** The pictures to try for a YouTube video, largest first (maxresdefault does not exist for every video). */
+export function youtubePictures(source: string): string[] {
+  const m = /^https:\/\/i\.ytimg\.com\/vi\/([A-Za-z0-9_-]{11})\/[a-z]+\.jpg$/.exec(source);
+  return m ? [`https://i.ytimg.com/vi/${m[1]}/maxresdefault.jpg`, `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`] : [source];
+}
+
 const VIDEO_TYPES = new Set(["video", "video_inline", "video_autoplay", "video_direct_response", "animated_image_video", "animated_image_autoplay", "native_video", "reel"]);
 const SKIP_TYPES = new Set(["profile_media", "cover_photo"]);
 
 /**
  * What the blog keeps of a post: the text as written, its time, its address on Facebook, its photos (to download and
  * convert), videos and reels as their picture with a link (never downloaded), shared links and events as link cards.
+ * A shared YouTube video (update 39) stays a link card and also becomes a "video" with YouTube's picture.
  * Null: not published, or nothing to show (a new profile or cover picture without words).
  */
 export function mapPost(post: FbPost): ImportPost | null {
@@ -307,6 +347,16 @@ export function mapPost(post: FbPost): ImportPost | null {
     if (SKIP_TYPES.has(type)) return;
     if (type === "album" || (a.subattachments?.data?.length ?? 0) > 0) {
       for (const sub of a.subattachments?.data ?? []) add(sub);
+      return;
+    }
+    // A YouTube video, however Facebook labels it (share, video_share_youtube, media_type video).
+    const shared = webUrl(a.unshimmed_url) ?? (a.url ? webUrl(unwrapLink(a.url)) : null) ?? webUrl(a.target?.url);
+    const yt = youtubeId(shared);
+    if (yt) {
+      if (!media.some((m) => m.link_url === youtubeMedia(yt).link_url)) media.push(youtubeMedia(yt));
+      const title = String(a.title ?? "").trim().slice(0, 300) || null;
+      const description = String(a.description ?? "").trim().slice(0, 500) || null;
+      if (!links.some((l) => l.url === shared)) links.push({ kind: "link", url: shared!, title, description });
       return;
     }
     const image = httpsUrl(a.media?.image?.src, 2000);
@@ -904,7 +954,7 @@ export function mediaAllowed(url: string, hosts: string[]): boolean {
 }
 
 async function download(deps: Deps, url: string): Promise<Uint8Array> {
-  if (!mediaAllowed(url, deps.mediaHosts)) throw new Error("not a Facebook picture address");
+  if (!mediaAllowed(url, deps.mediaHosts)) throw new Error("not a Facebook or YouTube picture address");
   const res = await deps.fetch(url, { headers: { Accept: "image/jpeg,image/webp;q=0.9" }, redirect: "manual", signal: AbortSignal.timeout(30_000) });
   if (!res.ok || !res.body) {
     await res.body?.cancel().catch(() => {});
@@ -963,7 +1013,17 @@ export async function photoStep(deps: Deps, photoId: string | null): Promise<boo
         }
       }
       if (!source) throw new Error("no picture address");
-      const out = await deps.images.webp(await download(deps, source), 1600);
+      // A YouTube picture: the largest that exists (update 39).
+      let bytes: Uint8Array | null = null;
+      for (const [i, url] of youtubePictures(source).entries()) {
+        try {
+          bytes = await download(deps, url);
+          break;
+        } catch (e) {
+          if (i === youtubePictures(source).length - 1) throw e;
+        }
+      }
+      const out = await deps.images.webp(bytes!, 1600);
       const path = photoPath(row, 1600, "webp");
       await deps.storage.put(path, out.bytes, "image/webp");
       await rpc(deps, "blog_photo_stored", {

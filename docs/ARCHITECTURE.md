@@ -1242,6 +1242,31 @@ deletes the file it created.
 shop's slider from its visible sections (old page order: after_details, after_map, after_hours, before_items, end; then
 three automatic slots) and publishes the uploaded files (publishing now means "in a shown slot").
 
+### 2.18 Videos in the blog and the slider (database update 39, `supabase/sql/39_video_posts.sql`)
+
+- **Import** (shop-blog `mapPost`): an attachment whose unwrapped address is a YouTube video (`youtubeId()`: watch,
+  youtu.be, shorts, live, embed; www./m./music.) keeps its link card and adds media `{kind: video, fb_media_id: null,
+  source_url: i.ytimg.com/vi/<id>/hqdefault.jpg, link_url: youtube.com/watch?v=<id>}`, once per video; Facebook videos
+  and reels as before. `MEDIA_HOSTS` gains `i.ytimg.com`; `photoStep` tries `youtubePictures()` (maxresdefault, then
+  hqdefault) and stores WebP 1600/800 like a photo. Edit detection is unchanged (fb_media_id arrays: YouTube rows are
+  null). `blog_youtube_backfill()` (run once by SQL 39) adds the row to Facebook posts imported before with a YouTube
+  link and no video row.
+- **SQL**: `youtube_id(url)` (the same rule as `@/lib/video` and the function), `blog_post_video(post)` → `{kind,
+  youtube_id, link, facebook_url}` (first video row, else a YouTube link in `links`; service role only, read through
+  `shop_content()` / `owner_content()` / the blog functions), `shop_page_content.video_target` ('post'|'facebook',
+  check) written only by `owner_save_content(shop, title, show_title, display, slots, p_video_target default null)`
+  (null keeps it; the old 5-argument function is dropped). `shop_content()` and `owner_content()` add `video` per post
+  and `video_target`.
+- **Website**: `@/lib/video` `videoHref()` (facebook → `facebook_url`, else a Facebook video's own link, only Facebook
+  https addresses; otherwise the article + `#video`) and `videoSlide()`, used by `slideViews()` and the editor's
+  preview; `ContentSlider` draws `PlayMark` over the card's picture as a separate link (`data-slide-play`, new tab and
+  `rel="noopener"` for Facebook), "▶ Video" without a picture. `BlogGallery`: a YouTube video row → `YouTubePlay`
+  (client: picture + ▶ as a link to YouTube; a tap swaps in `youtube-nocookie.com/embed/<id>?autoplay=1` with
+  `allow="autoplay; encrypted-media; picture-in-picture; fullscreen"`), a Facebook one → picture + ▶ + "Video na
+  Facebooku" linking to Facebook; the first video has `id="video"`; `BlogViews` drops link cards of YouTube videos shown
+  in the gallery and marks video posts in the list. The editor's "Tlačidlo ▶ pri videách otvorí" appears only when the
+  database has the setting (after update 39), and `saveContent` sends `p_video_target` only then.
+
 ## 3. Main flows step by step
 
 **A shopper searches "farba":** browser → Vercel → `/[lang]?q=farba` server component → `search_stock('farba')` with
@@ -1574,6 +1599,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 34 | `supabase/sql/34_layered_search.sql` | the chat's search in layers: `search_layers` (switch + estimated prices per outside layer), `web_search_domains` (+ `valid_web_domain`, `valid_search_url`), `external_search_usage` (+ `external_search_claim`, `external_search_cost`), `town_geocodes`, `osm_shop_cache` (+ `osm_cache_put`), `external_throttle` (+ `external_slot`), `cacadoo_shops_near` (all service role only), `admin_search_settings`, `admin_save_search_layer`, `admin_save_web_domain`, `admin_delete_web_domain` (`is_admin()`). RLS on every table, no grant for visitors or owners. Safe to run twice |
 | 35 | `supabase/sql/35_partner_feeds.sql` | partner feeds: `partners`, `partner_stores`, `partner_products` (+ `search_blob`, trigram index), `partner_store_stock`, `partner_imports`; helpers `valid_feed_url`, `partner_schedule_interval`, `partner_data_fresh`; the function's steps `partner_start_due`, `partner_imports_waiting`, `partner_import_claim`, `partner_import_release`, `partner_import_downloaded`, `partner_import_unchanged`, `partner_import_rows`, `partner_import_finish`, `partner_import_fail`, `partner_retry_soon` (service role only); `search_partner_products`, `partner_layer_ready` (visitors); `admin_partner_settings`, `admin_save_partner`, `admin_set_partner_file`, `admin_set_partner_logo`, `admin_save_partner_stores`, `admin_queue_partner_import`, `admin_delete_partner` (`is_admin()`); buckets `partner-feeds` (private) and `partner-logos` (public); job `ppi-partner-feeds-tick`. RLS on every table. Safe to run twice |
 | 36 | `supabase/sql/36_domain_findability.sql` | own domains fully findable: `domain_orders.google_txt_record_id` (+ checks, state `present`), `domain_site_verifications` (RLS: members read) + `clean_site_verification`, `owner_set_site_verification`, `site_verification_meta` (anon); `inventory.indexnow_at` (+ `track_inventory_change` redefined, index), `indexnow_hosts`, `indexnow_pings` (RLS on, service role only), `indexnow_claim_host`, `indexnow_done` (service role); `shop_llms_facts` + `stock_categories`, `auto_holidays`. Needs 25 and 33; safe to run twice |
+| 39 | `supabase/sql/39_video_posts.sql` | videos: `youtube_id()`, `blog_post_video()`, `blog_youtube_backfill()` (run once), `shop_page_content.video_target` (+ check), `shop_content()` / `owner_content()` with `video` and `video_target`, `owner_save_content(…, p_video_target)` (the 5-argument one dropped) |
 | 38 | `supabase/sql/38_page_content.sql` | "Obsah stránky": `section_limits.max_slides` / `max_pdf_slides` / `max_items` (+ `content_limits_for`, `admin_save_content_limits`), library columns on `shop_page_sections` (`kind`, `show_title`, `file_name`, `alt`, `alt_ai`, originals), `shop_page_content`, `shop_content_slots` (RLS), `section_item_ready`, `content_slots`, `content_slots_shown`, `section_visible` via slots, `content_materialize`, `shop_content`, `owner_content`, `owner_save_content`, `owner_save_item`, picture originals in the upload steps, the migration of every shop's sections |
 | 37 | `supabase/sql/37_shop_blog.sql` | the shop blog and its Facebook Page: `blog_limits` (+ `admin_save_blog_limits`), `blog_posts`, `blog_photos`, `shop_blog_settings`, `facebook_connections` (owners: no grant on the token), `facebook_oauth_states`, `facebook_pending_pages` (RLS on every table); `blog_slug`, `blog_visible_posts` / `blog_visible_ids` / `blog_post_visible` (the one rule), triggers `blog_posts_touch` / `blog_photos_touch`; visitors `shop_blog`, `shop_blog_post`, `shop_blog_count`, `blog_index`, `search_shop_blog`; owners `owner_blog_posts`, `owner_blog_post`, `owner_blog_save`, `owner_blog_publish`, `owner_blog_set_choice`, `owner_blog_set_hidden`, `owner_blog_settings`, `owner_blog_photo_order`; the function's steps (service role) `blog_photo_*`, `blog_post_files`, `blog_post_remove`, `blog_stale_uploads`, `blog_orphan_files`, `facebook_state_*`, `facebook_pending_*`, `facebook_connection_*`, `facebook_disconnect`, `facebook_import_*`, `facebook_imports_stalled`, `facebook_sync_*`, `facebook_newest_import`, `blog_import_post`, `blog_posts_to_check` / `_checked` / `_deleted_on_facebook`, `blog_fb_due` / `_claim` / `_result`, `facebook_alerts_due` / `_alert_sent`, `blog_indexnow_claim` / `_done`; bucket `blog-photos` (public); job `ppi-blog-tick`. Needs 36; safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
@@ -1749,6 +1775,8 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   48-hour alert; taken after payment → only the domain refunded; own domain Čaká na DNS → Overené → Beží, reminder,
   7-day stop, automatic DNS in our account; renewals charged before Websupport renews, lapse; Pro ended → auth code;
   callers (cron secret, owners, admin).
+- `npm run test:content` also checks the videos (update 39): YouTube ids from every kind of address and nothing from
+  other sites, where the slider's ▶ leads for each choice and post (Facebook post, YouTube share, a post not on Facebook).
 - `npm run test:content` (Deno, `src/lib/content_test.ts`, update 38): the slide rule shared with `shop_content()`
   (the owner's order with 5 automatic, 3 PDF, 1 pinned, 1 picture; a pinned post never repeated; fewer posts → no blank
   slide; a new post first; hidden/deleted/empty files drop out with the order kept; free 5 slides / 1 PDF, empty
@@ -2030,6 +2058,13 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   motion; title, "Rozbaľovacie" (nothing loaded while closed) and the hidden title; hide, expire, show again, delete
   (both buckets); free limits, fewer posts, Pro ended (first 5 within the free limit, settings kept) and back; the own
   domain. Lighthouse mobile on the Pro shop page: 94/94/94 with the slider, 94/95/95 without.
+- Videos (update 39, 27 checks against this branch's build): the backfill of a YouTube share imported before (once);
+  ▶ only on the three video cards; by default to the article at `#video` (same window), the title and "Čítať" too;
+  nothing from YouTube or Facebook on the shop page; the owner's "Príspevok na Facebooku" with the preview following
+  before saving → the Facebook posts in a new tab, a post not on Facebook still the article; the own domain both ways;
+  the blog post: YouTube picture + ▶, no request to YouTube until the tap, then the youtube-nocookie player; no
+  repeated link card; the no-JavaScript link; a Facebook video's ▶ to Facebook; no Facebook script; ▶ in the list; the
+  privacy page.
 - Release: Claude Code pushes to the branch → pull request → the owner merges on GitHub → Vercel deploys. Database
   changes and the function are applied by pasting the files in Supabase (migration SQL; function code with
   Verify JWT off).

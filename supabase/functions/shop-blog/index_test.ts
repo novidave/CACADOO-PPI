@@ -19,6 +19,7 @@ import {
   hmacHex,
   importTitle,
   mapPost,
+  MEDIA_HOSTS,
   mediaAllowed,
   ownSlugIn,
   POST_FIELDS,
@@ -29,6 +30,8 @@ import {
   tick,
   tokenKey,
   webhookVerifyToken,
+  youtubeId,
+  youtubePictures,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -275,6 +278,12 @@ function world(o: { facebook?: boolean; posts?: FbPost[]; expired?: boolean } = 
       log.push(`download ${url.pathname}`);
       return new Response(JPEG as BodyInit, { status: 200 });
     }
+    if (url.hostname === "i.ytimg.com") {
+      log.push(`download yt ${url.pathname}`);
+      // only "dQw4w9WgXcQ" has a maxresdefault picture
+      if (url.pathname.endsWith("/maxresdefault.jpg") && !url.pathname.includes("dQw4w9WgXcQ")) return new Response("no", { status: 404 });
+      return new Response(JPEG as BodyInit, { status: 200 });
+    }
     if (url.hostname === "api.brevo.com") {
       log.push(`email ${(await req.json()).subject}`);
       return json(201, { messageId: "1" });
@@ -457,7 +466,7 @@ function world(o: { facebook?: boolean; posts?: FbPost[]; expired?: boolean } = 
         return Promise.resolve({ bytes: enc.encode(`webp-${w}`), width: w, height: Math.round((w * 3) / 4) });
       },
     },
-    mediaHosts: [".fbcdn.net"],
+    mediaHosts: [".fbcdn.net", "i.ytimg.com"],
     fetch: doFetch as typeof fetch,
     chain: (body) => (chained.push(body), Promise.resolve()),
     background: (task) => void tasks.push(task),
@@ -526,7 +535,7 @@ Deno.test("Imported photos: Facebook's largest picture → WebP 1600, then 800 f
   bad.fb_media_id = null;
   bad.source_url = "https://evil.example/x.jpg";
   await post(w.deps, { action: "work", kind: "photo", photo_id: bad.id }, `Bearer ${SERVICE_KEY}`);
-  assert(w.log.some((l) => l.startsWith("photo failed not a Facebook picture address")), "refused");
+  assert(w.log.some((l) => l.startsWith("photo failed not a Facebook or YouTube picture address")), "refused");
 });
 
 Deno.test("Daily sync: new posts since the newest import, edited updated, deleted on Facebook hidden", async () => {
@@ -710,4 +719,57 @@ Deno.test("IndexNow for posts: each post and the blog page in three languages, o
   eq(blogIndexNowUrls({ host: "cacaduu.com", kind: "main", at: "", posts: [{ id: "1", shop_slug: "pek", slug: "uj", country: "HU" }] }).slice(0, 2), [
     "https://cacaduu.com/sk/shops/pek/blog/uj", "https://cacaduu.com/sk/shops/pek/blog",
   ], "Cacaduu");
+});
+
+Deno.test("YouTube (update 39): the video id from every kind of address; nothing from other sites", () => {
+  for (const url of [
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://youtube.com/watch?feature=share&v=dQw4w9WgXcQ&t=10",
+    "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://youtu.be/dQw4w9WgXcQ?si=abc",
+    "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+    "https://www.youtube.com/live/dQw4w9WgXcQ",
+    "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+  ]) eq(youtubeId(url), "dQw4w9WgXcQ", url);
+  for (const url of ["https://www.youtube.com/channel/UCx", "https://www.youtube.com/watch?v=short", "https://evil.example/watch?v=dQw4w9WgXcQ",
+    "https://notyoutube.com/watch?v=dQw4w9WgXcQ", "javascript:alert(1)", "", null]) eq(youtubeId(url), null, String(url));
+  eq(youtubePictures("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"),
+    ["https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg", "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"], "largest first");
+  eq(youtubePictures(`${CDN}/a.jpg`), [`${CDN}/a.jpg`], "a Facebook picture as it is");
+  assert(mediaAllowed("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", MEDIA_HOSTS), "YouTube's pictures allowed");
+  assert(!mediaAllowed("https://www.youtube.com/watch?v=dQw4w9WgXcQ", MEDIA_HOSTS) && !mediaAllowed("https://x.ytimg.com.evil.example/a.jpg", MEDIA_HOSTS), "nothing else");
+});
+
+Deno.test("A shared YouTube video: its link card stays, and it becomes a video with YouTube's picture (however Facebook labels it)", () => {
+  for (const a of [
+    { type: "share", url: "https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&h=x", title: "Recept na koláč", description: "Video" },
+    { type: "video_share_youtube", media_type: "video", unshimmed_url: "https://youtu.be/dQw4w9WgXcQ", title: "Recept na koláč", media: { image: { src: `${CDN}/safe.jpg` } } },
+  ]) {
+    const m = mapPost({ id: "1_77", attachments: { data: [a] } })!;
+    eq(m.media, [{ kind: "video", fb_media_id: null, source_url: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", link_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }], `video ${a.type}`);
+    eq(m.links.length, 1, "the link card stays");
+    assert(youtubeId(m.links[0].url) === "dQw4w9WgXcQ", "unwrapped");
+    eq(m.title, "Recept na koláč", "a post without words takes the video's title");
+  }
+  // the same video twice in one post: once
+  const twice = mapPost({ id: "1_78", message: "Dva razy", attachments: { data: [{ type: "share", unshimmed_url: "https://youtu.be/dQw4w9WgXcQ" }, { type: "share", unshimmed_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }] } })!;
+  eq(twice.media.length, 1, "one video");
+  // a Facebook video stays a Facebook video
+  const fb = mapPost({ id: "1_79", attachments: { data: [{ type: "video_inline", url: "https://www.facebook.com/111/videos/79", media: { image: { src: `${CDN}/v.jpg` } } }] } })!;
+  eq(fb.media[0].link_url, "https://www.facebook.com/111/videos/79", "Facebook video");
+});
+
+Deno.test("A YouTube picture: maxresdefault when it exists, else hqdefault; stored like a Facebook photo", async () => {
+  for (const [id, expected] of [["dQw4w9WgXcQ", "/vi/dQw4w9WgXcQ/maxresdefault.jpg"], ["aaaaaaaaaaa", "/vi/aaaaaaaaaaa/hqdefault.jpg"]] as const) {
+    const w = world({ posts: [] });
+    await w.connect();
+    w.deps.chain = (body) => (w.chained.push(body), Promise.resolve());
+    const row = { id: crypto.randomUUID(), post_id: POST, shop_id: SHOP, fb_media_id: null, kind: "video", status: "pending",
+      source_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, link_url: `https://www.youtube.com/watch?v=${id}`, path_large: null, path_small: null };
+    w.photos.set(row.id, row as never);
+    await post(w.deps, { action: "work", kind: "photo", photo_id: row.id }, `Bearer ${SERVICE_KEY}`);
+    const downloads = w.log.filter((l) => l.startsWith("download yt"));
+    eq(downloads.at(-1), `download yt ${expected}`, `${id}: the picture used`);
+    assert(w.log.includes("stored 1600 1600"), "stored as WebP");
+  }
 });
