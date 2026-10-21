@@ -20,7 +20,8 @@
 //        only the folder's downloadable files, stored as they are
 //   POST {action: "section_pdf", slug, section_id}                     → {url}
 //        "Stiahnuť PDF" of a page section (database update 28): the cleaned PDF, only while the
-//        section is shown and its owner allows the download (10-minute address, bucket "shop-sections")
+//        section is shown and its owner allows the download (10-minute address, bucket "shop-sections");
+//        since update 38 also a picture file's original ("Stiahnuť"), named with its own type
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor → name
 // "shop-files" → paste this file → Deploy, then switch OFF "Verify JWT" (shoppers have
@@ -148,7 +149,10 @@ async function download(t: Target, deps: Deps): Promise<Response> {
   return reply(200, { url: signed.signedUrl, expires_in: SIGNED_SECONDS });
 }
 
-/** "Stiahnuť PDF" of a page section: the database decides (shown, download allowed, this shop). */
+/**
+ * "Stiahnuť PDF" of a page section, or "Stiahnuť" of a picture file's original (update 38): the database decides
+ * (shown in the slider, download allowed, this shop); the file keeps its own type in its name.
+ */
 async function sectionPdf(body: Json, deps: Deps): Promise<Response> {
   const slug = String(body?.slug ?? "");
   const id = String(body?.section_id ?? "");
@@ -159,7 +163,7 @@ async function sectionPdf(body: Json, deps: Deps): Promise<Response> {
   if (!row?.path) return reply(404, { error: "not_found", message: "No such file for you" });
   const { data: signed, error: signError } = await deps.db.storage
     .from(SECTIONS_BUCKET)
-    .createSignedUrl(row.path, SIGNED_SECONDS, { download: `${zipName(row.title)}.pdf` });
+    .createSignedUrl(row.path, SIGNED_SECONDS, { download: `${zipName(row.title)}.${/\.(webp|jpg|png)$/.exec(row.path)?.[1] ?? "pdf"}` });
   if (signError || !signed?.signedUrl) return reply(404, { error: "not_found", message: "The file is missing" });
   return reply(200, { url: signed.signedUrl, expires_in: SIGNED_SECONDS });
 }

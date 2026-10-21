@@ -5,17 +5,20 @@ import { useEffect, useRef, useState } from "react";
 interface Shown {
   pages: { src: string; label: string }[];
   index: number;
+  /** A PDF set to "Pod sebou" (update 38): every page one under another, scrolled to the one tapped. */
+  stacked: boolean;
 }
 
 const MAX_SCALE = 5;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /**
- * The full-screen viewer of the page sections: a tap or click on a page (a link with data-zoom)
- * opens its 1600 px picture over the whole screen. Swipe, ‹ › or the ← → keys go through the
- * section's pages (links with the same data-zoom-group); pinch, the mouse wheel, + / − or a
- * double tap zoom, and a zoomed page moves with a finger or the mouse. Close: the button or Esc.
- * One listener for the whole page; without JavaScript the links open the picture in a new tab.
+ * The full-screen viewer of PDFs and pictures (the shop page's "Obsah stránky" and the blog's photos): a tap or click
+ * on a link with data-zoom opens its 1600 px picture over the whole screen. Swipe, ‹ › or the ← → keys go through the
+ * file's pages (links with the same data-zoom-group); pinch, the mouse wheel, + / − or a double tap zoom, and a
+ * zoomed page moves with a finger or the mouse. A PDF set to "Pod sebou" (data-zoom-mode="stacked", update 38) shows
+ * every page one under another instead (the screen's own pinch zoom). Close: the button or Esc. One listener for the
+ * whole page; without JavaScript the links open the picture in a new tab.
  */
 export function SectionZoom({
   labels,
@@ -42,7 +45,7 @@ export function SectionZoom({
         ? [...document.querySelectorAll<HTMLAnchorElement>("a[data-zoom]")].filter((a) => a.dataset.zoomGroup === group)
         : [link];
       const pages = links.map((a) => ({ src: a.dataset.zoom ?? a.href, label: a.dataset.zoomLabel ?? "" }));
-      setShown({ pages, index: Math.max(0, links.indexOf(link)) });
+      setShown({ pages, index: Math.max(0, links.indexOf(link)), stacked: link.dataset.zoomMode === "stacked" });
       setScale(1);
       setOffset({ x: 0, y: 0 });
     };
@@ -55,8 +58,12 @@ export function SectionZoom({
     if (shown && d && !d.open) d.showModal();
   }, [shown]);
 
-  // The next page's picture is fetched while this one is looked at.
+  // The next page's picture is fetched while this one is looked at; "Pod sebou" starts at the page tapped.
   useEffect(() => {
+    if (shown?.stacked) {
+      dialog.current?.querySelector(`[data-stacked-page="${shown.index}"]`)?.scrollIntoView({ block: "start" });
+      return;
+    }
     const next = shown?.pages[shown.index + 1];
     if (next) new Image().src = next.src;
   }, [shown]);
@@ -79,7 +86,7 @@ export function SectionZoom({
   // Keys on the whole page while the viewer is open: a button that was just disabled (› on the
   // last page) loses the focus, and the keys still work.
   useEffect(() => {
-    if (!shown) return;
+    if (!shown || shown.stacked) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (!dialog.current?.open) return; // closed with Esc, its close event still on the way
       if (e.key === "ArrowRight") move(1);
@@ -147,7 +154,34 @@ export function SectionZoom({
       aria-label={page?.label}
       data-zoom-dialog
     >
-      {shown && page && (
+      {shown && page && shown.stacked && (
+        <div className="flex h-full flex-col" data-zoom-stacked>
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2 text-sm">
+            <span>{shown.pages.length > 1 ? `1–${shown.pages.length}` : page.label}</span>
+            <button type="button" onClick={() => dialog.current?.close()} className="underline underline-offset-4" autoFocus>
+              {labels.close}
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto overscroll-contain bg-white">
+            <ol className="mx-auto flex max-w-[1000px] flex-col gap-3 p-3">
+              {shown.pages.map((p, i) => (
+                <li key={p.src} data-stacked-page={i} className="flex flex-col gap-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- the page's own 1600 px picture */}
+                  <img
+                    src={p.src}
+                    alt={p.label}
+                    loading={Math.abs(i - shown.index) <= 1 ? "eager" : "lazy"}
+                    decoding="async"
+                    className="block h-auto w-full border border-line"
+                  />
+                  <span className="text-right text-xs text-muted">{p.label}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      )}
+      {shown && page && !shown.stacked && (
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2 text-sm">
             <span data-zoom-counter>{page.label}</span>

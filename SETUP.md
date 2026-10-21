@@ -1468,6 +1468,43 @@ Do the steps in order.
 
 ---
 
+## Part AJ — Asistent page and "Obsah stránky": one slider of posts, PDFs and pictures (20 October 2026)
+
+- **Môj obchod → Asistent** now has four sections, each only once: **Nastavenia asistenta**, **Konverzácie asistenta**
+  (with the cloud folder), **Súkromné priečinky**, **Posledné nahrané súbory**. Old links (e-mails, bookmarks, the cloud
+  sign-in coming back) still work: they open the section's new page.
+- **Môj obchod → Obsah stránky** replaces "Sekcie stránky (PDF)": one slider on the shop page right after the opening
+  hours (before the assistant; on a free page before the items), on cacaduu.com and on the own domain. It mixes
+  automatic blog posts (always the newest), pinned posts, PDFs and pictures in the order the owner chooses; free shops
+  up to 5 slides with 1 PDF, Pro up to 10. Every shop's existing sections are moved into its slider by the database
+  update (in their old order on the page, then three automatic posts) — nothing has to be uploaded again.
+
+Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/38_page_content.sql` → Run → "Success. No rows
+   returned" (notices "… does not exist, skipping" are normal). Safe to run again.
+   Check: `select s.slug, c.position, c.kind from shop_content_slots c join shops s on s.id = c.shop_id order by 1, 2;`
+   → every shop that had sections has its rows (its sections, then `auto_post` three times).
+2. **Function `page-sections`:** Supabase → Edge Functions → `page-sections` → **Code** → replace everything with the
+   file `supabase/functions/page-sections/index.ts` → **Deploy** ("Verify JWT" stays OFF). No new secret.
+3. **Function `shop-files`:** the same with `supabase/functions/shop-files/index.ts` → **Deploy** ("Verify JWT" stays
+   OFF). (A picture's "Stiahnuť" now downloads with the picture's own extension.)
+4. **Merge the pull request** on GitHub → Vercel deploys. Nothing to add in Vercel.
+5. **Check on davide.sk** (log in as the shop's owner):
+   - Môj obchod → **Asistent**: the four sections above, each once; **Priečinok s exportom** has only the export folder
+     and "Konverzácie do počítača"; **Môj obchod** has no "Sekcie stránky (PDF)" any more.
+   - Môj obchod → **Obsah stránky** → **Knižnica súborov**: the old sections are there (a single picture now shows as
+     "Obrázok"). Upload a PDF and a photo from the phone (HEIC is fine) — the photo is turned upright and its location
+     removed.
+   - **Slider na stránke obchodu**: e.g. Automatické články 5, PDF 3 (with "Novinky október"), Pripnuté články 1,
+     Obrázky 1 → choose the PDFs, the pinned post and the picture → drag the rows into your order → check the preview
+     (Mobil / Počítač) → **Uložiť** → "Obsah stránky uložený."
+   - The shop page (and `https://davide.sk/`): one slider after the opening hours with those 10 slides in that order,
+     "1 / 10" with dots, ‹ › and swiping; a PDF opens full screen (page by page, or all pages with "Pod sebou");
+     "Všetky novinky" leads to the blog.
+6. **Limits** (optional): "Predplatné a domény" → **Limity obsahu stránky**: slides, of which PDFs, files in the
+   library, pages per PDF and MB per file — per plan (defaults free 5 / 1 / 10 / 5 / 10, Pro 10 / 10 / 30 / 20 / 10).
+
 ## Part D — later, before launch
 
 **Remove the test data:**

@@ -3,7 +3,7 @@
 // Run: npm run test:functions
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from "npm:pdf-lib@1.17.1";
-import { cleanPdf, type Deps, handle, limitsOf, looksLikePdf, MAX_PDF_BYTES, PdfRejected, PRIVATE, PUBLIC, safeUri, sniffPicture } from "./index.ts";
+import { cleanPdf, type Deps, handle, limitsOf, looksLikePdf, MAX_PDF_BYTES, PdfRejected, PRIVATE, PUBLIC, safeUri, sniffOriginal, sniffPicture } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -196,6 +196,10 @@ interface Setup {
   service?: (name: string, args: Record<string, unknown>) => Result | undefined;
   copyFails?: boolean;
   read?: Deps["read"];
+  /** The file's kind (update 38): a picture takes one picture and keeps its original. */
+  kind?: "pdf" | "picture";
+  /** Rows the caller reads (RLS) per table, for "library". */
+  tables?: Record<string, unknown[]>;
 }
 
 function fakes(setup: Setup = {}) {
@@ -208,8 +212,9 @@ function fakes(setup: Setup = {}) {
       log.push(`caller ${name}`);
       if (setup.owner === false) return Promise.resolve({ data: null, error: { message: "Not your shop", code: "42501" } });
       if (name === "owner_section") {
-        return Promise.resolve(ok([{ shop_id: SHOP, version: 1, upload_version: setup.uploadVersion === undefined ? 2 : setup.uploadVersion, upload_pages: 3, has_plan: setup.plan ?? true, ...setup.limits }]));
+        return Promise.resolve(ok([{ shop_id: SHOP, version: 1, upload_version: setup.uploadVersion === undefined ? 2 : setup.uploadVersion, upload_pages: setup.kind === "picture" ? 1 : 3, has_plan: setup.plan ?? true, kind: setup.kind ?? "pdf", ...setup.limits }]));
       }
+      if (name === "is_shop_member") return Promise.resolve(ok(args.p_shop_id === SHOP));
       if (name === "owner_section_files") {
         return Promise.resolve(ok([
           { bucket: PRIVATE, path: `${SHOP}/${SECTION}/v1/section.pdf` },
@@ -226,6 +231,7 @@ function fakes(setup: Setup = {}) {
         eq: () => chain,
         order: () => {
           log.push(`caller read ${table}`);
+          if (setup.tables?.[table]) return Promise.resolve(ok(setup.tables[table]));
           return Promise.resolve(ok([
             { page: 1, width: 1600, height: 2263, ext: "webp", text: "Novinky", small_bytes: 1, large_bytes: 2 },
             { page: 2, width: 1600, height: 2263, ext: null, text: "", small_bytes: null, large_bytes: null },
@@ -502,4 +508,98 @@ Deno.test("delete: every file in both buckets first, then the section", async ()
   ok(f.log.slice(rowAt).some((l) => l.startsWith("service sections_to_sync") && l.includes(`"p_shop_id":"${SHOP}"`)), "then the shop's pictures follow");
   const notOwner = fakes({ owner: false });
   eq((await handle(json({ action: "delete", section_id: SECTION }), notOwner.deps)).status, 403, "only the owner");
+});
+
+// ---------------------------------------------------------------- picture files (update 38)
+
+function png(width: number, height: number): Uint8Array {
+  const b = new Uint8Array(40);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13], 0);
+  b.set(new TextEncoder().encode("IHDR"), 12);
+  const view = new DataView(b.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return b;
+}
+
+Deno.test("a picture file's original: WebP, JPEG or PNG (transparency) by its first bytes", () => {
+  eq(sniffOriginal(png(1200, 900)), { type: "png", width: 1200, height: 900 }, "PNG");
+  eq(sniffOriginal(webpVp8x(3000, 4000)), { type: "webp", width: 3000, height: 4000 }, "WebP");
+  eq(sniffOriginal(jpeg(1080, 1350)), { type: "jpg", width: 1080, height: 1350 }, "JPEG");
+  eq(sniffOriginal(new TextEncoder().encode("GIF89a................................")), null, "GIF is not taken");
+  eq(sniffPicture(png(800, 600)), null, "a page picture is never PNG");
+});
+
+Deno.test("a picture file (update 38): one picture, never made larger, at least 600 px, its original kept privately", async () => {
+  const picture = { kind: "picture" as const, uploadVersion: 2 };
+  const two = fakes(picture);
+  eq((await handle(json({ action: "pictures", section_id: SECTION, pages: 2, bytes: 1000 }), two.deps)).status, 400, "two pictures for one file");
+  const one = fakes(picture);
+  eq((await handle(json({ action: "pictures", section_id: SECTION, pages: 1, bytes: 900_000 }), one.deps)).status, 200, "one picture");
+
+  const q = (size: number) => `action=page&section_id=${SECTION}&version=2&page=1&size=${size}`;
+  const pages = fakes(picture);
+  eq((await handle(binary(q(800), webpVp8(700, 900)), pages.deps)).status, 200, "a 700 px photo stays 700 px (never enlarged)");
+  eq((await handle(binary(q(1600), webpVp8(700, 900)), pages.deps)).status, 200, "also as the large picture");
+  eq((await handle(binary(q(800), webpVp8(500, 650)), pages.deps)).status, 400, "under 600 px refused");
+  eq((await handle(binary(q(800), webpVp8(900, 650)), pages.deps)).status, 400, "wider than 800 for the small one");
+  eq((await handle(binary(q(1600), webpVp8(1700, 1200)), pages.deps)).status, 400, "wider than 1600");
+  const pdfPage = fakes();
+  eq((await handle(binary(q(800), webpVp8(700, 900)), pdfPage.deps)).status, 400, "a PDF's page is exactly 800 px");
+
+  const o = (body: Uint8Array, setup = picture) => {
+    const f = fakes(setup);
+    return { f, run: handle(binary(`action=original&section_id=${SECTION}&version=2`, body), f.deps) };
+  };
+  const good = o(png(1200, 900));
+  eq((await good.run).status, 200, "a transparent PNG original");
+  ok(good.f.log.includes(`storage upload ${PRIVATE} ${SHOP}/${SECTION}/v2/original.png`), "kept privately");
+  ok(good.f.log.some((l) => l.startsWith("service sections_original_stored") && l.includes('"p_ext":"png"')), "noted");
+  ok(!good.f.log.some((l) => l.includes(PUBLIC)), "never public");
+  eq((await o(new TextEncoder().encode("GIF89a................................")).run).status, 415, "not a picture");
+  eq((await (await o(png(500, 700)).run).json()).error, "too_small", "under 600 px");
+  eq((await o(png(4500, 3000)).run).status, 400, "over 4000 px");
+  const big = new Uint8Array(10 * 1048576 + 10);
+  big.set(png(1200, 900));
+  eq((await o(big).run).status, 413, "over the plan's MB");
+  eq((await o(png(1200, 900), { kind: "pdf" as never, uploadVersion: 2 }).run).status, 400, "a PDF has no original");
+  eq((await handle(binary(`action=original&section_id=${SECTION}&version=1`, png(1200, 900)), fakes(picture).deps)).status, 400, "not the version being uploaded");
+});
+
+Deno.test("the AI writes a short alt text for a picture without the owner's; the text as written", async () => {
+  const asked: boolean[] = [];
+  const f = fakes({
+    read: (_image, _type, wantAlt) => {
+      asked.push(Boolean(wantAlt));
+      return Promise.resolve({ text: "LETO  -20 %   \n", alt: "Plagát letnej akcie:\n zľava 20 %" });
+    },
+    service: (name) =>
+      name === "sections_claim_ai"
+        ? { data: [{ page_id: 9, shop_id: SHOP, section_id: SECTION, version: 2, page: 1, ext: "webp", kind: "picture", wants_alt: true }], error: null }
+        : undefined,
+  });
+  await handle(json({ action: "work", section_id: SECTION }), f.deps);
+  eq(asked, [true], "asked for the alt text");
+  const call = f.log.find((l) => l.startsWith("service sections_save_ai_text"))!;
+  ok(call.includes('"p_text":"LETO  -20 %"') && call.includes('"p_alt":"Plagát letnej akcie: zľava 20 %"'), call);
+});
+
+Deno.test("library: every file's first page as 10-minute addresses, for the shop's owners only; sync of the whole shop", async () => {
+  const f = fakes({
+    tables: {
+      shop_section_pages: [
+        { section_id: SECTION, version: 2, page: 1, width: 1600, height: 2263, ext: "webp", small_bytes: 1, large_bytes: 2 },
+        { section_id: "77777777-2222-4333-8444-555555555555", version: 1, page: 1, width: 1600, height: 900, ext: "webp", small_bytes: 1, large_bytes: 2 },
+      ],
+      shop_page_sections: [{ id: SECTION, version: 2 }, { id: "77777777-2222-4333-8444-555555555555", version: 3 }],
+    },
+  });
+  const r = await (await handle(json({ action: "library", shop_id: SHOP }), f.deps)).json();
+  eq(r.items.length, 1, "only the live version's page");
+  eq(r.items[0].small, `https://signed/${SHOP}/${SECTION}/v2/1-800.webp?s=600`, "signed, 10 minutes");
+  eq((await handle(json({ action: "library", shop_id: "99999999-2222-4333-8444-555555555555" }), f.deps)).status, 403, "another shop");
+  const s = fakes();
+  eq((await handle(json({ action: "sync", shop_id: SHOP }), s.deps)).status, 200, "synced");
+  ok(s.log.some((l) => l.startsWith("service sections_to_sync") && l.includes(`"p_shop_id":"${SHOP}"`)), "the whole shop");
+  eq((await handle(json({ action: "sync", shop_id: "99999999-2222-4333-8444-555555555555" }), s.deps)).status, 403, "never another shop");
 });

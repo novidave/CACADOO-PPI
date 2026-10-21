@@ -5,19 +5,19 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { sectionUrl } from "@/lib/dashboardPages";
-import { POSITIONS, type SectionPosition } from "@/lib/sectionLimits";
+import { MAX_SLIDES, type Slot, type SlotKind } from "@/lib/pageContent";
 
 /**
- * Page sections from PDFs and the header logo of an own domain and its link (database updates 28–32). Every
- * change goes through an owner function that checks the caller owns the shop (and, for
- * sections, its plan's limits: every shop since update 30); after a change of what visitors see, the page-sections
- * function moves the pictures in or out of the public bucket at once (the hourly job would too).
+ * "Obsah stránky" (database update 38: the slider and its library of PDFs and pictures) and the header logo of an own
+ * domain and its link (updates 31–32). Every change goes through an owner function that checks the caller owns the
+ * shop and its plan's limits; after a change of what visitors see, the page-sections function moves the pictures in
+ * or out of the public bucket at once (the hourly job would too).
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-async function start(formData: FormData, at: "sections" | "header") {
+async function start(formData: FormData, at: "content" | "header") {
   const langValue = String(formData.get("lang") ?? "");
   const lang: Locale = isLocale(langValue) ? langValue : "en";
   const session = await getSession();
@@ -29,120 +29,131 @@ async function start(formData: FormData, at: "sections" | "header") {
   return { session, shopId, back };
 }
 
-const dateOrNull = (value: FormDataEntryValue | null) => (DATE.test(String(value ?? "")) ? String(value) : null);
-const position = (value: unknown): SectionPosition =>
-  (POSITIONS as readonly string[]).includes(String(value)) ? (value as SectionPosition) : "after_details";
+const dateOrNull = (value: FormDataEntryValue | string | null) => (DATE.test(String(value ?? "")) ? String(value) : null);
 const layout = (value: unknown) => (value === "stacked" ? "stacked" : "slider");
-
-type Rpc = NonNullable<Awaited<ReturnType<typeof getSession>>>["supabase"];
-
-/**
- * owner_save_section with "Zobrazenie strán" (database update 29); before update 29 the same
- * call without it (the database then has no such choice and every section is a slider).
- */
-async function saveSection(supabase: Rpc, args: Record<string, unknown>, pageLayout: string) {
-  const result = await supabase.rpc("owner_save_section", { ...args, p_page_layout: pageLayout });
-  if (result.error?.code !== "PGRST202") return result;
-  return await supabase.rpc("owner_save_section", args);
-}
-
-const sectionError = (message: string) =>
-  ["no_plan", "title", "dates", "limit", "empty", "bad"].includes(message) ? `sections_${message}` : message;
 
 type Supabase = NonNullable<Awaited<ReturnType<typeof getSession>>>["supabase"];
 
-/** The pictures follow what the database now says (errors here are only logged: the job retries). */
-async function sync(supabase: Supabase, sectionId: string) {
-  const { error } = await supabase.functions.invoke("page-sections", { body: { action: "sync", section_id: sectionId } });
+const itemError = (message: string) => (["title", "dates", "limit", "empty", "bad"].includes(message) ? `content_${message}` : message);
+
+/** The shop's pictures follow what the database now says (errors here are only logged: the job retries). */
+async function syncShop(supabase: Supabase, shopId: string) {
+  const { error } = await supabase.functions.invoke("page-sections", { body: { action: "sync", shop_id: shopId } });
   if (error) console.error("page-sections sync:", error.message);
 }
 
 /**
- * "Pridať sekciu": the settings first (the browser then reads and sends the PDF). Called by
- * the uploader in the browser; answers the new section's id or the reason.
+ * A new file in the library (the browser then reads and sends the PDF or the picture). Called by the uploader in the
+ * browser; answers the new file's id or the reason. `addSlot`: into a free slot of its kind, when the plan has room.
  */
-export async function createSection(input: {
+export async function createItem(input: {
   shopId: string;
+  kind: "pdf" | "picture";
   title: string;
-  display: string;
-  position: string;
+  fileName: string;
   allowDownload: boolean;
+  pageLayout: string;
   from: string | null;
   until: string | null;
-  pageLayout: string;
+  alt: string;
+  addSlot: boolean;
 }): Promise<{ id: string } | { error: string }> {
   const session = await getSession();
   if (!session) return { error: "login" };
-  if (!UUID.test(input.shopId)) return { error: "bad" };
-  const { data, error } = await saveSection(session.supabase, {
+  if (!UUID.test(input.shopId) || (input.kind !== "pdf" && input.kind !== "picture")) return { error: "bad" };
+  const { data, error } = await session.supabase.rpc("owner_save_item", {
     p_shop_id: input.shopId,
-    p_section_id: null,
+    p_item_id: null,
+    p_kind: input.kind,
     p_title: String(input.title ?? "").slice(0, 200),
-    p_display: input.display === "open" ? "open" : "collapsed",
-    p_position: position(input.position),
+    p_file_name: String(input.fileName ?? "").slice(0, 200),
     p_allow_download: Boolean(input.allowDownload),
-    p_from: DATE.test(input.from ?? "") ? input.from : null,
-    p_until: DATE.test(input.until ?? "") ? input.until : null,
-  }, layout(input.pageLayout));
+    p_page_layout: layout(input.pageLayout),
+    p_from: dateOrNull(input.from),
+    p_until: dateOrNull(input.until),
+    p_alt: String(input.alt ?? "").slice(0, 300) || null,
+    p_add_slot: Boolean(input.addSlot),
+  });
   if (error) return { error: error.message };
   return { id: String(data) };
 }
 
-/** "Upraviť": title, display, page layout, position, download, dates (a changed date may show or hide it). */
-export async function updateSection(formData: FormData) {
-  const { session, shopId, back } = await start(formData, "sections");
-  const sectionId = String(formData.get("section_id") ?? "");
-  if (!UUID.test(sectionId)) back({ err: "bad" });
-  const { error } = await saveSection(session.supabase, {
+/** "Upraviť": title, alt text, download, the PDF's viewer, dates (a changed date may show or hide it). */
+export async function updateItem(formData: FormData) {
+  const { session, shopId, back } = await start(formData, "content");
+  const itemId = String(formData.get("item_id") ?? "");
+  if (!UUID.test(itemId)) back({ err: "bad" });
+  const { error } = await session.supabase.rpc("owner_save_item", {
     p_shop_id: shopId,
-    p_section_id: sectionId,
+    p_item_id: itemId,
+    p_kind: null,
     p_title: String(formData.get("title") ?? "").slice(0, 200),
-    p_display: formData.get("display") === "open" ? "open" : "collapsed",
-    p_position: position(formData.get("position")),
+    p_file_name: null,
     p_allow_download: formData.get("allow_download") === "on",
+    p_page_layout: layout(formData.get("page_layout")),
     p_from: dateOrNull(formData.get("from")),
     p_until: dateOrNull(formData.get("until")),
-  }, layout(formData.get("page_layout")));
-  if (error) back({ err: sectionError(error.message), section: sectionId });
-  await sync(session.supabase, sectionId);
+    p_alt: String(formData.get("alt") ?? "").slice(0, 300) || null,
+    p_add_slot: false,
+  });
+  if (error) back({ err: itemError(error.message), item: itemId });
+  await syncShop(session.supabase, shopId);
   back({ ok: "section_saved" });
 }
 
-/** "Zverejniť" (after the preview), "Skryť", "Zobraziť". */
-export async function setSectionState(formData: FormData) {
-  const { session, back } = await start(formData, "sections");
-  const sectionId = String(formData.get("section_id") ?? "");
+/** "Skryť" / "Zobraziť": a hidden file drops out of the slider (its slot stays), the rest keep their order. */
+export async function setItemState(formData: FormData) {
+  const { session, shopId, back } = await start(formData, "content");
+  const itemId = String(formData.get("item_id") ?? "");
   const action = String(formData.get("state") ?? "");
-  if (!UUID.test(sectionId) || !["publish", "hide", "show"].includes(action)) back({ err: "bad" });
-  const { error } = await session.supabase.rpc("owner_set_section_state", { p_section_id: sectionId, p_action: action });
-  if (error) back({ err: sectionError(error.message) });
-  await sync(session.supabase, sectionId);
-  back({ ok: action === "publish" ? "section_published" : action === "hide" ? "section_hidden" : "section_shown" });
+  if (!UUID.test(itemId) || !["hide", "show"].includes(action)) back({ err: "bad" });
+  const { error } = await session.supabase.rpc("owner_set_section_state", { p_section_id: itemId, p_action: action });
+  if (error) back({ err: itemError(error.message) });
+  await syncShop(session.supabase, shopId);
+  back({ ok: action === "hide" ? "section_hidden" : "section_shown" });
 }
 
-/** Drag and drop or ↑ ↓: the new order of one position (called from the browser). */
-export async function reorderSections(input: { shopId: string; position: string; ids: string[] }): Promise<boolean> {
-  const session = await getSession();
-  if (!session || !UUID.test(input.shopId)) return false;
-  const ids = (input.ids ?? []).filter((id) => UUID.test(id)).slice(0, 10);
-  const { error } = await session.supabase.rpc("owner_reorder_sections", {
-    p_shop_id: input.shopId,
-    p_position: position(input.position),
-    p_ids: ids,
-  });
-  // On a free shop the order decides which section is shown: the pictures follow.
-  if (!error && ids[0]) await sync(session.supabase, ids[0]);
-  return !error;
-}
-
-/** "Vymazať": every file (both buckets) first, then the section and its text. */
-export async function deleteSection(formData: FormData) {
-  const { session, back } = await start(formData, "sections");
-  const sectionId = String(formData.get("section_id") ?? "");
-  if (!UUID.test(sectionId)) back({ err: "bad" });
-  const { error } = await session.supabase.functions.invoke("page-sections", { body: { action: "delete", section_id: sectionId } });
+/** "Vymazať": every file (both buckets) first, then the file's row; its slot stays empty (not shown). */
+export async function deleteItem(formData: FormData) {
+  const { session, back } = await start(formData, "content");
+  const itemId = String(formData.get("item_id") ?? "");
+  if (!UUID.test(itemId)) back({ err: "bad" });
+  const { error } = await session.supabase.functions.invoke("page-sections", { body: { action: "delete", section_id: itemId } });
   if (error) back({ err: `sections_failed:${error.message.slice(0, 120)}` });
   back({ ok: "section_deleted" });
+}
+
+const KINDS: SlotKind[] = ["auto_post", "pinned_post", "pdf", "picture"];
+
+/**
+ * "Uložiť" of the editor: the section's title, "Zobraziť názov sekcie", "Vždy otvorené" / "Rozbaľovacie" and every
+ * slot in order. The database checks the plan's limits, the files and posts (owner_save_content); the pictures follow.
+ */
+export async function saveContent(input: {
+  shopId: string;
+  title: string;
+  showTitle: boolean;
+  display: "open" | "collapsed";
+  slots: Slot[];
+}): Promise<{ ok: true } | { error: string }> {
+  const session = await getSession();
+  if (!session) return { error: "login" };
+  if (!UUID.test(input.shopId) || !Array.isArray(input.slots) || input.slots.length > MAX_SLIDES) return { error: "bad" };
+  const slots = input.slots.map((s) => ({
+    kind: KINDS.includes(s.kind) ? s.kind : "auto_post",
+    item_id: (s.kind === "pdf" || s.kind === "picture") && s.item_id && UUID.test(s.item_id) ? s.item_id : null,
+    post_id: s.kind === "pinned_post" && s.post_id && UUID.test(s.post_id) ? s.post_id : null,
+  }));
+  const { error } = await session.supabase.rpc("owner_save_content", {
+    p_shop_id: input.shopId,
+    p_title: String(input.title ?? "").slice(0, 200),
+    p_show_title: Boolean(input.showTitle),
+    p_display: input.display === "collapsed" ? "collapsed" : "open",
+    p_slots: slots,
+  });
+  if (error) return { error: error.message };
+  await syncShop(session.supabase, input.shopId);
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- the header logo (own domain)

@@ -259,7 +259,10 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   picture of update 28 is no longer shown); the shop's name and logo are on the page itself, above its details, as
   on the Cacaduu address ("/" is the shop's language, "/hu", "/en"; an item page keeps the item).
 - **"Novinky"** (update 37): a link in the details row to the shop's blog (6.15), only when it has at least one
-  visible post.
+  visible post and the slider (6.16) has no "Všetky novinky" link.
+- **"Obsah stránky"** (update 38): one slider of blog posts, PDFs and pictures right after the opening hours, before
+  the assistant (a free page: before "Tovar v obchode"), on the Cacaduu address and the own domain (6.16). It replaces
+  the page sections of updates 28–31 and any separate "Novinky" preview.
 - Name, logo, address, phone, website, the shop's e-mail (mailto) and Facebook page (new tab) as small black icons
   with text, "Get directions" (Google Maps with the shop's coordinates), map pin.
 - **Booking link** (update 26, every shop, optional): "Rezervovať termín" in the same row and style as the e-mail
@@ -406,7 +409,8 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   "Späť na úvodnú stránku" is always there while a link is set, also after Pro ended (then without the field). It
   applies to whatever the header shows (the header logo, the shop's logo or its name); the shop's name on an item
   page still leads to the shop's home page. A wrong address is refused ("Odkaz nie je platný …") and the old one stays.
-- **Sekcie stránky (PDF)** (every shop since update 30, limits per plan): see 6.14.
+- **Obsah stránky** (update 38, its own page in Môj obchod; it replaces "Sekcie stránky (PDF)"): the shop page's one
+  slider of blog posts, PDFs and pictures and the library of the shop's files — see 6.16.
 - **Logo:** blue "Select picture" link; the picture is shrunk in the browser (512 px, WebP) and uploaded at once,
   with a small PNG copy (256 px) for the conversation PDFs.
 - **Items:** name (and its translation), code, price, quantity, what shoppers see ("12 in stock" / "Out of stock",
@@ -994,6 +998,10 @@ Page: **Môj obchod → Predplatné a doména** (`/[lang]/dashboard/plan`: the p
 
 ### 6.14 Page sections from PDFs (database updates 28–30; every shop since update 30)
 
+> Since update 38 these sections are the files of "Obsah stránky" (6.16): they are shown only as slides of the one
+> slider; positions, separate section blocks and the preview page are gone. The upload, cleaning, storage and download
+> rules below still apply.
+
 A shop puts its own PDFs on its page: news, a leaflet, a menu, "About us" (Pro only until update 30; now free shops
 too, with smaller limits). **Môj obchod → Sekcie stránky (PDF)**:
 
@@ -1158,7 +1166,55 @@ page language).
   says what is done with Facebook data, and **`/[lang]/sukromie/vymazanie-udajov`** says how to delete it (Odpojiť,
   Vymazať, Business Integrations) — the addresses the Meta app asks for.
 
-## 7. Data model (after database update 37)
+### 6.16 "Obsah stránky": one slider of posts, PDFs and pictures (database update 38)
+
+**Môj obchod → Asistent** (Part A) has four sections, each exactly once and in this order: **Nastavenia asistenta**
+(button text, welcome), **Konverzácie asistenta** (list, search, and the cloud folder they are copied to with its
+settings and statuses), **Súkromné priečinky** (documents, folders, access keys, "Len zobraziť" / "Zobraziť a
+stiahnuť"), **Posledné nahrané súbory** (the last 10 stock files). Nothing of these is on another page any more; old
+addresses (`/sync?at=imports|private`, `/dashboard?at=cloud|conversations|docs`, `?at=sections`,
+`/dashboard/sections/<id>`) lead to the section's page with their query. A free shop sees "Dostupné v Pro" where it has
+nothing yet; what it already has (e.g. conversations from its Pro time, the stock file reports) stays reachable.
+
+**The slider (Part B).** One per shop page, after "Otváracie hodiny", before the AI assistant (a free page: before
+"Tovar v obchode"), on the Cacaduu address and the own domain.
+- Title set by the owner (default "Novinky a ponuky", shown as written); "Zobraziť názov sekcie" on/off (off: the
+  title only for screen readers); "Zobrazenie": "Vždy otvorené" (default) or "Rozbaľovacie" (a closed dropdown whose
+  pictures load only when opened).
+- At most 10 slides (the admin's number per plan). Swipe, ‹ › and the ← → keys, counter "3 / 10" + dots; the height
+  follows the current slide, at most 80 % of the screen; only the current and the next slide load their picture, the
+  others are lazy; `prefers-reduced-motion` = no animation. "Všetky novinky" → `/blog` when the shop has posts.
+- Slides: **Automatický článok** and **Pripnutý článok** = a card (photo, date, title, first two lines, "Čítať");
+  **PDF** = its first page, title and page count; a tap opens the full-screen viewer, per PDF "Slider" (page by page)
+  or "Pod sebou" (all pages); optional "Stiahnuť PDF"; **Obrázok** = full-screen zoom, optional title, optional
+  "Stiahnuť".
+- Rules (decided only in SQL): a pinned post is never repeated in an automatic slot; automatic slots take the newest
+  visible posts (a new post or a Facebook import moves in by itself); fewer posts than automatic slots → fewer slides,
+  never a blank one; hidden, deleted, expired or not-yet-visible files drop out and the rest keep their order. Plan
+  limits are the admin's settings ("Limity obsahu stránky"): Free at most 5 slides with at most 1 PDF, Pro at most 10;
+  after a downgrade every setting is kept and only the first slides within the free limit are shown.
+- **Editor** (Môj obchod → **Obsah stránky**): the title and display; counters "Automatické články", "PDF",
+  "Pripnuté články", "Obrázky" within the plan's total with "Zostáva X slotov"; for each slot the PDF, pinned post or
+  picture from the library; drag and drop (or ↑ ↓) of all slots, "Dať automatické články k sebe"; each slot says what
+  it shows now or why it is not shown; a live preview on a phone and a computer before "Uložiť".
+- **Knižnica súborov**: upload, "Upraviť" (title, alt text, viewer, download, visible from/until), "Skryť"/"Zobraziť",
+  "Nahradiť", "Vymazať" (every file in both buckets). Free 10 files, Pro 30 (admin's settings).
+- **PDF uploads**: at most 10 MB and 20 pages (free 5; the admin's numbers); the real type is checked; JavaScript,
+  actions and embedded files are removed; an encrypted PDF is refused with a clear message; every page drawn once to
+  WebP 800/1600 (q 0.8) in the owner's browser; visitors never load the PDF; downloads only through a 10-minute signed
+  address and only when allowed. Hint: "Odporúčame A4 na výšku (210 × 297 mm) alebo štvorec, písmo min. 11 pt, obrázky
+  min. 150 dpi, max 10 MB."
+- **Picture uploads**: JPG, PNG, WebP, HEIC/HEIF, at most 10 MB; upright from the camera's EXIF, every EXIF and GPS
+  removed; under 600 px wide refused ("Nahrajte aspoň 800 px na šírku"); over 4000 px made smaller; WebP 800/1600 that
+  keep PNG transparency; never cropped, stretched or enlarged. Hint: "Na mobil je najlepší obrázok na výšku 1080 × 1350
+  px (4:5). …" Optional alt text; when empty the AI writes one from the picture (never inventing prices or offers).
+- Text is extracted once (screen readers, search engines and the Pro assistant's knowledge, "Zobraziť text" under the
+  slide); nothing is invented or changed. Originals stay in the private bucket; the pictures of shown slides are in the
+  public bucket only while shown.
+- Migration: SQL 38 turns every shop's sections into its library and its slider (the old page order, then three
+  automatic posts); a section of one picture becomes a picture.
+
+## 7. Data model (after database update 38)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -1206,6 +1262,9 @@ page language).
 | `domain_site_verifications` | `order_id` (key), `shop_id`, `google_meta` (Google's token), `bing_meta` (Bing's hex code), `updated_at` | Update 36; RLS: the shop's members read; written only through `owner_set_site_verification()` |
 | `indexnow_hosts` | `host` (key), `sent_upto` + `sent_upto_id` (what was sent and accepted), `last_ping_at`, `last_status`, `last_result`, `last_urls` | Update 36; RLS on, service role only (stock-pull through `indexnow_claim_host()` / `indexnow_done()`) |
 | `indexnow_pings` | `host`, `kind` (main/site), `urls`, `status`, `result`, `upto`, `sent_at` (the last 100 per host) | Update 36; RLS on, service role only |
+| `shop_page_content` (update 38) | `shop_id` (key), `title` (≤ 80, NULL = "Novinky a ponuky"), `show_title`, `display` (open/collapsed) | RLS: members read; written only by `owner_save_content()` |
+| `shop_content_slots` (update 38) | `shop_id`, `position` (0–99), `kind` (auto_post/pinned_post/pdf/picture), `item_id` → `shop_page_sections`, `post_id` → `blog_posts` | RLS: members read; written only by `owner_save_content()` / `owner_save_item()`; what is shown: `content_slots_shown()` |
+| `shop_page_sections` (update 38 additions) | `kind` (pdf/picture), `show_title`, `file_name`, `alt`, `alt_ai`, `original_path`, `original_bytes` | The library of "Obsah stránky"; `section_limits` gains `max_slides`, `max_pdf_slides`, `max_items` |
 | `partners` (update 35) | `name`, `logo_path`, `feed_url` or `feed_file_path` (+ `feed_file_at`), `feed_format` (google_xml/google_csv/heureka_xml/csv), `inventory_url` or `inventory_file_path`, `inventory_format` (google_local_xml/google_local_csv), `currency`, `timezone`, `schedule` (hourly/6h/daily/weekly), `affiliate`, `enabled`, `next_run_at`, `force_next` | Admin only through `admin_*` functions; nobody else reads it |
 | `partner_stores` (update 35) | `partner_id`, `store_code`, `name`, `address`, `city`, `postal_code`, `country`, `lat`, `lng` | The partner's store list as the admin typed it |
 | `partner_products` (update 35) | `partner_id`, `item_id`, `title`, `brand`, `gtin`, `mpn`, `category`, `price`, `sale_price` (+ `sale_from`/`sale_to`), `currency`, `availability` (as written) + `availability_state` + `availability_days`, `link`, `image_link`, `search_blob` (generated, trigram index), `import_id`, `updated_at` (the time of the data), `changed_at` | The feeds' rows as sent; visitors read only through `search_partner_products()` |
@@ -1469,6 +1528,9 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
       and data deletion addresses, webhook; App Review and business verification passed; the job `ppi-blog-tick`
       succeeds; the final text of `/sukromie` and `/sukromie/vymazanie-udajov` (SETUP.md part AI)
 
+- [ ] "Obsah stránky": database update 38 pasted, the page-sections and shop-files functions redeployed; every shop's
+      old sections checked in its slider; the admin's "Limity obsahu stránky" checked (SETUP.md part AJ)
+
 ## 13. History
 
 | Date | Milestone |
@@ -1504,3 +1566,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-15 | Partner feeds: partners' product feeds (Google Merchant XML/CSV + local inventory, Heureka XML, own CSV) read on a schedule in parts, shown in the chat under "Partneri" between Cacaduu and shops nearby; 48-hour rule; affiliate links marked, never ranked; admin "Partnerské feedy" |
 | 2026-10-15 | Own domains fully findable: "Odstrániť" removes only the TXT record Cacaduu added, the same value is never added twice; the Google "HTML značka" for connected domains (recommended) next to the TXT record; Bing Webmaster Tools (meta tag or import); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; IndexNow on every host with one `INDEXNOW_KEY`, only meaningful changes, once per upload and once an hour per host, logged; the Offer keeps the price on stale pages; `x-default` hreflang; API/MCP `source_url` and PPI's llms.txt point to the own domain |
 | 2026-10-20 | Shop blog "Novinky": posts written in Cacaduu (photos, scheduling) or imported from the shop's Facebook Page (all past posts, a daily sync, edits and deletions followed), published to the Page on request ("Zverejniť aj na Facebooku?"); `/blog` pages with JSON-LD, RSS, sitemap, llms.txt and IndexNow on Cacaduu and own domains; free shops show the newest 10; privacy and Facebook data deletion pages |
+| 2026-10-20 | Môj obchod → Asistent with its four sections once each; "Obsah stránky": one slider on the shop page with automatic and pinned blog posts, PDFs and pictures in the owner's order (counters per plan, drag and drop, live preview, library with HEIC/PNG/JPEG/WebP pictures and cleaned PDFs); the page sections of updates 28–31 migrated into it |

@@ -11,13 +11,20 @@
 //        and attached files are removed (a PDF that cannot be cleaned is refused). Only the
 //        cleaned file is stored, in the private bucket "shop-sections".
 //   POST ?action=page&section_id=…&version=…&page=…&size=800|1600   body: one page picture
-//        WebP or JPEG (by its first bytes), at most 5 MB, exactly 800 or 1600 px wide
+//        WebP or JPEG (by its first bytes), at most 5 MB, exactly 800 or 1600 px wide (a picture file, update 38: at
+//        least 600 px and never wider than the size — pictures are never made larger)
+//   POST ?action=original&section_id=…&version=…   body: a picture file's original (update 38), as the owner's
+//        browser made it: turned upright, place and camera data removed, at most 4000 px, WebP, JPEG or PNG (PNG
+//        keeps transparency), within the plan's MB; kept privately for "Stiahnuť" only
 //   POST {action: "text", section_id, version, pages: [{page, text}]}   the text as written
 //   POST {action: "finish", section_id, version}  → the new PDF goes live (the old one's files go)
-//   POST {action: "work", section_id}              → the AI writes out pages without text (as written)
-//   POST {action: "sync", section_id}              → after "Zverejniť", "Skryť", "Zobraziť" or new dates:
-//        the page pictures go into the public bucket "shop-sections-public" while the section is
-//        visible, and leave it when it is not (section_visible() in the database decides)
+//   POST {action: "work", section_id}              → the AI writes out pages without text (as written); for a
+//        picture without the owner's alt text also a short alt text (update 38)
+//   POST {action: "sync", section_id} | {action: "sync", shop_id} → after "Skryť", "Zobraziť", new dates or a new
+//        order of "Obsah stránky" (update 38): the page pictures go into the public bucket "shop-sections-public"
+//        while the file is shown, and leave it when it is not (section_visible() in the database decides)
+//   POST {action: "library", shop_id}              → 10-minute addresses of every file's first page (the editor's
+//        library and live preview, update 38)
 //   POST {action: "preview", section_id, which?: "live" | "upload"} → 10-minute addresses (owner only)
 //   POST {action: "delete", section_id}            → every file first, then the section and its text
 //   POST {action: "tick"} with header x-ppi-cron   → the hourly job: dates and the paid plan, AI retries
@@ -49,6 +56,9 @@ export const CAP_PAGES = 50;
 export const CAP_BYTES = 20 * 1024 * 1024;
 export const MAX_PICTURE_BYTES = 5 * 1024 * 1024;
 export const SIZES = [800, 1600] as const;
+/** A picture file (update 38): at least this wide ("Nahrajte aspoň 800 px na šírku"), its original at most 4000 px. */
+export const MIN_PICTURE_WIDTH = 600;
+export const MAX_ORIGINAL_SIDE = 4000;
 const SIGNED_SECONDS = 600;
 /** Public copies are cached for at most 5 minutes, so hiding takes effect soon. */
 const PUBLIC_CACHE = "300";
@@ -328,6 +338,18 @@ export function sniffPicture(b: Uint8Array): Picture | null {
 
 export const pagePath = (shop: string, section: string, version: number, page: number, size: number, ext: string) =>
   `${shop}/${section}/v${version}/${page}-${size}.${ext}`;
+export const originalPath = (shop: string, section: string, version: number, ext: string) =>
+  `${shop}/${section}/v${version}/original.${ext}`;
+
+/** A picture file's original (update 38): WebP, JPEG, or PNG (transparency) by its first bytes, with its size. */
+export function sniffOriginal(b: Uint8Array): { type: "webp" | "jpg" | "png"; width: number; height: number } | null {
+  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (b.length >= 24 && png.every((v, i) => b[i] === v) && String.fromCharCode(...b.subarray(12, 16)) === "IHDR") {
+    const read = (at: number) => ((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3]) >>> 0;
+    return { type: "png", width: read(16), height: read(20) };
+  }
+  return sniffPicture(b);
+}
 
 // ---------------------------------------------------------------- text as written (as in doc-ingest)
 
@@ -376,14 +398,25 @@ export function detectLang(text: string): string | null {
 
 // ---------------------------------------------------------------- the AI reads pages without text
 
-/** A page picture → its text as written. */
-export type Reader = (image: Uint8Array, mediaType: "image/webp" | "image/jpeg") => Promise<string>;
+/**
+ * A page picture → its text as written; for a picture file without the owner's alt text (update 38, `wantAlt`) also a
+ * short alt text describing what it shows.
+ */
+export type Reader = (
+  image: Uint8Array,
+  mediaType: "image/webp" | "image/jpeg",
+  wantAlt?: boolean,
+) => Promise<string | { text: string; alt?: string | null }>;
 
 const READ_PROMPT =
   "You get one page of a shop's own document (a newsletter, a leaflet, a menu, a price list). Write out all its " +
   "text exactly as written, in its own language and in reading order: every number, price, unit and code " +
   "unchanged. Put each table row on its own line with cells separated by \" | \". Never translate, correct, " +
   "shorten or add anything. Return an empty text when the page has no readable text.";
+const ALT_PROMPT =
+  " Also write `alt`: one short sentence (at most 120 characters) saying what the picture shows, for people who " +
+  "cannot see it, in the language of the picture's own text (Slovak when it has none). Describe only what is " +
+  "visible; never invent prices, dates or offers.";
 
 function toBase64(bytes: Uint8Array): string {
   let s = "";
@@ -394,7 +427,9 @@ function toBase64(bytes: Uint8Array): string {
 /** Claude (AI_MODEL) with structured output, as doc-ingest reads scanned pages. */
 export function claudeReader(apiKey: string, model: string): Reader {
   const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 90_000 });
-  return async (image, mediaType) => {
+  return async (image, mediaType, wantAlt = false) => {
+    const properties: Record<string, { type: "string" }> = { text: { type: "string" } };
+    if (wantAlt) properties.alt = { type: "string" };
     const message = await client.messages.create({
       model,
       max_tokens: 16000,
@@ -402,10 +437,10 @@ export function claudeReader(apiKey: string, model: string): Reader {
         effort: "low",
         format: {
           type: "json_schema",
-          schema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
+          schema: { type: "object", properties, required: Object.keys(properties), additionalProperties: false },
         },
       },
-      system: READ_PROMPT,
+      system: wantAlt ? READ_PROMPT + ALT_PROMPT : READ_PROMPT,
       messages: [{
         role: "user",
         content: [
@@ -417,7 +452,8 @@ export function claudeReader(apiKey: string, model: string): Reader {
     if (message.stop_reason !== "end_turn") throw new Error(`the AI stopped: ${message.stop_reason}`);
     const block = message.content.find((b) => b.type === "text");
     if (!block || block.type !== "text") throw new Error("the AI returned no text");
-    return String((JSON.parse(block.text) as { text?: unknown }).text ?? "");
+    const answer = JSON.parse(block.text) as { text?: unknown; alt?: unknown };
+    return { text: String(answer.text ?? ""), alt: wantAlt && typeof answer.alt === "string" ? answer.alt : null };
   };
 }
 
@@ -444,6 +480,8 @@ interface Owned {
   plan?: string | null;
   max_pages?: number | null;
   max_bytes?: number | null;
+  /** A PDF or one picture (update 38; a PDF before it). */
+  kind?: "pdf" | "picture" | null;
 }
 
 /**
@@ -554,8 +592,12 @@ async function receivePage(req: Request, url: URL, deps: Deps) {
   if (!body) return reply(413, { error: "too_big", message: "A page picture may have at most 5 MB" });
   const picture = sniffPicture(body);
   if (!picture) return reply(415, { error: "type", message: "A page picture must be WebP or JPEG" });
-  if (picture.width !== size || picture.height < 100 || picture.height > (size === 1600 ? 8000 : 4000)) {
-    return reply(400, { error: "pixels", message: `The picture must be ${size} px wide` });
+  // A PDF's page is drawn at exactly 800 and 1600 px; a picture file is never made larger (update 38).
+  const widthOk = section.kind === "picture"
+    ? picture.width >= MIN_PICTURE_WIDTH && picture.width <= size!
+    : picture.width === size;
+  if (!widthOk || picture.height < 100 || picture.height > (size === 1600 ? 8000 : 4000)) {
+    return reply(400, { error: "pixels", message: section.kind === "picture" ? `At least ${MIN_PICTURE_WIDTH} px, at most ${size} px wide` : `The picture must be ${size} px wide` });
   }
   const path = pagePath(section.shop_id, section.id, version, page, size!, picture.type);
   const { error: uploadError } = await deps.db.storage.from(PRIVATE).upload(path, body, {
@@ -591,6 +633,7 @@ async function startPictures(body: Body, deps: Deps) {
   const limitInfo = { max_pages: limits.maxPages, max_mb: mb(limits.maxBytes) };
   const pages = int(body.pages);
   const bytes = int(body.bytes);
+  if (section.kind === "picture" && pages !== 1) return reply(400, { error: "bad_request", message: "A picture file takes one picture" });
   if (pages === null || pages < 1 || pages > limits.maxPages) {
     return reply(413, { error: "too_many_pages", message: `At most ${limits.maxPages} pictures`, ...limitInfo });
   }
@@ -611,6 +654,41 @@ async function startPictures(body: Body, deps: Deps) {
   const row = (data as { version: number; pdf_path: string | null; stale_paths: string[] }[])[0];
   if (row.stale_paths?.length) await removeFiles(deps.db, PRIVATE, row.stale_paths);
   return reply(200, { version: row.version, pages });
+}
+
+/**
+ * A picture file's original (update 38): what the owner's browser made of the photo (turned upright, place and camera
+ * data dropped, at most 4000 px), kept privately for "Stiahnuť"; the page pictures are made from it too.
+ */
+async function receiveOriginal(req: Request, url: URL, deps: Deps) {
+  const section = await owned(deps, url.searchParams.get("section_id"));
+  if (!section) return notMember();
+  const version = int(url.searchParams.get("version"));
+  if (section.kind !== "picture" || version === null || version !== section.upload_version) {
+    return reply(400, { error: "bad_request", message: "The original of the picture being uploaded" });
+  }
+  const limits = limitsOf(section);
+  if (!limits) return reply(409, { error: "no_plan", message: "This shop has no paid plan" });
+  const body = await readBody(req, limits.maxBytes);
+  if (!body) return reply(413, { error: "too_big", message: `A picture may have at most ${mb(limits.maxBytes)} MB`, max_mb: mb(limits.maxBytes) });
+  const picture = sniffOriginal(body);
+  if (!picture) return reply(415, { error: "type", message: "The original must be WebP, JPEG or PNG" });
+  if (picture.width < MIN_PICTURE_WIDTH) return reply(400, { error: "too_small", message: `At least ${MIN_PICTURE_WIDTH} px wide` });
+  if (picture.width > MAX_ORIGINAL_SIDE || picture.height > MAX_ORIGINAL_SIDE || picture.height < 1) {
+    return reply(400, { error: "pixels", message: `At most ${MAX_ORIGINAL_SIDE} px` });
+  }
+  const path = originalPath(section.shop_id, section.id, version, picture.type);
+  const type = picture.type === "png" ? "image/png" : picture.type === "webp" ? "image/webp" : "image/jpeg";
+  const { error: uploadError } = await deps.db.storage.from(PRIVATE).upload(path, body, { contentType: type, upsert: true });
+  if (uploadError) return reply(502, { error: "storage", message: uploadError.message });
+  const { error } = await deps.db.rpc("sections_original_stored", {
+    p_section_id: section.id,
+    p_version: version,
+    p_ext: picture.type,
+    p_bytes: body.length,
+  });
+  if (error) return reply(409, { error: "version", message: "This picture takes no original now" });
+  return reply(200, { ok: true });
 }
 
 async function saveText(body: Body, deps: Deps) {
@@ -715,15 +793,30 @@ async function readPages(deps: Deps, sectionId: string | null, limit: number): P
   if (!deps.read) return { done: 0, failed: 0 };
   const { data, error } = await deps.db.rpc("sections_claim_ai", { p_section_id: sectionId, p_limit: limit });
   if (error) throw new Error(error.message);
-  const rows = (data ?? []) as { page_id: number; shop_id: string; section_id: string; version: number; page: number; ext: string }[];
+  const rows = (data ?? []) as {
+    page_id: number;
+    shop_id: string;
+    section_id: string;
+    version: number;
+    page: number;
+    ext: string;
+    wants_alt?: boolean | null;
+  }[];
   const read = deps.read;
   const results = await Promise.all(rows.map(async (row) => {
     try {
       const path = pagePath(row.shop_id, row.section_id, row.version, row.page, 1600, row.ext);
       const { data: file, error: downloadError } = await deps.db.storage.from(PRIVATE).download(path);
       if (downloadError || !file) throw new Error(`file missing: ${downloadError?.message ?? path}`);
-      const text = cleanText(await read(new Uint8Array(await file.arrayBuffer()), row.ext === "webp" ? "image/webp" : "image/jpeg"));
-      await deps.db.rpc("sections_save_ai_text", { p_page_id: row.page_id, p_text: text.slice(0, 20000), p_error: null });
+      const answer = await read(new Uint8Array(await file.arrayBuffer()), row.ext === "webp" ? "image/webp" : "image/jpeg", row.wants_alt === true);
+      const text = cleanText(typeof answer === "string" ? answer : answer.text);
+      const alt = typeof answer === "string" ? null : cleanText(answer.alt ?? "").replace(/\s+/g, " ").slice(0, 250) || null;
+      await deps.db.rpc("sections_save_ai_text", {
+        p_page_id: row.page_id,
+        p_text: text.slice(0, 20000),
+        p_error: null,
+        ...(alt ? { p_alt: alt } : {}),
+      });
       return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -750,10 +843,50 @@ async function work(body: Body, deps: Deps) {
   return reply(200, { ...result, remaining: count ?? 0 });
 }
 
+/** The caller's own shop (is_shop_member asked with the caller's login), or null. */
+async function ownShop(deps: Deps, id: unknown): Promise<string | null> {
+  const shopId = uuidOrNull(id);
+  if (!shopId) return null;
+  const { data, error } = await deps.asCaller.rpc("is_shop_member", { p_shop_id: shopId });
+  return !error && data === true ? shopId : null;
+}
+
 async function sync(body: Body, deps: Deps) {
+  if (body.shop_id !== undefined && body.section_id === undefined) {
+    // "Obsah stránky" saved (update 38): a new order can show or hide any of the shop's files.
+    const shopId = await ownShop(deps, body.shop_id);
+    if (!shopId) return notMember();
+    return reply(200, await syncSections(deps, null, shopId));
+  }
   const section = await owned(deps, body.section_id);
   if (!section) return notMember();
   return reply(200, await syncSections(deps, section.id, section.shop_id));
+}
+
+/**
+ * The editor's library and live preview (update 38): every file's first page of its live version as 10-minute
+ * addresses (the files are private until shown). The owner reads the rows with their own login (RLS).
+ */
+async function library(body: Body, deps: Deps) {
+  const shopId = await ownShop(deps, body.shop_id);
+  if (!shopId) return notMember();
+  const { data: rows, error } = await deps.asCaller
+    .from("shop_section_pages")
+    .select("section_id, version, page, width, height, ext, small_bytes, large_bytes")
+    .eq("shop_id", shopId)
+    .eq("page", 1)
+    .order("section_id");
+  if (error) return reply(500, { error: "database", message: error.message });
+  const { data: items } = await deps.asCaller.from("shop_page_sections").select("id, version").eq("shop_id", shopId).order("id");
+  const live = new Map(((items ?? []) as { id: string; version: number }[]).map((i) => [i.id, i.version]));
+  const pages = ((rows ?? []) as { section_id: string; version: number; width: number; height: number; ext: string | null; small_bytes: number | null; large_bytes: number | null }[])
+    .filter((p) => p.ext && p.small_bytes && p.large_bytes && live.get(p.section_id) === p.version);
+  const paths = pages.flatMap((p) => SIZES.map((w) => pagePath(shopId, p.section_id, p.version, 1, w, p.ext!)));
+  const { data: signed } = paths.length ? await deps.db.storage.from(PRIVATE).createSignedUrls(paths, SIGNED_SECONDS) : { data: [] };
+  const url = (i: number) => (signed as { signedUrl?: string | null }[] | null)?.[i]?.signedUrl ?? null;
+  return reply(200, {
+    items: pages.map((p, i) => ({ id: p.section_id, width: p.width, height: p.height, small: url(2 * i), large: url(2 * i + 1) })),
+  });
 }
 
 async function preview(body: Body, deps: Deps) {
@@ -804,6 +937,7 @@ const JSON_ACTIONS: Record<string, (body: Body, deps: Deps) => Promise<Response>
   finish,
   work,
   sync,
+  library,
   preview,
   delete: remove,
 };
@@ -835,6 +969,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   try {
     if (query === "pdf") return await receivePdf(req, url, deps);
     if (query === "page") return await receivePage(req, url, deps);
+    if (query === "original") return await receiveOriginal(req, url, deps);
     let body: Body;
     try {
       body = await req.json();

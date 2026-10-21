@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import { ASSISTANT_SECTIONS, EXPORT_SECTIONS, sectionPath } from "@/lib/dashboardPages";
+import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import { addressLine, formatPrice } from "@/lib/format";
 import { MAPPING_FIELDS, REQUIRED_FIELDS, type MyShop } from "@/lib/myShops";
 import { translatedName, type NameI18n } from "@/lib/names";
@@ -15,7 +15,7 @@ import { ShopForm } from "@/components/ShopForm";
 import { approveColumns, deleteShop, saveShop, saveTranslation, uploadLogo } from "./actions";
 import { errorText, hiddenFields, inputClass, messages, SubmitButton } from "./shared";
 import { Holidays, holidaysSummary, loadHolidays } from "./Holidays";
-import { loadSections, loadSiteLogo, PageSectionsPanel, sectionsSummary, siteLogoSummary, SiteLogoPanel } from "./PageSectionsPanel";
+import { loadSiteLogo, siteLogoSummary, SiteLogoPanel } from "./SiteLogoPanel";
 
 const PAGE_SIZE = 50;
 
@@ -64,14 +64,10 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
   const { supabase } = session;
   const sp = await searchParams;
-  // A section that moved to "AI asistent" or "Priečinok s exportom" (old links, e-mails, the
-  // cloud sign-in coming back with ?at=cloud): the same address on its new page.
+  // A section that moved to "Asistent", "Obsah stránky" or "Priečinok s exportom" (old links, e-mails, the cloud
+  // sign-in coming back with ?at=cloud, "Sekcie stránky (PDF)" → "Obsah stránky"): the same address on its new page.
   const atParam = first(sp.at) ?? "";
-  if (ASSISTANT_SECTIONS.includes(atParam) || EXPORT_SECTIONS.includes(atParam)) {
-    const query = new URLSearchParams();
-    for (const [k, v] of Object.entries(sp)) for (const one of [v].flat()) if (typeof one === "string") query.append(k, one);
-    redirect(`${sectionPath(lang, atParam)}?${query}#${atParam}`);
-  }
+  if (movedFrom("dashboard", atParam)) redirect(forwardUrl(lang, atParam, sp));
   const ok = first(sp.ok);
   const err = first(sp.err);
   const o = dict.owner;
@@ -129,12 +125,6 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   // the Plan section only says that paid plans are not available yet.
   const plan = planRow.error || hasPlan.error ? null : { row: planRow.data as PlanRow | null, active: hasPlan.data === true };
   if (e3) return <DbError message={e3.message} dict={dict} />;
-  // "Sekcie stránky (PDF)" (database update 28; null before it).
-  const sections = await loadSections(supabase, shop, plan?.active === true);
-  const uuidParam = (key: string) => {
-    const v = first(sp[key]) ?? "";
-    return /^[0-9a-f-]{36}$/i.test(v) ? v : null;
-  };
   const items = (itemRows ?? []) as OwnerItem[];
   const total = Number(items[0]?.total_count ?? 0);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -162,7 +152,6 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     holidays: holidaysSummary(holidays, dict),
     logo: shop.logo_url ? d.summary_logo : d.summary_no_logo,
     header: siteLogoSummary(header, dict),
-    sections: sectionsSummary(sections, dict),
     items: productCount(products),
     plan: plan ? (plan.active ? dict.plan.pro : dict.plan.free) : dict.plan.unavailable,
   };
@@ -289,19 +278,6 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
 
         <DashboardSection {...section("header")} title={dict.sections.site_logo_title} summary={summaries.header}>
           <SiteLogoPanel data={header} shopName={shop.name} dict={dict} hidden={hidden} notice={notice("header")} />
-        </DashboardSection>
-
-        <DashboardSection {...section("sections")} title={dict.sections.title} summary={summaries.sections}>
-          <PageSectionsPanel
-            data={sections}
-            shop={shop}
-            lang={lang}
-            dict={dict}
-            hidden={hidden}
-            notice={notice("sections")}
-            editId={uuidParam("section") && !first(sp.replace) ? uuidParam("section") : null}
-            replaceId={first(sp.replace) === "1" ? uuidParam("section") : null}
-          />
         </DashboardSection>
 
         <DashboardSection {...section("items")} title={d.items_title} summary={summaries.items}>
