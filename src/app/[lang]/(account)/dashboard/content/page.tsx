@@ -64,6 +64,8 @@ interface OwnerContent {
   title: string | null;
   show_title: boolean;
   display: "open" | "collapsed";
+  /** Update 39; missing before it. */
+  video_target?: "post" | "facebook";
   limits: { plan: "free" | "pro"; max_slides: number; max_pdf_slides: number; max_items: number; max_pages: number; max_bytes: number };
   slots: Slot[];
   items: OwnerItem[];
@@ -178,6 +180,7 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
     excerpt: cardExcerpt(p.excerpt),
     href: blogPath(lang, place, false, p.slug),
     image: postImage(p.photo),
+    video: p.video ?? null,
   }));
   const itemMap = new Map(items.map((i) => [i.id, i]));
   const shown = shownSlots(data.slots, itemMap, limits);
@@ -210,7 +213,7 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
           <p className="text-sm text-muted">{c.slider_intro}</p>
           <ContentEditor
             shopId={shop.id}
-            settings={{ title: data.title, showTitle: data.show_title, display: data.display }}
+            settings={{ title: data.title, showTitle: data.show_title, display: data.display, videoTarget: data.video_target }}
             slots={data.slots}
             limits={limits}
             items={items}

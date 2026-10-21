@@ -1538,7 +1538,8 @@
     "zoom_out": "Zmenšiť",
     "prev_photo": "Predchádzajúca fotka",
     "next_photo": "Ďalšia fotka",
-    "rss_description": "Novinky obchodu {name}"
+    "rss_description": "Novinky obchodu {name}",
+    "play_youtube": "Prehrať video (YouTube)"
   },
   "owner_blog": {
     "title": "Novinky / Blog",
@@ -1686,7 +1687,7 @@
     "who_title": "Kto spracúva údaje",
     "who": "Cacaduu PPI prevádzkuje webovú stránku, na ktorej miestne obchody zverejňujú svoje zásoby, otváracie hodiny a novinky. TODO: názov prevádzkovateľa, adresa, IČO, kontakt.",
     "visitors_title": "Návštevníci",
-    "visitors": "Stránky nepoužívajú reklamné ani sledovacie skripty a nepýtajú sa na polohu. Vyhľadávanie posiela len napísané slová. Podrobnosti o AI asistentovi obchodu sú na stránke Súkromie asistenta.",
+    "visitors": "Stránky nepoužívajú reklamné ani sledovacie skripty a nepýtajú sa na polohu. Vyhľadávanie posiela len napísané slová. Podrobnosti o AI asistentovi obchodu sú na stránke Súkromie asistenta. Video z YouTube sa načíta až po kliknutí na ▶ (cez youtube-nocookie.com); dovtedy sa nič z YouTube nenačítava.",
     "owners_title": "Majitelia obchodov",
     "owners": "Ukladáme e-mail a heslo účtu (heslo len ako odtlačok), údaje o obchode a súbory, ktoré majiteľ nahrá. TODO: doba uchovávania, práva.",
     "facebook_title": "Údaje z Facebooku",
@@ -1857,6 +1858,13 @@
     "ok_saved": "Súbor uložený.",
     "ok_hidden": "Súbor je skrytý.",
     "ok_shown": "Súbor sa znova zobrazuje.",
-    "ok_deleted": "Súbor vymazaný."
+    "ok_deleted": "Súbor vymazaný.",
+    "play_post": "Prehrať video – otvorí článok",
+    "play_facebook": "Prehrať video na Facebooku",
+    "video": "Video",
+    "video_target": "Tlačidlo ▶ pri videách otvorí",
+    "video_target_post": "Článok na Cacaduu (odporúčané) – video z YouTube sa prehrá priamo v článku",
+    "video_target_facebook": "Príspevok na Facebooku – na mobile v aplikácii Facebook, ak ju návštevník má",
+    "video_target_hint": "Platí pre videá z Facebooku aj pre YouTube videá zdieľané na Facebooku. Článok, ktorý nie je na Facebooku, sa vždy otvorí na Cacaduu. Nadpis a „Čítať“ vedú vždy na článok."
   }
 }

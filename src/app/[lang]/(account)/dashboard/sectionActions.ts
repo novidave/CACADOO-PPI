@@ -134,6 +134,8 @@ export async function saveContent(input: {
   title: string;
   showTitle: boolean;
   display: "open" | "collapsed";
+  /** "Tlačidlo ▶ pri videách otvorí" (update 39). */
+  videoTarget?: "post" | "facebook";
   slots: Slot[];
 }): Promise<{ ok: true } | { error: string }> {
   const session = await getSession();
@@ -150,6 +152,8 @@ export async function saveContent(input: {
     p_show_title: Boolean(input.showTitle),
     p_display: input.display === "collapsed" ? "collapsed" : "open",
     p_slots: slots,
+    // Before update 39 the database has no such setting: it is not sent then.
+    ...(input.videoTarget ? { p_video_target: input.videoTarget === "facebook" ? "facebook" : "post" } : {}),
   });
   if (error) return { error: error.message };
   await syncShop(session.supabase, input.shopId);

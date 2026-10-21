@@ -1214,7 +1214,23 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
 - Migration: SQL 38 turns every shop's sections into its library and its slider (the old page order, then three
   automatic posts); a section of one picture becomes a picture.
 
-## 7. Data model (after database update 38)
+### 6.17 Videos in the blog and the slider (database update 39)
+
+- **A video uploaded to the shop's Facebook Page** (also a reel): imported as its picture with a link; it is never
+  copied and never played on Cacaduu (no Facebook player on our pages). The blog post shows the picture with ▶ and
+  "Video na Facebooku", which opens it on Facebook.
+- **A YouTube video shared on the Page**: its link card stays, and the post also gets the video's picture from YouTube
+  (stored in Cacaduu like a photo; shares imported before update 39 get it automatically). On the blog post the picture
+  has a ▶ and the video **plays right there after a tap** (from youtube-nocookie.com; nothing loads from YouTube before
+  the tap); the link card is not repeated.
+- **The slider**: a post with a video shows a ▶ on its picture (or "▶ Video" without a picture). Where it leads is the
+  owner's choice in Obsah stránky → **"Tlačidlo ▶ pri videách otvorí"**: *Článok na Cacaduu* (default; the article,
+  scrolled to the video — a YouTube video plays there) or *Príspevok na Facebooku* (the post on Facebook in a new tab;
+  on a phone with the Facebook app the phone opens it in the app). A post that is not on Facebook always opens the
+  article. The title and "Čítať" always open the article. The live preview follows the choice before saving.
+- The blog list shows ▶ on video posts. Black and white like the rest (no colours).
+
+## 7. Data model (after database update 39)
 
 | Table | Main columns | Notes |
 | --- | --- | --- |
@@ -1263,6 +1279,7 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
 | `indexnow_hosts` | `host` (key), `sent_upto` + `sent_upto_id` (what was sent and accepted), `last_ping_at`, `last_status`, `last_result`, `last_urls` | Update 36; RLS on, service role only (stock-pull through `indexnow_claim_host()` / `indexnow_done()`) |
 | `indexnow_pings` | `host`, `kind` (main/site), `urls`, `status`, `result`, `upto`, `sent_at` (the last 100 per host) | Update 36; RLS on, service role only |
 | `shop_page_content` (update 38) | `shop_id` (key), `title` (≤ 80, NULL = "Novinky a ponuky"), `show_title`, `display` (open/collapsed) | RLS: members read; written only by `owner_save_content()` |
+| `shop_page_content.video_target` (update 39) | `post` (default) / `facebook`: where the slider's ▶ of video posts leads | Only through `owner_save_content(…, p_video_target)` |
 | `shop_content_slots` (update 38) | `shop_id`, `position` (0–99), `kind` (auto_post/pinned_post/pdf/picture), `item_id` → `shop_page_sections`, `post_id` → `blog_posts` | RLS: members read; written only by `owner_save_content()` / `owner_save_item()`; what is shown: `content_slots_shown()` |
 | `shop_page_sections` (update 38 additions) | `kind` (pdf/picture), `show_title`, `file_name`, `alt`, `alt_ai`, `original_path`, `original_bytes` | The library of "Obsah stránky"; `section_limits` gains `max_slides`, `max_pdf_slides`, `max_items` |
 | `partners` (update 35) | `name`, `logo_path`, `feed_url` or `feed_file_path` (+ `feed_file_at`), `feed_format` (google_xml/google_csv/heureka_xml/csv), `inventory_url` or `inventory_file_path`, `inventory_format` (google_local_xml/google_local_csv), `currency`, `timezone`, `schedule` (hourly/6h/daily/weekly), `affiliate`, `enabled`, `next_run_at`, `force_next` | Admin only through `admin_*` functions; nobody else reads it |
@@ -1531,6 +1548,9 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 - [ ] "Obsah stránky": database update 38 pasted, the page-sections and shop-files functions redeployed; every shop's
       old sections checked in its slider; the admin's "Limity obsahu stránky" checked (SETUP.md part AJ)
 
+- [ ] Videos: database update 39 pasted, the shop-blog function redeployed; a Facebook video and a YouTube share on the
+      Page imported; the choice "Tlačidlo ▶ pri videách otvorí" checked on the shop page (SETUP.md part AK)
+
 ## 13. History
 
 | Date | Milestone |
@@ -1567,3 +1587,4 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-15 | Own domains fully findable: "Odstrániť" removes only the TXT record Cacaduu added, the same value is never added twice; the Google "HTML značka" for connected domains (recommended) next to the TXT record; Bing Webmaster Tools (meta tag or import); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; IndexNow on every host with one `INDEXNOW_KEY`, only meaningful changes, once per upload and once an hour per host, logged; the Offer keeps the price on stale pages; `x-default` hreflang; API/MCP `source_url` and PPI's llms.txt point to the own domain |
 | 2026-10-20 | Shop blog "Novinky": posts written in Cacaduu (photos, scheduling) or imported from the shop's Facebook Page (all past posts, a daily sync, edits and deletions followed), published to the Page on request ("Zverejniť aj na Facebooku?"); `/blog` pages with JSON-LD, RSS, sitemap, llms.txt and IndexNow on Cacaduu and own domains; free shops show the newest 10; privacy and Facebook data deletion pages |
 | 2026-10-20 | Môj obchod → Asistent with its four sections once each; "Obsah stránky": one slider on the shop page with automatic and pinned blog posts, PDFs and pictures in the owner's order (counters per plan, drag and drop, live preview, library with HEIC/PNG/JPEG/WebP pictures and cleaned PDFs); the page sections of updates 28–31 migrated into it |
+| 2026-10-21 | Videos: ▶ on video posts in the slider (to the article or the post on Facebook, the owner's choice), YouTube shares keep YouTube's picture and play on the blog post after a tap (youtube-nocookie), Facebook videos open on Facebook |

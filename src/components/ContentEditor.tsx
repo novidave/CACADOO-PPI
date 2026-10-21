@@ -18,6 +18,7 @@ import {
   type SlideImage,
   type SlideView,
 } from "@/lib/pageContent";
+import { videoSlide, type PostVideo, type VideoTarget } from "@/lib/video";
 import { saveContent } from "@/app/[lang]/(account)/dashboard/sectionActions";
 import { ContentSlider } from "./ContentSlider";
 
@@ -42,6 +43,7 @@ export interface EditorPost {
   excerpt: string;
   href: string;
   image: SlideImage | null;
+  video: PostVideo | null;
 }
 
 const fill = (text: string, values: Record<string, string | number>) =>
@@ -69,7 +71,7 @@ export function ContentEditor({
   planUrl,
 }: {
   shopId: string;
-  settings: { title: string | null; showTitle: boolean; display: "open" | "collapsed" };
+  settings: { title: string | null; showTitle: boolean; display: "open" | "collapsed"; videoTarget?: VideoTarget };
   slots: Slot[];
   limits: ContentLimits;
   items: EditorItem[];
@@ -82,6 +84,7 @@ export function ContentEditor({
   const [title, setTitle] = useState(settings.title ?? "");
   const [showTitle, setShowTitle] = useState(settings.showTitle);
   const [display, setDisplay] = useState(settings.display);
+  const [videoTarget, setVideoTarget] = useState<VideoTarget>(settings.videoTarget ?? "post");
   const [rows, setRows] = useState<Row[]>(() => initialSlots.map(withKey));
   const [dragging, setDragging] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,6 +146,8 @@ export function ContentEditor({
       title,
       showTitle,
       display,
+      // Before database update 39 there is no such setting (it is then neither shown nor sent).
+      videoTarget: settings.videoTarget ? videoTarget : undefined,
       slots: rows.map(({ kind, item_id, post_id }) => ({ kind, item_id, post_id })),
     }).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
     setBusy(false);
@@ -160,7 +165,7 @@ export function ContentEditor({
   const previewViews: SlideView[] = arranged.flatMap((a): SlideView[] => {
     if (a.kind === "post") {
       const p = a.post;
-      return [{ kind: "post", key: `${a.index}-${p.id}`, href: p.href, title: p.title, date: p.date, dateTime: p.dateTime, excerpt: p.excerpt, image: p.image }];
+      return [{ kind: "post", key: `${a.index}-${p.id}`, href: p.href, title: p.title, date: p.date, dateTime: p.dateTime, excerpt: p.excerpt, image: p.image, video: videoSlide(p.video, videoTarget, p.href) }];
     }
     const item = itemMap.get(a.itemId);
     if (!item?.image) return [];
@@ -252,6 +257,28 @@ export function ContentEditor({
             </label>
           ))}
         </fieldset>
+        {settings.videoTarget && (
+          <fieldset className="flex flex-col gap-1" data-video-target>
+            <legend className="text-sm">{text.video_target}</legend>
+            {(["post", "facebook"] as const).map((v) => (
+              <label key={v} className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="content-video-target"
+                  checked={videoTarget === v}
+                  onChange={() => {
+                    setVideoTarget(v);
+                    setDirty(true);
+                  }}
+                  className="mt-1"
+                  data-video-target-choice={v}
+                />
+                {v === "post" ? text.video_target_post : text.video_target_facebook}
+              </label>
+            ))}
+            <span className="text-sm text-muted">{text.video_target_hint}</span>
+          </fieldset>
+        )}
       </section>
 
       {/* 2. Quick setup: how many slots of each kind */}

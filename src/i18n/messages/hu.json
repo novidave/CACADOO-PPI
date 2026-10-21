@@ -1538,7 +1538,8 @@
     "zoom_out": "Kicsinyítés",
     "prev_photo": "Előző fotó",
     "next_photo": "Következő fotó",
-    "rss_description": "{name} üzlet hírei"
+    "rss_description": "{name} üzlet hírei",
+    "play_youtube": "Videó lejátszása (YouTube)"
   },
   "owner_blog": {
     "title": "Hírek / Blog",
@@ -1686,7 +1687,7 @@
     "who_title": "Ki kezeli az adatokat",
     "who": "A Cacaduu PPI üzemelteti a weboldalt, amelyen a helyi üzletek közzéteszik a készletüket, a nyitvatartásukat és a híreiket. TODO: az üzemeltető neve, címe, cégjegyzékszáma, elérhetősége.",
     "visitors_title": "Látogatók",
-    "visitors": "Az oldalak nem használnak hirdetési vagy követő szkripteket, és nem kérdezik a helyzetet. A keresés csak a beírt szavakat küldi. Az üzlet AI-asszisztenséről az Asszisztens adatvédelme oldalon olvashat.",
+    "visitors": "Az oldalak nem használnak hirdetési vagy követő szkripteket, és nem kérdezik a helyzetet. A keresés csak a beírt szavakat küldi. Az üzlet AI-asszisztenséről az Asszisztens adatvédelme oldalon olvashat. A YouTube-videó csak a ▶ megnyomása után töltődik be (youtube-nocookie.com); addig semmi sem töltődik be a YouTube-ról.",
     "owners_title": "Üzlettulajdonosok",
     "owners": "Tároljuk a fiók e-mail-címét és jelszavát (a jelszót csak lenyomatként), az üzlet adatait és a tulajdonos által feltöltött fájlokat. TODO: megőrzési idő, jogok.",
     "facebook_title": "Facebook-adatok",
@@ -1857,6 +1858,13 @@
     "ok_saved": "Fájl elmentve.",
     "ok_hidden": "A fájl rejtett.",
     "ok_shown": "A fájl újra megjelenik.",
-    "ok_deleted": "Fájl törölve."
+    "ok_deleted": "Fájl törölve.",
+    "play_post": "Videó lejátszása – megnyitja a cikket",
+    "play_facebook": "Videó lejátszása a Facebookon",
+    "video": "Videó",
+    "video_target": "A ▶ gomb videóknál megnyitja",
+    "video_target_post": "A cikket a Cacaduun (ajánlott) – a YouTube-videó közvetlenül a cikkben játszható le",
+    "video_target_facebook": "A Facebook-bejegyzést – mobilon a Facebook alkalmazásban, ha a látogatónak megvan",
+    "video_target_hint": "Érvényes a Facebook-videókra és a Facebookon megosztott YouTube-videókra is. A Facebookon nem szereplő cikk mindig a Cacaduun nyílik meg. A cím és az „Olvasás” mindig a cikkre visz."
   }
 }

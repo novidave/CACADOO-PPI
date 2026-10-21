@@ -5,6 +5,8 @@
  * by the server, the browser and the tests (no server-only imports here).
  */
 
+import type { PostVideo, VideoTarget } from "./video";
+
 export type SlotKind = "auto_post" | "pinned_post" | "pdf" | "picture";
 export const SLOT_KINDS: SlotKind[] = ["auto_post", "pdf", "pinned_post", "picture"];
 /** The slider's hard maximum (the admin's Pro number may be lower). */
@@ -43,6 +45,8 @@ export interface ContentPost {
   publish_at: string;
   source: "cacaduu" | "facebook";
   photo: PostPhoto | null;
+  /** Its video (update 39; missing before it). */
+  video?: PostVideo | null;
 }
 
 export interface ContentPage {
@@ -74,6 +78,8 @@ export interface PageContent {
   title: string | null;
   show_title: boolean;
   display: "open" | "collapsed";
+  /** "Tlačidlo ▶ pri videách otvorí" (update 39; missing before it = the article). */
+  video_target?: VideoTarget;
   has_posts: boolean;
   slides: Slide[];
 }
@@ -178,6 +184,8 @@ export type SlideView =
       dateTime: string;
       excerpt: string;
       image: SlideImage | null;
+      /** A video post (update 39): where its ▶ leads; `facebook` = to the post on Facebook. */
+      video: { href: string; external: boolean; facebook: boolean } | null;
     }
   | {
       kind: "pdf";

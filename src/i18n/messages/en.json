@@ -1538,7 +1538,8 @@
     "zoom_out": "Zoom out",
     "prev_photo": "Previous photo",
     "next_photo": "Next photo",
-    "rss_description": "News of {name}"
+    "rss_description": "News of {name}",
+    "play_youtube": "Play video (YouTube)"
   },
   "owner_blog": {
     "title": "News / Blog",
@@ -1686,7 +1687,7 @@
     "who_title": "Who processes the data",
     "who": "Cacaduu PPI runs the website on which local shops publish their stock, opening hours and news. TODO: the operator's name, address, company ID, contact.",
     "visitors_title": "Visitors",
-    "visitors": "The pages use no advertising or tracking scripts and never ask for your location. Search sends only the words you type. Details about a shop's AI assistant are on the assistant privacy page.",
+    "visitors": "The pages use no advertising or tracking scripts and never ask for your location. Search sends only the words you type. Details about a shop's AI assistant are on the assistant privacy page. A YouTube video loads only after a tap on ▶ (via youtube-nocookie.com); until then nothing loads from YouTube.",
     "owners_title": "Shop owners",
     "owners": "We keep the account's e-mail and password (the password only as a hash), the shop's details and the files the owner uploads. TODO: retention, rights.",
     "facebook_title": "Data from Facebook",
@@ -1857,6 +1858,13 @@
     "ok_saved": "File saved.",
     "ok_hidden": "The file is hidden.",
     "ok_shown": "The file is shown again.",
-    "ok_deleted": "File deleted."
+    "ok_deleted": "File deleted.",
+    "play_post": "Play video – opens the article",
+    "play_facebook": "Play video on Facebook",
+    "video": "Video",
+    "video_target": "The ▶ button of videos opens",
+    "video_target_post": "The article on Cacaduu (recommended) – a YouTube video plays right in the article",
+    "video_target_facebook": "The post on Facebook – on a phone in the Facebook app, if the visitor has it",
+    "video_target_hint": "Applies to Facebook videos and to YouTube videos shared on Facebook. An article that is not on Facebook always opens on Cacaduu. The title and \"Read\" always lead to the article."
   }
 }

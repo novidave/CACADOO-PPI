@@ -477,6 +477,23 @@ current and next slide get an `<img>` (`<noscript>` for the rest), `prefers-redu
 Downloads only `/api/shops/[slug]/sections/[id]/download` → shop-files (10-minute signed URL, only when allowed; the
 old `/pdf` address re-exports it). Texts `content` (sk/hu/en). Tests: `npm run test:content`.
 
+## Videos in the blog and the slider (update 39)
+
+`supabase/sql/39_video_posts.sql` + `@/lib/video` (shared: `youtubeId()`, `videoHref()`, `videoSlide()`) +
+`@/components/YouTubePlay` + shop-blog (`youtubeId`, `youtubeMedia`, `youtubePictures`). A Facebook video or reel stays
+on Facebook (its picture + link, never downloaded); a **YouTube video shared on the Page** keeps its link card and also
+becomes a `blog_photos` row of kind `video` with YouTube's picture (`i.ytimg.com` only, maxresdefault else hqdefault;
+posts imported before got it from `blog_youtube_backfill()`). **Never embed Facebook's player** (no Facebook script on
+public pages): a Facebook video opens on Facebook. A YouTube video plays on the blog post **only after a tap**
+(`YouTubePlay`: the stored picture + ▶, then the youtube-nocookie player; without JavaScript a link to YouTube; nothing
+from YouTube loads before the tap; the privacy page says so); its link card is not repeated. `blog_post_video(post)`
+(kind youtube|facebook, youtube_id, link, the post's `facebook_url`) goes with every post in `shop_content()` /
+`owner_content()`. The slider's video cards get a ▶ (black and white, `PlayMark`) that leads where the owner chose in
+"Tlačidlo ▶ pri videách otvorí" (`shop_page_content.video_target`, only through `owner_save_content(…, p_video_target)`;
+null keeps it): `post` (default) = the article at `#video`; `facebook` = the post on Facebook in a new tab (a phone with
+the Facebook app opens it there), falling back to the article for a post that is not on Facebook. The title and "Čítať"
+always lead to the article. The blog list shows ▶ on video posts. Tests: `npm run test:content`, `test:functions`.
+
 ## Stock upload
 
 `supabase/functions/stock-pull/index.ts` (single file, paste-deployable) only receives uploads:

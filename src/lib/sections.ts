@@ -5,6 +5,7 @@ import type { Locale } from "@/i18n/config";
 import { blogPath, blogPhotoUrl, type BlogPlace } from "./blogFormat";
 import { formatDate } from "./format";
 import { cardExcerpt, pageImage, type ContentItem, type PageContent, type PostPhoto, type SlideView } from "./pageContent";
+import { videoSlide } from "./video";
 
 /**
  * The shop page's "Obsah stránky" (database update 38; before it the page sections of updates 28–31): one call to
@@ -70,6 +71,7 @@ export function slideViews(
         dateTime: p.publish_at,
         excerpt: cardExcerpt(p.excerpt),
         image: postImage(p.photo),
+        video: videoSlide(p.video, content.video_target ?? "post", blogPath(ctx.lang, ctx.place, ctx.onSite, p.slug)),
       });
       continue;
     }
