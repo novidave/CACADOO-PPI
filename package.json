@@ -20,7 +20,8 @@
     "test:content": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/content_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/content_test.ts",
     "check:functions": "cd supabase/functions && (deno check --config deno.json */index.ts || npx -y deno check --config deno.json */index.ts)",
     "test:functions": "cd supabase/functions && (PPI_STOCK_PULL_TEST=1 PPI_FUNCTION_TEST=1 deno test --config deno.json --allow-env --allow-read=. . || PPI_STOCK_PULL_TEST=1 PPI_FUNCTION_TEST=1 npx -y deno test --config deno.json --allow-env --allow-read=. .)",
-    "test:items": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts"
+    "test:items": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -43,6 +44,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
