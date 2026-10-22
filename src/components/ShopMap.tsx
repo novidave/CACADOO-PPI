@@ -12,7 +12,7 @@ const ShopMapCanvas = dynamic(() => import("./ShopMapCanvas").then((m) => m.Shop
 
 /**
  * The map's place on the page: a plain light box of the map's exact size first (nothing moves when the map comes),
- * then the interactive map — when the box comes into view and the browser is idle, or at once when it is tapped or
+ * then the interactive map — when the box comes into view, the page has loaded and the browser is idle, or at once when it is tapped or
  * focused. Purely an extra: every page works and shows its data without it.
  */
 export function ShopMap({
@@ -39,19 +39,26 @@ export function ShopMap({
     if (live || !box.current) return;
     let idle: number | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let soon: (() => void) | undefined;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((e) => e.isIntersecting)) return;
         observer.disconnect();
         const go = () => setLive(true);
-        if ("requestIdleCallback" in window) idle = window.requestIdleCallback(go, { timeout: 2500 });
-        else timer = setTimeout(go, 1200);
+        // After the page itself (fonts, pictures) has loaded: the map's code never competes with the first view.
+        soon = () => {
+          if ("requestIdleCallback" in window) idle = window.requestIdleCallback(go, { timeout: 2500 });
+          else timer = setTimeout(go, 1200);
+        };
+        if (document.readyState === "complete") soon();
+        else window.addEventListener("load", soon, { once: true });
       },
       { rootMargin: "200px" },
     );
     observer.observe(box.current);
     return () => {
       observer.disconnect();
+      if (soon) window.removeEventListener("load", soon);
       if (idle !== undefined) window.cancelIdleCallback(idle);
       if (timer) clearTimeout(timer);
     };
