@@ -55,32 +55,36 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
   const [dict, item] = await Promise.all([getDictionary(lang), getItem(id)]);
   if (!item) notFound();
   if (siteSlug && item.shop_slug !== siteSlug) notFound();
-  const host = await shopSiteHost(item.shop_slug).catch(() => null);
-  if (siteSlug && !host) notFound();
-
   // Other shops with the same EAN, nearest to this shop first (no visitor location is used).
   // A shop with the paid plan or a domain of its own has its own page: never other shops on
   // it (no "Dostupné aj v" list or "not found elsewhere" text, not on the map or in the
   // JSON-LD). The database decides (shop_stands_alone).
   const near = item.shop_lat !== null && item.shop_lng !== null ? { lat: item.shop_lat, lng: item.shop_lng } : null;
-  const alone = await shopStandsAlone(item.shop_id);
-
-  const [shop, others] = await Promise.all([getShop(item.shop_slug), alone ? Promise.resolve([]) : getOtherOffers(item, near)]);
-  const [otherShops, calendars, sites] = await Promise.all([
+  // Everything that needs only the item, at once (no waterfall); the other offers are dropped when the shop stands alone.
+  const [host, alone, shop, offers, itemTexts, langs] = await Promise.all([
+    shopSiteHost(item.shop_slug).catch(() => null),
+    shopStandsAlone(item.shop_id),
+    getShop(item.shop_slug),
+    getOtherOffers(item, near),
+    // The description and category (update 40): the shop's own, else the approved "Popis (Cacaduu)".
+    getItemTexts(item.item_id),
+    getShopLanguages(item.shop_slug, item.shop_country),
+  ]);
+  if (siteSlug && !host) notFound();
+  const others = alone ? [] : offers;
+  const [otherShops, calendars, sites, texts] = await Promise.all([
     getShopsByIds([...new Set(others.map((o) => o.shop_id))]),
     // Special days and holidays for the status of each shop (database update 27).
     getShopCalendars([item.shop_id, ...others.map((o) => o.shop_id)]).catch(() => new Map()),
     // Other shops with a live own domain are linked there (their canonical address).
     others.length ? getLiveSites() : Promise.resolve(new Map<string, string>()),
+    // In the visitor's language when translated (the original stays; "Zobraziť originál").
+    getShopTexts(item.shop_slug, lang, langs, original, [{ kinds: ["item_description", "item_category"], refs: [item.item_id] }]),
   ]);
   const renderedAt = requestTime();
   const hasLocation = item.shop_lat !== null && item.shop_lng !== null;
   const translated = translatedName(item.item_name, item.item_name_i18n, lang);
   const shopHref = siteSlug && shop ? sitePath(lang, siteLang(shop.country, shop.site_lang)) : `/${lang}/shops/${item.shop_slug}`;
-  // The description and category (update 40): the shop's own, else the approved "Popis (Cacaduu)"; in the visitor's
-  // language when translated (the original stays; "Zobraziť originál").
-  const [itemTexts, langs] = await Promise.all([getItemTexts(item.item_id), getShopLanguages(item.shop_slug, item.shop_country)]);
-  const texts = await getShopTexts(item.shop_slug, lang, langs, original, [{ kinds: ["item_description", "item_category"], refs: [item.item_id] }]);
   const description = texts.text("item_description", item.item_id, itemTexts?.description ?? null);
   const category = texts.text("item_category", item.item_id, itemTexts?.category ?? null);
   const itemPath = `/${lang}/items/${item.item_id}`;

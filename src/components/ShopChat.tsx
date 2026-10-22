@@ -198,6 +198,9 @@ export function ShopChat({
   welcome,
   archive = false,
   shopperPdf = false,
+  initialText = "",
+  focusInput = false,
+  keysOpen = false,
 }: {
   slug: string;
   lang: string;
@@ -213,12 +216,17 @@ export function ShopChat({
   archive?: boolean;
   /** "Stiahnuť túto konverzáciu (PDF)": the shop lets shoppers download their own conversation. */
   shopperPdf?: boolean;
+  /** What the shopper typed into the light first view (ShopAssistant) before this loaded; focus goes back there. */
+  initialText?: string;
+  focusInput?: boolean;
+  /** "Mám prístupový kľúč" was opened in that first view. */
+  keysOpen?: boolean;
 }) {
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
   const base = `/api/shops/${encodeURIComponent(slug)}`;
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const [files, setFilesState] = useState<Attachment[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -232,7 +240,16 @@ export function ShopChat({
   const removed = useRef(new Set<number>());
   const nextKey = useRef(1);
   const fileInput = useRef<HTMLInputElement>(null);
+  const textInput = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  // Loaded by a tap in ShopAssistant's first view: the cursor stays in the text field (after what was typed).
+  useEffect(() => {
+    const input = textInput.current;
+    if (!focusInput || !input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the assistant replaced its first view
+  }, []);
   // Private folders opened with an access key (database update 24).
   const [folders, setFolders] = useState<OpenSession | null>(null);
   const [keyBusy, setKeyBusy] = useState(false);
@@ -758,6 +775,7 @@ export function ShopChat({
               </p>
             )}
             <textarea
+              ref={textInput}
               value={text}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
@@ -817,7 +835,7 @@ export function ShopChat({
     </section>
       {keys && (
         // "Mám prístupový kľúč": closed until the shopper opens it; open while a folder is unlocked.
-        <details key={folders ? "unlocked" : "locked"} open={Boolean(folders)} className="border border-line" data-key-access>
+        <details key={folders ? "unlocked" : "locked"} open={Boolean(folders) || keysOpen} className="border border-line" data-key-access>
           <summary className="cursor-pointer p-3 font-semibold">{labels.key_have}</summary>
           <div className="px-3 pb-3">
             <FolderAccess
