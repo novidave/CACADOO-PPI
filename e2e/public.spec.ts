@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { SHOP, watchConsole } from "./helpers";
+import { expect, SHOP, test, watchConsole } from "./helpers";
 
 test("AI search → shop → product", async ({ page }) => {
   const c = watchConsole(page);
@@ -69,11 +68,12 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
 test("blog post", async ({ page }) => {
   const c = watchConsole(page);
   await page.goto(`/sk/shops/${SHOP}/blog`);
-  const post = page.locator(`main a[href*='/blog/']`).first();
+  // A post of the list (never the RSS link), opened at its address on the site under test.
+  const post = page.locator("[data-blog-post]").first();
   test.skip((await post.count()) === 0, "this shop has no posts");
-  await post.click();
-  await expect(page).toHaveURL(/\/blog\/[a-z0-9-]+/);
-  await expect(page.locator("article h1, main h1").first()).toBeVisible();
+  const slug = await post.getAttribute("data-blog-post");
+  await page.goto(`/sk/shops/${SHOP}/blog/${slug}`);
+  await expect(page.locator(`[data-blog-article="${slug}"] h1`)).toBeVisible();
   // Structured data for search engines is in the first HTML.
   expect(await page.locator('script[type="application/ld+json"]').count()).toBeGreaterThan(0);
   c.check();

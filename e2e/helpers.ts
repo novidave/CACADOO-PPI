@@ -1,7 +1,25 @@
-import { expect, type Page } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import sk from "../src/i18n/messages/sk.json" with { type: "json" };
 
-export { sk };
+export { sk, expect };
+
+/**
+ * Every test uses this `test`: on a protected Vercel preview the bypass header (VERCEL_AUTOMATION_BYPASS_SECRET) and
+ * `x-vercel-skip-toolbar` (no Vercel toolbar — it exists only on previews) go **only to the site under test**. Sent to
+ * every request, they turned the toolbar's cross-site requests into failed CORS preflights (net::ERR_FAILED).
+ */
+export const test = base.extend({
+  context: async ({ context, baseURL }, provide) => {
+    const origin = new URL(baseURL ?? "http://localhost:3000").origin;
+    const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    const extra: Record<string, string> = { "x-vercel-skip-toolbar": "1", ...(bypass ? { "x-vercel-protection-bypass": bypass } : {}) };
+    await context.route(
+      (url) => url.origin === origin,
+      (route) => route.continue({ headers: { ...route.request().headers(), ...extra } }),
+    );
+    await provide(context);
+  },
+});
 export const SHOP = process.env.E2E_SHOP ?? "potraviny-centrum";
 
 /** Messages that are not the site's fault: map tiles and analytics when the test machine has no internet. */
@@ -11,7 +29,9 @@ const OUTSIDE = /openfreemap|tiles\.|ERR_TUNNEL|ERR_NAME_NOT_RESOLVED|ERR_INTERN
 export function watchConsole(page: Page) {
   const problems: string[] = [];
   page.on("console", (m) => {
-    if (m.type() === "error" && !OUTSIDE.test(m.text())) problems.push(m.text().slice(0, 300));
+    // The address goes along: "Failed to load resource" alone does not say what failed.
+    const where = m.location()?.url ?? "";
+    if (m.type() === "error" && !OUTSIDE.test(`${m.text()} ${where}`)) problems.push(`${m.text().slice(0, 300)} ${where}`.trim());
   });
   page.on("pageerror", (e) => problems.push(`pageerror: ${String(e).slice(0, 300)}`));
   page.on("response", (r) => {

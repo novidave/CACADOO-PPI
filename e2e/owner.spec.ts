@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { loginOwner, sk, watchConsole } from "./helpers";
+import { expect, loginOwner, sk, test, watchConsole } from "./helpers";
 
 // These checks upload a stock file and approve its columns: only on a shop made for testing, named explicitly.
 const SHOP = process.env.E2E_OWNER_SHOP ?? "";

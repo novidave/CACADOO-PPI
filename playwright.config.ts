@@ -15,10 +15,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
     trace: "retain-on-failure",
-    // Protected Vercel previews: the bypass header (a repository secret; never in the code).
-    ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-      ? { extraHTTPHeaders: { "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET } }
-      : {}),
+    // Protected Vercel previews: the bypass header goes only to the site under test (e2e/helpers.ts `test`).
     ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } } : {}),
   },
   projects: [{ name: "phone", use: { ...devices["Pixel 7"] } }],
