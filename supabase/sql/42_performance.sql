@@ -410,7 +410,7 @@ set jit = off
 as $$
 declare
   v_kind text := case when p_kind in ('render', 'route', 'action', 'proxy') then p_kind else 'other' end;
-  v_route text := left(regexp_replace(coalesce(nullif(p_route, ''), '?'), '\?.*$', ''), 200);
+  v_route text := coalesce(nullif(left(regexp_replace(coalesce(p_route, ''), '\?.*$', ''), 200), ''), '?');
   v_message text := public.clean_error_text(coalesce(nullif(p_message, ''), 'error'));
   v_digest text := nullif(left(regexp_replace(coalesce(p_digest, ''), '[^A-Za-z0-9_-]', '', 'g'), 64), '');
   v_id bigint;

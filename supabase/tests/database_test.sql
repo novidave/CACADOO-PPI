@@ -600,10 +600,11 @@ begin
     v_plan text := '';
     v_line record;
   begin
-    for v_line in execute 'explain select id from public.shop_items where public.item_names_text(name, name_i18n) like ''%white%''' loop
+    -- since update 42 the same text is the stored column names_search with its own index
+    for v_line in execute 'explain select id from public.shop_items where names_search like ''%white%''' loop
       v_plan := v_plan || v_line."QUERY PLAN" || ' ';
     end loop;
-    assert v_plan like '%shop_items_names_search_idx%', 'name search uses the index: ' || v_plan;
+    assert v_plan like '%shop_items_names_search_col_idx%', 'name search uses the index: ' || v_plan;
   end;
 end $$;
 reset role;
@@ -6877,5 +6878,87 @@ begin
   delete from public.item_descriptions where shop_id = v_a;
   delete from public.translation_requests where shop_id = v_a;
 end $$;
+
+\echo '--- speed: stored name text, search patterns, no JIT, the error log (update 42)'
+reset role;
+do $$
+declare
+  v_bad integer;
+begin
+  -- The stored column is always the same text the search used to build per row.
+  select count(*) into v_bad from public.shop_items
+  where names_search is distinct from public.item_names_text(name, name_i18n);
+  assert v_bad = 0, 'names_search differs from item_names_text';
+  assert exists (select 1 from pg_indexes where indexname = 'shop_items_names_search_col_idx'), 'trigram index on names_search';
+  -- One LIKE pattern per word, the same words matches_all_words() uses; nothing for an empty query.
+  assert public.search_patterns(null) = '{}'::text[], 'empty query → no patterns';
+  assert public.search_patterns('  ') = '{}'::text[], 'blank query → no patterns';
+  assert cardinality(public.search_patterns('Káva  zrnková')) = 2, 'two words → two patterns';
+  assert public.search_patterns('50%') = array['%50\%%'], '% is escaped';
+  -- Search gives what the rule says: every word matches, sold out still listed, EAN exact.
+  assert (select count(*) from public.search_stock('káva')) = 3, 'three coffees in the seed';
+  assert (select count(*) from public.search_stock('kava zrnkova')) = 1, 'every word must match (no accents)';
+  assert (select count(*) from public.search_stock('káva lavazza')) = 1, 'brand counts as a word';
+  assert (select count(*) from public.search_stock('káva centrum')) = 2, 'shop name counts as a word';
+  assert (select count(*) from public.search_stock('8000070012345')) = 1, 'EAN';
+  assert (select count(*) from public.search_stock('káva neexistuje')) = 0, 'a missing word → nothing';
+  assert not exists (
+    select 1 from public.search_stock('káva') r join public.shop_items si on si.id = r.item_id
+    where not public.matches_all_words(
+      public.item_names_text(si.name, si.name_i18n) || ' ' || coalesce(r.brand, '') || ' ' || coalesce(r.ean, '') || ' '
+        || r.shop_name || ' ' || coalesce(r.shop_address, '') || ' ' || coalesce(r.shop_city, ''), 'káva')
+  ), 'every row matches all words';
+  assert (select count(*) from public.shop_stock('potraviny-centrum', 'káva')) = 2, 'shop_stock with a word';
+  -- No JIT compile on the hot functions (it cost ~0.5 s per call).
+  assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.search_stock(text,double precision,double precision,double precision,boolean)'::regprocedure),
+    'search_stock runs without JIT';
+  assert (select proconfig @> array['jit=off'] from pg_proc where proname = 'shop_content' and pronamespace = 'public'::regnamespace limit 1),
+    'shop_content runs without JIT';
+end $$;
+
+-- The error log: anyone may write through the function (cleaned, counted up), nobody reads the table but the admin.
+set role anon;
+do $$
+begin
+  perform public.log_server_error('render', '/[lang]/shops/[slug]?q=mlieko', 'TypeError: x for jana@obchod.sk 3f2c1b9e-1111-2222-3333-444455556666', 'abc');
+  perform public.log_server_error('render', '/[lang]/shops/[slug]', 'TypeError: x for jana@obchod.sk 3f2c1b9e-1111-2222-3333-444455556666');
+  perform public.log_server_error('nonsense', '', '');
+  begin
+    perform 1 from public.server_errors;
+    raise exception 'anon read server_errors';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.admin_server_errors(7);
+    raise exception 'anon read the error list';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$
+begin
+  assert (select hits from public.server_errors where route = '/[lang]/shops/[slug]') = 2, 'the same error counts up';
+  assert not exists (select 1 from public.server_errors where message ~ '@|3f2c1b9e|mlieko' or route ~ '\?.'), 'no personal data stored';
+  assert exists (select 1 from public.server_errors where kind = 'other' and route = '?' and message = 'error'), 'odd input is made safe';
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin
+    perform * from public.admin_server_errors(7);
+    raise exception 'an owner read the error list';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+set role authenticated;
+do $$
+begin
+  assert (select hits from public.admin_server_errors(7) where route = '/[lang]/shops/[slug]') = 2, 'the admin sees the error';
+end $$;
+reset role;
+delete from public.server_errors;
 
 \echo 'ALL DATABASE CHECKS PASSED'
