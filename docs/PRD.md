@@ -1633,6 +1633,7 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-20 | Shop blog "Novinky": posts written in Cacaduu (photos, scheduling) or imported from the shop's Facebook Page (all past posts, a daily sync, edits and deletions followed), published to the Page on request ("Zverejniť aj na Facebooku?"); `/blog` pages with JSON-LD, RSS, sitemap, llms.txt and IndexNow on Cacaduu and own domains; free shops show the newest 10; privacy and Facebook data deletion pages |
 | 2026-10-20 | Môj obchod → Asistent with its four sections once each; "Obsah stránky": one slider on the shop page with automatic and pinned blog posts, PDFs and pictures in the owner's order (counters per plan, drag and drop, live preview, library with HEIC/PNG/JPEG/WebP pictures and cleaned PDFs); the page sections of updates 28–31 migrated into it |
 | 2026-10-21 | Videos: ▶ on video posts in the slider (to the article or the post on Facebook, the owner's choice), YouTube shares keep YouTube's picture and play on the blog post after a tap (youtube-nocookie), Facebook videos open on Facebook |
+| 2026-10-22 | Speed and fixes pass: cached public pages refreshed on every change, faster search and owner lists (update 42), map/assistant/language list after the page, tap feedback, no layout jumps in Môj obchod, server error list for the admin, Speed Insights, phone e2e and a performance budget on every preview |
 
 
 ### 6.19 The "Tovar" list in Môj obchod (database update 41)

@@ -9,7 +9,8 @@ Setup steps for humans are in `SETUP.md`.
 
 - **Never** put the Supabase service role / secret key in the web app, `.env*`, Vercel or the repo.
   Anything that needs it (stock pull, Stripe, inviting owners) is a Supabase Edge Function.
-- Public pages (home, shop, item) load data in **server components** via `@/lib/supabase/server`.
+- Public pages (home, shop, item) load data in **server components** via `@/lib/supabase/server` (anonymous public
+  reads through the cached `createCachedPublicClient()`, refreshed on every change — see "Speed").
   Never fetch public data in the browser: crawlers and AI assistants read only the first HTML.
 - Freshness and availability labels live **in the database**
   (`freshness_label`, `availability_label`, `public_stock`, `search_stock`). Never recompute them in React.
@@ -72,6 +73,9 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
 - `npm run test:strings` — fails on a visible text written into a `.tsx` file instead of the message files
 - `npm run test:items` — unit tests (Deno) of Môj obchod's "Tovar" list (`src/lib/ownerItems_test.ts`): each state of
   "Čo vidí zákazník" (stale → hidden with the reason, sold out, in stock), the filters and the last file's status line
+- `npm run test:e2e` — Playwright on a phone (Pixel 7) against `E2E_BASE_URL` (default http://localhost:3000): AI
+  search → shop → product, the shop page, blog post, language switch; upload + columns and Produkty search only with
+  an owner login and `E2E_OWNER_SHOP` (a shop made for testing)
 - `npm run test:content` — unit tests (Deno) of "Obsah stránky" (`src/lib/content_test.ts`): the slide rule
   (pinned never repeated, fewer posts, hidden files, plan limits), counters, srcset, excerpts and where Môj obchod's
   sections live (old addresses forwarded)
@@ -563,6 +567,28 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   (`translation_spend`); one e-mail to `ADMIN_ALERT_EMAIL` at 80 %; batches of ≤ 60 texts; job every 5 min
   (`ppi-translate-tick`, Vault `ppi_translate_cron`). E-mails: the signup language is kept (`profiles.language`,
   Supabase templates read `{{ .Data.lang }}`).
+
+## Speed (performance pass, update 42)
+
+`supabase/sql/42_performance.sql` + `PERFORMANCE.md` (targets, budget, how to measure). **Public reads go through
+`createCachedPublicClient()`** (`@/lib/supabase/public`: only the `CACHED_RPCS` allowlist and GET `/rest/v1/` reads,
+60 s, tags `public` + `shop:<slug>` or `cross`); everything else (owner, admin, rate limits, AI) stays uncached.
+**Every change a visitor can see refreshes them** (`@/lib/publicCache`: `refreshShop(slug)` in each owner action's
+`back()` when `ok`, `refreshAll()` for translations, blog posts and admin settings; stock-pull POSTs
+`/api/revalidate` with `REVALIDATE_SECRET` after `updated` and after the translations). Search names: the stored
+column `shop_items.names_search` (= `item_names_text()`) with its trigram index and `search_patterns()` (`LIKE ALL`,
+same words as `matches_all_words`); hot functions `set jit = off`. Lazy on public pages: the map (`ShopMap` box →
+`ShopMapCanvas` near the screen after the load event, or on tap), the shop assistant (`ShopAssistant` = the same first
+view, `ShopChat` loads near the screen or on touch; the typed text, focus and the key dropdown go along), the language
+list (`LanguagePickerDialog`), the picture viewer (`SectionZoomViewer`), Vercel Speed Insights/Analytics
+(`VercelMetrics`, only on Vercel). One Quicksand declaration only (a second one loads the font twice). Môj obchod
+sections open before the first paint (`DashboardSection`'s inline script); no `loading.tsx` there (it turns the pages'
+`redirect()` into a client redirect) — the tapped menu link shows `useLinkStatus`. Taps: `TapFeedback` (server-action
+forms: busy at once, never sent twice), pressed states and 44 px touch areas in `globals.css`. Lists that load on a
+filter keep only the newest answer. Errors: `src/instrumentation.ts` → `@/lib/errorLog` (route file path + cleaned
+message only, never the address, IP or personal data) → `log_server_error()` → admin "Chyby za posledných 7 dní";
+Sentry too when `SENTRY_DSN` is set. Budget: `.github/workflows/performance.yml` (Lighthouse CI `lighthouserc.cjs` +
+`npm run test:e2e` on every Vercel preview); first-load JS < 150 kB gzip on public pages.
 
 ## Stock upload
 
