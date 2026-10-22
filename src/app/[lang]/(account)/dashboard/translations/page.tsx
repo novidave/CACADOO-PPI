@@ -8,6 +8,7 @@ import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import type { MyShop } from "@/lib/myShops";
 import { DashboardSection } from "@/components/DashboardSection";
 import { DbError } from "@/components/DbError";
+import { LanguageFileUpload } from "@/components/LanguageFileUpload";
 import { TranslationsTable } from "@/components/TranslationsTable";
 import { generateDescriptions, saveLanguages } from "../translationActions";
 import { languageList, tableLabels } from "../translationShared";
@@ -147,6 +148,15 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
 
           <SubmitButton pending={dict.owner.saving}>{o.save}</SubmitButton>
         </form>
+      </DashboardSection>
+
+      <DashboardSection {...m.section("files")} title={o.files_title} summary={o.files_summary}>
+        <LanguageFileUpload
+          shopId={shop.id}
+          langs={languageList(settings.inventory_langs.filter((c) => c !== settings.main_lang))}
+          mainLabel={languageOf(settings.main_lang)?.native ?? settings.main_lang}
+          labels={o.files}
+        />
       </DashboardSection>
 
       <DashboardSection {...m.section("translations")} title={o.translations_title} summary={o.translations_summary}>

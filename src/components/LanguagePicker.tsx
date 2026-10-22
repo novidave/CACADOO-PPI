@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { LOCALE_COOKIE } from "@/i18n/config";
-import { fold, languageMatches, languageOf, type Language } from "@/i18n/languages";
+import { fold, languageMatches, languageOf, pickerPath, type Language } from "@/i18n/languages";
 
 export interface LanguagePickerLabels {
   button: string;
@@ -14,20 +14,6 @@ export interface LanguagePickerLabels {
   search: string;
   none: string;
   close: string;
-}
-
-/** The same page in another language: PPI's "/{lang}/…", or on a shop's own domain "/" (its home language) / "/{lang}". */
-function target(pathname: string, code: string, current: string, site: { homeLang: string } | null): string {
-  const parts = pathname.split("/").filter(Boolean);
-  if (!site) {
-    const rest = parts.slice(1).join("/");
-    return `/${code}${rest ? `/${rest}` : ""}`;
-  }
-  // On the domain the browser shows "/", "/hu", "/hu/items/…", "/blog/…"; the page itself may be "/site/{lang}/{slug}/…".
-  const rest = parts[0] === "site" ? parts.slice(3) : parts[0] === current || languageOf(parts[0] ?? "") ? parts.slice(1) : parts;
-  const tail = rest.join("/");
-  if (rest[0] === "items") return `/${code}/${tail}`;
-  return code === site.homeLang ? `/${tail}` : `/${code}${tail ? `/${tail}` : ""}`;
 }
 
 /** The visitor's choice, in the functional cookie ppi_lang (a year). */
@@ -104,7 +90,7 @@ export function LanguagePicker({
   const item = (l: Language, group: string) => (
     <li key={`${group}-${l.code}`}>
       <a
-        href={target(pathname, l.code, current, site)}
+        href={pickerPath(pathname, l.code, current, site)}
         hrefLang={l.code}
         lang={l.code}
         onClick={() => remember(l.code)}

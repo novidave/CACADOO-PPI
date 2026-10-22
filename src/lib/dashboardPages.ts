@@ -10,7 +10,7 @@ export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs"
 export const EXPORT_SECTIONS = ["export", "conversations-pc"];
 export const CONTENT_SECTIONS = ["content", "library", "sections"];
 /** "Jazyky a preklady" (update 40): the shop's languages and every translation. */
-export const TRANSLATION_SECTIONS = ["languages", "translations"];
+export const TRANSLATION_SECTIONS = ["languages", "files", "translations"];
 
 /** Old names of sections that were merged into another one (the anchor and the open dropdown follow). */
 const MERGED: Record<string, string> = { private: "docs", sections: "content" };

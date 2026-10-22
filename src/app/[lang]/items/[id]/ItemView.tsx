@@ -42,7 +42,8 @@ export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> 
           },
         }
       : pageAlternates(lang, `/items/${item.item_id}`, langs.indexed),
-    ...(langs.indexed.includes(lang) ? {} : { robots: { index: false, follow: true } }),
+    // The shop decides (its pre-translated languages), over the site-wide rule of the [lang] layout.
+    robots: { index: langs.indexed.includes(lang), follow: true },
   };
 }
 

@@ -33,7 +33,9 @@ Setup steps for humans are in `SETUP.md`.
 - Show the item name as the shop wrote it, plus `translatedName()` (`@/lib/names`) in the page language under it.
 - Times stored in UTC, shown in the **shop's** time zone (`shops.timezone`) via `@/lib/format`.
   Prices via `formatPrice(value, locale, currency)` with the item's own currency.
-- All visible text comes from `src/i18n/messages/{sk,hu,en}.json`; add every new key to all three.
+- All visible text comes from `src/i18n/messages/{sk,hu,en}.json`; add every new key to all three (Slovak is the source;
+  every other language comes from the database, update 40). `npm run test:strings` fails on text written straight into
+  a page or component.
 
 ## Design
 
@@ -65,6 +67,9 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
   rule) (`src/lib/chat_test.ts`)
 - `npm run test:blog` — unit tests (Deno) of the shop blog (`src/lib/blog_test.ts`): addresses on Cacaduu and own
   domains, the text as written, the Facebook message, BlogPosting/BreadcrumbList JSON-LD, RSS, scheduling time zones
+- `npm run test:i18n` — unit tests (Deno) of the languages (update 40): the list, the browser's language, the picker's
+  search and links, the fallback of interface texts, the same keys and placeholders in sk/hu/en
+- `npm run test:strings` — fails on a visible text written into a `.tsx` file instead of the message files
 - `npm run test:content` — unit tests (Deno) of "Obsah stránky" (`src/lib/content_test.ts`): the slide rule
   (pinned never repeated, fewer posts, hidden files, plan limits), counters, srcset, excerpts and where Môj obchod's
   sections live (old addresses forwarded)
@@ -493,6 +498,61 @@ from YouTube loads before the tap; the privacy page says so); its link card is n
 null keeps it): `post` (default) = the article at `#video`; `facebook` = the post on Facebook in a new tab (a phone with
 the Facebook app opens it there), falling back to the article for a post that is not on Facebook. The title and "Čítať"
 always lead to the article. The blog list shows ▶ on video posts. Tests: `npm run test:content`, `test:functions`.
+
+## Every language (update 40)
+
+`supabase/sql/40_translations.sql` + `supabase/functions/translate` (one file, Verify JWT off) + `@/i18n/languages`
+(42 languages: the 25 EU ones, nb is sr sr-cyrl bs sq mk tr ru ca eu gl cy lb, zh-hans zh-hant vi; codes are URL
+prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib/contentTranslations` +
+`@/components/LanguagePicker` / `TranslationNote` / `TranslationsTable` / `LanguageFileUpload`.
+- **Which languages:** only `site_languages()` (admin "Preklady": on/off, "preložený vopred"; sk always on; ru and the
+  regional ones and zh-hant off by default). A switched-off language is a 404. Every page's `/[lang]` is any switched-on
+  code; sk/hu/en are built, the rest on first request.
+- **Interface texts:** sk/hu/en by hand in the repository; every other language in `ui_translations` (Claude via the
+  admin's "Preložiť chýbajúce texty" → translate `ui`, ≤ 150 per call; the admin edits = `manual`, marks checked).
+  `getDictionary()` layers SK ← EN ← own file ← database, so a missing text shows English, then Slovak, **never a key
+  name**. Legal pages show "Strojový preklad – záväzná je slovenská verzia" until every legal key is checked.
+- **Picker** (replaces SK·HU·EN on PPI and on own domains): "Odporúčané" (the shop's preferred languages on its own
+  domain; SK HU EN CS UK PL DE on PPI), "Všetky jazyky" (own names, alphabetical, search knows English/Slovak/Hungarian
+  names), "Ďalšie jazyky" (Chinese, Vietnamese); a dialog (Esc, ↑↓), a bottom sheet on phones. The choice = functional
+  cookie `ppi_lang`. First visit: PPI → the browser's first switched-on language, else Slovak (`fromAcceptLanguage`);
+  own domain → "/" = the shop's home language (`shop_home_lang()`: "Predvolený jazyk na vlastnej doméne", else its main
+  language, else its country's). **No location ever.**
+- **Fonts:** Quicksand (latin, latin-ext, vietnamese) + Noto Sans only for Cyrillic/Greek (`notoFallback`, not
+  preloaded); Chinese uses the system's fonts (no CJK web font), `line-break: strict`.
+- **Shop content** (`content_translations`; the original is NEVER changed): kinds item_name / item_description /
+  item_category / assistant_label / assistant_welcome / special_note / content_title / section_title / section_alt /
+  blog_title / blog_body; status `shop` (from the shop's file, "Od obchodu"), `ai`, `manual` ("Upravené ručne"), `none`
+  ("Neprekladať"); `source_hash` = md5 of the original: a changed original makes an AI text "Zastaraný" and the job
+  makes it again; shop and manual ones are never overwritten (Claude only suggests). Visitors read only
+  `shop_translations()` (shown things only, never a stale text); item names also as `shop_items.name_i18n` (kept by a
+  trigger; the search index covers every language). Pre-translated = the shop's main + preferred languages (plan limit
+  `translation_limits`: free 2, Pro 6) + item names in sk/hu/en; any other language → `request_translation()` (anon,
+  once in 10 min) → the function translates while the page shows the original + "Prekladáme…". Machine texts show
+  "Preložené automaticky · Zobraziť originál" (`?original=1`). Never translated: brands, codes, EAN, prices,
+  quantities, units, URLs, e-mails, phones, colour codes, `{placeholders}`.
+- **SEO:** hreflang/sitemaps only for pre-translated languages (PPI: admin's "preložený vopred"; a shop: its indexed
+  languages — shop/item/blog pages set `robots` themselves); others `noindex`.
+- **Descriptions** (`item_descriptions`): "Návrh popisu" by Claude **only from the shop's own data**
+  (`item_description_facts()`: name, brand, EAN, category, the shop's own description), never invented; the owner edits
+  → "Uložiť a zverejniť" / "Zahodiť"; "Zverejniť vygenerované popisy automaticky" (default off); the shop's own
+  description wins unless the owner picks "Popis (Cacaduu)" (`item_description_shown()`).
+- **Owner screens:** Môj obchod → "Jazyky a preklady" (`/dashboard/translations`: Jazyky, Súbory so skladom v
+  jazykoch, Preklady with filters, ticks, progress bar, "Späť" 30 s) and a product's page `/dashboard/items/[id]`
+  (tabs Popis, Preklady; Zmazať asks "preložiť znova pri ďalšej návšteve" or "neprekladať"; "Preložiť znova" shows old
+  and new side by side). Every write through `owner_*` SQL; Claude only through the translate function with the
+  owner's login.
+- **Two-language stock files:** option A = a language per text column in the mapping (`name@hu`, proposed from the
+  column names, approved by the owner); option B = a second file per language (`stock-pull?translation_lang=hu`),
+  matched by Kód then EAN (`apply_shop_translations()`); quantity and price only from the main file (differences
+  listed, ignored). Encodings: BOM, UTF-8, GB18030/GBK, Windows-1258, Windows-1250 (detected; the owner sees a
+  preview `?preview=1` and may pick another, remembered in `sync_sources.file_encoding`). Private columns never read.
+- **Search:** every translation is searchable; a search with no hit (or in Chinese) is also run with Claude's words
+  for it (`query_expansion()`, cached 30 days) — website, API, MCP and the AI search (any language code).
+- **Cost:** every AI call checks `translation_budget_ok(TRANSLATION_MONTHLY_BUDGET_EUR)` and adds its cost
+  (`translation_spend`); one e-mail to `ADMIN_ALERT_EMAIL` at 80 %; batches of ≤ 60 texts; job every 5 min
+  (`ppi-translate-tick`, Vault `ppi_translate_cron`). E-mails: the signup language is kept (`profiles.language`,
+  Supabase templates read `{{ .Data.lang }}`).
 
 ## Stock upload
 

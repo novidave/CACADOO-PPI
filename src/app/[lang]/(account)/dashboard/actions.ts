@@ -6,7 +6,7 @@ import { getDictionary } from "@/i18n/dictionaries";
 import { getSession, requestOrigin } from "@/lib/auth";
 import { sanitizeHours } from "@/lib/hours";
 import { sectionUrl } from "@/lib/dashboardPages";
-import { MAPPING_FIELDS } from "@/lib/myShops";
+import { LANGUAGE_COLUMN_ROWS, MAPPING_FIELDS, TEXT_FIELDS } from "@/lib/myShops";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOGO_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -202,7 +202,14 @@ export async function saveAssistantTexts(formData: FormData) {
 /** The owner approves which column of the stock file is which. */
 export async function approveColumns(formData: FormData) {
   const { session, shopId, back } = await start(formData);
-  const mapping = Object.fromEntries(MAPPING_FIELDS.map((f) => [f, text(formData, `col_${f}`) || null]));
+  const mapping: Record<string, string | null> = Object.fromEntries(MAPPING_FIELDS.map((f) => [f, text(formData, `col_${f}`) || null]));
+  // Option A (update 40): a column with the name, description or category in a further language.
+  for (let i = 0; i < LANGUAGE_COLUMN_ROWS; i++) {
+    const column = text(formData, `lc_col_${i}`);
+    const field = text(formData, `lc_field_${i}`);
+    const language = text(formData, `lc_lang_${i}`);
+    if (column && (TEXT_FIELDS as readonly string[]).includes(field) && /^[a-z]{2}(-(cyrl|hans|hant))?$/.test(language)) mapping[`${field}@${language}`] = column;
+  }
   const { error } = await session.supabase.rpc("owner_set_mapping", { p_shop_id: shopId, p_mapping: mapping });
   back(error ? { err: error.code === "22023" ? "columns" : error.message } : { ok: "columns" });
 }

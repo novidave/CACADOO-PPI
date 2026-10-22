@@ -1,4 +1,5 @@
 import { legalUnchecked } from "@/i18n/dictionaries";
+import { languageOf } from "@/i18n/languages";
 
 /**
  * On a legal page (privacy, terms) in a language whose texts are machine translations nobody checked yet:
@@ -10,7 +11,7 @@ export async function MachineTranslationNote({ lang, prefixes, text, slovakHref 
     <p className="border border-line p-3 text-sm" data-machine-translation>
       {text}{" "}
       <a href={slovakHref} hrefLang="sk" lang="sk" className="underline underline-offset-4">
-        Slovenčina
+        {languageOf("sk")?.native}
       </a>
     </p>
   );

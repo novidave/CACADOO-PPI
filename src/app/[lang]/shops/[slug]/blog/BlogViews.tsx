@@ -74,7 +74,8 @@ export async function blogListMetadata(lang: Locale, slug: string, page: number,
       types: { "application/rss+xml": [{ url: blogRssUrl(siteUrl(), place), title }] },
     },
     openGraph: { type: "website", title, url: alternates.canonical },
-    ...(langs.indexed.includes(lang) ? {} : { robots: { index: false, follow: true } }),
+    // The shop decides (its pre-translated languages), over the site-wide rule of the [lang] layout.
+    robots: { index: langs.indexed.includes(lang), follow: true },
   };
 }
 
@@ -199,7 +200,8 @@ export async function blogPostMetadata(lang: Locale, slug: string, postSlug: str
     title: `${post.title} · ${shop.name}`,
     description,
     alternates,
-    ...(langs.indexed.includes(lang) ? {} : { robots: { index: false, follow: true } }),
+    // The shop decides (its pre-translated languages), over the site-wide rule of the [lang] layout.
+    robots: { index: langs.indexed.includes(lang), follow: true },
     openGraph: {
       type: "article",
       title: post.title,

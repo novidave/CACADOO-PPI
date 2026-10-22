@@ -431,7 +431,9 @@
     "error_booking": "Adja meg a foglalási oldal webcímét, pl. https://reservio.com/azonuzlete.",
     "error_special_dates": "Ellenőrizze a dátumokat: mától legfeljebb egy évre előre, legfeljebb 62 nap.",
     "error_special_ranges": "Adja meg az időt ettől – eddig (pl. 8:00 – 12:00), vagy válassza az Egész nap zárva lehetőséget.",
-    "error_special_none": "Jelöljön ki legalább egy napot."
+    "error_special_none": "Jelöljön ki legalább egy napot.",
+    "col_description": "Leírás",
+    "col_category": "Kategória"
   },
   "plan": {
     "title": "Csomag",
@@ -2017,7 +2019,36 @@
       "prev": "← Előző",
       "next": "Következő →",
       "loading": "Betöltés…"
-    }
+    },
+    "files_title": "Készletfájlok nyelvenként",
+    "files_summary": "Előnézet, kódolás és egy második fájl más nyelven",
+    "files": {
+      "target": "Fájl",
+      "target_main": "Fő készletfájl ({lang})",
+      "choose": "Fájl kiválasztása",
+      "encoding": "Kódolás",
+      "encoding_auto": "Automatikus ({encoding})",
+      "detected": "Olvasva: {encoding} · sorok: {rows}",
+      "preview_title": "Előnézet – a beolvasandó oszlopok első sorai",
+      "preview_rows": "Sorok: {n}",
+      "upload": "Feltöltés",
+      "uploading": "Feltöltés…",
+      "cancel": "Mégse",
+      "matched": "Párosított termékek: {n} – szövegeik „Az üzlettől” jelölést kapják.",
+      "unmatched": "Párosítatlan sorok: {n}",
+      "unmatched_more": "…és további {n}",
+      "conflicts": "Eltérés a mennyiségben vagy az árban: {n} (a fő fájl érvényes)",
+      "conflict_row": "{item}: itt {quantity} db / {price}, a fő fájlban {main_quantity} db / {main_price}",
+      "main_done": "A fő fájl feldolgozva ({status}, termékek: {items}).",
+      "failed": "Nem sikerült: {error}",
+      "help": "Előbb előnézetet lát: milyen kódolással olvassuk a fájlt (UTF-8, Windows-1250, Windows-1258 vietnámihoz, GB18030 kínaihoz …) és az első sorokat. A más nyelvű második fájlt kód, majd EAN szerint párosítjuk; a mennyiséget és az árat csak a fő fájlból vesszük. Példa: szlovák fő fájl és egy magyar fájl ugyanazokkal a kódokkal."
+    },
+    "columns_lang_title": "Oszlopok további nyelveken",
+    "columns_lang_help": "Ha a fájlban van például „Názov HU” oszlop, válassza ki, a „Termék neve” mezőt és a magyar nyelvet. Az oszlopnevek alapján javasoljuk őket, és megjegyezzük. Ezek a szövegek „Az üzlettől” jelöléssel jelennek meg, és soha nem változnak.",
+    "columns_lang_column": "Oszlop",
+    "columns_lang_field": "Mező",
+    "columns_lang_language": "Nyelv",
+    "columns_lang_none": "Nyelv…"
   },
   "admin_tr": {
     "nav": "Fordítások",

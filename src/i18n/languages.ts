@@ -121,3 +121,20 @@ export function fromAcceptLanguage(header: string, enabled: readonly string[]): 
   }
   return null;
 }
+
+/**
+ * The same page in another language (the picker's links): PPI's "/{lang}/…"; on a shop's own domain "/" is its home
+ * language, "/{lang}" the others, items always "/{lang}/items/…" (the browser shows the domain's addresses; the page
+ * itself may be "/site/{lang}/{slug}/…").
+ */
+export function pickerPath(pathname: string, code: string, current: string, site: { homeLang: string } | null): string {
+  const parts = pathname.split("/").filter(Boolean);
+  if (!site) {
+    const rest = parts.slice(1).join("/");
+    return `/${code}${rest ? `/${rest}` : ""}`;
+  }
+  const rest = parts[0] === "site" ? parts.slice(3) : parts[0] === current || languageOf(parts[0] ?? "") ? parts.slice(1) : parts;
+  const tail = rest.join("/");
+  if (rest[0] === "items") return `/${code}/${tail}`;
+  return code === site.homeLang ? `/${tail}` : `/${code}${tail ? `/${tail}` : ""}`;
+}

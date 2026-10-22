@@ -40,5 +40,8 @@ export interface MyShop {
   booking_url?: string | null;
 }
 
-export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency"] as const;
+export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency", "description", "category"] as const;
+/** Update 40, option A: text columns in further languages ("name@hu": "Név"); up to this many in the form. */
+export const LANGUAGE_COLUMN_ROWS = 6;
+export const TEXT_FIELDS = ["name", "description", "category"] as const;
 export const REQUIRED_FIELDS: readonly string[] = ["source_code", "name", "quantity", "price"];

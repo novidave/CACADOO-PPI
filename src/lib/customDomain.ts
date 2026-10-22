@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isLocale, type Locale } from "@/i18n/config";
+// Relative (not "@/"): the Deno tests of the shared rules import this file too.
+import { isLocale, type Locale } from "../i18n/config";
 
 /**
  * Addresses on a shop's own domain (database update 25). The front page "/" is in the shop's home language: since

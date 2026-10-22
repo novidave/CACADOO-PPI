@@ -44,6 +44,10 @@ alter table public.profiles add constraint profiles_language_check check (public
 alter table public.shop_items add column if not exists description text check (description is null or char_length(description) <= 5000);
 alter table public.shop_items add column if not exists category text check (category is null or char_length(category) <= 200);
 
+-- The encoding of the shop's stock file the owner chose in the preview (stock-pull reads it; null = detected).
+alter table public.sync_sources add column if not exists file_encoding text
+  check (file_encoding is null or file_encoding in ('utf-8', 'utf-16le', 'utf-16be', 'windows-1250', 'windows-1252', 'windows-1258', 'gb18030', 'big5'));
+
 -- The language a new account chose at signup (its e-mails are in it): raw_user_meta_data.lang.
 create or replace function public.handle_new_user()
 returns trigger

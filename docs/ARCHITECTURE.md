@@ -1267,6 +1267,32 @@ three automatic slots) and publishes the uploaded files (publishing now means "i
   in the gallery and marks video posts in the list. The editor's "Tlačidlo ▶ pri videách otvorí" appears only when the
   database has the setting (after update 39), and `saveContent` sends `p_video_target` only then.
 
+
+### 2.19 Every language (database update 40, `supabase/sql/40_translations.sql`)
+
+- `src/i18n/languages.ts` (42 languages, `fromAcceptLanguage`, `languageMatches`, `pickerPath`), `config.ts` (locales =
+  every code), `dictionaries.ts` (`getDictionary` = SK ← EN ← own file ← `ui_messages(lang)`, 5-min cache per server;
+  `siteLanguages()`), `messages.ts` (`flatten`, `layered`, legal keys). `[lang]/layout.tsx` 404s a switched-off
+  language, sets hreflang for the admin's pre-translated languages and `noindex` for the rest; shop, item and blog pages
+  set `robots` themselves from `getShopLanguages()` (`shop_languages()`).
+- `src/proxy.ts`: first visit → cookie `ppi_lang`, else `Accept-Language` (only switched-on languages, from
+  `site_languages()` cached a minute), else sk; own domain "/" = `shop_for_host().site_lang` (= `shop_home_lang()`),
+  a remembered other language redirects "/" → "/de".
+- Shop content: `@/lib/contentTranslations` `getShopTexts()` (one `shop_translations()` call per group of kinds;
+  `text()` returns the translation or the original and notes machine / missing texts) → `TranslationNote`;
+  `requestTranslation()` runs after the response (`after()`) → translate `kick`.
+- `supabase/functions/translate`: `tick` (cron, `translate_cron_ok`), `kick` (anyone; `request_translation()` decides),
+  `query` (anyone; cached), `ui` (admin), `describe` / `suggest` / `run` (owners, `is_shop_member` with their login).
+  Work list `translation_work()` (waiting shops first, then shop texts, items, posts; never over shop/manual/none),
+  stored by `apply_translations()` only while the original still has the hash it was made from. Budget:
+  `translation_budget_ok()` before, `translation_spend()` after every call (Claude Haiku 5.5 prices, euros), one Brevo
+  e-mail at 80 %.
+- stock-pull: `detectEncoding()` (BOM, UTF-8, GB2312 pairs → GB18030, Vietnamese tone marks → Windows-1258, else
+  Windows-1250), `?preview=1` (nothing stored; only the columns that will be read), `?encoding=`, mapping fields
+  `description`, `category` and `name@hu`-style language columns → `apply_file_texts()` after `apply_stock_file()`;
+  `?translation_lang=hu` → `processLanguageFile()` → `apply_shop_translations()`.
+- Search: `@/lib/queryExpansion` `searchAcrossLanguages()` (main page, `publicApi.searchStock` → API, MCP, AI search).
+
 ## 3. Main flows step by step
 
 **A shopper searches "farba":** browser → Vercel → `/[lang]?q=farba` server component → `search_stock('farba')` with
@@ -1497,6 +1523,8 @@ Rule everywhere: when PPI is not sure, it says less. Stale stock is never shown 
 | Vercel env (optional, server only) | `ANTHROPIC_API_KEY` | switches on the main page's AI chat (without it: the plain search in the chat) and the shop assistant |
 | Vercel env (optional) | `AI_MODEL` | the Claude model of the main page's chat and the shop assistant (default `claude-haiku-5-5`) |
 | Vercel env (server only, Sensitive) **and** Supabase function secret | `EXTERNAL_SEARCH_SECRET` | the same 32+ random characters in both: the website proves itself to `product-sources`; without it the chat searches only Cacaduu |
+| Supabase function secret | `TRANSLATION_MONTHLY_BUDGET_EUR` | the translate function's monthly AI budget in euros (0 or missing = no limit); at 80 % one e-mail |
+| Supabase function secret | `ADMIN_ALERT_EMAIL` | where the 80 % budget e-mail goes (with `BREVO_API_KEY`, `ALERT_EMAIL_FROM`) |
 | Supabase function secret | `EXTERNAL_SEARCH_DAILY_LIMIT` | outside calls per day, all layers together (default 300; 0 = none) |
 | Supabase function secret | `WEB_SEARCH_ENABLED`, `GOOGLE_PLACES_ENABLED` | `true` switches the web search / Google Places on (the hard off; the admin's switch can also turn a layer off) |
 | Supabase function secret (optional) | `GOOGLE_PLACES_API_KEY` | Google Places API (New), only with `GOOGLE_PLACES_ENABLED=true` |
@@ -1600,6 +1628,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 35 | `supabase/sql/35_partner_feeds.sql` | partner feeds: `partners`, `partner_stores`, `partner_products` (+ `search_blob`, trigram index), `partner_store_stock`, `partner_imports`; helpers `valid_feed_url`, `partner_schedule_interval`, `partner_data_fresh`; the function's steps `partner_start_due`, `partner_imports_waiting`, `partner_import_claim`, `partner_import_release`, `partner_import_downloaded`, `partner_import_unchanged`, `partner_import_rows`, `partner_import_finish`, `partner_import_fail`, `partner_retry_soon` (service role only); `search_partner_products`, `partner_layer_ready` (visitors); `admin_partner_settings`, `admin_save_partner`, `admin_set_partner_file`, `admin_set_partner_logo`, `admin_save_partner_stores`, `admin_queue_partner_import`, `admin_delete_partner` (`is_admin()`); buckets `partner-feeds` (private) and `partner-logos` (public); job `ppi-partner-feeds-tick`. RLS on every table. Safe to run twice |
 | 36 | `supabase/sql/36_domain_findability.sql` | own domains fully findable: `domain_orders.google_txt_record_id` (+ checks, state `present`), `domain_site_verifications` (RLS: members read) + `clean_site_verification`, `owner_set_site_verification`, `site_verification_meta` (anon); `inventory.indexnow_at` (+ `track_inventory_change` redefined, index), `indexnow_hosts`, `indexnow_pings` (RLS on, service role only), `indexnow_claim_host`, `indexnow_done` (service role); `shop_llms_facts` + `stock_categories`, `auto_holidays`. Needs 25 and 33; safe to run twice |
 | 39 | `supabase/sql/39_video_posts.sql` | videos: `youtube_id()`, `blog_post_video()`, `blog_youtube_backfill()` (run once), `shop_page_content.video_target` (+ check), `shop_content()` / `owner_content()` with `video` and `video_target`, `owner_save_content(…, p_video_target)` (the 5-argument one dropped) |
+| 40 | `supabase/sql/40_translations.sql` | every language: `languages` + `site_languages()` / `admin_save_language()`, `ui_translations` + `ui_messages()` / `ui_unchecked()` / `admin_*` / `apply_ui_translations()`, `translation_limits` / `translation_usage` + budget functions, `shop_language_settings` + `shop_main_lang()` / `shop_home_lang()` / `shop_preferred_langs()` / `shop_languages()` / `owner_*_language_settings()`, `shop_for_host` / `live_shop_sites` / `public_shops` with the home language, `item_descriptions` + `owner_*_description*()`, `content_translations` (+ trigger keeping `name_i18n`, old names moved in), `item_names_text()` over every language (reindexed), `shop_translations()` / `item_texts()`, `translation_requests` / `request_translation()`, `translation_work()` / `apply_translations()`, `owner_translations()` and its actions, `apply_shop_translations()` / `apply_file_texts()`, mapping with description/category/language columns, `query_translations`, `shop_blog*` with the post id, `sync_sources.file_encoding`, `profiles.language` from signup, jobs `ppi-translate-tick` / `ppi-translate-cleanup` |
 | 38 | `supabase/sql/38_page_content.sql` | "Obsah stránky": `section_limits.max_slides` / `max_pdf_slides` / `max_items` (+ `content_limits_for`, `admin_save_content_limits`), library columns on `shop_page_sections` (`kind`, `show_title`, `file_name`, `alt`, `alt_ai`, originals), `shop_page_content`, `shop_content_slots` (RLS), `section_item_ready`, `content_slots`, `content_slots_shown`, `section_visible` via slots, `content_materialize`, `shop_content`, `owner_content`, `owner_save_content`, `owner_save_item`, picture originals in the upload steps, the migration of every shop's sections |
 | 37 | `supabase/sql/37_shop_blog.sql` | the shop blog and its Facebook Page: `blog_limits` (+ `admin_save_blog_limits`), `blog_posts`, `blog_photos`, `shop_blog_settings`, `facebook_connections` (owners: no grant on the token), `facebook_oauth_states`, `facebook_pending_pages` (RLS on every table); `blog_slug`, `blog_visible_posts` / `blog_visible_ids` / `blog_post_visible` (the one rule), triggers `blog_posts_touch` / `blog_photos_touch`; visitors `shop_blog`, `shop_blog_post`, `shop_blog_count`, `blog_index`, `search_shop_blog`; owners `owner_blog_posts`, `owner_blog_post`, `owner_blog_save`, `owner_blog_publish`, `owner_blog_set_choice`, `owner_blog_set_hidden`, `owner_blog_settings`, `owner_blog_photo_order`; the function's steps (service role) `blog_photo_*`, `blog_post_files`, `blog_post_remove`, `blog_stale_uploads`, `blog_orphan_files`, `facebook_state_*`, `facebook_pending_*`, `facebook_connection_*`, `facebook_disconnect`, `facebook_import_*`, `facebook_imports_stalled`, `facebook_sync_*`, `facebook_newest_import`, `blog_import_post`, `blog_posts_to_check` / `_checked` / `_deleted_on_facebook`, `blog_fb_due` / `_claim` / `_result`, `facebook_alerts_due` / `_alert_sent`, `blog_indexnow_claim` / `_done`; bucket `blog-photos` (public); job `ppi-blog-tick`. Needs 36; safe to run twice |
 | 27 | `supabase/sql/27_shop_status.sql` | shop status: `shops.auto_holidays` (+ `guard_shop_auto_holidays`, `owner_set_auto_holidays`), `public_holidays` (RLS: everyone reads; SK/HU/CZ 2026–2027 rows from `scripts/holidays.mjs`), `holidays_between`, `shop_special_hours` (RLS: read with the shop) + `valid_hour_ranges`, `shop_visible`, `owner_save_special_hours`, `owner_delete_special_hours`, `shop_calendar`, `admin_holidays`, `admin_save_holiday`, `admin_delete_holiday`. Needs 21 and 26; safe to run twice |
@@ -1775,6 +1804,11 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
   48-hour alert; taken after payment → only the domain refunded; own domain Čaká na DNS → Overené → Beží, reminder,
   7-day stop, automatic DNS in our account; renewals charged before Websupport renews, lapse; Pro ended → auth code;
   callers (cron secret, owners, admin).
+- `npm run test:i18n` (Deno, `src/i18n/i18n_test.ts`, update 40): the languages, the browser's language, the picker's
+  search and links, the fallback of interface texts, the same keys and placeholders in sk/hu/en; `npm run test:strings`
+  (`src/lib/strings_test.ts`) fails on a visible text written into a `.tsx` file; `npm run test:functions` covers the
+  translate function (rules sent to the AI, batches, placeholders, budget and its alert, who may ask what) and
+  stock-pull's encodings, preview, description/category, language columns and second files.
 - `npm run test:content` also checks the videos (update 39): YouTube ids from every kind of address and nothing from
   other sites, where the slider's ▶ leads for each choice and post (Facebook post, YouTube share, a post not on Facebook).
 - `npm run test:content` (Deno, `src/lib/content_test.ts`, update 38): the slide rule shared with `shop_content()`

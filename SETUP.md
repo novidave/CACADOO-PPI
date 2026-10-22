@@ -1527,6 +1527,51 @@ Do the steps in order.
    Then Môj obchod → Obsah stránky → "Príspevok na Facebooku" → **Uložiť** → on the phone ▶ opens the post in the
    Facebook app.
 
+## Part AL — Every language: the picker, translated shop pages, descriptions, two-language stock files (22 October 2026)
+
+- The SK · HU · EN switch becomes a **language picker** with every EU language and more (Chinese and Vietnamese under
+  "Ďalšie jazyky"), on cacaduu.com and on the shops' own domains.
+- **Admin → Preklady** (menu, only for you): switch languages on/off, "Preložený vopred" (search engines), the
+  interface texts per language with **"Preložiť chýbajúce texty"**, the plans' numbers and the monthly AI cost.
+- **Môj obchod → Jazyky a preklady**: the shop's languages, stock files in languages (preview + encoding, a second file
+  in another language) and every translation; each product has "Popis a preklady" (tabs Popis and Preklady).
+
+Do the steps in order.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/40_translations.sql` → Run → "Success". Safe to run
+   again. (It moves the item names translated so far into the new table and creates the job `ppi-translate-tick`.)
+2. **New function `translate`:** Edge Functions → **Deploy a new function** → **Via Editor** → name `translate` → paste
+   `supabase/functions/translate/index.ts` → **Deploy** → open it → **switch OFF "Verify JWT"**.
+3. **Secrets** (Edge Functions → Secrets → Add): `TRANSLATION_MONTHLY_BUDGET_EUR` = your monthly limit in euros
+   (e.g. `20`) and `ADMIN_ALERT_EMAIL` = where the 80 % e-mail goes. `ANTHROPIC_API_KEY`, `BREVO_API_KEY` and
+   `ALERT_EMAIL_FROM` are already there (optional `AI_MODEL`, default Claude Haiku 5.5).
+4. **Function `stock-pull`:** Edge Functions → `stock-pull` → **Code** → replace everything with
+   `supabase/functions/stock-pull/index.ts` → **Deploy** (encodings, preview, description/category, languages).
+5. **Merge the pull request** → Vercel deploys. Nothing new in Vercel.
+6. **E-mails in the signup language (Supabase → Authentication → Email Templates):** new accounts now carry
+   `lang` (sk, hu, de …). In each template you can write e.g.
+   `{{ if eq .Data.lang "hu" }}Magyar szöveg…{{ else if eq .Data.lang "de" }}Deutscher Text…{{ else }}Slovenský text…{{ end }}`.
+   Without it the e-mails stay as they are (Slovak).
+7. **Interface texts:** log in → **Preklady** (admin) → choose a language (start with Deutsch, Ελληνικά, Українська) →
+   **Preložiť chýbajúce texty** → wait for "Hotovo" (about a minute per language). Read the legal texts and tick
+   "Skontrolované" when they are right (until then their pages say "Strojový preklad – záväzná je slovenská verzia").
+   Tick **"Preložený vopred"** in "Jazyky" for the languages search engines should find on cacaduu.com.
+8. **Check on davide.sk:** Môj obchod → **Jazyky a preklady** → Preferované jazyky stránky: Deutsch, Ελληνικά,
+   Українська → **Uložiť jazyky** → within 5 minutes the job translates the shop. Open davide.sk → **SK ▾** → Deutsch,
+   then ελληνικά, then українська: buttons, opening hours, the slider's titles, the products (German name under the
+   original), the assistant — all in that language ("Automatisch übersetzt · Original anzeigen" shows the shop's own
+   words). A language you did not pick is translated on the first visit ("Prekladáme…").
+9. **A description:** Môj obchod → a product → **Popis a preklady** → **Vygenerovať popis** → edit the "Návrh popisu"
+   → **Uložiť a zverejniť** → it is on the product page (and in German a few minutes later).
+10. **Delete and make again:** the same product → **Preklady** → Jazyk: Deutsch → at the name **Zmazať** → "preložiť
+    znova pri ďalšej návšteve" → **Zmazať** ("Späť" for 30 s) → **Preložiť znova** → compare → **Použiť nový**.
+11. **SK + HU files:** Jazyky a preklady → Jazyky inventára: Magyar → Uložiť; then **Súbory so skladom v jazykoch** →
+    Súbor: hlavný → `public/samples/stock-sample-sk.csv` (or your own file) → preview → **Nahrať**; then Súbor: Magyar →
+    `public/samples/stock-sample-hu.csv` → preview (the encoding is shown) → **Nahrať** → summary: spárované /
+    nespárované / rozdiely. In **Preklady** (Jazyk: Magyar, Stav: Od obchodu) the Hungarian names are marked
+    **"Od obchodu"**. A file with a column per language: `public/samples/stock-sample-2lang.csv` (approve the proposed
+    "Názov HU" → Názov tovaru · Magyar in Môj obchod → columns).
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1576,3 +1621,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 31. Own domains fully findable: "Odstrániť" removes only Cacaduu's TXT record; the Google HTML tag for connected domains; Bing Webmaster Tools; sitemap steps for Google and Bing; llms.txt with holidays and API/MCP; IndexNow on every host (one `INDEXNOW_KEY`, only real changes, once an hour per address); API/MCP links and Cacaduu's llms.txt point to the own domain | ✅ built — set up Part AG |
 | 32. Quicksand font; the Cacaduu PPI logo and icons; the name Cacaduu everywhere; cacaduu.com as the main domain | ✅ built — set up Part AH |
 | 33. Shop blog "Novinky": posts with photos written in Môj obchod (now or scheduled), the shop's Facebook Page connected once (all past posts imported, a daily sync, "Zverejniť aj na Facebooku?" before each post), `/blog` pages with RSS, sitemap, llms.txt, IndexNow and JSON-LD on Cacaduu and own domains; free shops show the 10 newest; privacy and data deletion pages | ✅ built — set up Part AI |
+| 34. Every language: a language picker (all EU languages and more, Chinese and Vietnamese), interface texts per language, the shops' pages translated (original always kept, "Preložené automaticky"), product descriptions from the shop's own data, translations per product, the shop's languages, two-language stock files with encoding preview | ✅ built — set up Part AL |

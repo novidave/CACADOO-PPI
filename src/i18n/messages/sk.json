@@ -431,7 +431,9 @@
     "error_booking": "Zadajte webovú adresu vašej rezervačnej stránky, napr. https://reservio.com/vasobchod.",
     "error_special_dates": "Skontrolujte dátumy: od dneška najviac rok dopredu, rozsah najviac 62 dní.",
     "error_special_ranges": "Zadajte čas od – do (napr. 8:00 – 12:00) alebo zvoľte Zatvorené celý deň.",
-    "error_special_none": "Vyberte aspoň jeden deň."
+    "error_special_none": "Vyberte aspoň jeden deň.",
+    "col_description": "Popis",
+    "col_category": "Kategória"
   },
   "plan": {
     "title": "Plán",
@@ -2017,7 +2019,36 @@
       "prev": "← Predchádzajúca",
       "next": "Ďalšia →",
       "loading": "Načítavam…"
-    }
+    },
+    "files_title": "Súbory so skladom v jazykoch",
+    "files_summary": "Náhľad, kódovanie a druhý súbor v inom jazyku",
+    "files": {
+      "target": "Súbor",
+      "target_main": "Hlavný súbor so skladom ({lang})",
+      "choose": "Vybrať súbor",
+      "encoding": "Kódovanie",
+      "encoding_auto": "Automaticky ({encoding})",
+      "detected": "Čítané ako {encoding} · riadkov: {rows}",
+      "preview_title": "Náhľad – prvé riadky stĺpcov, ktoré sa načítajú",
+      "preview_rows": "Riadkov: {n}",
+      "upload": "Nahrať",
+      "uploading": "Nahrávam…",
+      "cancel": "Zrušiť",
+      "matched": "Spárované produkty: {n} – ich texty sú označené „Od obchodu“.",
+      "unmatched": "Nespárované riadky: {n}",
+      "unmatched_more": "…a ďalších {n}",
+      "conflicts": "Rozdiely v množstve alebo cene: {n} (platí hlavný súbor)",
+      "conflict_row": "{item}: tu {quantity} ks / {price}, v hlavnom súbore {main_quantity} ks / {main_price}",
+      "main_done": "Hlavný súbor je spracovaný ({status}, produktov: {items}).",
+      "failed": "Nepodarilo sa: {error}",
+      "help": "Najprv uvidíte náhľad: v akom kódovaní sa súbor číta (UTF-8, Windows-1250, Windows-1258 pre vietnamčinu, GB18030 pre čínštinu …) a prvé riadky. Druhý súbor v inom jazyku sa páruje podľa kódu, potom podľa EAN; množstvo a cenu berieme len z hlavného súboru. Príklad: slovenský súbor ako hlavný a maďarský súbor s rovnakými kódmi."
+    },
+    "columns_lang_title": "Stĺpce v ďalších jazykoch",
+    "columns_lang_help": "Ak má váš súbor napríklad stĺpec „Názov HU“, vyberte ho, pole „Názov tovaru“ a jazyk maďarčina. Navrhujeme ich podľa názvov stĺpcov a zapamätáme si ich. Tieto texty sa zobrazia ako „Od obchodu“ a nikdy sa nemenia.",
+    "columns_lang_column": "Stĺpec",
+    "columns_lang_field": "Pole",
+    "columns_lang_language": "Jazyk",
+    "columns_lang_none": "Jazyk…"
   },
   "admin_tr": {
     "nav": "Preklady",

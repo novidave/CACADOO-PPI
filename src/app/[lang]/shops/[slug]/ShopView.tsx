@@ -75,7 +75,8 @@ export async function shopMetadata(lang: Locale, slug: string): Promise<Metadata
     description: t(dict.shop.meta_description, { name: shop.name, city: shop.city ?? "" }),
     // hreflang only for the shop's pre-translated languages; the others are translated on the first visit: noindex.
     alternates: alternates(shop, lang, host, langs.indexed),
-    ...(langs.indexed.includes(lang) ? {} : { robots: { index: false, follow: true } }),
+    // The shop decides (its pre-translated languages), over the site-wide rule of the [lang] layout.
+    robots: { index: langs.indexed.includes(lang), follow: true },
   };
 }
 

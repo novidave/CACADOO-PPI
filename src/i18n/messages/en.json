@@ -431,7 +431,9 @@
     "error_booking": "Enter the web address of your booking page, e.g. https://reservio.com/yourshop.",
     "error_special_dates": "Check the dates: from today up to a year ahead, at most 62 days.",
     "error_special_ranges": "Enter a time from – to (e.g. 8:00 – 12:00) or choose Closed all day.",
-    "error_special_none": "Select at least one day."
+    "error_special_none": "Select at least one day.",
+    "col_description": "Description",
+    "col_category": "Category"
   },
   "plan": {
     "title": "Plan",
@@ -2017,7 +2019,36 @@
       "prev": "← Previous",
       "next": "Next →",
       "loading": "Loading…"
-    }
+    },
+    "files_title": "Stock files in languages",
+    "files_summary": "Preview, encoding and a second file in another language",
+    "files": {
+      "target": "File",
+      "target_main": "Main stock file ({lang})",
+      "choose": "Choose file",
+      "encoding": "Encoding",
+      "encoding_auto": "Automatic ({encoding})",
+      "detected": "Read as {encoding} · rows: {rows}",
+      "preview_title": "Preview – the first rows of the columns that will be read",
+      "preview_rows": "Rows: {n}",
+      "upload": "Upload",
+      "uploading": "Uploading…",
+      "cancel": "Cancel",
+      "matched": "Matched products: {n} – their texts are marked “From the shop”.",
+      "unmatched": "Unmatched rows: {n}",
+      "unmatched_more": "…and {n} more",
+      "conflicts": "Differences in quantity or price: {n} (the main file counts)",
+      "conflict_row": "{item}: here {quantity} pcs / {price}, in the main file {main_quantity} pcs / {main_price}",
+      "main_done": "The main file is processed ({status}, products: {items}).",
+      "failed": "That did not work: {error}",
+      "help": "You see a preview first: the encoding the file is read in (UTF-8, Windows-1250, Windows-1258 for Vietnamese, GB18030 for Chinese …) and its first rows. A second file in another language is matched by code, then by EAN; quantity and price come only from the main file. Example: a Slovak main file and a Hungarian file with the same codes."
+    },
+    "columns_lang_title": "Columns in further languages",
+    "columns_lang_help": "If your file has, for example, a column “Názov HU”, choose it, the field “Item name” and the language Hungarian. We suggest them from the column names and remember them. These texts show as “From the shop” and never change.",
+    "columns_lang_column": "Column",
+    "columns_lang_field": "Field",
+    "columns_lang_language": "Language",
+    "columns_lang_none": "Language…"
   },
   "admin_tr": {
     "nav": "Translations",

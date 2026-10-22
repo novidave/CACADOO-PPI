@@ -78,7 +78,7 @@ export function SiteLogoPanel({
         ) : (
           <span className="font-semibold">{shopName}</span>
         )}
-        <span className="text-sm text-muted">SK · HU · EN</span>
+        <span className="text-sm font-semibold uppercase text-muted" aria-hidden>SK ▾</span>
       </div>
       <p className="text-sm text-muted">{data.url ? s.site_logo_set : s.site_logo_none}</p>
       {data.allowed ? (
