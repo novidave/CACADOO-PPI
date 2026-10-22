@@ -1,16 +1,16 @@
 /**
  * Môj obchod's pages: "Môj obchod" (stock file columns, details, logo, items, plan, delete), "Obsah stránky" (the
  * shop page's slider and its library of files, database update 38), "Asistent" (its settings, the conversations with their
- * cloud folder, the private folders, the last stock files), "Jazyky a preklady" (update 40: the shop's languages and
- * its translations) and "Priečinok s exportom" (the export folder). A form
+ * cloud folder, the private folders, the last stock files), "Jazyky a inventár" (update 40: the shop's languages,
+ * the stock file's columns, the items and their translations) and "Priečinok s exportom" (the export folder). A form
  * sends the owner back to the page and section ("at") it came from; a section that moved keeps working under its
  * old name (old links, e-mails, the cloud sign-in coming back with ?at=cloud).
  */
 export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs", "private", "imports"];
 export const EXPORT_SECTIONS = ["export", "conversations-pc"];
 export const CONTENT_SECTIONS = ["content", "library", "sections"];
-/** "Jazyky a preklady" (update 40): the shop's languages and every translation. */
-export const TRANSLATION_SECTIONS = ["languages", "files", "translations"];
+/** "Jazyky a inventár" (update 40): the shop's languages, its stock file's columns, its items, every translation. */
+export const TRANSLATION_SECTIONS = ["languages", "columns", "files", "items", "translations"];
 
 /** Old names of sections that were merged into another one (the anchor and the open dropdown follow). */
 const MERGED: Record<string, string> = { private: "docs", sections: "content" };

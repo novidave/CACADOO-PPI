@@ -333,7 +333,7 @@ PPI's sitemap leaves those pages out.
   plain text only (`plain_text()`: no HTML, links or e-mail addresses); empty = NULL = the i18n default (`chat.title`,
   `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`).
 - Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
-  Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (columns, details, logo, header logo, items, plan,
+  Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (details, logo, header logo, plan,
   delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`
   "Asistent" (update 38: **four sections, each once, in this order** — "Nastavenia asistenta", "Konverzácie asistenta"
   with the cloud folder as its part `#cloud`, "Súkromné priečinky" = `ShopDocuments` (documents, folders, access keys,
@@ -537,8 +537,8 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   (`item_description_facts()`: name, brand, EAN, category, the shop's own description), never invented; the owner edits
   → "Uložiť a zverejniť" / "Zahodiť"; "Zverejniť vygenerované popisy automaticky" (default off); the shop's own
   description wins unless the owner picks "Popis (Cacaduu)" (`item_description_shown()`).
-- **Owner screens:** Môj obchod → "Jazyky a preklady" (`/dashboard/translations`: Jazyky, Súbory so skladom v
-  jazykoch, Preklady with filters, ticks, progress bar, "Späť" 30 s) and a product's page `/dashboard/items/[id]`
+- **Owner screens:** Môj obchod → "Jazyky a inventár" (`/dashboard/translations`: Jazyky, Stĺpce súboru so skladom,
+  Súbory so skladom v jazykoch, Tovar, Preklady; columns and items moved here from `/dashboard`, old `?at=` forwarded; with filters, ticks, progress bar, "Späť" 30 s) and a product's page `/dashboard/items/[id]`
   (tabs Popis, Preklady; Zmazať asks "preložiť znova pri ďalšej návšteve" or "neprekladať"; "Preložiť znova" shows old
   and new side by side). Every write through `owner_*` SQL; Claude only through the translate function with the
   owner's login.

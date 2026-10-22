@@ -233,7 +233,7 @@
     "assistant_page_intro": "Everything about the assistant on your shop page: its settings, the conversations with shoppers (and their cloud folder), the private folders with documents and the recently uploaded stock files.",
     "blog_page": "News / Blog",
     "content_page": "Page content",
-    "translations_page": "Languages and translations"
+    "translations_page": "Languages and inventory"
   },
   "dashboard": {
     "shop": "Shop",
@@ -379,7 +379,7 @@
     "create_button": "Create shop",
     "created": "Your shop is created. Next steps:",
     "step_folder": "On the PC with your stock software, open “Export folder” in the menu and connect the folder your stock software exports to.",
-    "step_columns": "When the first file arrives, check below which column is which and approve.",
+    "step_columns": "When the first file arrives, check on Languages and inventory which column is which and approve.",
     "step_visible": "Keep “Visible to shoppers” ticked in the shop details.",
     "columns_title": "Stock file columns",
     "columns_intro": "Tell PPI which column of your stock file holds which information. PPI suggests it automatically; you only check and approve, once.",
@@ -1893,7 +1893,7 @@
   "owner_tr": {
     "item_link": "Description and translations",
     "item_title": "Product – description and translations",
-    "page_intro": "The language you write in, the languages of your stock files and the languages Cacaduu translates your page into in advance. Your original texts never change – translations are stored separately and labelled.",
+    "page_intro": "Your stock file's columns, your items, the language you write in, the languages of your stock files and the languages Cacaduu translates your page into in advance. Your original texts never change – translations are stored separately and labelled.",
     "unavailable": "Languages and translations become available after database update 40.",
     "none": "none",
     "languages_title": "Languages",

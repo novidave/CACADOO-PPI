@@ -1261,8 +1261,8 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
   "Chýba", "Neprekladať"; Zobraziť / Upraviť / Preložiť znova (old and new side by side) / Zmazať ("preložiť znova pri
   ďalšej návšteve" or "neprekladať tento produkt do tohto jazyka"); "+ Pridať preklad". The shop's and the owner's own
   translations are never overwritten (Claude only suggests). The same for the shop's texts and posts on "Môj obchod →
-  Jazyky a preklady", with filters, ticks for many, a progress bar and "Späť" for 30 seconds.
-- **The shop's languages** (Môj obchod → Jazyky a preklady → Jazyky): Hlavný jazyk obchodu, Jazyky inventára,
+  Jazyky a inventár", with filters, ticks for many, a progress bar and "Späť" for 30 seconds.
+- **The shop's languages** (Môj obchod → Jazyky a inventár → Jazyky): Hlavný jazyk obchodu, Jazyky inventára,
   Preferované jazyky stránky (Free: 2, Pro: 6 besides the main one; the admin's numbers), Predvolený jazyk na vlastnej
   doméne — each with a help text and an example.
 - **Two-language stock files:** a text column per language in the file (e.g. "Názov HU"), proposed from the column

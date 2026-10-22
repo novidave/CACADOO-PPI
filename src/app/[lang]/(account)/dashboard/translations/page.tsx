@@ -12,6 +12,7 @@ import { LanguageFileUpload } from "@/components/LanguageFileUpload";
 import { TranslationsTable } from "@/components/TranslationsTable";
 import { generateDescriptions, saveLanguages } from "../translationActions";
 import { languageList, tableLabels } from "../translationShared";
+import { ColumnsSection, ItemsSection, loadItems } from "../Inventory";
 import { hiddenFields, messages, ShopSwitcher, SubmitButton } from "../shared";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/translations">): Promise<Metadata> {
@@ -35,7 +36,8 @@ interface Settings {
 }
 
 /**
- * Môj obchod → "Jazyky a preklady" (database update 40): 1) "Jazyky" — the shop's own language, the languages of its
+ * Môj obchod → "Jazyky a inventár" (database update 40; the stock file's columns and the items moved here on
+ * 22 October 2026): "Jazyky", "Stĺpce súboru so skladom", "Súbory so skladom v jazykoch", "Tovar", "Preklady". 1) "Jazyky" — the shop's own language, the languages of its
  * stock files, its preferred languages (pre-translated, first in the picker; the plan's number) and the own domain's
  * default language, and whether Claude's descriptions go live by themselves; 2) "Preklady" — every text of the shop in
  * every language it keeps, with filters, ticks for many, a progress bar and "Späť". The database decides again
@@ -59,7 +61,16 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
   const m = messages(dict, sp, { n: Number(first(sp.n) ?? 1) });
   const hidden = hiddenFields(lang, shop);
 
-  const { data: settingsData, error } = await supabase.rpc("owner_language_settings", { p_shop_id: shop.id });
+  const q = (first(sp.q) ?? "").trim();
+  const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
+  const [{ data: settingsData, error }, stock] = await Promise.all([
+    supabase.rpc("owner_language_settings", { p_shop_id: shop.id }),
+    loadItems(supabase, shop, q, page),
+  ]);
+  if (stock.error) return <DbError message={stock.error} dict={dict} />;
+  // "Stĺpce súboru so skladom" and "Tovar" (moved here from Môj obchod on 22 October 2026).
+  const columnsSection = <ColumnsSection shop={shop} dict={dict} hidden={hidden} m={m} />;
+  const itemsSection = <ItemsSection shop={shop} lang={lang} dict={dict} hidden={hidden} m={m} items={stock.items} total={stock.total} q={q} page={page} />;
   const header = (
     <header className="flex flex-col gap-2">
       <h1 className="text-2xl font-semibold tracking-tight">{dict.account.translations_page}</h1>
@@ -75,6 +86,8 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
     return (
       <div className="flex max-w-3xl flex-col gap-6">
         {header}
+        {columnsSection}
+        {itemsSection}
         <p className="border border-line p-3 text-sm" data-translations-unavailable>
           {o.unavailable}
         </p>
@@ -150,6 +163,8 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
         </form>
       </DashboardSection>
 
+      {columnsSection}
+
       <DashboardSection {...m.section("files")} title={o.files_title} summary={o.files_summary}>
         <LanguageFileUpload
           shopId={shop.id}
@@ -158,6 +173,8 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
           labels={o.files}
         />
       </DashboardSection>
+
+      {itemsSection}
 
       <DashboardSection {...m.section("translations")} title={o.translations_title} summary={o.translations_summary}>
         {m.notice("translations")}

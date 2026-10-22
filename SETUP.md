@@ -1533,7 +1533,7 @@ Do the steps in order.
   "Ďalšie jazyky"), on cacaduu.com and on the shops' own domains.
 - **Admin → Preklady** (menu, only for you): switch languages on/off, "Preložený vopred" (search engines), the
   interface texts per language with **"Preložiť chýbajúce texty"**, the plans' numbers and the monthly AI cost.
-- **Môj obchod → Jazyky a preklady**: the shop's languages, stock files in languages (preview + encoding, a second file
+- **Môj obchod → Jazyky a inventár**: the shop's languages, stock files in languages (preview + encoding, a second file
   in another language) and every translation; each product has "Popis a preklady" (tabs Popis and Preklady).
 
 Do the steps in order.
@@ -1556,7 +1556,7 @@ Do the steps in order.
    **Preložiť chýbajúce texty** → wait for "Hotovo" (about a minute per language). Read the legal texts and tick
    "Skontrolované" when they are right (until then their pages say "Strojový preklad – záväzná je slovenská verzia").
    Tick **"Preložený vopred"** in "Jazyky" for the languages search engines should find on cacaduu.com.
-8. **Check on davide.sk:** Môj obchod → **Jazyky a preklady** → Preferované jazyky stránky: Deutsch, Ελληνικά,
+8. **Check on davide.sk:** Môj obchod → **Jazyky a inventár** → Preferované jazyky stránky: Deutsch, Ελληνικά,
    Українська → **Uložiť jazyky** → within 5 minutes the job translates the shop. Open davide.sk → **SK ▾** → Deutsch,
    then ελληνικά, then українська: buttons, opening hours, the slider's titles, the products (German name under the
    original), the assistant — all in that language ("Automatisch übersetzt · Original anzeigen" shows the shop's own
@@ -1565,7 +1565,7 @@ Do the steps in order.
    → **Uložiť a zverejniť** → it is on the product page (and in German a few minutes later).
 10. **Delete and make again:** the same product → **Preklady** → Jazyk: Deutsch → at the name **Zmazať** → "preložiť
     znova pri ďalšej návšteve" → **Zmazať** ("Späť" for 30 s) → **Preložiť znova** → compare → **Použiť nový**.
-11. **SK + HU files:** Jazyky a preklady → Jazyky inventára: Magyar → Uložiť; then **Súbory so skladom v jazykoch** →
+11. **SK + HU files:** Jazyky a inventár → Jazyky inventára: Magyar → Uložiť; then **Súbory so skladom v jazykoch** →
     Súbor: hlavný → `public/samples/stock-sample-sk.csv` (or your own file) → preview → **Nahrať**; then Súbor: Magyar →
     `public/samples/stock-sample-hu.csv` → preview (the encoding is shown) → **Nahrať** → summary: spárované /
     nespárované / rozdiely. In **Preklady** (Jazyk: Magyar, Stav: Od obchodu) the Hungarian names are marked

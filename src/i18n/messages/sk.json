@@ -233,7 +233,7 @@
     "assistant_page_intro": "Všetko o asistentovi na stránke vášho obchodu: jeho nastavenia, konverzácie so zákazníkmi (aj cloudový priečinok), súkromné priečinky s dokumentmi a posledné nahrané súbory so zásobami.",
     "blog_page": "Novinky / Blog",
     "content_page": "Obsah stránky",
-    "translations_page": "Jazyky a preklady"
+    "translations_page": "Jazyky a inventár"
   },
   "dashboard": {
     "shop": "Obchod",
@@ -379,7 +379,7 @@
     "create_button": "Vytvoriť obchod",
     "created": "Obchod je vytvorený. Ďalšie kroky:",
     "step_folder": "Na počítači so skladovým programom otvorte v menu „Priečinok s exportom“ a prepojte priečinok, do ktorého skladový program exportuje.",
-    "step_columns": "Keď príde prvý súbor, nižšie skontrolujte, ktorý stĺpec je ktorý, a schváľte.",
+    "step_columns": "Keď príde prvý súbor, v časti Jazyky a inventár skontrolujte, ktorý stĺpec je ktorý, a schváľte.",
     "step_visible": "V údajoch obchodu nechajte zaškrtnuté „Viditeľný pre zákazníkov“.",
     "columns_title": "Stĺpce súboru so zásobami",
     "columns_intro": "Povedzte PPI, v ktorom stĺpci vášho súboru je ktorý údaj. PPI to navrhne automaticky; vy to len raz skontrolujete a schválite.",
@@ -1893,7 +1893,7 @@
   "owner_tr": {
     "item_link": "Popis a preklady",
     "item_title": "Produkt – popis a preklady",
-    "page_intro": "Jazyk, v ktorom píšete, jazyky vašich súborov so skladom a jazyky, do ktorých Cacaduu preloží vašu stránku vopred. Vaše pôvodné texty sa nikdy nemenia – preklady sa ukladajú zvlášť a sú označené.",
+    "page_intro": "Stĺpce vášho súboru so skladom, váš tovar, jazyk, v ktorom píšete, jazyky vašich súborov a jazyky, do ktorých Cacaduu preloží vašu stránku vopred. Vaše pôvodné texty sa nikdy nemenia – preklady sa ukladajú zvlášť a sú označené.",
     "unavailable": "Jazyky a preklady budú dostupné po aktualizácii databázy 40.",
     "none": "žiadne",
     "languages_title": "Jazyky",

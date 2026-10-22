@@ -128,7 +128,7 @@ If the export layout changes later, PPI keeps the previous stock and suggests ne
   "Názov HU" = the name in Hungarian (from the column name); approve it once in Môj obchod → columns. Sample:
   `/samples/stock-sample-2lang.csv`.
 - **A second file per language:** keep exporting the main file as before (the PPI window sends it); upload the other
-  language's file by hand in Môj obchod → **Jazyky a preklady → Súbory so skladom v jazykoch** (Súbor: e.g. Magyar). It
+  language's file by hand in Môj obchod → **Jazyky a inventár → Súbory so skladom v jazykoch** (Súbor: e.g. Magyar). It
   is matched by **Kód**, then by **EAN**; its quantities and prices are never used (differences are listed). Samples:
   `/samples/stock-sample-sk.csv` + `/samples/stock-sample-hu.csv`.
 - The shop's own texts show as **"Od obchodu"** and are never changed or replaced by a machine translation.
