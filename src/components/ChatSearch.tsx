@@ -469,7 +469,9 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
   const deepLinks = turn.results?.deepLinks ?? [];
   const anything = cards.length + partners.length + nearby.length + google.length + web.length + deepLinks.length > 0;
   const shown = more ? cards : cards.slice(0, CARDS_SHOWN);
-  const waitingCards = turn.state === "running" && !turn.results && (turn.step !== "understand" || turn.answer);
+  // Placeholder cards only until the answer's first word: under a streaming answer every new line pushed them down
+  // (a layout shift); the real cards come under the finished text.
+  const waitingCards = turn.state === "running" && !turn.results && !turn.answer && turn.step !== "understand";
   // Only Cacaduu shops go on our map (OpenStreetMap shops have no verified data; Google's never go there).
   const pins = Object.entries(turn.results?.shops ?? {}).filter(([, shop]) => shop.lat !== null && shop.lng !== null);
 
