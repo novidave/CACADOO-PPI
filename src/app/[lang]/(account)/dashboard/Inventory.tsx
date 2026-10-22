@@ -200,7 +200,7 @@ export function ItemsSection({
   const file = fileStatus(shop.latest_file_time, shop.freshness_state);
   return (
     <DashboardSection {...section("items")} title={d.items_title} summary={productCount(counts ? Number(counts.all_items) : total)}>
-              {/* A <div>, not a <p>: a <details> inside a <p> is invalid HTML and broke hydration. */}
+              {/* div (not p): details may not sit inside p; that broke hydration. */}
               <div className="text-sm text-muted" data-items-intro>
                 {d.items_intro}{" "}
                 <details className="inline">

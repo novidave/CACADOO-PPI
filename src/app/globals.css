@@ -123,6 +123,44 @@ body .maplibregl-ctrl {
   border: 3px solid var(--foreground);
 }
 
+/*
+ * Taps (performance pass): no double-tap zoom wait, a pressed look at once, a sent form's button busy until the answer
+ * (TapFeedback), and on touch screens every button and dropdown answers within 44 × 44 px without looking bigger.
+ */
+@layer base {
+  a,
+  button,
+  summary,
+  label,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+  button:not(:disabled):active,
+  summary:active,
+  [role="button"]:active {
+    opacity: 0.6;
+  }
+  form[data-pending] [data-tap-busy] {
+    opacity: 0.6;
+    cursor: progress;
+  }
+  @media (pointer: coarse) {
+    button:not(.maplibregl-ctrl button),
+    summary {
+      position: relative;
+    }
+    button:not(.maplibregl-ctrl button)::after,
+    summary::after {
+      content: "";
+      position: absolute;
+      top: min(0px, calc((100% - 44px) / 2));
+      bottom: min(0px, calc((100% - 44px) / 2));
+      left: min(0px, calc((100% - 44px) / 2));
+      right: min(0px, calc((100% - 44px) / 2));
+    }
+  }
+}
+
 /* Result rows of the shop whose pin was tapped. */
 [data-highlight] {
   box-shadow: inset 3px 0 0 var(--foreground);
