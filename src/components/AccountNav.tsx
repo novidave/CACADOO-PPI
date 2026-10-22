@@ -1,7 +1,17 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+
+/** The tapped menu link looks pressed while its page is being read (performance pass: feedback at the first tap). */
+function Label({ text }: { text: string }) {
+  const { pending } = useLinkStatus();
+  return (
+    <span aria-busy={pending || undefined} className={pending ? "opacity-60" : undefined} data-link-pending={pending || undefined}>
+      {text}
+    </span>
+  );
+}
 
 /**
  * Menu of the login-only area; the page you are on is bold and underlined. The shop pages
@@ -27,7 +37,7 @@ export function AccountNav({ links }: { links: { href: string; label: string; sh
             aria-current={active ? "page" : undefined}
             className={active ? "font-semibold underline underline-offset-4" : "text-muted hover:text-foreground hover:underline"}
           >
-            {link.label}
+            <Label text={link.label} />
           </Link>
         );
       })}
