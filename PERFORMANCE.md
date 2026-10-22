@@ -54,11 +54,47 @@ preview and fails the check when a page goes over. Shop and item pages only **wa
 
 ## Before / after (22 October 2026, local production build)
 
-<!-- TABLE -->
+### Public pages, phone (Lighthouse: before = 1 run, after = median of 3)
+
+| Page | Score | LCP (s) | CLS | TBT (ms) | TTFB (ms) | First-load JS (kB gzip) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Main page (AI chat) | 99 → **99** | 2.05 → **2.20** | 0.004 → **0.004** | 92 → 52 | 24 → 17 | 152 → **145** |
+| Search results | 94 → **99** | 2.71 → **1.98** | 0.002 → **0.002** | 157 → 93 | 79 → 38 | 152 → **145** |
+| Shop page | 92 → **92** | 3.02 → **2.52** | 0 → **0** | 179 → 248 | 485 → 49 | 155 → **146** |
+| Product page | 96 → **96** | 2.27 → **1.93** | 0 → **0** | 171 → 200 | 63 → 29 | 152 → **141** |
+| Blog list | 97 → **97** | 2.64 → **2.57** | 0 → **0** | 59 → 71 | 72 → 58 | 151 → **144** |
+
+Shop and product pages on the own domain behave like the Cacaduu ones (TTFB 412 → 62 ms on the shop page). The map's code (≈ 280 kB gzip) loads after the page and is not counted as first-load JS.
+
+### Môj obchod and admin (Lighthouse, warm browser cache, 1 run each)
+
+| Page | Phone score | Phone LCP (s) | Desktop score | Desktop CLS |
+| --- | --- | --- | --- | --- |
+| Môj obchod → Tovar | 87 → **99** | 3.82 → **0.99** | 100 → **100** | 0.004 → **0** |
+| Obsah stránky | 100 → **100** | 1.50 → **0.94** | 100 → **100** | 0 → **0** |
+| Upload (/sync) | 96 → **99** | 1.23 → **0.73** | 100 → **100** | 0.01 → **0.01** |
+| Asistent | 99 → **100** | 1.21 → **0.97** | 99 → **100** | 0.075 → **0** |
+| Môj obchod | 96 → **95** | 1.31 → **0.98** | 76 → **100** | 0.771 → **0** |
+| Admin | 97 → **100** | 1.38 → **1.00** | 100 → **100** | 0 → **0** |
+
+### Database (60 shops × 2 000 items, 190 000 translations; `EXPLAIN ANALYZE`)
+
+| Query | Before | After |
+| --- | --- | --- |
+| `search_stock('kava')` (all shops) | 0.8–1.5 s | ~0.25 s |
+| `shop_stock` with a word | 155 ms | 18 ms |
+| `owner_translations` (Preklady) | 2 min | 59 ms |
+| `shop_content` (slider) | 430 ms | 5 ms |
+| `owner_items` / `owner_item_counts` (Tovar) | — | 60–80 ms |
+
+Same result sets before and after (41 of 41 search queries compared row by row).
 
 ## Known limits
 
 - Lighthouse's slow-4G simulation varies ±0.3 s between runs; the budget uses the median of 3.
+- **Not yet under 2.0 s in the simulation:** the main page (2.0–2.2 s), the blog list (2.0–2.6 s) and the shop page
+  (2.1–2.6 s); the budget check flags them. Their LCP is a heading or a line of text, so it is the fonts and the
+  page's own size, not a picture. Real throttled phone browser: 0.8–1.1 s.
 - **Shop pages** stay around 2.1–2.6 s LCP in the simulation (≈ 0.9–1.1 s in a real throttled phone browser): the page
   sends its whole content (details, hours, slider data, items) in the first HTML for search engines and AI assistants,
   and Lighthouse counts parsing it. Fonts without preload would bring it under 2 s but make the text jump (CLS 0.17), so
