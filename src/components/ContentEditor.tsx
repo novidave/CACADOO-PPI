@@ -464,9 +464,10 @@ export function ContentEditor({
           </p>
         ) : (
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-            <figure className="flex shrink-0 flex-col gap-1" data-preview="mobile">
+            {/* A fixed width beside the computer preview: sized by its content, the slides' row made the page wider. */}
+            <figure className="flex w-full min-w-0 shrink-0 flex-col gap-1 lg:w-[375px]" data-preview="mobile">
               <figcaption className="text-xs uppercase tracking-wide text-muted">{text.preview_mobile}</figcaption>
-              <div className="w-[min(100%,375px)] border border-line p-3">
+              <div className="w-full max-w-[375px] border border-line p-3">
                 <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} preview />
               </div>
             </figure>
