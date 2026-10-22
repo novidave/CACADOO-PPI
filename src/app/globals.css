@@ -17,7 +17,7 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   /* Quicksand everywhere (src/app/fonts.ts); the system font only until it has loaded. */
-  --font-sans: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
+  --font-sans: var(--font-quicksand), var(--font-quicksand-vi), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 html {
@@ -27,14 +27,14 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
+  font-family: var(--font-quicksand), var(--font-quicksand-vi), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 /* MapLibre sets its own font on the map, its buttons and the pins' tooltips: Quicksand there too. */
 body .maplibregl-map,
 body .maplibregl-popup,
 body .maplibregl-ctrl {
-  font-family: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
+  font-family: var(--font-quicksand), var(--font-quicksand-vi), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 /*
@@ -96,6 +96,15 @@ body .maplibregl-ctrl {
   }
 }
 
+/* The map's box before the interactive map loads (ShopMap): light grey with faint "streets", no colour. */
+.ppi-map-box {
+  background-color: #f4f4f4;
+  background-image:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
 /* Map pins: black dot for shops, hollow ring for the visitor. No colour. */
 .ppi-pin {
   width: 16px;
@@ -146,7 +155,7 @@ body .maplibregl-ctrl {
  * own system fonts. Long Vietnamese or German words break inside buttons and cards instead of overflowing.
  */
 :lang(zh-hant) body {
-  font-family: var(--font-quicksand), "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans TC", system-ui, sans-serif;
+  font-family: var(--font-quicksand), var(--font-quicksand-vi), "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans TC", system-ui, sans-serif;
 }
 :lang(zh-hans),
 :lang(zh-hant) {

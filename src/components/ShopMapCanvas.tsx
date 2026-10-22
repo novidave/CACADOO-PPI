@@ -16,14 +16,15 @@ export interface MapShop {
 }
 
 /**
- * Black-and-white map of shops (OpenFreeMap "positron" tiles: free, no API key,
+ * The interactive map itself (maplibre + its CSS), loaded by `ShopMap` only when the map comes into view or is
+ * tapped. Black-and-white map of shops (OpenFreeMap "positron" tiles: free, no API key,
  * commercial use allowed). Purely an extra: every page works without it.
  * Tapping a pin marks that shop's results (elements with data-shop="<slug>").
  * With statuses, each pin is the shop's status colour (white outline, thin dark ring) and says
  * the status in words in its tooltip; the page shows it in words next to the shop too. The
  * colours follow the clock every minute.
  */
-export function ShopMap({
+export function ShopMapCanvas({
   shops,
   visitor,
   label,
@@ -34,6 +35,7 @@ export function ShopMap({
   shops: MapShop[];
   visitor?: { lat: number; lng: number } | null;
   label: string;
+  /** The box's size; `ShopMap` gives the canvas its whole placeholder box ("h-full"). */
   className?: string;
   /** The status words for the pins' tooltips (namespace "status"). */
   statusLabels?: StatusLabels;
@@ -112,7 +114,7 @@ export function ShopMap({
   }, [now, shops, statusLabels]);
 
   if (shops.length === 0) return null;
-  return <div ref={container} role="region" aria-label={label} className={`w-full border border-line ${className}`} />;
+  return <div ref={container} aria-label={label} className={`w-full ${className}`} />;
 }
 
 /** The pin in the shop's status colour, with "Name · Otvorené" as its tooltip and label. */

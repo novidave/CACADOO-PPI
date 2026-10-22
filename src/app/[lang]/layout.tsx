@@ -5,7 +5,7 @@ import { enabledLocales, getDictionary, indexedLocales } from "@/i18n/dictionari
 import { HANDWRITTEN, languageOf } from "@/i18n/languages";
 import { Header } from "@/components/Header";
 import { siteUrl } from "@/lib/site";
-import { notoFallback, quicksand } from "../fonts";
+import { notoFallback, quicksand, quicksandVi } from "../fonts";
 import "../globals.css";
 
 /** The hand-written languages at build time; the others the first time they are asked for (and only if switched on). */
@@ -44,7 +44,7 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
   if (!enabled.includes(lang)) notFound();
 
   return (
-    <html lang={lang} dir="ltr" data-script={languageOf(lang)?.script} className={`${quicksand.variable} ${notoFallback.variable} h-full antialiased`}>
+    <html lang={lang} dir="ltr" data-script={languageOf(lang)?.script} className={`${quicksand.variable} ${quicksandVi.variable} ${notoFallback.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <Header lang={lang} dict={dict} enabled={enabled} />
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
