@@ -6747,4 +6747,135 @@ begin
   update public.languages set indexed = false where code = 'de';
 end $$;
 
+\echo '--- Môj obchod → Tovar: filters, what the shopper sees, what is missing (update 41)'
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p1 uuid := (select id from public.shop_items where source_code = 'P001');
+  v_p2 uuid := (select id from public.shop_items where source_code = 'P002');
+  v_z uuid := (select id from public.shops where slug = 'zeleziarstvo-vychod');
+begin
+  -- test setup: a visitor asked for German (so descriptions are translated too); P001 gets an approved description;
+  -- P002's name is translated into every language the shop needs
+  delete from public.translation_requests where shop_id = v_a;
+  insert into public.translation_requests (shop_id, lang) values (v_a, 'de');
+  delete from public.content_translations where shop_id = v_a and kind like 'item_%';
+  delete from public.item_descriptions where item_id in (select id from public.shop_items where shop_id = v_a);
+  update public.shop_items set name_lang = 'sk' where shop_id = v_a;
+  insert into public.item_descriptions (item_id, shop_id, text, published_at, show)
+  values (v_p1, v_a, 'Zrnková káva Lavazza, 1 kg.', now(), 'auto');
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  select v_a, 'item_name', v_p2::text, l, 'Kaffee ' || l, 'ai', md5('Káva mletá 250 g')
+  from unnest(public.shop_target_langs(v_a, 'item_name')) l where l <> 'sk';
+  assert cardinality(public.shop_target_langs(v_a, 'item_name')) > 0, 'the shop has languages to translate into';
+  -- for the stale shop's check: owner A is also a member of zeleziarstvo-vychod for a moment
+  insert into public.shop_members (shop_id, user_id) values (v_z, '00000000-0000-0000-0000-00000000000a');
+  perform set_config('ppi.t_z_time', coalesce((select latest_file_time::text from public.sync_sources where shop_id = v_z), ''), false);
+  update public.sync_sources set latest_file_time = now() - interval '25 hours' where shop_id = v_z;
+  -- what the counts must be, straight from the tables (earlier checks added items to this shop)
+  perform set_config('ppi.t_all', (select count(*) from public.shop_items where shop_id = v_a)::text, false);
+  perform set_config('ppi.t_in', (select count(*) from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+    where si.shop_id = v_a and i.quantity > 0)::text, false);
+  perform set_config('ppi.t_desc', (select count(*) from public.shop_items si
+    where si.shop_id = v_a and exists (select 1 from public.item_description_shown(si.id)))::text, false);
+  perform set_config('ppi.t_z_in', (select count(*) from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+    where si.shop_id = v_z and i.quantity > 0)::text, false);
+  perform set_config('ppi.t_z_all', (select count(*) from public.shop_items where shop_id = v_z)::text, false);
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_z uuid := (select id from public.shops where slug = 'zeleziarstvo-vychod');
+  c record;
+begin
+  select * into c from public.owner_item_counts(v_a);
+  assert c.all_items = current_setting('ppi.t_all')::bigint and c.in_stock = current_setting('ppi.t_in')::bigint
+     and c.sold_out = c.all_items - c.in_stock, format('counts %s', c);
+  assert c.in_stock > 0 and c.sold_out > 0, 'both kinds present';
+  assert c.no_description = c.all_items - current_setting('ppi.t_desc')::bigint and c.no_description < c.all_items, format('no description %s', c);
+  assert c.missing_translation between 1 and c.all_items - 1, format('missing %s', c);
+  -- each filter lists the same items as its count; the shopper's label comes from the database
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'in_stock')) = c.in_stock;
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'sold_out')) = c.sold_out;
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'no_description')) = c.no_description;
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'missing_translation')) = c.missing_translation;
+  assert (select availability from public.owner_items(v_a, 'P004', 50, 0, 'sold_out')) = 'out_of_stock', 'sold out: "Vypredané"';
+  assert (select bool_and(availability = 'in_stock_count') from public.owner_items(v_a, null, 100, 0, 'in_stock'));
+  assert (select bool_and(item_id <> (select id from public.shop_items where source_code = 'P001'))
+          from public.owner_items(v_a, null, 50, 0, 'no_description')), 'P001 has a description';
+  assert (select has_description from public.owner_items(v_a, 'P001')), 'the flag comes with the row';
+  assert not exists (select 1 from public.owner_items(v_a, null, 50, 0, 'missing_translation') where source_code = 'P002');
+  assert (select total_count from public.owner_items(v_a, null, 50, 0, 'all') limit 1) = c.all_items
+     and (select total_count from public.owner_items(v_a) limit 1) = c.all_items;
+  assert (select total_count from public.owner_items(v_a, null, 2, 0, 'in_stock') limit 1) = c.in_stock, 'total of the filter, not of the page';
+  begin
+    perform * from public.owner_items(v_a, null, 50, 0, 'hidden');
+    raise exception 'an unknown filter was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  -- stale data: the shopper sees nothing (no label), the filters still go by the file's quantity
+  assert (select bool_and(availability is null) from public.owner_items(v_z)), 'stale: no availability';
+  assert (select in_stock = current_setting('ppi.t_z_in')::bigint and all_items = current_setting('ppi.t_z_all')::bigint
+          from public.owner_item_counts(v_z)), 'stale shop: filters by the quantity in the file';
+  begin
+    perform * from public.owner_item_rows(v_a, null);
+    raise exception 'an owner ran owner_item_rows directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p1 uuid := (select id from public.shop_items where source_code = 'P001');
+  v_p2 uuid := (select id from public.shop_items where source_code = 'P002');
+begin
+  -- a changed original makes P002's AI names stale → missing again; "Neprekladať" is not missing
+  update public.content_translations set source_hash = md5('old name') where shop_id = v_a and ref = v_p2::text;
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  select v_a, 'item_name', v_p1::text, l, null, 'none', null from unnest(public.shop_target_langs(v_a, 'item_name')) l where l <> 'sk';
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select missing_translation from public.owner_items(v_a, 'P002')), 'stale AI names count as missing';
+  -- P001: names "Neprekladať", but its description has no translation yet
+  assert (select missing_translation from public.owner_items(v_a, 'P001')), 'the shown description still needs translating';
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select all_items from public.owner_item_counts(v_a)) = 0, 'owner B counted shop A items';
+  assert not exists (select 1 from public.owner_items(v_a, null, 50, 0, 'in_stock')), 'owner B listed shop A items';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform * from public.owner_item_counts((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'anon ran owner_item_counts';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.shop_members where shop_id = (select id from public.shops where slug = 'zeleziarstvo-vychod')
+    and user_id = '00000000-0000-0000-0000-00000000000a';
+  update public.sync_sources set latest_file_time = nullif(current_setting('ppi.t_z_time'), '')::timestamptz
+  where shop_id = (select id from public.shops where slug = 'zeleziarstvo-vychod');
+  delete from public.content_translations where shop_id = v_a and kind like 'item_%';
+  delete from public.item_descriptions where shop_id = v_a;
+  delete from public.translation_requests where shop_id = v_a;
+end $$;
+
 \echo 'ALL DATABASE CHECKS PASSED'

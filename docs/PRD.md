@@ -1633,3 +1633,18 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-20 | Shop blog "Novinky": posts written in Cacaduu (photos, scheduling) or imported from the shop's Facebook Page (all past posts, a daily sync, edits and deletions followed), published to the Page on request ("Zverejniť aj na Facebooku?"); `/blog` pages with JSON-LD, RSS, sitemap, llms.txt and IndexNow on Cacaduu and own domains; free shops show the newest 10; privacy and Facebook data deletion pages |
 | 2026-10-20 | Môj obchod → Asistent with its four sections once each; "Obsah stránky": one slider on the shop page with automatic and pinned blog posts, PDFs and pictures in the owner's order (counters per plan, drag and drop, live preview, library with HEIC/PNG/JPEG/WebP pictures and cleaned PDFs); the page sections of updates 28–31 migrated into it |
 | 2026-10-21 | Videos: ▶ on video posts in the slider (to the article or the post on Facebook, the owner's choice), YouTube shares keep YouTube's picture and play on the blog post after a tap (youtube-nocookie), Facebook videos open on Facebook |
+
+
+### 6.19 The "Tovar" list in Môj obchod (database update 41)
+
+- Under Môj obchod → Jazyky a inventár → Tovar: one short line "Množstvá zobrazujeme presne podľa vášho skladového
+  súboru. Názvy a popisy prekladáme automaticky; vaše úpravy prekladov neprepisujeme." + "Viac" (the longer text).
+- Above the list: "Posledný súbor: <date and time in the shop's time zone> · aktuálny / starší / zastaraný"
+  (+ "Nahrať nový súbor" when out of date); "Zatiaľ ste nenahrali žiadny súbor so zásobami." without a file.
+- Filters with their numbers: Všetko / Na sklade / Vypredané (by the quantity in the file) / Bez popisu (no description
+  on the product page) / Chýba preklad (the name or the shown description has no current translation in a language the
+  shop's texts are translated into; an outdated machine translation counts, "Neprekladať" does not).
+- Per product: the name as written, its translation in the page language, small notes "Bez popisu" / "Chýba preklad",
+  and **one** link "Popis a preklady" to the product's page (tabs Popis and Preklady — every correction is made there).
+- Column "Čo vidí zákazník": exactly the shopper's text ("22 ks na sklade", "Vypredané"); when the data is older than
+  24 hours, grey "Skryté – údaje sú staršie ako 24 h · Nahrať nový súbor". Never "–".

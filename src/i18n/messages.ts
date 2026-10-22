@@ -46,3 +46,8 @@ export function placeholders(text: string): string[] {
 /** Keys whose texts are legal (privacy, deletion, terms): machine translations are marked until the admin checks them. */
 export const LEGAL_PREFIXES = ["privacy.", "privacy_assistant.", "terms.", "legal."];
 export const isLegalKey = (key: string) => LEGAL_PREFIXES.some((p) => key.startsWith(p));
+
+/** Fills "{n} ks na sklade" with its values; an unknown placeholder stays as it is. */
+export function t(text: string, values: Record<string, string | number> = {}): string {
+  return text.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? `{${key}}`));
+}
