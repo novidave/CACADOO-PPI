@@ -19,9 +19,10 @@ export function ContactLinks({
   return (
     <>
       {email && (
-        <a href={`mailto:${email}`} className="inline-flex items-center gap-1" data-contact="email">
+        <a href={`mailto:${email}`} className="inline-flex min-w-0 items-center gap-1" data-contact="email">
           <MailIcon />
-          <span className="underline underline-offset-4">{email}</span>
+          {/* A long address breaks inside its own column (the shop page's phone layout) instead of overflowing. */}
+          <span className="min-w-0 underline underline-offset-4 [overflow-wrap:anywhere]">{email}</span>
         </a>
       )}
       {facebookUrl && (
@@ -48,7 +49,7 @@ export function ContactLinks({
 
 function MailIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0">
       <rect x="3" y="5" width="18" height="14" rx="1.5" />
       <path d="m3.5 6 8.5 7 8.5-7" />
     </svg>

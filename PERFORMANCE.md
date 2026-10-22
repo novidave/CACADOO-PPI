@@ -35,7 +35,10 @@ under test: the Vercel toolbar exists only on previews and is not part of the si
    (no layout shift). New heavy parts follow the same pattern: a light first view + `import()` when near the screen
    or touched.
 5. **One font declaration** (`src/app/fonts.ts`); extra scripts (Cyrillic, Greek, Vietnamese) come by unicode-range,
-   not preloaded.
+   not preloaded. Until Quicksand arrives, the **fallback faces** in `globals.css` (Arial, Liberation Sans on Linux,
+   Roboto on Android; normal and bold, scaled to Quicksand's widths) keep every line where it will be — next/font's
+   own fallback named only Arial, so Linux and Android showed a 10–20 % wider font. Rows of short links wrap by
+   columns, not by the letters' widths (the shop page's contacts: two columns on phones).
 6. **No third-party scripts** on public pages before the visitor taps something (YouTube only after ▶; no Facebook
    script ever).
 7. **Database:** search through the stored `names_search` column and `search_patterns()`; select only the columns a
@@ -104,6 +107,10 @@ Same result sets before and after (41 of 41 search queries compared row by row).
 - **Lighthouse CI applies the throttling while loading** (`throttlingMethod: "devtools"`). Lighthouse's default
   simulation added every async script's download to the LCP even when the largest element paints with the first frame
   (main page: observed 0.14 s, simulated 2.0–2.5 s) and it hid the map's real main-thread work.
+- **Shop page layout shift** (CLS 0.052 on a real shop, 0.21 on a test shop before the fix, ≈ 0.002 after): when
+  Quicksand arrived after the first paint, the wider fallback font had wrapped the contact links (and the facilities
+  line) differently, so the map and everything under it moved up. Fixed by the fallback faces and the two-column
+  contacts (rule 5), not by a threshold.
 - **Main page:** the chat box sizes itself in CSS (`field-sizing: content`), so its placeholder — the page's largest
   element on phones — is final in the first HTML instead of growing after JavaScript.
 - **Shop pages** stay around 2.1–2.6 s LCP in the simulation (≈ 0.9–1.1 s in a real throttled phone browser): the page

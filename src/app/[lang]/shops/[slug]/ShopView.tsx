@@ -161,7 +161,9 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           </p>
         )}
         {shop.has_card_terminal && <p className="text-sm font-semibold">{dict.shop.card_terminal}</p>}
-        <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        {/* Two columns on phones: where a link sits never depends on the letters' widths, so nothing moves when
+            Quicksand replaces the fallback font (one wrapping row re-wrapped and pushed the page down). */}
+        <p className="grid grid-cols-2 items-start gap-x-4 gap-y-1 text-sm sm:flex sm:flex-wrap" data-shop-contacts>
           {hasLocation && (
             <a href={directionsUrl(shop.lat!, shop.lng!)} className="underline underline-offset-4" target="_blank" rel="noopener">
               {dict.shop.directions}
