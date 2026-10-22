@@ -1,5 +1,5 @@
 import type { Dictionary } from "@/i18n/dictionaries";
-import { t } from "@/i18n/dictionaries";
+import { t } from "../i18n/messages";
 import { formatTime, localDay } from "./format";
 import type { NameI18n } from "./names";
 

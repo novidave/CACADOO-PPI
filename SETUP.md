@@ -1572,6 +1572,22 @@ Do the steps in order.
     **"Od obchodu"**. A file with a column per language: `public/samples/stock-sample-2lang.csv` (approve the proposed
     "Názov HU" → Názov tovaru · Magyar in Môj obchod → columns).
 
+## Part AM — A tidier "Tovar" list: one link per product, filters, what the shopper sees (22 October 2026)
+
+- **Môj obchod → Jazyky a inventár → Tovar**: one short line instead of the two explanations ("Viac" opens the rest);
+  above the list "Posledný súbor: <dátum a čas> · aktuálny / starší / zastaraný"; the filters **Všetko / Na sklade /
+  Vypredané / Bez popisu / Chýba preklad** with their numbers; per product one link **"Popis a preklady"** (the old
+  "Upraviť preklad" dropdown is gone — corrections are made on the product's "Preklady" tab); the column **"Čo vidí
+  zákazník"** shows the shopper's exact text ("22 ks na sklade", "Vypredané") or, when the last file is older than
+  24 hours, "Skryté – údaje sú staršie ako 24 h · Nahrať nový súbor".
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/41_items_list.sql` → Run → "Success". Safe to run
+   again. Nothing else to set (no secrets, no functions). Until you run it, the list works without the filters.
+2. **Other languages:** Admin → Preklady → **"Preložiť chýbajúce texty"** for each switched-on language other than
+   SK/HU/EN (the new texts show in English there until then).
+3. **Check:** Môj obchod → Jazyky a inventár → Tovar → tap each filter: the number on it = the rows listed; "Čo vidí
+   zákazník" says the same as your shop page.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

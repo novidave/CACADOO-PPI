@@ -2129,3 +2129,15 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 - Next useful steps: e-mail alert when a shop's stock stops arriving; own domain; registration with Bing/Google; a
   developer's review of RLS; removing the legacy admin functions together with the unused `file_url` column; deciding
   what the paid plan unlocks (every such feature checks `shop_has_plan()`) and switching Stripe to live.
+
+
+### 2.20 The owner's item list (database update 41, `supabase/sql/41_items_list.sql`)
+
+`owner_item_rows(shop, q)` (security definer, no grants: only the two functions below call it) returns the shop's items
+for a member with `availability` (`availability_label()` with the shop's freshness — null while stale), `has_description`
+(`item_description_shown()`) and `missing_translation` (per item, the languages of `shop_target_langs()` — `item_name`
+without the name's own language, `item_description` only when a description is shown — without a `content_translations`
+row or with a stale AI one). `owner_items(shop, q, limit, offset, p_filter)` filters (all / in_stock / sold_out by the
+file's quantity / no_description / missing_translation; unknown → 22023) and pages; `owner_item_counts(shop)` gives the
+five numbers. The page (`dashboard/Inventory.tsx` → `ItemsSection`, `@/lib/ownerItems`) only picks words: no filters
+before update 41 (the old call is the fallback).

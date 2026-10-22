@@ -85,8 +85,6 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     languages: dict.owner_tr.ok_languages,
     descriptions: t(dict.owner_tr.ok_descriptions, { n: extra.n ?? 1 }),
     columns: o.columns_saved,
-    translation: d.translation_saved,
-    translation_auto: d.translation_auto_done,
     docs_terms: dict.docs.ok_terms,
     docs_deleted: dict.docs.ok_deleted,
     docs_revoked: dict.docs.ok_revoked,

@@ -74,9 +74,7 @@ export async function legalUnchecked(lang: string, prefixes: readonly string[]):
 }
 
 /** Fill "{n}"-style placeholders: t("Updated {n} min ago", { n: 5 }). */
-export function t(text: string, values: Record<string, string | number> = {}): string {
-  return text.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? `{${key}}`));
-}
+export { t } from "./messages";
 
 // ---------------------------------------------------------------- which languages are switched on
 

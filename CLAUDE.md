@@ -70,6 +70,8 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
 - `npm run test:i18n` — unit tests (Deno) of the languages (update 40): the list, the browser's language, the picker's
   search and links, the fallback of interface texts, the same keys and placeholders in sk/hu/en
 - `npm run test:strings` — fails on a visible text written into a `.tsx` file instead of the message files
+- `npm run test:items` — unit tests (Deno) of Môj obchod's "Tovar" list (`src/lib/ownerItems_test.ts`): each state of
+  "Čo vidí zákazník" (stale → hidden with the reason, sold out, in stock), the filters and the last file's status line
 - `npm run test:content` — unit tests (Deno) of "Obsah stránky" (`src/lib/content_test.ts`): the slide rule
   (pinned never repeated, fewer posts, hidden files, plan limits), counters, srcset, excerpts and where Môj obchod's
   sections live (old addresses forwarded)
@@ -539,7 +541,14 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   → "Uložiť a zverejniť" / "Zahodiť"; "Zverejniť vygenerované popisy automaticky" (default off); the shop's own
   description wins unless the owner picks "Popis (Cacaduu)" (`item_description_shown()`).
 - **Owner screens:** Môj obchod → "Jazyky a inventár" (`/dashboard/translations`: Jazyky, Stĺpce súboru so skladom,
-  Súbory so skladom v jazykoch, Tovar, Preklady; columns and items moved here from `/dashboard`, old `?at=` forwarded; with filters, ticks, progress bar, "Späť" 30 s) and a product's page `/dashboard/items/[id]`
+  Súbory so skladom v jazykoch, Tovar, Preklady; columns and items moved here from `/dashboard`, old `?at=` forwarded;
+  **"Tovar" since update 41** (`supabase/sql/41_items_list.sql`, `@/lib/ownerItems`): one short line + "Viac", the
+  status line "Posledný súbor: … · aktuálny / starší / zastaraný" (`shops.freshness_state`), filters Všetko / Na sklade /
+  Vypredané / Bez popisu / Chýba preklad decided only in SQL (`owner_items(…, p_filter)`, `owner_item_counts()`; stock
+  filters by the file's quantity, "Chýba preklad" = a name or shown description without a current translation in
+  `shop_target_langs()`, stale AI = missing, "Neprekladať" = not), one link per product "Popis a preklady" (no
+  correction dropdown — every correction on the product's "Preklady" tab), column "Čo vidí zákazník" = the database's
+  label as the shopper reads it, or "Skryté – údaje sú staršie ako 24 h · Nahrať nový súbor" when stale, never "–"; with filters, ticks, progress bar, "Späť" 30 s) and a product's page `/dashboard/items/[id]`
   (tabs Popis, Preklady; Zmazať asks "preložiť znova pri ďalšej návšteve" or "neprekladať"; "Preložiť znova" shows old
   and new side by side). Every write through `owner_*` SQL; Claude only through the translate function with the
   owner's login.
