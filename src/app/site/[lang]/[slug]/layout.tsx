@@ -13,6 +13,8 @@ import { type SiteVerification, verificationMetadata } from "@/lib/siteFiles";
 import { createCachedPublicClient } from "@/lib/supabase/public";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { notoFallback, quicksand, quicksandVi } from "../../../fonts";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "../../../globals.css";
 
 /**
@@ -96,6 +98,9 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
           </div>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+        {/* Cookie-free and only on Vercel (they do nothing elsewhere); loaded after the page (privacy page says so). */}
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );

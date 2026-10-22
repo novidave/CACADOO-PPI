@@ -8,6 +8,8 @@ import { Header } from "@/components/Header";
 import { TapFeedback } from "@/components/TapFeedback";
 import { siteUrl } from "@/lib/site";
 import { notoFallback, quicksand, quicksandVi } from "../fonts";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "../globals.css";
 
 /** The hand-written languages at build time; the others the first time they are asked for (and only if switched on). */
@@ -53,6 +55,9 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
         <Suspense fallback={null}>
           <TapFeedback />
         </Suspense>
+        {/* Cookie-free and only on Vercel (they do nothing elsewhere); loaded after the page (privacy page says so). */}
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );
