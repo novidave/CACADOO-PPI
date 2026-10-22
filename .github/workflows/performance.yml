@@ -31,7 +31,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: First-load JavaScript (< 150 kB gzip per public page)
+        run: node scripts/first-load-js.mjs
       - name: Lighthouse CI (phone, slow 4G)
+        if: success() || failure()
         run: npx -y @lhci/cli@0.15.1 autorun --config=lighthouserc.cjs
 
   e2e:

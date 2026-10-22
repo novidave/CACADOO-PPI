@@ -1,22 +1,33 @@
 /**
  * Performance budget (performance pass): Lighthouse CI on a Vercel preview, phone (Moto G, slow 4G).
  * LHCI_BASE_URL = the preview's address; LHCI_SHOP = a shop slug with stock, LHCI_ITEM = one of its item ids.
- * Fails on: LCP > 2.0 s, CLS > 0.05, TBT > 300 ms or a score under 90 on the main pages, and more than 150 kB of
- * JavaScript on the pages without a map. Shop and item pages: the same CLS/score rules; their LCP only warns (in
- * Lighthouse's slow-4G simulation they reach ~2.6 s because of the page's size, real phones ~1 s; PERFORMANCE.md).
+ * Fails on: LCP > 2.0 s, CLS > 0.05, TBT > 300 ms or a score under 90 on the main page and the blog, CLS/TBT on every
+ * page, and more than 170 KiB of JavaScript in all on the pages without a map. The exact first-load budget (the first
+ * HTML's scripts < 150 kB gzip) is `scripts/first-load-js.mjs`; Lighthouse's total also counts Vercel Speed
+ * Insights/Analytics (~11 KiB, loaded after the page) and the response headers. Only warn: LCP of shop and item pages
+ * (~2.1–2.6 s in the slow-4G simulation because of the page's size; real phones ~1 s) and LCP + score of the search
+ * page (with JavaScript its largest element is the AI answer, which streams for several seconds by design: it measures
+ * the AI, not the page). PERFORMANCE.md.
  */
 const base = (process.env.LHCI_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
 const shop = process.env.LHCI_SHOP || "potraviny-centrum";
 const item = process.env.LHCI_ITEM || "";
 const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+// No Vercel toolbar (previews only: it is not part of the site, and its cross-site requests would be measured too).
+const headers = { "x-vercel-skip-toolbar": "1", ...(bypass ? { "x-vercel-protection-bypass": bypass } : {}) };
 
 const strict = {
-  "categories:performance": ["error", { minScore: 0.9 }],
+  "categories:performance": ["error", { minScore: 0.9, aggregationMethod: "median" }],
   // The median of the 3 runs (Lighthouse's slow-4G simulation varies ±0.3 s from run to run).
   "largest-contentful-paint": ["error", { maxNumericValue: 2000, aggregationMethod: "median" }],
-  "cumulative-layout-shift": ["error", { maxNumericValue: 0.05 }],
+  "cumulative-layout-shift": ["error", { maxNumericValue: 0.05, aggregationMethod: "median" }],
   "total-blocking-time": ["error", { maxNumericValue: 300, aggregationMethod: "median" }],
-  "resource-summary:script:size": ["error", { maxNumericValue: 150 * 1024 }],
+  "resource-summary:script:size": ["error", { maxNumericValue: 170 * 1024, aggregationMethod: "median" }],
+};
+const search = {
+  ...strict,
+  "categories:performance": ["warn", { minScore: 0.9, aggregationMethod: "median" }],
+  "largest-contentful-paint": ["warn", { maxNumericValue: 2000, aggregationMethod: "median" }],
 };
 const withMap = {
   ...strict,
@@ -32,12 +43,13 @@ module.exports = {
       numberOfRuns: 3,
       settings: {
         onlyCategories: ["performance"],
-        ...(bypass ? { extraHeaders: JSON.stringify({ "x-vercel-protection-bypass": bypass }) } : {}),
+        extraHeaders: JSON.stringify(headers),
       },
     },
     assert: {
       assertMatrix: [
-        { matchingUrlPattern: "/sk(\\?q=.*)?$", assertions: strict },
+        { matchingUrlPattern: "/sk$", assertions: strict },
+        { matchingUrlPattern: "/sk\\?q=", assertions: search },
         { matchingUrlPattern: "/blog$", assertions: strict },
         { matchingUrlPattern: "/(shops/[^/]+|items/[^/]+)$", assertions: withMap },
       ],

@@ -12,11 +12,13 @@ How fast Cacaduu PPI must be, how it stays that way, and how to measure it. Set 
 | CLS | < 0.05 | Lighthouse CI |
 | TTFB | < 600 ms | Lighthouse CI, Speed Insights |
 | Lighthouse performance | ≥ 90 | Lighthouse CI |
-| First-load JavaScript (public pages) | < 150 kB gzip | Lighthouse CI (`resource-summary:script:size`) |
+| First-load JavaScript (public pages) | < 150 kB gzip | `scripts/first-load-js.mjs` (the first HTML's scripts); Lighthouse CI checks the total incl. Vercel's metrics (< 170 KiB) |
 | Tap feedback | < 100 ms | `npm run test:e2e` (the chat question shows at once) |
 
 `lighthouserc.cjs` holds the budget; `.github/workflows/performance.yml` runs it and the phone e2e on every Vercel
-preview and fails the check when a page goes over. Shop and item pages only **warn** on LCP (see "Known limits").
+preview and fails the check when a page goes over. Shop and item pages only **warn** on LCP, the search page on LCP
+and score (see "Known limits"). The checks send `x-vercel-skip-toolbar: 1` (and the bypass header) only to the site
+under test: the Vercel toolbar exists only on previews and is not part of the site.
 
 ## Rules that keep it fast
 
@@ -92,6 +94,9 @@ Same result sets before and after (41 of 41 search queries compared row by row).
 ## Known limits
 
 - Lighthouse's slow-4G simulation varies ±0.3 s between runs; the budget uses the median of 3.
+- **Search page with JavaScript:** its largest element is the AI answer, which streams for several seconds by design,
+  so its LCP measures how fast the AI answers, not the page (the plain results without JavaScript are in the first
+  HTML). Layout shift there is checked strictly: placeholder cards show only until the answer's first word.
 - **Not yet under 2.0 s in the simulation:** the main page (2.0–2.2 s), the blog list (2.0–2.6 s) and the shop page
   (2.1–2.6 s); the budget check flags them. Their LCP is a heading or a line of text, so it is the fonts and the
   page's own size, not a picture. Real throttled phone browser: 0.8–1.1 s.
