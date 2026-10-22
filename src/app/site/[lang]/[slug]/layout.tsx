@@ -13,8 +13,7 @@ import { type SiteVerification, verificationMetadata } from "@/lib/siteFiles";
 import { createCachedPublicClient } from "@/lib/supabase/public";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { notoFallback, quicksand } from "../../../fonts";
-import { Analytics } from "@vercel/analytics/next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
+import { VercelMetrics } from "@/components/VercelMetrics";
 import "../../../globals.css";
 
 /**
@@ -99,12 +98,7 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
         {/* Cookie-free, only on Vercel (elsewhere their scripts do not exist); loaded after the page (privacy page). */}
-        {process.env.VERCEL && (
-          <>
-            <SpeedInsights />
-            <Analytics />
-          </>
-        )}
+        {process.env.VERCEL && <VercelMetrics />}
       </body>
     </html>
   );
