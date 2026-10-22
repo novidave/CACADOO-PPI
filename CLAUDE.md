@@ -47,7 +47,7 @@ conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 **No colours** (only exceptions, at the owner's request: the Cacaduu PPI logo in the header, `public/brand/cacaduu-ppi.svg`
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
 the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
-the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
+the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
@@ -183,7 +183,8 @@ messages, text only.
 
 ## Documents for the assistant (paid)
 
-Owners upload PDFs and pictures (dashboard `ShopDocuments` → `@/components/DocUpload`): **never products** (items,
+Owners upload PDFs and pictures (dashboard `ShopDocuments` → `@/components/DocUpload`: one box for both, up to 20
+files at once, chosen or dropped; each file goes its own way, a failed one is listed and the rest still go): **never products** (items,
 prices, stock only from the stock file) and **never edited or translated** by PPI (text as written; the only thing the
 owner corrects is the AI's picture description, `description_by_owner`). PDFs are read **in the owner's browser**
 (`@/lib/pdfRead`, pdf.js legacy build, assets from `scripts/copy-pdfjs-assets.mjs`) because Edge Functions have 2 s

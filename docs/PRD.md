@@ -437,9 +437,10 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   this section with a thank-you note. A hint asks for the company ID in Shop details first, so it is on the first invoice.
 - **Documents for the assistant** (page AI Assistant; paid plan; see 6.9): before the first upload a tick box ("Public folder: anyone can
   see it. Private folder: anyone with a key can see it, and keys can be passed on. No personal data, and no photos of
-  people without their consent."); what is used of the shop's limits; **Upload a PDF** (name, short description,
-  folder; read in the browser with progress "Reading page 12 of 80…") and **Add pictures** (JPEG/PNG/WebP, title,
-  description, folder). **Folders:** the Public folder and up to 19 private ones (create, rename, delete when empty).
+  people without their consent."); what is used of the shop's limits; one box **Upload files** for PDFs and
+  pictures together (JPEG/PNG/WebP; up to 20 at once, chosen with the blue "Choose files" link or dropped; optional
+  name — several files get it with a number —, description, folder; PDFs read in the browser with progress "File 2 of
+  5 … Reading page 12 of 80…"; a file that fails is listed, the others still go). **Folders:** the Public folder and up to 19 private ones (create, rename, delete when empty).
   **Documents:** name, description, folder, pages, language, uploaded date, status (Processing / Ready / Error), the two
   switches "Assistant may use it" and "Shoppers may download it" (off by default), the pictures taken out of the PDF,
   Delete. **Pictures:** thumbnail, title, description, "Assistant may show it", and what the AI saw in it — the owner
