@@ -55,9 +55,13 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
         <Suspense fallback={null}>
           <TapFeedback />
         </Suspense>
-        {/* Cookie-free and only on Vercel (they do nothing elsewhere); loaded after the page (privacy page says so). */}
-        <SpeedInsights />
-        <Analytics />
+        {/* Cookie-free, only on Vercel (elsewhere their scripts do not exist); loaded after the page (privacy page). */}
+        {process.env.VERCEL && (
+          <>
+            <SpeedInsights />
+            <Analytics />
+          </>
+        )}
       </body>
     </html>
   );

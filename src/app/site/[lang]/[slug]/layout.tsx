@@ -98,9 +98,13 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
           </div>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
-        {/* Cookie-free and only on Vercel (they do nothing elsewhere); loaded after the page (privacy page says so). */}
-        <SpeedInsights />
-        <Analytics />
+        {/* Cookie-free, only on Vercel (elsewhere their scripts do not exist); loaded after the page (privacy page). */}
+        {process.env.VERCEL && (
+          <>
+            <SpeedInsights />
+            <Analytics />
+          </>
+        )}
       </body>
     </html>
   );
