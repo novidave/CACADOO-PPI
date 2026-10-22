@@ -10,9 +10,9 @@ import { getShop } from "@/lib/data";
 import { getShopLanguages } from "@/lib/shopLanguages";
 import { getSiteLogo } from "@/lib/sections";
 import { type SiteVerification, verificationMetadata } from "@/lib/siteFiles";
-import { createPublicClient } from "@/lib/supabase/public";
+import { createCachedPublicClient } from "@/lib/supabase/public";
 import { LanguagePicker } from "@/components/LanguagePicker";
-import { notoFallback, quicksand } from "../../../fonts";
+import { notoFallback, quicksand, quicksandVi } from "../../../fonts";
 import "../../../globals.css";
 
 /**
@@ -25,7 +25,7 @@ import "../../../globals.css";
  */
 export async function generateMetadata({ params }: LayoutProps<"/site/[lang]/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const supabase = createPublicClient();
+  const supabase = createCachedPublicClient();
   const [shop, meta, host] = await Promise.all([
     getShop(slug).catch(() => null),
     // The owner's Google ("HTML značka") and Bing meta tags (update 36; nothing before it).
@@ -72,7 +72,7 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
   const linkClass = "flex h-9 min-w-0 items-center overflow-hidden whitespace-nowrap sm:h-10";
 
   return (
-    <html lang={lang} dir="ltr" data-script={languageOf(lang)?.script} className={`${quicksand.variable} ${notoFallback.variable} h-full antialiased`}>
+    <html lang={lang} dir="ltr" data-script={languageOf(lang)?.script} className={`${quicksand.variable} ${quicksandVi.variable} ${notoFallback.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <header className="border-b border-line" data-site-header>
           <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3">
@@ -87,6 +87,7 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
             )}
             <LanguagePicker
               current={lang}
+              currentNative={languageOf(lang)?.native ?? lang}
               enabled={enabled}
               recommended={[...new Set([langs.main, homeLang, ...langs.preferred])]}
               labels={dict.languages}

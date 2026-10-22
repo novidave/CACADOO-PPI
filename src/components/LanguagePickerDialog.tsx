@@ -28,19 +28,21 @@ function remember(code: string) {
 const byOwnName = (a: Language, b: Language) => fold(a.native).localeCompare(fold(b.native));
 
 /**
- * The language picker (update 40), on PPI's pages and in a shop's own header: a button with the current language's
- * code; it opens the list — "Odporúčané" (the shop's preferred languages, or SK HU EN CS UK PL DE on PPI's own
+ * The language picker's list (update 40), loaded by `LanguagePicker` the first time its button is pointed at, focused
+ * or tapped (the list and the 42 languages' names are not part of the page's first JavaScript). It opens the list — "Odporúčané" (the shop's preferred languages, or SK HU EN CS UK PL DE on PPI's own
  * pages), "Všetky jazyky" (the European ones, alphabetically, each in its own name) and "Ďalšie jazyky" (Chinese,
  * Vietnamese), with a search that also knows the English, Slovak and Hungarian names ("chinese", "čínština",
  * "kínai"). A dialog: Esc closes, focus stays inside, ↑ ↓ move through the list; on a phone it is a bottom sheet.
  * The choice is remembered in the functional cookie ppi_lang (src/proxy.ts sets it on PPI's pages too).
  */
-export function LanguagePicker({
+export function LanguagePickerDialog({
   current,
   enabled,
   recommended,
   labels,
   site = null,
+  onReady,
+  openNow = false,
 }: {
   current: string;
   /** The languages the admin switched on. */
@@ -49,6 +51,10 @@ export function LanguagePicker({
   labels: LanguagePickerLabels;
   /** On a shop's own domain: its home language ("/" is that language). */
   site?: { homeLang: string } | null;
+  /** Called with the dialog's "open" once it is on the page (the button opens it at once on the first tap). */
+  onReady?: (open: () => void) => void;
+  /** Open right away (the first tap that loaded the list). */
+  openNow?: boolean;
 }) {
   const pathname = usePathname() ?? "/";
   const dialog = useRef<HTMLDialogElement>(null);
@@ -61,7 +67,6 @@ export function LanguagePicker({
   const european = langs.filter((l) => l.group !== "other").sort(byOwnName);
   const others = langs.filter((l) => l.group === "other").sort(byOwnName);
   const found = query.trim() ? langs.filter((l) => languageMatches(l, query)).sort(byOwnName) : null;
-  const currentLang = languageOf(current);
 
   useEffect(() => {
     const d = dialog.current;
@@ -72,9 +77,14 @@ export function LanguagePicker({
   }, []);
 
   const open = () => {
-    dialog.current?.showModal();
+    if (!dialog.current?.open) dialog.current?.showModal();
     searchRef.current?.focus();
   };
+  useEffect(() => {
+    onReady?.(open);
+    if (openNow) open();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the list is on the page
+  }, []);
   // ↑ ↓ through the links (and from the search field into the list)
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -113,17 +123,6 @@ export function LanguagePicker({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={open}
-        aria-haspopup="dialog"
-        aria-label={`${labels.button}: ${currentLang?.native ?? current}`}
-        className="flex shrink-0 items-center gap-1 rounded border border-line px-2 py-1 text-sm font-semibold uppercase"
-        data-language-picker={current}
-      >
-        {current.toUpperCase()}
-        <span aria-hidden="true" className="text-xs">▾</span>
-      </button>
       <dialog
         ref={dialog}
         aria-labelledby={`${listId}-title`}

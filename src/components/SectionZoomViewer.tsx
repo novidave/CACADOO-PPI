@@ -2,6 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 
+export interface ZoomLabels {
+  close: string;
+  zoom_in: string;
+  zoom_out: string;
+  prev_page: string;
+  next_page: string;
+}
+
 interface Shown {
   pages: { src: string; label: string }[];
   index: number;
@@ -20,10 +28,13 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * every page one under another instead (the screen's own pinch zoom). Close: the button or Esc. One listener for the
  * whole page; without JavaScript the links open the picture in a new tab.
  */
-export function SectionZoom({
+export function SectionZoomViewer({
   labels,
+  first = null,
 }: {
-  labels: { close: string; zoom_in: string; zoom_out: string; prev_page: string; next_page: string };
+  labels: ZoomLabels;
+  /** The link whose tap loaded the viewer (SectionZoom): opened at once. */
+  first?: HTMLAnchorElement | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [shown, setShown] = useState<Shown | null>(null);
@@ -35,11 +46,7 @@ export function SectionZoom({
   const lastTap = useRef(0);
 
   useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const link = (e.target as Element | null)?.closest<HTMLAnchorElement>("a[data-zoom]");
-      if (!link) return;
-      e.preventDefault();
+    const openLink = (link: HTMLAnchorElement) => {
       const group = link.dataset.zoomGroup;
       const links = group
         ? [...document.querySelectorAll<HTMLAnchorElement>("a[data-zoom]")].filter((a) => a.dataset.zoomGroup === group)
@@ -49,8 +56,17 @@ export function SectionZoom({
       setScale(1);
       setOffset({ x: 0, y: 0 });
     };
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const link = (e.target as Element | null)?.closest<HTMLAnchorElement>("a[data-zoom]");
+      if (!link) return;
+      e.preventDefault();
+      openLink(link);
+    };
+    if (first) openLink(first);
     document.addEventListener("click", onClick);
     return () => document.removeEventListener("click", onClick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the first link only once, when the viewer arrives
   }, []);
 
   useEffect(() => {
