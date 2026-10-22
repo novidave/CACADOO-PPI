@@ -200,13 +200,14 @@ export function ItemsSection({
   const file = fileStatus(shop.latest_file_time, shop.freshness_state);
   return (
     <DashboardSection {...section("items")} title={d.items_title} summary={productCount(counts ? Number(counts.all_items) : total)}>
-              <p className="text-sm text-muted" data-items-intro>
+              {/* A <div>, not a <p>: a <details> inside a <p> is invalid HTML and broke hydration. */}
+              <div className="text-sm text-muted" data-items-intro>
                 {d.items_intro}{" "}
                 <details className="inline">
                   <summary className="inline cursor-pointer underline underline-offset-4">{d.items_more}</summary>
                   <span className="mt-1 block">{d.items_more_text}</span>
                 </details>
-              </p>
+              </div>
               <p className="text-sm" data-file-status={file.kind === "none" ? "none" : file.state}>
                 {file.kind === "none" ? (
                   d.file_status_none
