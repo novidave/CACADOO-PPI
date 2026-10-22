@@ -95,7 +95,7 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/[la
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <Link href={`/${lang}/dashboard?${new URLSearchParams({ shop: shop.slug, at: "items" })}#items`} className="text-sm underline underline-offset-4">
+        <Link href={`/${lang}/dashboard/translations?${new URLSearchParams({ shop: shop.slug, at: "items" })}#items`} className="text-sm underline underline-offset-4">
           {o.back_to_items}
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>

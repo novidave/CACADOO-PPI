@@ -105,7 +105,11 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(movedFrom("sync", "export"), false, "export");
   eq(movedFrom("dashboard", "sections"), true, "/dashboard?at=sections");
   eq(movedFrom("dashboard", "cloud"), true, "/dashboard?at=cloud");
-  eq(movedFrom("dashboard", "items"), false, "items stay");
+  eq(movedFrom("dashboard", "items"), true, "/dashboard?at=items → Jazyky a inventár");
+  eq(movedFrom("dashboard", "columns"), true, "/dashboard?at=columns → Jazyky a inventár");
+  eq(movedFrom("translations", "items"), false, "items live on translations");
+  eq(sectionPath("sk", "columns"), "/sk/dashboard/translations", "columns");
+  eq(forwardUrl("sk", "items", { shop: "davide", at: "items", q: "káva" }), "/sk/dashboard/translations?shop=davide&at=items&q=k%C3%A1va#items", "items forwarded with the search");
   eq(movedFrom("assistant", "docs"), false, "docs");
   eq(movedFrom("assistant", "private"), true, "old name");
   eq(movedFrom("content", "library"), false, "library");

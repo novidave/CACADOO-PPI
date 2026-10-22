@@ -56,7 +56,7 @@ export function errorText(dict: Dictionary, err: string): string {
     const text = (dict.docs as Record<string, string>)[`error_${err.slice("docs_".length)}`];
     if (text) return text;
   }
-  // "Jazyky a preklady" and a product's description (update 40).
+  // "Jazyky a inventár" and a product's description (update 40).
   for (const prefix of ["languages_", "description_", "descriptions_"]) {
     if (err.startsWith(prefix)) {
       const text = (dict.owner_tr as unknown as Record<string, string>)[`err_${err}`];

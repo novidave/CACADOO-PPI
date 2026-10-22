@@ -314,7 +314,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   each form returns to its own section with its message. Every main section is a `components/DashboardSection.tsx`
   (`<details>` with heading and summary line; a phone starts with only the first open, a computer with all; the owner's
   choice per section in `localStorage` key `ppi.dashboard.open`; `?at=`/`#` opens a section). Môj obchod is three pages:
-  `/dashboard` (columns, details, logo, items, plan, delete), `/dashboard/assistant` "AI asistent" (assistant texts,
+  `/dashboard` (details, logo, plan, delete; since update 40 the columns and items are on `/dashboard/translations` "Jazyky a inventár"), `/dashboard/assistant` "AI asistent" (assistant texts,
   `Conversations.tsx`, `CloudFolder.tsx`, `ShopDocuments.tsx`) and `/sync` "Priečinok s exportom" (export status +
   `FolderSync`, private files, recent imports, one shop at a time with a switcher); `lib/dashboardPages.ts` says which
   page holds a section (`sectionUrl` for every action's way back; `/dashboard?at=<moved>` forwards, so cloud-export's

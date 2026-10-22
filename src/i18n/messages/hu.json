@@ -233,7 +233,7 @@
     "assistant_page_intro": "Minden az üzlet oldalán lévő asszisztensről: a beállításai, a beszélgetések a vásárlókkal (a felhőmappával együtt), a privát mappák a dokumentumokkal és a legutóbb feltöltött készletfájlok.",
     "blog_page": "Hírek / Blog",
     "content_page": "Az oldal tartalma",
-    "translations_page": "Nyelvek és fordítások"
+    "translations_page": "Nyelvek és készlet"
   },
   "dashboard": {
     "shop": "Üzlet",
@@ -379,7 +379,7 @@
     "create_button": "Üzlet létrehozása",
     "created": "Az üzlet létrejött. A következő lépések:",
     "step_folder": "A készletkezelő programot futtató gépen nyissa meg a menüben az „Exportmappa” oldalt, és kapcsolja össze azt a mappát, ahová a program exportál.",
-    "step_columns": "Amikor megérkezik az első fájl, lent ellenőrizze, melyik oszlop mi, és hagyja jóvá.",
+    "step_columns": "Amikor megérkezik az első fájl, a Nyelvek és készlet oldalon ellenőrizze, melyik oszlop mi, és hagyja jóvá.",
     "step_visible": "Az üzlet adatainál maradjon bejelölve a „Látható a vásárlóknak”.",
     "columns_title": "A készletfájl oszlopai",
     "columns_intro": "Adja meg a PPI-nek, hogy a készletfájl melyik oszlopában milyen adat van. A PPI automatikusan javasolja; Önnek csak egyszer kell ellenőriznie és jóváhagynia.",
@@ -1893,7 +1893,7 @@
   "owner_tr": {
     "item_link": "Leírás és fordítások",
     "item_title": "Termék – leírás és fordítások",
-    "page_intro": "A nyelv, amelyen ír, a készletfájlok nyelvei és azok a nyelvek, amelyekre a Cacaduu előre lefordítja az oldalát. Az eredeti szövegek soha nem változnak – a fordítások külön tárolódnak, és meg vannak jelölve.",
+    "page_intro": "A készletfájl oszlopai, az áruk, a nyelv, amelyen ír, a fájlok nyelvei és azok a nyelvek, amelyekre a Cacaduu előre lefordítja az oldalát. Az eredeti szövegek soha nem változnak – a fordítások külön tárolódnak, és meg vannak jelölve.",
     "unavailable": "A nyelvek és fordítások a 40. adatbázis-frissítés után lesznek elérhetők.",
     "none": "nincs",
     "languages_title": "Nyelvek",

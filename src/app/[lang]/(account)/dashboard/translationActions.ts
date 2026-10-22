@@ -7,7 +7,7 @@ import { sectionUrl } from "@/lib/dashboardPages";
 import type { Cell, CellRow } from "@/lib/translations";
 
 /**
- * Môj obchod → "Jazyky a preklady" and a product's "Popis" / "Preklady" tabs (database update 40). Every change goes
+ * Môj obchod → "Jazyky a inventár" and a product's "Popis" / "Preklady" tabs (database update 40). Every change goes
  * through an owner_ function that checks the caller owns the shop; Claude is asked only through the translate function
  * with the owner's own login (it checks the shop again). The original texts are never changed here.
  */

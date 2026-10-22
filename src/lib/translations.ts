@@ -1,5 +1,5 @@
 /**
- * The owner's translation table (Môj obchod → "Jazyky a preklady" and a product's "Preklady" tab, update 40): one cell
+ * The owner's translation table (Môj obchod → "Jazyky a inventár" and a product's "Preklady" tab, update 40): one cell
  * = one text (kind + ref) in one language, with its state as owner_translations() gives it. Shared by the server
  * actions and the browser.
  */
