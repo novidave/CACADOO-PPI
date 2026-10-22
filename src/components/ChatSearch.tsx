@@ -274,10 +274,11 @@ export function ChatSearch({
     if (rect && rect.top - window.innerHeight < 240) bottom.current?.scrollIntoView({ block: "end" });
   }, [last?.answer, last?.results, last?.step, last]);
 
-  // The box grows with the text (up to about eight lines).
+  // The box grows with the text (up to about eight lines). Browsers with `field-sizing: content` do it in CSS, already
+  // in the first HTML (placeholder included): a box that grew after hydration was the page's late LCP on phones.
   useEffect(() => {
     const el = box.current;
-    if (!el) return;
+    if (!el || CSS.supports("field-sizing", "content")) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   }, [input]);
@@ -315,7 +316,7 @@ export function ChatSearch({
           aria-describedby="chat-keys"
           enterKeyHint="send"
           autoFocus={!initialQuestion}
-          className="max-h-56 min-h-10 flex-1 resize-none bg-transparent py-2 text-base outline-none placeholder:text-muted"
+          className="max-h-56 min-h-10 flex-1 resize-none bg-transparent py-2 text-base outline-none [field-sizing:content] placeholder:text-muted"
           data-chat-input
         />
         {running ? (
@@ -538,6 +539,7 @@ function Answer({ turn, labels, statusLabels, lang }: { turn: Turn; labels: Chat
               statusLabels={statusLabels}
               renderedAt={renderedAt}
               className="h-56 md:h-72"
+              opened
             />
           )}
         </section>
