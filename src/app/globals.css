@@ -16,7 +16,7 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-line: var(--line);
-  /* Quicksand everywhere (src/app/fonts.ts); the system font only until it has loaded. */
+  /* Quicksand everywhere (src/app/fonts.ts); until it has loaded, a system font of its width (Fallback faces below). */
   --font-sans: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
@@ -28,6 +28,68 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
+}
+
+/*
+ * Fallback faces: the system font shown until Quicksand has loaded, scaled to Quicksand's widths so no line wraps
+ * differently when it comes (no layout shift). Normal and semibold/bold separately (a real bold, not a synthesised
+ * one); the overrides keep Quicksand's ascent (1.0) and descent (0.25). Arial (Windows, macOS, iOS) and Roboto
+ * (Android) from their metrics; Liberation Sans (Linux, Arial's metric twin) measured on the site's own texts, because
+ * Linux rounds small letters to whole pixels. A device with none of them uses the next font in the list, as before.
+ */
+@font-face {
+  font-family: PpiFallbackArial;
+  src: local("Arial"), local("ArialMT");
+  font-weight: 100 500;
+  size-adjust: 102.7%;
+  ascent-override: 97.4%;
+  descent-override: 24.3%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackArial;
+  src: local("Arial Bold"), local("Arial-BoldMT");
+  font-weight: 600 900;
+  size-adjust: 100%;
+  ascent-override: 100.0%;
+  descent-override: 25.0%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackLiberation;
+  src: local("Liberation Sans"), local("LiberationSans");
+  font-weight: 100 500;
+  size-adjust: 107.3%;
+  ascent-override: 93.2%;
+  descent-override: 23.3%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackLiberation;
+  src: local("Liberation Sans Bold"), local("LiberationSans-Bold");
+  font-weight: 600 900;
+  size-adjust: 98.4%;
+  ascent-override: 101.6%;
+  descent-override: 25.4%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackRoboto;
+  src: local("Roboto"), local("Roboto-Regular");
+  font-weight: 100 500;
+  size-adjust: 102.9%;
+  ascent-override: 97.2%;
+  descent-override: 24.3%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackRoboto;
+  src: local("Roboto Bold"), local("Roboto-Bold");
+  font-weight: 600 900;
+  size-adjust: 106.2%;
+  ascent-override: 94.2%;
+  descent-override: 23.5%;
+  line-gap-override: 0%;
 }
 
 /* MapLibre sets its own font on the map, its buttons and the pins' tooltips: Quicksand there too. */

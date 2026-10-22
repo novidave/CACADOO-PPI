@@ -12,6 +12,11 @@ export const quicksand = Quicksand({
   subsets: ["latin", "latin-ext"],
   display: "swap",
   variable: "--font-quicksand",
+  // Until Quicksand has loaded, a system font of the same width (globals.css, "Fallback faces"): next/font's own
+  // fallback names only local(Arial), which Linux and Android do not have, so they showed a ~10–20 % wider font and
+  // lines re-wrapped when Quicksand came (layout shift on the shop page).
+  adjustFontFallback: false,
+  fallback: ["PpiFallbackArial", "PpiFallbackLiberation", "PpiFallbackRoboto"],
 });
 
 /**

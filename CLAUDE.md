@@ -43,7 +43,8 @@ Setup steps for humans are in `SETUP.md`.
 Plain white background, black text, thin light-grey lines (`border-line`, `text-muted`). **Font: Quicksand everywhere**
 on the website (at the owner's request, 2026-10-20): `src/app/fonts.ts` (`next/font/google`, latin + latin-ext,
 self-hosted at build — no browser request to Google), its variable on `<html>` in both root layouts, used by `body`,
-`--font-sans` and MapLibre's map/tooltips in `globals.css`; code-like values (DNS records, keys) keep `font-mono`. The
+`--font-sans` and MapLibre's map/tooltips in `globals.css` (with its own width-matched fallback faces Arial / Liberation
+Sans / Roboto, `adjustFontFallback: false`: no line re-wraps when Quicksand arrives); code-like values (DNS records, keys) keep `font-mono`. The
 conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 **No colours** (only exceptions, at the owner's request: the Cacaduu PPI logo in the header, `public/brand/cacaduu-ppi.svg`
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
