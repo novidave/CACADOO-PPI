@@ -1,0 +1,7 @@
+Kód;Megnevezés;Leírás;Kategória;Vonalkód;Készlet;Ár
+T001;Szemes kávé 1 kg;Szemes kávé 100 % arabicából.;Kávé;8000070012345;14;18,90
+T002;Őrölt kávé 250 g;Őrölt kávé filteres főzéshez.;Kávé;8711000012346;2;4,49
+T003;Félzsíros tej 1 l;Tartós tej, 1,5 % zsírtartalom.;Tejtermékek;8586000012347;40;1,09
+;Fehér kenyér 1 kg;;Pékáru;;0;1,89
+T005;"Zöld tea; 20 filter";Zöld tea filterben.;Tea;8711000012350;10;2,29
+T999;Ismeretlen termék;;;;5;1,00

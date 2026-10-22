@@ -44,10 +44,26 @@ import Anthropic from "npm:@anthropic-ai/sdk@0.131.0";
 // ---------------------------------------------------------------- types
 
 export type Row = Record<string, string>;
-export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency"] as const;
+export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency", "description", "category"] as const;
 export type MappingField = (typeof MAPPING_FIELDS)[number];
-/** Which file column holds each field (null = not in the file). */
-export type Mapping = Record<MappingField, string | null>;
+/** The text fields that may come in further languages: "name@hu", "description@de" (update 40, option A). */
+export const TEXT_FIELDS = ["name", "description", "category"] as const;
+/**
+ * Which file column holds each field (null = not in the file); since update 40 also a language per text column:
+ * "name@hu": "Név" (the main columns are in the shop's inventory language).
+ */
+export type Mapping = Record<Exclude<MappingField, "description" | "category">, string | null> & {
+  /** Update 40; mappings approved before it have none. */
+  description?: string | null;
+  category?: string | null;
+  [languageField: `${string}@${string}`]: string | null;
+};
+
+/** "name@hu" → ["name", "hu"]; anything else → null. */
+export function languageField(key: string): [string, string] | null {
+  const m = /^(name|description|category)@([a-z]{2}(?:-(?:cyrl|hans|hant))?)$/.exec(key);
+  return m ? [m[1], m[2]] : null;
+}
 
 export interface StockRow {
   source_code: string;
@@ -70,13 +86,60 @@ const TRANSLATE_MAX_ITEMS = 1200;
 
 // ---------------------------------------------------------------- reading files
 
-/** UTF-8 if valid, otherwise Windows-1250 (common in Slovak/Hungarian/Czech shop software). */
-export function decodeText(bytes: Uint8Array): string {
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\ufeff/, "");
-  } catch {
-    return new TextDecoder("windows-1250").decode(bytes);
+/** The encodings a stock file may come in (update 40: the owner can pick one in the preview). */
+export const ENCODINGS = ["utf-8", "utf-16le", "utf-16be", "windows-1250", "windows-1252", "windows-1258", "gb18030", "big5"] as const;
+export type Encoding = (typeof ENCODINGS)[number];
+
+/** The share of high bytes (≥ 0x80) that come as GB2312 pairs (both bytes 0xA1–0xFE): near 1 for Chinese text. */
+function gbPairs(bytes: Uint8Array): { pairs: number; share: number } {
+  let high = 0;
+  let paired = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b < 0x80) continue;
+    const next = bytes[i + 1] ?? 0;
+    if (b >= 0xa1 && b <= 0xf7 && next >= 0xa1 && next <= 0xfe) {
+      high += 2;
+      paired += 2;
+      i++;
+    } else high++;
   }
+  return { pairs: paired / 2, share: high ? paired / high : 0 };
+}
+
+/** Vietnamese tone marks right after a vowel, as Windows-1258 writes them (a combining mark after the letter). */
+function vietnameseMarks(bytes: Uint8Array): number {
+  const text = new TextDecoder("windows-1258").decode(bytes);
+  return (text.match(/[aeiouyăâêôơưAEIOUYĂÂÊÔƠƯ][\u0300\u0301\u0303\u0309\u0323]/g) ?? []).length;
+}
+
+/**
+ * The file's encoding (update 40): a byte order mark (UTF-8, UTF-16), valid UTF-8, then — for files that are not
+ * UTF-8 — GB18030/GBK when its high bytes come as Chinese character pairs, Windows-1258 when the text has
+ * Vietnamese tone marks after its vowels, else Windows-1250 (the Slovak, Hungarian and Czech shop software of
+ * update 11). Big5 and Windows-1252 only when the owner picks them in the preview.
+ */
+export function detectEncoding(bytes: Uint8Array): Encoding {
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return "utf-8";
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return "utf-16le";
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return "utf-16be";
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return "utf-8";
+  } catch {
+    // not UTF-8: look closer
+  }
+  const sample = bytes.subarray(0, 64 * 1024);
+  const gb = gbPairs(sample);
+  if (gb.pairs >= 2 && gb.share >= 0.6) return "gb18030";
+  if (vietnameseMarks(sample) >= 3) return "windows-1258";
+  return "windows-1250";
+}
+
+/** The text in the given encoding (or the detected one); a leading byte order mark is dropped. */
+export function decodeText(bytes: Uint8Array, encoding?: Encoding | null): string {
+  const enc = encoding ?? detectEncoding(bytes);
+  return new TextDecoder(enc).decode(bytes).replace(/^\ufeff/, "");
 }
 
 function uniqueHeaders(raw: string[]): string[] {
@@ -210,9 +273,9 @@ export function detectFormat(bytes: Uint8Array, configured: string | null): File
   return "csv";
 }
 
-export function parseFile(bytes: Uint8Array, format: FileFormat): Row[] {
+export function parseFile(bytes: Uint8Array, format: FileFormat, encoding?: Encoding | null): Row[] {
   if (format === "xlsx") return parseXlsx(bytes);
-  const text = decodeText(bytes);
+  const text = decodeText(bytes, encoding);
   return format === "xml" ? parseXml(text) : parseCsv(text);
 }
 
@@ -251,7 +314,41 @@ const HINTS: Record<MappingField, string[]> = {
   quantity: ["mnozstvo", "mnozstvi", "stav", "zasoba", "qty", "quantity", "pocet", "stock", "keszlet", "mennyiseg", "bestand", "ks"],
   price: ["cenasdph", "predajnacena", "cena", "price", "eladasiar", "ar", "preis", "mocena", "pc"],
   currency: ["mena", "currency", "penznem", "wahrung", "waehrung"],
+  description: ["popis", "description", "leiras", "beschreibung", "opis", "popistovaru", "desc"],
+  category: ["kategoria", "kategorie", "category", "csoport", "skupina", "warengruppe", "kategoria1", "group"],
 };
+
+/** Language words in column names: "Názov HU", "Name (EN)", "Megnevezés_SK", "nazov_de", "Name Deutsch". */
+const COLUMN_LANGS: Record<string, string> = {
+  sk: "sk", hu: "hu", en: "en", de: "de", cs: "cs", cz: "cs", pl: "pl", uk: "uk", ua: "uk", ro: "ro", hr: "hr", sl: "sl",
+  bg: "bg", el: "el", gr: "el", it: "it", fr: "fr", es: "es", pt: "pt", nl: "nl", da: "da", sv: "sv", fi: "fi", et: "et",
+  lv: "lv", lt: "lt", vi: "vi", vn: "vi", zh: "zh-hans", cn: "zh-hans", tr: "tr", ru: "ru", sr: "sr", sq: "sq",
+  slovensky: "sk", slovak: "sk", madarsky: "hu", magyar: "hu", hungarian: "hu", english: "en", anglicky: "en", angol: "en",
+  deutsch: "de", german: "de", nemecky: "de", nemet: "de", cesky: "cs", czech: "cs", polski: "pl", ukrainsky: "uk",
+  vietnamese: "vi", chinese: "zh-hans",
+};
+
+/**
+ * Option A (update 40): text columns in further languages, from their names ("Názov HU" → name@hu,
+ * "Description_DE" → description@de). Only proposed: the owner approves the mapping.
+ */
+export function guessLanguageColumns(columns: string[], mapping: Mapping, mainLang: string | null): Partial<Mapping> {
+  const used = new Set(Object.values(mapping).filter(Boolean));
+  const out: Record<string, string> = {};
+  for (const col of columns) {
+    if (used.has(col)) continue;
+    const words = col.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    if (words.length < 2) continue;
+    const langWord = [words[words.length - 1], words[0]].find((w) => COLUMN_LANGS[w]);
+    if (!langWord) continue;
+    const lang = COLUMN_LANGS[langWord];
+    const rest = normalize(words.filter((w) => w !== langWord).join(""));
+    const field = TEXT_FIELDS.find((f) => HINTS[f].some((h) => rest === h || rest.startsWith(h)));
+    if (!field || lang === mainLang || out[`${field}@${lang}`]) continue;
+    out[`${field}@${lang}`] = col;
+  }
+  return out as Partial<Mapping>;
+}
 
 /** Rule-based proposal from column names (used when Claude is not configured or unavailable). */
 export function guessMapping(columns: string[]): Mapping {
@@ -275,9 +372,24 @@ export function guessMapping(columns: string[]): Mapping {
   return mapping;
 }
 
-/** Turns file rows into stock rows; counts rows that cannot be read. */
+/** An item's own texts beyond its name (update 40): description, category and the further languages' texts. */
+export interface FileTexts {
+  source_code: string;
+  description: string | null;
+  category: string | null;
+  /** The file has a description or category column (an empty cell then clears the item's). */
+  has_texts: boolean;
+  i18n: Record<string, { name?: string; description?: string; category?: string }>;
+}
+
+/** Turns file rows into stock rows; counts rows that cannot be read. `texts` only when the mapping has text columns. */
 export function applyMapping(rows: Row[], mapping: Mapping, defaultCurrency: string) {
   const good: StockRow[] = [];
+  const texts: FileTexts[] = [];
+  const languageColumns = Object.entries(mapping)
+    .map(([key, col]) => ({ field: languageField(key), col }))
+    .filter((x): x is { field: [string, string]; col: string } => Boolean(x.field && x.col));
+  const hasTexts = Boolean(mapping.description || mapping.category);
   let bad = 0;
   for (const row of rows) {
     const code = mapping.source_code ? row[mapping.source_code]?.trim() : "";
@@ -298,8 +410,22 @@ export function applyMapping(rows: Row[], mapping: Mapping, defaultCurrency: str
       price,
       currency: /^[A-Z]{3}$/.test(currency) ? currency : defaultCurrency,
     });
+    if (hasTexts || languageColumns.length) {
+      const i18n: FileTexts["i18n"] = {};
+      for (const { field: [field, lang], col } of languageColumns) {
+        const value = row[col]?.trim();
+        if (value) (i18n[lang] ??= {})[field as "name"] = value;
+      }
+      texts.push({
+        source_code: code,
+        description: mapping.description ? row[mapping.description]?.trim() || null : null,
+        category: mapping.category ? row[mapping.category]?.trim() || null : null,
+        has_texts: hasTexts,
+        i18n,
+      });
+    }
   }
-  return { good, bad };
+  return { good, bad, texts };
 }
 
 /** Currency to assume when the file has no currency column. */
@@ -312,7 +438,7 @@ export function currencyForCountry(country: string | null | undefined): string {
 }
 
 export function isValidMapping(mapping: Mapping, columns: string[]): boolean {
-  return MAPPING_FIELDS.every((f) => mapping[f] === null || columns.includes(mapping[f] as string));
+  return Object.entries(mapping).every(([key, col]) => (col === null || col === undefined || columns.includes(col)) && (MAPPING_FIELDS.includes(key as MappingField) || languageField(key) !== null));
 }
 
 // ---------------------------------------------------------------- private columns
@@ -330,7 +456,8 @@ export function isPrivateColumn(name: string): boolean {
 /** The file columns a mapping uses, in field order. */
 export function mappedColumns(mapping: Mapping | null | undefined): string[] {
   if (!mapping) return [];
-  return [...new Set(MAPPING_FIELDS.map((f) => mapping[f]).filter((c): c is string => Boolean(c)))];
+  const languageColumns = Object.entries(mapping).filter(([key]) => languageField(key)).map(([, col]) => col);
+  return [...new Set([...MAPPING_FIELDS.map((f) => mapping[f] ?? null), ...languageColumns].filter((c): c is string => Boolean(c)))];
 }
 
 /** The first rows with only the given columns, values exactly as in the file. */
@@ -395,7 +522,8 @@ export async function proposeWithClaude(samples: ColumnSample[]): Promise<Mappin
         "You map columns of a shop's stock export to PPI fields. Fields: source_code = the shop's own item code " +
         "(unique per item), name = product name, ean = EAN/GTIN barcode, brand = brand or manufacturer, " +
         "quantity = units in stock now, price = selling price per unit for customers (incl. VAT when both exist), " +
-        "currency = currency code column. Column names may be Slovak, Hungarian, Czech, German or English. " +
+        "currency = currency code column, description = the product's description text, category = its product group or " +
+        "category. Column names may be Slovak, Hungarian, Czech, German, English or any other European language. " +
         "You get each column's name and up to 3 of its values (no values for columns that may be private). " +
         "Use null when a field is not in the file or you are not sure.",
       messages: [{ role: "user", content: JSON.stringify({ columns: samples }) }],
@@ -702,6 +830,8 @@ export async function pingIndexNow(db: SupabaseClient, shopId: string, settings:
 interface Source {
   shop_id: string;
   file_format: string | null;
+  /** The encoding the owner chose in the preview (update 40); null = detected each time. */
+  file_encoding?: Encoding | null;
   field_mapping: Mapping | null;
   mapping_status: "proposed" | "confirmed";
   latest_file_time: string | null;
@@ -797,18 +927,21 @@ const alreadyApplied = (src: Source, fileTime: Date) =>
   isApproved(src) && Boolean(src.latest_file_time) && fileTime <= new Date(src.latest_file_time as string);
 
 /** Reads the file, proposes or applies the field mapping, saves the stock. */
-async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, fileTime: Date, update: Update): Promise<Outcome> {
+async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, fileTime: Date, update: Update, encoding: Encoding | null = null): Promise<Outcome> {
   if (bytes.length === 0) throw new Error("The stock file is empty.");
   if (bytes.length > MAX_FILE_BYTES) throw new Error("The stock file is larger than 50 MB.");
   const format = detectFormat(bytes, src.file_format);
-  const rows = parseFile(bytes, format);
+  const rows = parseFile(bytes, format, encoding ?? src.file_encoding ?? null);
   if (rows.length === 0) throw new Error(`No items could be read from the file (read as ${format.toUpperCase()}).`);
   await keepRawFile(db, src.shop_id, bytes, format);
 
   // Column names are kept (to choose them again); values only of the approved columns
   // (until the owner approves them, every column counts as private: no preview).
   const columns = Object.keys(rows[0]);
-  const propose = async () => (await proposeWithClaude(columnSamples(columns, rows))) ?? guessMapping(columns);
+  const propose = async () => {
+    const mapping = (await proposeWithClaude(columnSamples(columns, rows))) ?? guessMapping(columns);
+    return { ...mapping, ...guessLanguageColumns(columns, mapping, null) } as Mapping;
+  };
   const preview = (mapping: Mapping | null | undefined) => onlyColumns(rows, mappedColumns(mapping), 5);
 
   if (!isApproved(src)) {
@@ -831,7 +964,7 @@ async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, f
     return { status: "proposed", rows: rows.length };
   }
 
-  const { good, bad } = applyMapping(rows, src.field_mapping as Mapping, currencyForCountry(src.shops?.country));
+  const { good, bad, texts } = applyMapping(rows, src.field_mapping as Mapping, currencyForCountry(src.shops?.country));
   if (good.length === 0 || bad / rows.length > MAX_BAD_SHARE) {
     const proposal = await propose();
     await update({
@@ -853,7 +986,15 @@ async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, f
     p_sample: preview(src.field_mapping),
   });
   if (error) throw new Error(`Saving the stock failed: ${error.message}`);
-  await update({ file_columns: columns });
+  // The item's own description and category, and the texts of its further language columns (update 40, option A):
+  // stored as they are, as the shop's own translations ("Od obchodu"); never in the stock rows.
+  if (texts.length) {
+    for (let i = 0; i < texts.length; i += 2000) {
+      const { error: textError } = await db.rpc("apply_file_texts", { p_shop_id: src.shop_id, p_rows: texts.slice(i, i + 2000) });
+      if (textError) console.warn("file texts not saved:", textError.message);
+    }
+  }
+  await update({ file_columns: columns, ...(encoding ? { file_encoding: encoding } : {}) });
   return {
     status: "updated",
     items: data.items,
@@ -862,6 +1003,88 @@ async function processFile(db: SupabaseClient, src: Source, bytes: Uint8Array, f
     rows: rows.length,
     preview: preview(src.field_mapping),
   };
+}
+
+// ---------------------------------------------------------------- a file in another language (update 40, option B)
+
+/** What a second file is matched with: its code or EAN, its texts; quantity and price only to warn about differences. */
+export function languageRows(rows: Row[], mapping: Mapping) {
+  const value = (row: Row, col: string | null | undefined) => (col ? row[col]?.trim() || null : null);
+  return rows
+    .map((row) => ({
+      source_code: value(row, mapping.source_code),
+      ean: value(row, mapping.ean)?.replace(/\s/g, "") || null,
+      name: value(row, mapping.name),
+      description: value(row, mapping.description),
+      category: value(row, mapping.category),
+      quantity: mapping.quantity ? parseNumber(row[mapping.quantity]) : null,
+      price: mapping.price ? parseNumber(row[mapping.price]) : null,
+    }))
+    .filter((r) => (r.source_code || r.ean) && (r.name || r.description || r.category));
+}
+
+export interface LanguageFileResult {
+  status: "translations";
+  lang: string;
+  rows: number;
+  matched: number;
+  unmatched_count: number;
+  unmatched: { source_code: string | null; ean: string | null; name: string | null }[];
+  conflicts: { source_code: string; name: string; quantity: number | null; main_quantity: number | null; price: number | null; main_price: number | null }[];
+}
+
+/**
+ * The shop's file in another language: matched by Kód, then EAN, with the items of the main file; its names,
+ * descriptions and categories become the shop's own translations ("Od obchodu"). Its quantities and prices are never
+ * used: a difference is listed as a conflict and ignored. Only the guessed columns are read (private ones never).
+ */
+async function processLanguageFile(db: SupabaseClient, src: Source, bytes: Uint8Array, lang: string, encoding: Encoding | null): Promise<LanguageFileResult> {
+  if (bytes.length === 0) throw new Error("The file is empty.");
+  if (!isApproved(src)) throw new Error("Approve the columns of your main stock file first.");
+  const rows = parseFile(bytes, detectFormat(bytes, null), encoding);
+  if (rows.length === 0) throw new Error("No rows could be read from the file.");
+  const mapping = guessMapping(Object.keys(rows[0]).filter((c) => !isPrivateColumn(c)));
+  if (!(mapping.source_code || mapping.ean) || !(mapping.name || mapping.description)) {
+    throw new Error("The file needs a code (Kód) or EAN column and a name or description column.");
+  }
+  const items = languageRows(rows, mapping);
+  let matched = 0;
+  let unmatchedCount = 0;
+  const unmatched: LanguageFileResult["unmatched"] = [];
+  const conflicts: LanguageFileResult["conflicts"] = [];
+  for (let i = 0; i < items.length; i += 2000) {
+    const { data, error } = await db.rpc("apply_shop_translations", { p_shop_id: src.shop_id, p_lang: lang, p_rows: items.slice(i, i + 2000) });
+    if (error) throw new Error(`Saving the translations failed: ${error.message}`);
+    const r = data as { matched: number; unmatched_count: number; unmatched: LanguageFileResult["unmatched"]; conflicts: LanguageFileResult["conflicts"] };
+    matched += r.matched;
+    unmatchedCount += r.unmatched_count;
+    unmatched.push(...r.unmatched.slice(0, Math.max(0, 50 - unmatched.length)));
+    conflicts.push(...r.conflicts.slice(0, Math.max(0, 50 - conflicts.length)));
+  }
+  return { status: "translations", lang, rows: rows.length, matched, unmatched_count: unmatchedCount, unmatched, conflicts };
+}
+
+export interface FilePreview {
+  encoding: Encoding;
+  detected: Encoding;
+  format: FileFormat;
+  rows: number;
+  columns: string[];
+  /** Up to 5 rows of the columns that will be read (never a private-looking one). */
+  sample: Row[];
+  mapping: Mapping;
+}
+
+/** "Náhľad" before an upload: how the file reads in an encoding, which columns would be used. Nothing is stored. */
+export function previewFile(bytes: Uint8Array, encoding: Encoding | null, approved: Mapping | null): FilePreview {
+  const format = detectFormat(bytes, null);
+  const detected = detectEncoding(bytes);
+  const rows = parseFile(bytes, format, encoding ?? detected);
+  const columns = rows.length ? Object.keys(rows[0]) : [];
+  const usable = columns.filter((c) => !isPrivateColumn(c));
+  const guessed = guessMapping(usable);
+  const mapping = approved && isValidMapping(approved, columns) ? approved : ({ ...guessed, ...guessLanguageColumns(usable, guessed, null) } as Mapping);
+  return { encoding: encoding ?? detected, detected, format, rows: rows.length, columns, sample: onlyColumns(rows, mappedColumns(mapping).filter((c) => !isPrivateColumn(c)), 5), mapping };
 }
 
 /** The owner's report of this file; a failure here never fails the upload. */
@@ -939,13 +1162,32 @@ export async function receiveUpload(
 
   const { data: src, error } = await db
     .from("sync_sources")
-    .select("shop_id, file_format, field_mapping, mapping_status, latest_file_time, shops(slug, name, country)")
+    .select("shop_id, file_format, file_encoding, field_mapping, mapping_status, latest_file_time, shops(slug, name, country)")
     .eq("shop_id", shopId)
     .single();
   if (error || !src) return reply(500, { error: error?.message ?? "Stock source missing" });
   const source = src as unknown as Source;
 
   const update = sourceUpdater(db, shopId);
+  // Update 40: the encoding the owner chose in the preview, a preview only, or a file in another language.
+  const chosen = params.get("encoding");
+  const encoding = (ENCODINGS as readonly string[]).includes(chosen ?? "") ? (chosen as Encoding) : null;
+  if (params.get("preview") === "1") {
+    try {
+      return reply(200, { preview: previewFile(await readBody(req, params.get("gzip") === "1"), encoding, source.field_mapping) });
+    } catch (e) {
+      return reply(400, { error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  const translationLang = params.get("translation_lang");
+  if (translationLang !== null) {
+    if (!/^[a-z]{2}(-(cyrl|hans|hant))?$/.test(translationLang)) return reply(400, { error: "translation_lang" });
+    try {
+      return reply(200, { result: await processLanguageFile(db, source, await readBody(req, params.get("gzip") === "1"), translationLang, encoding) });
+    } catch (e) {
+      return reply(200, { result: { status: "error", error: e instanceof Error ? e.message : String(e) } });
+    }
+  }
   const fileName = (params.get("file_name") ?? "").replace(/[\u0000-\u001f]/g, "").slice(0, 200) || null;
   const declaredTime = Date.parse(params.get("file_time") ?? "");
   const fileTime = new Date(Number.isFinite(declaredTime) ? Math.min(declaredTime, Date.now()) : Date.now());
@@ -959,7 +1201,7 @@ export async function receiveUpload(
       await update({});
       result = { status: "unchanged" };
     } else {
-      result = await processFile(db, source, await readBody(req, params.get("gzip") === "1"), fileTime, update);
+      result = await processFile(db, source, await readBody(req, params.get("gzip") === "1"), fileTime, update, encoding);
     }
   } catch (e) {
     result = await failed(update, e);

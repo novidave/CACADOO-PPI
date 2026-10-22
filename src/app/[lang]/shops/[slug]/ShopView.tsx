@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { locales, type Locale } from "@/i18n/config";
+import type { Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
 import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopperPdfAllowed, shopSiteHost, type PublicShop } from "@/lib/data";
@@ -28,6 +28,9 @@ import { shopChatEnabled } from "@/lib/shopChat";
 import { storeJsonLd } from "@/lib/jsonLd";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { getShopContent, slideViews } from "@/lib/sections";
+import { getShopLanguages } from "@/lib/shopLanguages";
+import { getShopTexts } from "@/lib/contentTranslations";
+import { TranslationNote } from "@/components/TranslationNote";
 import { freshnessText } from "@/lib/stock";
 import { ContactLinks } from "@/components/ContactLinks";
 import { JsonLd } from "@/components/JsonLd";
@@ -50,9 +53,9 @@ type SearchParams = Record<string, string | string[] | undefined>;
  * The canonical address: the shop's own domain once it is live (database update 25), on the
  * Cacaduu address and on the domain alike; else the Cacaduu address.
  */
-function alternates(shop: PublicShop, lang: Locale, host: string | null) {
+function alternates(shop: PublicShop, lang: Locale, host: string | null, locales: readonly string[]) {
   if (!host) return pageAlternates(lang, `/shops/${shop.slug}`, locales);
-  const defaultLang = siteLang(shop.country);
+  const defaultLang = siteLang(shop.country, shop.site_lang);
   return {
     canonical: siteShopUrl(host, lang, defaultLang),
     languages: {
@@ -66,11 +69,14 @@ function alternates(shop: PublicShop, lang: Locale, host: string | null) {
 export async function shopMetadata(lang: Locale, slug: string): Promise<Metadata> {
   const [dict, shop] = await Promise.all([getDictionary(lang), getShop(slug).catch(() => null)]);
   if (!shop) return {};
-  const host = await shopSiteHost(shop.slug).catch(() => null);
+  const [host, langs] = await Promise.all([shopSiteHost(shop.slug).catch(() => null), getShopLanguages(shop.slug, shop.country)]);
   return {
     title: addressLine(shop.name, shop.city),
     description: t(dict.shop.meta_description, { name: shop.name, city: shop.city ?? "" }),
-    alternates: alternates(shop, lang, host),
+    // hreflang only for the shop's pre-translated languages; the others are translated on the first visit: noindex.
+    alternates: alternates(shop, lang, host, langs.indexed),
+    // The shop decides (its pre-translated languages), over the site-wide rule of the [lang] layout.
+    robots: { index: langs.indexed.includes(lang), follow: true },
   };
 }
 
@@ -87,7 +93,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   if (!shop) notFound();
   const host = await shopSiteHost(shop.slug).catch(() => null);
   if (onSite && !host) notFound();
-  const defaultLang = siteLang(shop.country);
+  const defaultLang = siteLang(shop.country, shop.site_lang);
 
   const q = (first(sp.q) ?? "").trim();
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
@@ -106,6 +112,14 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   ]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(requestedPage, pages);
+  // The shop's texts in the visitor's language (update 40): the original stays; "Zobraziť originál" = ?original=1.
+  const langs = await getShopLanguages(shop.slug, shop.country);
+  const original = first(sp.original) === "1";
+  const postIds = (content?.slides ?? []).flatMap((s) => (s.kind === "post" ? [s.post.id] : []));
+  const texts = await getShopTexts(shop.slug, lang, langs, original, [
+    { kinds: ["assistant_label", "assistant_welcome", "special_note", "content_title", "section_title", "section_alt"] },
+    { kinds: ["blog_title", "blog_body"], refs: postIds },
+  ]);
   const shopPath = onSite ? sitePath(lang, defaultLang) : `/${lang}/shops/${shop.slug}`;
   const pageUrl = (n: number) => `${shopPath}?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}`;
 
@@ -113,8 +127,12 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const hasLocation = shop.lat !== null && shop.lng !== null;
   const input = statusInput(shop, calendars);
   const renderedAt = requestTime();
-  const place = { shopSlug: shop.slug, country: shop.country, host };
-  const slides = content ? slideViews(content, { shopId: shop.id, slug: shop.slug, lang, timeZone: shop.timezone, place, onSite }) : [];
+  const place = { shopSlug: shop.slug, country: shop.country, host, homeLang: shop.site_lang };
+  const slides = content ? slideViews(content, { shopId: shop.id, slug: shop.slug, lang, timeZone: shop.timezone, place, onSite, texts }) : [];
+  const contentTitle = texts.text("content_title", shop.id, content?.title ?? null);
+  const assistantLabel = texts.text("assistant_label", shop.id, shop.assistant_label);
+  const assistantWelcome = texts.text("assistant_welcome", shop.id, shop.assistant_welcome);
+  const notes = new Map(upcomingDays(input, new Date(renderedAt), 14).flatMap((d) => (d.note ? [[d.date, texts.text("special_note", d.date, d.note)] as const] : [])));
   const newsHref = blogPath(lang, place, onSite);
   // "Všetky novinky" under the slider when the shop has posts; else the "Novinky" link in the details (never both).
   const sliderNews = slides.length > 0 && Boolean(content?.has_posts);
@@ -173,6 +191,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         </p>
       </header>
 
+      <TranslationNote texts={texts} path={shopPath} query={{ ...(q ? { q } : {}), ...(page > 1 ? { page: String(page) } : {}) }} labels={dict.translation} />
+
       {/* 2. The map with the shop's status dot (an extra: the page works without it). */}
       {hasLocation && (
         <ShopMap
@@ -185,13 +205,13 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
       )}
 
       {/* 3. Opening hours: status line, the week (today marked, breaks in the row), the coming special days. */}
-      <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} />
+      <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} notes={notes} />
 
       {/* "Obsah stránky" (update 38): after the opening hours, before the assistant (a free page: before the items). */}
       {slides.length > 0 && content && (
         <ContentSlider
           views={slides}
-          title={content.title ?? dict.content.default_title}
+          title={contentTitle ?? dict.content.default_title}
           showTitle={content.show_title}
           display={content.display}
           allNews={sliderNews ? newsHref : null}
@@ -209,8 +229,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           timeZone={shop.timezone}
           keys={docsKeysEnabled()}
           labels={dict.chat}
-          buttonLabel={shop.assistant_label}
-          welcome={shop.assistant_welcome}
+          buttonLabel={assistantLabel}
+          welcome={assistantWelcome}
           archive={archiveEnabled()}
           shopperPdf={shopperPdf}
         />
@@ -300,12 +320,15 @@ function HoursSection({
   lang,
   dict,
   renderedAt,
+  notes,
 }: {
   shop: PublicShop;
   input: StatusInput;
   lang: Locale;
   dict: Dictionary;
   renderedAt: number;
+  /** The special days' notes in the visitor's language (update 40). */
+  notes: Map<string, string>;
 }) {
   const now = new Date(renderedAt);
   const today = weekdayOf(localDateTime(now, shop.timezone).date);
@@ -346,7 +369,7 @@ function HoursSection({
           <h3 className="text-sm font-semibold">{dict.status.upcoming}</h3>
           <ul className="flex flex-col gap-1 text-sm">
             {coming.map((d) => {
-              const name = d.holidayName?.[lang] || d.holidayName?.en || d.holidayName?.sk || null;
+              const name = (d.holidayName as Record<string, string | null> | undefined)?.[lang] || d.holidayName?.en || d.holidayName?.sk || null;
               const hours =
                 d.kind === "day_off"
                   ? dict.status.check_hours
@@ -358,7 +381,9 @@ function HoursSection({
               return (
                 <li key={d.date} className="flex flex-wrap gap-x-2" data-special-day={d.date}>
                   <span className="capitalize">{dateText(d.date)}</span>
-                  {[name, d.note].filter(Boolean).length > 0 && <span className="text-muted">{[name, d.note].filter(Boolean).join(" · ")}</span>}
+                  {[name, notes.get(d.date) ?? d.note].filter(Boolean).length > 0 && (
+                    <span className="text-muted">{[name, notes.get(d.date) ?? d.note].filter(Boolean).join(" · ")}</span>
+                  )}
                   <span className="font-semibold">{hours}</span>
                 </li>
               );

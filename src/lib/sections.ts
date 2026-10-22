@@ -6,6 +6,7 @@ import { blogPath, blogPhotoUrl, type BlogPlace } from "./blogFormat";
 import { formatDate } from "./format";
 import { cardExcerpt, pageImage, type ContentItem, type PageContent, type PostPhoto, type SlideView } from "./pageContent";
 import { videoSlide } from "./video";
+import type { ShopTexts } from "./contentTranslations";
 
 /**
  * The shop page's "Obsah stránky" (database update 38; before it the page sections of updates 28–31): one call to
@@ -56,8 +57,10 @@ export function postImage(photo: PostPhoto | null) {
  */
 export function slideViews(
   content: PageContent,
-  ctx: { shopId: string; slug: string; lang: Locale; timeZone: string; place: BlogPlace; onSite: boolean },
+  ctx: { shopId: string; slug: string; lang: Locale; timeZone: string; place: BlogPlace; onSite: boolean; texts?: ShopTexts },
 ): SlideView[] {
+  // Titles, texts and picture descriptions in the visitor's language when they are translated (update 40).
+  const tr = (kind: Parameters<ShopTexts["text"]>[0], ref: string, original: string) => (ctx.texts ? ctx.texts.text(kind, ref, original) : original);
   const views: SlideView[] = [];
   for (const slide of content.slides) {
     if (slide.kind === "post") {
@@ -66,10 +69,10 @@ export function slideViews(
         kind: "post",
         key: `post-${p.id}`,
         href: blogPath(ctx.lang, ctx.place, ctx.onSite, p.slug),
-        title: p.title,
+        title: tr("blog_title", p.id, p.title),
         date: formatDate(p.publish_at, ctx.lang, ctx.timeZone),
         dateTime: p.publish_at,
-        excerpt: cardExcerpt(p.excerpt),
+        excerpt: cardExcerpt(ctx.texts?.get("blog_body", p.id) && !ctx.texts.original ? ctx.texts.get("blog_body", p.id)!.text : p.excerpt),
         image: postImage(p.photo),
         video: videoSlide(p.video, content.video_target ?? "post", blogPath(ctx.lang, ctx.place, ctx.onSite, p.slug)),
       });
@@ -79,13 +82,13 @@ export function slideViews(
     if (!pages.length) continue;
     const download = slide.item.download ? downloadPath(ctx.slug, slide.item.id) : null;
     if (slide.kind === "pdf") {
-      views.push({ kind: "pdf", key: `item-${slide.item.id}`, title: slide.item.title, layout: slide.item.page_layout, pages, download });
+      views.push({ kind: "pdf", key: `item-${slide.item.id}`, title: tr("section_title", slide.item.id, slide.item.title), layout: slide.item.page_layout, pages, download });
     } else {
       views.push({
         kind: "picture",
         key: `item-${slide.item.id}`,
-        title: slide.item.show_title ? slide.item.title : null,
-        alt: slide.item.alt || slide.item.title,
+        title: slide.item.show_title ? tr("section_title", slide.item.id, slide.item.title) : null,
+        alt: slide.item.alt ? tr("section_alt", slide.item.id, slide.item.alt) : tr("section_title", slide.item.id, slide.item.title),
         image: pages[0],
         text: pages[0].text,
         download,

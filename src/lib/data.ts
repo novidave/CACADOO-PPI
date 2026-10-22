@@ -37,6 +37,8 @@ export interface PublicShop {
   assistant_welcome: string | null;
   /** The shop's page in a booking app (https only; database update 26 — null before it). */
   booking_url: string | null;
+  /** The own domain's home language (update 40, "Predvolený jazyk na vlastnej doméne"; null before it). */
+  site_lang?: string | null;
 }
 
 /** One row of public.shop_stock(). */
@@ -62,12 +64,15 @@ export interface ShopItemRow {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHOP_COLUMNS_BEFORE_26 =
   "id, slug, name, address, city, country, timezone, phone, website, logo_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal, email, facebook_url, assistant_label, assistant_welcome";
-const SHOP_COLUMNS = `${SHOP_COLUMNS_BEFORE_26}, booking_url`;
+const SHOP_COLUMNS_BEFORE_40 = `${SHOP_COLUMNS_BEFORE_26}, booking_url`;
+const SHOP_COLUMNS = `${SHOP_COLUMNS_BEFORE_40}, site_lang`;
 
-/** Shops from public_shops, with the booking link once update 26 is in (without it before). */
+/** Shops from public_shops, with the booking link (update 26) and the own domain's home language (update 40) once they are in. */
 async function publicShops<T>(query: (columns: string) => PromiseLike<{ data: T | null; error: { code?: string; message: string } | null }>) {
   const result = await query(SHOP_COLUMNS);
-  if (!missingColumn(result.error, "booking_url")) return result;
+  if (!missingColumn(result.error, "site_lang")) return result;
+  const before40 = await query(SHOP_COLUMNS_BEFORE_40);
+  if (!missingColumn(before40.error, "booking_url")) return before40;
   return await query(SHOP_COLUMNS_BEFORE_26);
 }
 

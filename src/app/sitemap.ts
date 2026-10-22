@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { locales } from "@/i18n/config";
+import { indexedLocales } from "@/i18n/dictionaries";
 import { siteUrl } from "@/lib/site";
 import { createPublicClient } from "@/lib/supabase/public";
 
@@ -12,6 +12,9 @@ export const revalidate = 3600;
 const MAX_ITEMS = 45_000;
 const PAGE = 1000; // Supabase returns at most 1,000 rows per request
 
+/** The pre-translated languages (update 40): only those are listed. */
+let locales: string[] = ["sk", "hu", "en"];
+
 function entry(path: string, lastModified?: string | null): MetadataRoute.Sitemap[number] {
   const base = siteUrl();
   return {
@@ -22,6 +25,7 @@ function entry(path: string, lastModified?: string | null): MetadataRoute.Sitema
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  locales = await indexedLocales();
   const urls: MetadataRoute.Sitemap = [entry("")];
   const supabase = createPublicClient();
   if (!supabase) return urls;

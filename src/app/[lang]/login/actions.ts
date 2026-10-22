@@ -49,7 +49,9 @@ export async function signUp(formData: FormData) {
   const { data, error } = await supabase!.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: `${await requestOrigin()}/auth/confirm?next=/${lang}/dashboard` },
+    // The language of signup (update 40): the account's e-mails are in it (profiles.language; Supabase's e-mail
+    // templates read {{ .Data.lang }}, SETUP.md part AL).
+    options: { emailRedirectTo: `${await requestOrigin()}/auth/confirm?next=/${lang}/dashboard`, data: { lang } },
   });
   if (error) {
     if (isRateLimit(error)) back({ error: "rate" });

@@ -6,7 +6,7 @@ import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { facebookEnabled, photoSrc } from "@/lib/blog";
 import { blogPath, blogUrl } from "@/lib/blogFormat";
-import { siteLang } from "@/lib/customDomain";
+import { getShopLanguages } from "@/lib/shopLanguages";
 import { utcToLocalInput } from "@/lib/format";
 import { requestTime } from "@/lib/requestTime";
 import type { MyShop } from "@/lib/myShops";
@@ -66,7 +66,8 @@ export default async function BlogEditorPage({ params, searchParams }: PageProps
     supabase.rpc("shop_site", { p_slug: shop.slug }),
   ]);
   const fb = (connection.data as Pick<FacebookRow, "page_name" | "page_picture" | "status"> | null) ?? null;
-  const place = { shopSlug: shop.slug, country: shop.country, host: typeof host.data === "string" && host.data ? host.data : null };
+  const home = (await getShopLanguages(shop.slug, shop.country)).home;
+  const place = { shopSlug: shop.slug, country: shop.country, host: typeof host.data === "string" && host.data ? host.data : null, homeLang: home };
   const now = requestTime();
   const tomorrow = utcToLocalInput(new Date(now + 86_400_000), shop.timezone).replace(/T\d\d:\d\d$/, "T08:00");
   const pick = first(sp.fb_pick);
@@ -112,8 +113,8 @@ export default async function BlogEditorPage({ params, searchParams }: PageProps
         }}
         lastChoice={((settings.data as { last_choice?: "web" | "web_fb" | null } | null)?.last_choice ?? null)}
         // The post's own address, in the shop's language (as on Facebook).
-        postUrl={`${blogUrl(siteUrl(), siteLang(place.country), place)}/`}
-        viewPath={place.host ? `https://${place.host}${blogPath(siteLang(place.country), place, true)}/` : `${blogPath(lang, place, false)}/`}
+        postUrl={`${blogUrl(siteUrl(), home, place)}/`}
+        viewPath={place.host ? `https://${place.host}${blogPath(home, place, true)}/` : `${blogPath(lang, place, false)}/`}
         defaultAt={first(sp.at) ?? tomorrow}
         resume={{ publish: resume && !pick, at: first(sp.at) ?? null }}
         now={now}

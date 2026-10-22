@@ -6476,4 +6476,275 @@ begin
   delete from public.blog_posts where shop_id = v_b;
 end $$;
 
+\echo '--- translations: languages, interface texts, shop content, descriptions, shop languages, two-language files (update 40)'
+set role anon;
+do $$
+declare
+  v_n integer;
+begin
+  -- every language listed; Slovak always on; Russian and the regional ones off; only sk/hu/en pre-translated
+  select count(*) into v_n from public.site_languages();
+  assert v_n = 42, 'all languages listed: ' || v_n;
+  assert (select enabled and indexed from public.site_languages() where code = 'sk');
+  assert not (select enabled from public.site_languages() where code = 'ru'), 'Russian off by default';
+  assert (select enabled from public.site_languages() where code = 'zh-hans') and not (select enabled from public.site_languages() where code = 'zh-hant');
+  assert (select count(*) from public.site_languages() where indexed) = 3;
+  assert public.ui_messages('de') = '{}'::jsonb;
+  begin
+    perform 1 from public.languages;
+    raise exception 'a visitor read the languages table';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform 1 from public.content_translations;
+    raise exception 'a visitor read content_translations';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.admin_save_language('ru', true, false);
+    raise exception 'a visitor switched a language on';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.apply_translations('[]');
+    raise exception 'a visitor wrote translations';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.translation_work(1);
+    raise exception 'a visitor read the work list';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.apply_ui_translations('de', '[]');
+    raise exception 'a visitor wrote interface texts';
+  exception when insufficient_privilege then null;
+  end;
+  -- before the owner saved languages: no row (the website uses the country), the home language = the country's
+  assert not exists (select 1 from public.shop_languages('drogeria-kostolne'));
+  assert (select site_lang from public.public_shops where slug = 'kisbolt-budapest') = 'hu';
+  -- a visitor may ask for a language (not the shop's own, not a switched-off one), once in 10 minutes
+  assert public.request_translation('drogeria-kostolne', 'de');
+  assert not public.request_translation('drogeria-kostolne', 'de'), 'asked again too soon';
+  assert not public.request_translation('drogeria-kostolne', 'sk'), 'its own language';
+  assert not public.request_translation('drogeria-kostolne', 'ru'), 'switched off';
+end $$;
+reset role;
+
+-- the admin: languages, interface texts, limits
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+begin
+  perform public.admin_save_language('de', true, true);
+  perform public.admin_save_language('sk', false, false);
+  assert (select enabled and indexed from public.site_languages() where code = 'sk'), 'Slovak cannot be switched off';
+  perform public.admin_save_language('lb', false, true);
+  assert not (select indexed from public.site_languages() where code = 'lb'), 'a switched-off language is never pre-translated';
+  perform public.admin_save_ui_text('de', 'shop.items_title', 'Waren im Geschäft', md5('Tovar v obchode'), true);
+  assert public.ui_messages('de') ->> 'shop.items_title' = 'Waren im Geschäft';
+  assert (select status || checked from public.admin_ui_translations('de') where key = 'shop.items_title') = 'manualtrue';
+  begin
+    perform public.admin_save_ui_text('sk', 'shop.items_title', 'x', md5('x'), true);
+    raise exception 'a hand-written language was stored in the database';
+  exception when check_violation then null;
+  end;
+  perform public.admin_save_translation_limits(2, 6);
+  begin
+    perform public.admin_save_translation_limits(-1, 6);
+    raise exception 'a negative limit saved';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_item uuid := (select id from public.shop_items where source_code = 'D900');
+  v_hash text;
+  v_r jsonb;
+begin
+  -- Claude never replaces the admin's interface text of the same Slovak source; a new Slovak text does
+  assert public.apply_ui_translations('de', jsonb_build_array(
+    jsonb_build_object('key', 'shop.items_title', 'text', 'Artikel', 'source_hash', md5('Tovar v obchode')),
+    jsonb_build_object('key', 'shop.hours', 'text', 'Öffnungszeiten', 'source_hash', md5('Otváracie hodiny')))) = 1;
+  assert public.ui_messages('de') ->> 'shop.items_title' = 'Waren im Geschäft';
+  assert 'shop.hours' = any (public.ui_unchecked('de'));
+  -- the budget: 80 % sends one alert a month, over the budget no more calls
+  assert public.translation_budget_ok(10);
+  assert not (public.translation_spend(1000, 500, 5, 10) ->> 'alert')::boolean;
+  assert (public.translation_spend(1000, 500, 3.5, 10) ->> 'alert')::boolean, '80 % reached: alert';
+  assert not (public.translation_spend(1, 1, 0.1, 10) ->> 'alert')::boolean, 'only once a month';
+  assert public.translation_budget_ok(10) and not public.translation_budget_ok(8);
+  -- the old item names became rows: D900 was the owner's correction, now handed back (ai)
+  assert (select status from public.content_translations where kind = 'item_name' and ref = v_item::text and lang = 'en') = 'ai';
+  -- what to translate: item names into sk/hu/en (not the item's own language) and the asked-for German
+  assert exists (select 1 from public.translation_work(500, v_b) where kind = 'item_name' and ref = v_item::text and lang = 'de');
+  assert not exists (select 1 from public.translation_work(500, v_b) where kind = 'item_name' and lang = 'sk'
+                     and ref in (select id::text from public.shop_items where shop_id = v_b and name_lang = 'sk')), 'never into its own language';
+  select source_hash into v_hash from public.translation_work(500, v_b, 'de') where kind = 'item_name' and ref = v_item::text;
+  assert public.apply_translations(jsonb_build_array(jsonb_build_object('shop_id', v_b, 'kind', 'item_name', 'ref', v_item::text,
+    'lang', 'de', 'text', 'Fassadenfarbe weiß 5 l', 'source_hash', v_hash))) = 1;
+  assert (select name_i18n ->> 'de' from public.shop_items where id = v_item) = 'Fassadenfarbe weiß 5 l', 'name_i18n follows';
+  assert not exists (select 1 from public.translation_work(500, v_b, 'de') where kind = 'item_name' and ref = v_item::text);
+  -- a translation of an older original is not stored
+  assert public.apply_translations(jsonb_build_array(jsonb_build_object('shop_id', v_b, 'kind', 'item_name', 'ref', v_item::text,
+    'lang', 'fr', 'text', 'x', 'source_hash', md5('an older name')))) = 0;
+  -- descriptions: a draft waits for the owner (automatic publishing is off by default)
+  assert public.save_description_draft(v_item, 'Biela fasádna farba Primalex v balení 5 l.') = 'draft';
+  assert not exists (select 1 from public.item_description_shown(v_item));
+  assert (public.item_description_facts(v_item) ->> 'brand') = 'Primalex';
+  -- option B: the HU file, matched by Kód then EAN; quantity and price only from the main file
+  v_r := public.apply_shop_translations(v_b, 'hu', jsonb_build_array(
+    jsonb_build_object('source_code', 'D900', 'name', 'Homlokzatfesték fehér 5 l (bolt)', 'quantity', 99, 'price', 24.9),
+    jsonb_build_object('source_code', 'NOPE', 'name', 'Ismeretlen')));
+  assert (v_r ->> 'matched')::int = 1 and (v_r ->> 'unmatched_count')::int = 1, v_r::text;
+  assert jsonb_array_length(v_r -> 'conflicts') = 1 and v_r #>> '{conflicts,0,quantity}' = '99', 'a different quantity is reported';
+  assert (select quantity from public.inventory where shop_item_id = v_item) = 3, '…and ignored';
+  assert (select status || ':' || text from public.content_translations where ref = v_item::text and kind = 'item_name' and lang = 'hu')
+         = 'shop:Homlokzatfesték fehér 5 l (bolt)';
+  assert (select name_i18n ->> 'hu' from public.shop_items where id = v_item) = 'Homlokzatfesték fehér 5 l (bolt)';
+  assert (select name from public.shop_items where id = v_item) = 'Farba fasadna biela 5L', 'the original is never changed';
+  -- Claude never overwrites the shop's translation, not even a stale one
+  assert public.apply_item_translations(v_b, jsonb_build_array(jsonb_build_object('item_id', v_item, 'source', 'Farba fasadna biela 5L',
+    'lang', 'sk', 'sk', 'Farba biela', 'hu', 'Festék', 'en', 'Paint'))) = 1;
+  assert (select text from public.content_translations where ref = v_item::text and kind = 'item_name' and lang = 'hu') = 'Homlokzatfesték fehér 5 l (bolt)';
+  assert (select text from public.content_translations where ref = v_item::text and kind = 'item_name' and lang = 'en') = 'Paint';
+  -- option A: a language per column
+  assert public.apply_file_texts(v_b, jsonb_build_array(jsonb_build_object('source_code', 'D900', 'has_texts', true,
+    'description', 'Fasádna farba', 'category', 'Farby', 'i18n', jsonb_build_object('de', jsonb_build_object('category', 'Farben'))))) = 1;
+  assert (select category from public.shop_items where id = v_item) = 'Farby';
+  assert (select status from public.content_translations where ref = v_item::text and kind = 'item_category' and lang = 'de') = 'shop';
+  -- the search finds the German name and the Hungarian one from the shop's file
+  assert exists (select 1 from public.search_stock('Fassadenfarbe weiß') where item_id = v_item), 'search in any language';
+  assert exists (select 1 from public.search_stock('homlokzatfesték bolt') where item_id = v_item);
+  -- cached search expansions
+  perform public.save_query_expansion('白色油漆', array['biela farba', 'white paint', '']);
+  assert public.query_expansion('白色油漆') = array['biela farba', 'white paint'];
+  assert not exists (select 1 from public.translation_work(500, v_b) where kind = 'item_category' and ref = v_item::text and lang = 'de'), 'the shop gave it';
+end $$;
+reset role;
+
+-- the owner: languages, descriptions, the Preklady tab
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_item uuid := (select id from public.shop_items where source_code = 'D900');
+  v_before jsonb;
+  v_lim integer;
+begin
+  v_lim := (select max_preferred from public.owner_language_settings(v_b));
+  begin
+    perform public.owner_save_language_settings(v_b, 'sk', array['hu'], array['de', 'el', 'uk', 'cs', 'pl', 'fr', 'it'], null, false);
+    raise exception 'more preferred languages than the plan allows';
+  exception when invalid_parameter_value then assert sqlerrm = 'limit', sqlerrm;
+  end;
+  begin
+    perform public.owner_save_language_settings(v_b, 'sk', null, array['ru'], null, false);
+    raise exception 'a switched-off language saved';
+  exception when invalid_parameter_value then assert sqlerrm = 'langs', sqlerrm;
+  end;
+  perform public.owner_save_language_settings(v_b, 'sk', array['hu'], (array['de', 'el', 'uk'])[1:v_lim], 'de', false);
+  assert (select inventory_langs from public.owner_language_settings(v_b)) = array['sk', 'hu'], 'the main language first';
+  assert (select domain_lang from public.shop_languages('drogeria-kostolne')) = 'de';
+  assert (select site_lang from public.public_shops where slug = 'drogeria-kostolne') = 'de', 'the own domain''s "/"';
+  begin
+    perform public.owner_save_language_settings(v_a, 'sk', null, null, null, false);
+    raise exception 'owner B saved shop A''s languages';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.content_translations (shop_id, kind, ref, lang, text, status) values (v_b, 'item_name', v_item::text, 'it', 'x', 'manual');
+    raise exception 'an owner wrote a translation directly';
+  exception when insufficient_privilege then null;
+  end;
+  -- the draft: edited, "Uložiť a zverejniť"; the shop's own description would win, the owner can choose Cacaduu's
+  assert (select draft from public.item_descriptions where item_id = v_item) like 'Biela fasádna%';
+  perform public.owner_save_description(v_item, 'Biela fasádna farba Primalex, 5 l.', true);
+  assert (select text || '/' || source from public.item_description_shown(v_item)) = 'Fasádna farba/shop', 'the shop''s own wins';
+  perform public.owner_set_description_choice(v_item, 'cacaduu');
+  assert (select text || '/' || source from public.item_description_shown(v_item)) = 'Biela fasádna farba Primalex, 5 l./cacaduu';
+  -- Preklady: states of the item's cells
+  assert (select state from public.owner_translations(v_b, 'hu', null, null, null, v_item::text) where kind = 'item_name') = 'shop';
+  assert (select state from public.owner_translations(v_b, 'de', null, null, null, v_item::text) where kind = 'item_name') = 'ai';
+  assert (select state from public.owner_translations(v_b, 'de', null, null, null, v_item::text) where kind = 'item_description') = 'missing';
+  -- "Zmazať" German → translated again on the next visit; "Späť" puts it back; "Neprekladať" keeps it out
+  v_before := public.owner_delete_translations(v_b, jsonb_build_array(jsonb_build_object('kind', 'item_name', 'ref', v_item::text, 'lang', 'de')), false);
+  assert (select name_i18n ->> 'de' from public.shop_items where id = v_item) is null;
+  assert (select state from public.owner_translations(v_b, 'de', null, null, null, v_item::text) where kind = 'item_name') = 'missing';
+  perform public.owner_restore_translations(v_b, v_before);
+  assert (select name_i18n ->> 'de' from public.shop_items where id = v_item) = 'Fassadenfarbe weiß 5 l', 'Späť';
+  perform public.owner_delete_translations(v_b, jsonb_build_array(jsonb_build_object('kind', 'item_name', 'ref', v_item::text, 'lang', 'de')), true);
+  assert (select state from public.owner_translations(v_b, 'de', null, null, null, v_item::text) where kind = 'item_name') = 'none';
+  -- "Upraviť": the owner's own text; Claude's suggestion never replaces it
+  perform public.owner_save_translation(v_b, 'item_name', v_item::text, 'de', 'Weiße Fassadenfarbe 5 l');
+  perform public.owner_accept_translation(v_b, 'item_name', v_item::text, 'de', 'KI-Text');
+  assert (select text || '/' || status from public.content_translations where ref = v_item::text and kind = 'item_name' and lang = 'de') = 'Weiße Fassadenfarbe 5 l/manual';
+  begin
+    perform public.owner_save_translation(v_a, 'item_name', (select id::text from public.shop_items where source_code = 'P001'), 'de', 'x');
+    raise exception 'owner B translated shop A''s item';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.owner_translations(v_a);
+    raise exception 'owner B read shop A''s translations';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.save_description_draft(v_item, 'x');
+    raise exception 'an owner stored a draft as the AI';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- visitors read only shown translations, never a stale one
+set role anon;
+do $$
+declare
+  v_item uuid := (select id from public.shop_items where source_code = 'D900');
+begin
+  assert (select text from public.shop_translations('drogeria-kostolne', 'de', array['item_name'], array[v_item::text])) = 'Weiße Fassadenfarbe 5 l';
+  assert (select text from public.shop_translations('drogeria-kostolne', 'de', array['item_description'])) is null, 'no German description yet';
+  assert (select description_source from public.item_texts(v_item)) = 'cacaduu';
+  assert not exists (select 1 from public.shop_translations('drogeria-kostolne', 'ru')), 'a switched-off language';
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_item uuid := (select id from public.shop_items where source_code = 'D900');
+begin
+  -- an approved description is translated like the rest; a changed original makes the AI text "zastaraný"
+  assert exists (select 1 from public.translation_work(500, v_b, 'de') where kind = 'item_description' and ref = v_item::text);
+  perform public.apply_translations(jsonb_build_array(jsonb_build_object('shop_id', v_b, 'kind', 'item_description', 'ref', v_item::text,
+    'lang', 'de', 'text', 'Weiße Fassadenfarbe Primalex, 5 l.', 'source_hash', md5('Biela fasádna farba Primalex, 5 l.'))));
+  update public.item_descriptions set text = 'Biela fasádna farba Primalex, balenie 5 l.' where item_id = v_item;
+  assert exists (select 1 from public.translation_work(500, v_b, 'de') where kind = 'item_description' and ref = v_item::text), 'stale: made again';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  assert not exists (select 1 from public.shop_translations('drogeria-kostolne', 'de', array['item_description'])), 'a stale text is not shown';
+end $$;
+reset role;
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+begin
+  delete from public.content_translations where shop_id = v_b and lang not in ('sk', 'hu', 'en');
+  delete from public.item_descriptions where shop_id = v_b;
+  delete from public.shop_language_settings where shop_id = v_b;
+  delete from public.translation_requests;
+  update public.languages set indexed = false where code = 'de';
+end $$;
+
 \echo 'ALL DATABASE CHECKS PASSED'

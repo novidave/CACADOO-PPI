@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { locales, type Locale } from "@/i18n/config";
+import type { Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { itemHref, siteItemUrl, siteLang, sitePath } from "@/lib/customDomain";
 import { getItem, getLiveSites, getOtherOffers, getShop, getShopCalendars, getShopsByIds, shopSiteHost, shopStandsAlone } from "@/lib/data";
@@ -11,6 +11,9 @@ import { requestTime } from "@/lib/requestTime";
 import { statusInput } from "@/lib/shopCalendar";
 import { itemJsonLd } from "@/lib/jsonLd";
 import { pageAlternates, siteUrl } from "@/lib/site";
+import { getShopLanguages } from "@/lib/shopLanguages";
+import { getItemTexts, getShopTexts } from "@/lib/contentTranslations";
+import { TranslationNote } from "@/components/TranslationNote";
 import { JsonLd } from "@/components/JsonLd";
 import { ShopMap } from "@/components/ShopMap";
 import { LiveStatus } from "@/components/ShopStatus";
@@ -20,7 +23,7 @@ export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> 
   const [dict, item] = await Promise.all([getDictionary(lang), getItem(id).catch(() => null)]);
   if (!item) return {};
   // The canonical address: the shop's own domain once it is live (database update 25).
-  const host = await shopSiteHost(item.shop_slug).catch(() => null);
+  const [host, langs] = await Promise.all([shopSiteHost(item.shop_slug).catch(() => null), getShopLanguages(item.shop_slug, item.shop_country)]);
   const translated = translatedName(item.item_name, item.item_name_i18n, lang);
   const name = translated ? `${item.item_name} (${translated})` : item.item_name;
   return {
@@ -34,11 +37,13 @@ export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> 
       ? {
           canonical: siteItemUrl(host, lang, item.item_id),
           languages: {
-            ...Object.fromEntries(locales.map((l) => [l, siteItemUrl(host, l, item.item_id)])),
-            "x-default": siteItemUrl(host, siteLang(item.shop_country), item.item_id),
+            ...Object.fromEntries(langs.indexed.map((l) => [l, siteItemUrl(host, l, item.item_id)])),
+            "x-default": siteItemUrl(host, langs.home, item.item_id),
           },
         }
-      : pageAlternates(lang, `/items/${item.item_id}`, locales),
+      : pageAlternates(lang, `/items/${item.item_id}`, langs.indexed),
+    // The shop decides (its pre-translated languages), over the site-wide rule of the [lang] layout.
+    robots: { index: langs.indexed.includes(lang), follow: true },
   };
 }
 
@@ -46,7 +51,7 @@ export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> 
  * An item's page: on the Cacaduu address, or on its shop's own domain (siteSlug: only that
  * shop's items exist there; links stay on the domain). One canonical for both.
  */
-export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: string; siteSlug: string | null }) {
+export async function ItemView({ lang, id, siteSlug, original = false }: { lang: Locale; id: string; siteSlug: string | null; original?: boolean }) {
   const [dict, item] = await Promise.all([getDictionary(lang), getItem(id)]);
   if (!item) notFound();
   if (siteSlug && item.shop_slug !== siteSlug) notFound();
@@ -71,7 +76,14 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
   const renderedAt = requestTime();
   const hasLocation = item.shop_lat !== null && item.shop_lng !== null;
   const translated = translatedName(item.item_name, item.item_name_i18n, lang);
-  const shopHref = siteSlug && shop ? sitePath(lang, siteLang(shop.country)) : `/${lang}/shops/${item.shop_slug}`;
+  const shopHref = siteSlug && shop ? sitePath(lang, siteLang(shop.country, shop.site_lang)) : `/${lang}/shops/${item.shop_slug}`;
+  // The description and category (update 40): the shop's own, else the approved "Popis (Cacaduu)"; in the visitor's
+  // language when translated (the original stays; "Zobraziť originál").
+  const [itemTexts, langs] = await Promise.all([getItemTexts(item.item_id), getShopLanguages(item.shop_slug, item.shop_country)]);
+  const texts = await getShopTexts(item.shop_slug, lang, langs, original, [{ kinds: ["item_description", "item_category"], refs: [item.item_id] }]);
+  const description = texts.text("item_description", item.item_id, itemTexts?.description ?? null);
+  const category = texts.text("item_category", item.item_id, itemTexts?.category ?? null);
+  const itemPath = `/${lang}/items/${item.item_id}`;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -97,7 +109,20 @@ export async function ItemView({ lang, id, siteSlug }: { lang: Locale; id: strin
               <dd className="tabular-nums">{item.ean}</dd>
             </>
           )}
+          {category && (
+            <>
+              <dt className="text-muted">{dict.item.category}</dt>
+              <dd data-item-category>{category}</dd>
+            </>
+          )}
         </dl>
+        {description && (
+          <div className="flex flex-col gap-1" data-item-description={itemTexts?.source ?? ""}>
+            <h2 className="text-sm text-muted">{dict.item.description}</h2>
+            <p className="whitespace-pre-line">{description}</p>
+          </div>
+        )}
+        <TranslationNote texts={texts} path={itemPath} labels={dict.translation} />
       </header>
 
       <section aria-labelledby="shop-heading" className="flex flex-col gap-2 border border-line p-4">

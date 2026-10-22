@@ -2,7 +2,8 @@
 import * as XLSX from "npm:@e965/xlsx@0.20.3";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
-  applyMapping, approvalSample, batches, columnSamples, currencyForCountry, decodeText, detectFormat, guessMapping,
+  applyMapping, approvalSample, batches, columnSamples, currencyForCountry, decodeText, detectEncoding, detectFormat, guessLanguageColumns, guessMapping,
+  isValidMapping, languageField, languageRows, previewFile,
   importReport, indexNowPayload, indexNowSettings, indexNowUrls, isPrivateColumn, mappedColumns, onlyColumns, parseFile, parseNumber,
   pingIndexNow, readTranslations, receiveUpload, type IndexNowHostClaim, type Mapping, type NameTranslation, type Translator,
 } from "./index.ts";
@@ -33,7 +34,7 @@ Deno.test("CSV in Windows-1250 with semicolons, quotes and decimal commas (Slova
   eq(rows.length, 2, "row count (empty line ignored)");
   eq(rows[0]["Názov tovaru"], "Káva zrnková; 1 kg", "quoted field keeps the separator");
   const mapping = guessMapping(Object.keys(rows[0]));
-  eq(mapping, { source_code: "Kód", name: "Názov tovaru", ean: "EAN", brand: null, quantity: "Množstvo", price: "Cena s DPH", currency: null }, "Slovak mapping");
+  eq(mapping, { source_code: "Kód", name: "Názov tovaru", ean: "EAN", brand: null, quantity: "Množstvo", price: "Cena s DPH", currency: null, description: null, category: null }, "Slovak mapping");
   const { good, bad } = applyMapping(rows, mapping, currencyForCountry("SK"));
   eq(bad, 0, "no bad rows");
   eq(good[1], { source_code: "P002", name: "Čokoláda horká", ean: null, brand: null, quantity: 2, price: 1.49, currency: "EUR" }, "mapped row");
@@ -429,4 +430,80 @@ Deno.test("a new layout: proposed columns, a sample without private values, a wa
   eq([report.p_status, report.p_imported], ["waiting", 0], "waiting for the owner");
   eq(report.p_rows, [], "no preview rows before the columns are approved");
   eq(rpc.some((c) => c.name === "apply_stock_file"), false, "nothing applied before approval");
+});
+
+function ok(value: unknown, label: string) {
+  if (!value) throw new Error(label);
+}
+
+// ---------------------------------------------------------------- update 40: encodings, texts, languages
+
+/** A string in an 8-bit or Chinese encoding (only the letters these tests need). */
+function encode(text: string, table: Record<string, number[]>): Uint8Array {
+  return Uint8Array.from([...text].flatMap((c) => table[c] ?? [c.charCodeAt(0)]));
+}
+
+Deno.test("encodings: BOM, UTF-8, Windows-1250, Windows-1258 (Vietnamese) and GB18030 (Chinese) are told apart", () => {
+  const csv = "Mã;Tên;Số lượng;Giá\n";
+  eq(detectEncoding(new TextEncoder().encode("﻿Kód;Názov\nA;Káva\n")), "utf-8", "UTF-8 with BOM");
+  eq(decodeText(new TextEncoder().encode("﻿Kód;Názov\n")).startsWith("Kód"), true, "the BOM is dropped");
+  eq(detectEncoding(Uint8Array.from([0xff, 0xfe, 0x4b, 0x00])), "utf-16le", "UTF-16 BOM");
+  eq(detectEncoding(new TextEncoder().encode(csv)), "utf-8", "valid UTF-8");
+  // Windows-1258: ă = 0xE3, ơ = 0xF5, ư = 0xFD, đ = 0xF0, combining acute = 0xEC, combining grave = 0xCC
+  const viet = encode("Mã;Tên;Số lượng\nV1;Bánh mì;3\nV2;Phở bò;2\nV3;Cà phê sữa đá;5\n", {
+    "ã": [0x61, 0xde], "ê": [0xea], "ố": [0xf4, 0xec], "ư": [0xfd], "ợ": [0xf5, 0xf2], "á": [0xe1], "ì": [0x69, 0xcc],
+    "ở": [0xf5, 0xd2], "ò": [0x6f, 0xcc], "à": [0xe0], "ữ": [0xfd, 0xde], "đ": [0xf0],
+  });
+  eq(detectEncoding(viet), "windows-1258", "Vietnamese shop software");
+  // GB18030 / GBK: 白 = B0 D7, 色 = C9 AB, 油 = D3 CD, 漆 = C6 E1
+  const zh = encode("Code;Name\nZ1;白色油漆\nZ2;白色油漆 5L\n", { "白": [0xb0, 0xd7], "色": [0xc9, 0xab], "油": [0xd3, 0xcd], "漆": [0xc6, 0xe1] });
+  eq(detectEncoding(zh), "gb18030", "Chinese shop software");
+  eq(decodeText(zh).includes("白色油漆"), true, "read as Chinese");
+  const sk = encode("Kód;Názov\nP1;Čokoláda\nP2;Šľahačka\n", { "ó": [0xf3], "á": [0xe1], "Č": [0xc8], "Š": [0x8a], "ľ": [0xbe], "č": [0xe8] });
+  eq(detectEncoding(sk), "windows-1250", "Central European stays Windows-1250");
+});
+
+Deno.test("preview: the chosen encoding, the columns that will be read, never a private one", () => {
+  const zh = encode("Code;Name;Nákupná cena;Price;Qty\nZ1;白色油漆;10;12,90;3\n", { "白": [0xb0, 0xd7], "色": [0xc9, 0xab], "油": [0xd3, 0xcd], "漆": [0xc6, 0xe1], "á": [0xe1] });
+  const auto = previewFile(zh, null, null);
+  eq([auto.detected, auto.encoding, auto.rows], ["gb18030", "gb18030", 1], "detected");
+  eq(auto.sample, [{ Code: "Z1", Name: "白色油漆", Qty: "3", Price: "12,90" }], "only the columns that will be read");
+  const forced = previewFile(zh, "windows-1250", null);
+  eq(forced.encoding, "windows-1250", "the owner's choice");
+  ok(!JSON.stringify(forced.sample).includes("10"), "the purchase price is never shown");
+});
+
+Deno.test("description, category and a language per column (option A)", () => {
+  const columns = ["Kód", "Názov", "Názov HU", "Popis", "Leírás (HU)", "Kategória", "Name_EN", "Množstvo", "Cena"];
+  const mapping = guessMapping(columns);
+  eq([mapping.name, mapping.description, mapping.category], ["Názov", "Popis", "Kategória"], "the main columns");
+  const langs = guessLanguageColumns(columns, mapping, "sk");
+  eq(langs, { "name@hu": "Názov HU", "description@hu": "Leírás (HU)", "name@en": "Name_EN" }, "proposed from the names");
+  eq(languageField("name@zh-hans"), ["name", "zh-hans"], "Chinese column");
+  eq(languageField("price@hu"), null, "only text fields come in languages");
+  const full = { ...mapping, ...langs } as Mapping;
+  ok(isValidMapping(full, columns), "valid");
+  ok(!isValidMapping({ ...full, "price@hu": "Cena" } as Mapping, columns), "no other fields per language");
+  const { good, texts } = applyMapping(
+    [{ "Kód": "P1", "Názov": "Farba biela", "Názov HU": "Fehér festék", "Popis": "Na fasády", "Leírás (HU)": "", "Kategória": "Farby", "Name_EN": "White paint", "Množstvo": "3", "Cena": "9,90" }],
+    full,
+    "EUR",
+  );
+  eq(good[0], { source_code: "P1", name: "Farba biela", ean: null, brand: null, quantity: 3, price: 9.9, currency: "EUR" }, "stock rows unchanged");
+  eq(texts, [{ source_code: "P1", description: "Na fasády", category: "Farby", has_texts: true, i18n: { hu: { name: "Fehér festék" }, en: { name: "White paint" } } }], "texts kept apart");
+  eq(applyMapping([{ "Kód": "P1", "Názov": "x", "Množstvo": "1", "Cena": "1" }], { ...mapping, description: null, category: null } as Mapping, "EUR").texts, [], "no text columns: nothing extra");
+});
+
+Deno.test("a second file in another language (option B): matched by code or EAN, quantity and price only to compare", () => {
+  const rows: Record<string, string>[] = [
+    { "Kód": "P1", "EAN": "", "Megnevezés": "Fehér festék", "Készlet": "99", "Ár": "9,90", "Beszerzési ár": "5" },
+    { "Kód": "", "EAN": "8590000000011", "Megnevezés": "Kávé", "Készlet": "", "Ár": "", "Beszerzési ár": "" },
+    { "Kód": "", "EAN": "", "Megnevezés": "Nincs kódja", "Készlet": "", "Ár": "", "Beszerzési ár": "" },
+  ];
+  const mapping = guessMapping(Object.keys(rows[0]).filter((c) => !isPrivateColumn(c)));
+  eq([mapping.source_code, mapping.ean, mapping.name, mapping.quantity, mapping.price], ["Kód", "EAN", "Megnevezés", "Készlet", "Ár"], "Hungarian file");
+  eq(languageRows(rows, mapping), [
+    { source_code: "P1", ean: null, name: "Fehér festék", description: null, category: null, quantity: 99, price: 9.9 },
+    { source_code: null, ean: "8590000000011", name: "Kávé", description: null, category: null, quantity: null, price: null },
+  ], "a row without code and EAN is left out; the purchase price is never read");
 });

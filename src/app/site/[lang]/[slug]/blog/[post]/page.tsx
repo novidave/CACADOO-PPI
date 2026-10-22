@@ -10,8 +10,9 @@ export async function generateMetadata({ params }: PageProps<"/site/[lang]/[slug
   return await blogPostMetadata(lang, slug, post, true);
 }
 
-export default async function SiteBlogPostPage({ params }: PageProps<"/site/[lang]/[slug]/blog/[post]">) {
+export default async function SiteBlogPostPage({ params, searchParams }: PageProps<"/site/[lang]/[slug]/blog/[post]">) {
   const { lang, slug, post } = await params;
+  const original = (await searchParams).original === "1";
   if (!isLocale(lang)) notFound();
-  return <BlogPostView lang={lang} slug={slug} postSlug={post} onSite />;
+  return <BlogPostView lang={lang} slug={slug} postSlug={post} onSite original={original} />;
 }

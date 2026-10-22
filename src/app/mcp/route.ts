@@ -3,6 +3,10 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod";
 import { CORS_HEADERS, json, preflight, rateLimit } from "@/lib/apiHttp";
 import { ApiError, DATA_RULES, getItem, getShop, searchStock } from "@/lib/publicApi";
+import { locales, type Locale } from "@/i18n/config";
+
+/** Every language the website can be shown in (update 40). */
+const LANGS = locales as unknown as [Locale, ...Locale[]];
 
 /**
  * PPI MCP server (Streamable HTTP, stateless, read-only, no login).
@@ -59,9 +63,9 @@ function buildServer() {
         radius_km: z.number().min(0.1).max(500).optional().describe("Search radius around 'near' in km (default 10)."),
         only_available: z.boolean().optional().describe("Only items that are in stock and have fresh data."),
         lang: z
-          .enum(["sk", "hu", "en"])
+          .enum(LANGS)
           .optional()
-          .describe("Language of name_translated and of the source_url pages (default en)."),
+          .describe("Language of name_translated and of the source_url pages (any of the website's language codes, e.g. de, el, uk, zh-hans; default en)."),
       },
       annotations: { title: "Search shop stock", ...readOnly },
     },
@@ -86,7 +90,7 @@ function buildServer() {
         "open now, facilities (customer toilet, douchette, card payment) and stock freshness.",
       inputSchema: {
         slug: z.string().min(1).max(80).describe("Shop slug, e.g. 'potraviny-centrum'."),
-        lang: z.enum(["sk", "hu", "en"]).optional(),
+        lang: z.enum(LANGS).optional(),
       },
       annotations: { title: "Get a shop", ...readOnly },
     },
@@ -106,7 +110,7 @@ function buildServer() {
       description: "One item by its id (from search results), plus the same product (EAN) in other shops, nearest first.",
       inputSchema: {
         id: z.string().uuid().describe("Item id from search_stock results."),
-        lang: z.enum(["sk", "hu", "en"]).optional(),
+        lang: z.enum(LANGS).optional(),
       },
       annotations: { title: "Get an item", ...readOnly },
     },

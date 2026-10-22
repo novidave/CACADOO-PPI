@@ -5,7 +5,8 @@ import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import { addressLine, formatPrice } from "@/lib/format";
-import { MAPPING_FIELDS, REQUIRED_FIELDS, type MyShop } from "@/lib/myShops";
+import { LANGUAGE_COLUMN_ROWS, MAPPING_FIELDS, REQUIRED_FIELDS, TEXT_FIELDS, type MyShop } from "@/lib/myShops";
+import { LANGUAGES } from "@/i18n/languages";
 import { translatedName, type NameI18n } from "@/lib/names";
 import { availabilityText, type AvailabilityKey } from "@/lib/stock";
 import { DashboardSection } from "@/components/DashboardSection";
@@ -232,6 +233,41 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
                   </label>
                 ))}
               </div>
+              <fieldset className="flex flex-col gap-2" data-language-columns>
+                <legend className="text-sm font-semibold">{dict.owner_tr.columns_lang_title}</legend>
+                <p className="text-xs text-muted">{dict.owner_tr.columns_lang_help}</p>
+                {Array.from({ length: LANGUAGE_COLUMN_ROWS }, (_, i) => {
+                  const entry = Object.entries(shop.field_mapping ?? {}).filter(([k, v]) => k.includes("@") && v)[i];
+                  const [field, language] = entry ? entry[0].split("@") : ["name", ""];
+                  return (
+                    <div key={i} className="grid grid-cols-3 gap-2">
+                      <select name={`lc_col_${i}`} defaultValue={entry?.[1] ?? ""} className={`${inputClass} bg-white`} aria-label={dict.owner_tr.columns_lang_column}>
+                        <option value="">{o.not_in_file}</option>
+                        {columns.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                      <select name={`lc_field_${i}`} defaultValue={field} className={`${inputClass} bg-white`} aria-label={dict.owner_tr.columns_lang_field}>
+                        {TEXT_FIELDS.map((f) => (
+                          <option key={f} value={f}>
+                            {o[`col_${f}`]}
+                          </option>
+                        ))}
+                      </select>
+                      <select name={`lc_lang_${i}`} defaultValue={language} className={`${inputClass} bg-white`} aria-label={dict.owner_tr.columns_lang_language}>
+                        <option value="">{dict.owner_tr.columns_lang_none}</option>
+                        {LANGUAGES.map((l) => (
+                          <option key={l.code} value={l.code}>
+                            {l.native}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </fieldset>
               <SampleRows rows={(shop.sample_rows ?? []).slice(0, 5)} columns={sampleColumns} title={o.sample_rows} />
               <p className="text-xs text-muted">{o.private_columns_note}</p>
               <SubmitButton pending={o.saving}>{o.approve}</SubmitButton>
@@ -307,7 +343,13 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
                   {items.map((item) => (
                     <tr key={item.item_id} className="border-b border-line">
                       <td className="py-2 pr-2">
-                        <ItemNames item={item} lang={lang} dict={dict} hidden={hidden({ at: "items", item_id: item.item_id, q, page: String(page) })} />
+                        <ItemNames
+                          item={item}
+                          lang={lang}
+                          dict={dict}
+                          hidden={hidden({ at: "items", item_id: item.item_id, q, page: String(page) })}
+                          detail={`/${lang}/dashboard/items/${item.item_id}?${new URLSearchParams({ shop: shop.slug })}`}
+                        />
                       </td>
                       <td className="py-2 pr-2 tabular-nums">{item.source_code}</td>
                       <td className="whitespace-nowrap py-2 pr-2 text-right">{formatPrice(item.price, lang, item.currency)}</td>
@@ -359,11 +401,14 @@ function ItemNames({
   lang,
   dict,
   hidden,
+  detail,
 }: {
   item: OwnerItem;
   lang: Locale;
   dict: Dictionary;
   hidden: React.ReactNode;
+  /** The product's page: "Popis" and "Preklady" (update 40). */
+  detail: string;
 }) {
   const d = dict.dashboard;
   const translated = translatedName(item.item_name, item.name_i18n, lang);
@@ -373,6 +418,9 @@ function ItemNames({
       <span>{item.item_name}</span>
       {translated && <span className="text-muted">{translated}</span>}
       {!item.name_i18n && <span className="text-xs text-muted">{d.translation_waiting}</span>}
+      <Link href={detail} className="text-xs underline underline-offset-4" data-item-detail>
+        {dict.owner_tr.item_link}
+      </Link>
       <details>
         <summary className="cursor-pointer text-xs text-muted underline underline-offset-4">
           {item.name_i18n_by_owner ? d.translation_yours : d.translation_edit}

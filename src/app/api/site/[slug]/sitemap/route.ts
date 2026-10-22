@@ -1,6 +1,6 @@
-import { locales } from "@/i18n/config";
 import { blogUrl } from "@/lib/blogFormat";
-import { siteItemUrl, siteLang, siteShopUrl } from "@/lib/customDomain";
+import { siteItemUrl, siteShopUrl } from "@/lib/customDomain";
+import { getShopLanguages } from "@/lib/shopLanguages";
 import { createPublicClient } from "@/lib/supabase/public";
 
 /**
@@ -21,7 +21,10 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/site/[slug]
     supabase.from("public_shops").select("slug, country, latest_file_time").eq("slug", slug).maybeSingle(),
   ]);
   if (typeof host !== "string" || !host || !shop) return new Response("Not found", { status: 404 });
-  const defaultLang = siteLang(shop.country);
+  // Only the shop's pre-translated languages (update 40): the others get noindex and stay out of the sitemap.
+  const langs = await getShopLanguages(slug, shop.country);
+  const locales = langs.indexed;
+  const defaultLang = langs.home;
   const entry = (urls: Record<string, string>, main: string, lastmod?: string | null) =>
     `<url><loc>${xml(main)}</loc>${lastmod ? `<lastmod>${xml(lastmod)}</lastmod>` : ""}${Object.entries(urls)
       .map(([l, u]) => `<xhtml:link rel="alternate" hreflang="${l}" href="${xml(u)}"/>`)
@@ -31,7 +34,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/site/[slug]
   ];
   // The blog (database update 37): "/blog" and every post shown, lastmod = the post's last change.
   const { data: posts } = await supabase.rpc("blog_index", { p_slug: slug, p_limit: 20_000 });
-  const place = { shopSlug: slug, country: shop.country, host };
+  const place = { shopSlug: slug, country: shop.country, host, homeLang: defaultLang };
   const blogEntries = ((posts ?? []) as { post_slug: string; modified_at: string }[]).map((p) =>
     entry(Object.fromEntries(locales.map((l) => [l, blogUrl("", l, place, p.post_slug)])), blogUrl("", defaultLang, place, p.post_slug), p.modified_at),
   );

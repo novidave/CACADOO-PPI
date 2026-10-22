@@ -5,6 +5,7 @@ import { missingColumn } from "@/lib/missingColumn";
 import { loadCalendars } from "@/lib/shopCalendar";
 import { siteUrl } from "@/lib/site";
 import { type LlmsFacts, type LlmsShop, siteLlmsTxt } from "@/lib/siteFiles";
+import { getShopLanguages } from "@/lib/shopLanguages";
 import { createPublicClient } from "@/lib/supabase/public";
 
 const COLUMNS = "id, name, address, city, country, timezone, phone, email, website, facebook_url, booking_url, opening_hours, lat, lng";
@@ -32,7 +33,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/site/[slug]
   const { data } = missingColumn(first.error, "booking_url") ? await shopQuery(COLUMNS.replace(", booking_url", "")) : first;
   const shop = data as unknown as (LlmsShop & { id: string }) | null;
   if (typeof host !== "string" || !host || !shop) return new Response("Not found", { status: 404 });
-  const lang = siteLang(shop.country);
+  const lang = siteLang(shop.country, (await getShopLanguages(slug, shop.country)).home);
   const [dict, calendars] = await Promise.all([getDictionary(lang), loadCalendars(supabase, [shop.id], 16)]);
   const text = siteLlmsTxt({
     host,

@@ -17,6 +17,9 @@ import {
   type BlogPost,
 } from "@/lib/blogFormat";
 import { siteLang, sitePath } from "@/lib/customDomain";
+import { getShopLanguages } from "@/lib/shopLanguages";
+import { getShopTexts } from "@/lib/contentTranslations";
+import { TranslationNote } from "@/components/TranslationNote";
 import { getShop, shopSiteHost, type PublicShop } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import { shopPageUrl } from "@/lib/jsonLd";
@@ -43,14 +46,14 @@ function first(value: string | string[] | undefined): string | undefined {
 async function load(slug: string, onSite: boolean) {
   const shop = await getShop(slug).catch(() => null);
   if (!shop) return null;
-  const host = await shopSiteHost(shop.slug).catch(() => null);
+  const [host, langs] = await Promise.all([shopSiteHost(shop.slug).catch(() => null), getShopLanguages(shop.slug, shop.country)]);
   if (onSite && !host) return null;
-  const place: BlogPlace = { shopSlug: shop.slug, country: shop.country, host };
-  return { shop, host, place };
+  const place: BlogPlace = { shopSlug: shop.slug, country: shop.country, host, homeLang: shop.site_lang };
+  return { shop, host, place, langs };
 }
 
 /** The shop's page on the address the visitor is on. */
-const shopPath = (lang: Locale, shop: PublicShop, onSite: boolean) => (onSite ? sitePath(lang, siteLang(shop.country)) : `/${lang}/shops/${shop.slug}`);
+const shopPath = (lang: Locale, shop: PublicShop, onSite: boolean) => (onSite ? sitePath(lang, siteLang(shop.country, shop.site_lang)) : `/${lang}/shops/${shop.slug}`);
 
 const pageNumber = (sp: Record<string, string | string[] | undefined>) => Math.max(1, Math.floor(Number(first(sp.page)) || 1));
 
@@ -59,8 +62,8 @@ const changed = (post: BlogPost) => Date.parse(post.modified_at) - Date.parse(po
 export async function blogListMetadata(lang: Locale, slug: string, page: number, onSite: boolean): Promise<Metadata> {
   const [dict, found] = await Promise.all([getDictionary(lang), load(slug, onSite)]);
   if (!found) return {};
-  const { shop, place } = found;
-  const alternates = blogAlternates(siteUrl(), lang, place);
+  const { shop, place, langs } = found;
+  const alternates = blogAlternates(siteUrl(), lang, place, undefined, langs.indexed);
   const title = t(dict.blog.title_of, { name: shop.name });
   return {
     title,
@@ -71,6 +74,8 @@ export async function blogListMetadata(lang: Locale, slug: string, page: number,
       types: { "application/rss+xml": [{ url: blogRssUrl(siteUrl(), place), title }] },
     },
     openGraph: { type: "website", title, url: alternates.canonical },
+    // The shop decides (its pre-translated languages), over the site-wide rule of the [lang] layout.
+    robots: { index: langs.indexed.includes(lang), follow: true },
   };
 }
 
@@ -81,12 +86,16 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
   const b = dict.blog;
   const requested = pageNumber(sp);
   const data = await getBlogPage(shop.slug, requested);
-  const posts = data?.posts ?? [];
+  // Titles and texts in the visitor's language when translated (update 40); the original as written stays.
+  const texts = await getShopTexts(shop.slug, lang, found.langs, first(sp.original) === "1", [
+    { kinds: ["blog_title", "blog_body"], refs: (data?.posts ?? []).flatMap((p) => (p.id ? [p.id] : [])) },
+  ]);
+  const posts = (data?.posts ?? []).map((p) => (p.id ? { ...p, title: texts.text("blog_title", p.id, p.title), body: texts.text("blog_body", p.id, p.body) } : p));
   const total = data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / BLOG_PER_PAGE));
   if (requested > pages) notFound();
   const base = siteUrl();
-  const shopUrl = shopPageUrl(base, shop.slug, shop.country, lang, found.host);
+  const shopUrl = shopPageUrl(base, shop.slug, shop.country, lang, found.host, shop.site_lang);
   const listUrl = blogUrl(base, lang, place);
   const here = (n: number) => `${blogPath(lang, place, onSite)}${n > 1 ? `?page=${n}` : ""}`;
 
@@ -183,14 +192,16 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
 export async function blogPostMetadata(lang: Locale, slug: string, postSlug: string, onSite: boolean): Promise<Metadata> {
   const [found, post] = await Promise.all([load(slug, onSite), getBlogPost(slug, postSlug)]);
   if (!found || !post) return {};
-  const { shop, place } = found;
-  const alternates = blogAlternates(siteUrl(), lang, place, post.slug);
+  const { shop, place, langs } = found;
+  const alternates = blogAlternates(siteUrl(), lang, place, post.slug, langs.indexed);
   const description = excerpt(post.body.trim() || post.title, 160);
   const image = post.photos.find((p) => p.kind === "photo") ?? post.photos[0];
   return {
     title: `${post.title} · ${shop.name}`,
     description,
     alternates,
+    // The shop decides (its pre-translated languages), over the site-wide rule of the [lang] layout.
+    robots: { index: langs.indexed.includes(lang), follow: true },
     openGraph: {
       type: "article",
       title: post.title,
@@ -205,10 +216,15 @@ export async function blogPostMetadata(lang: Locale, slug: string, postSlug: str
   };
 }
 
-export async function BlogPostView({ lang, slug, postSlug, onSite }: { lang: Locale; slug: string; postSlug: string; onSite: boolean }) {
-  const [dict, found, post] = await Promise.all([getDictionary(lang), load(slug, onSite), getBlogPost(slug, postSlug)]);
-  if (!found || !post) notFound();
+export async function BlogPostView({ lang, slug, postSlug, onSite, original = false }: { lang: Locale; slug: string; postSlug: string; onSite: boolean; original?: boolean }) {
+  const [dict, found, written] = await Promise.all([getDictionary(lang), load(slug, onSite), getBlogPost(slug, postSlug)]);
+  if (!found || !written) notFound();
   const { shop, place } = found;
+  // The post in the visitor's language when translated (update 40); the original as written stays a tap away.
+  const texts = await getShopTexts(shop.slug, lang, found.langs, original, [{ kinds: ["blog_title", "blog_body"], refs: written.id ? [written.id] : [] }]);
+  const post = written.id
+    ? { ...written, title: texts.text("blog_title", written.id, written.title), body: texts.text("blog_body", written.id, written.body) }
+    : written;
   const b = dict.blog;
   const base = siteUrl();
   const url = blogUrl(base, lang, place, post.slug);
@@ -226,7 +242,7 @@ export async function BlogPostView({ lang, slug, postSlug, onSite }: { lang: Loc
           url,
           blogUrl: blogUrl(base, lang, place),
           blogName: t(b.title_of, { name: shop.name }),
-          shop: { name: shop.name, url: shopPageUrl(base, shop.slug, shop.country, lang, found.host) },
+          shop: { name: shop.name, url: shopPageUrl(base, shop.slug, shop.country, lang, found.host, shop.site_lang) },
           images,
         })}
       />
@@ -244,6 +260,7 @@ export async function BlogPostView({ lang, slug, postSlug, onSite }: { lang: Loc
         </p>
       </header>
 
+      <TranslationNote texts={texts} path={blogPath(lang, place, onSite, post.slug)} labels={dict.translation} />
       <BlogGallery photos={post.photos} group={`blog-${post.slug}`} title={post.title} src={photoSrc} dict={dict} />
       <BlogText body={post.body} />
 

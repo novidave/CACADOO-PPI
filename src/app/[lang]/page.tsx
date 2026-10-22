@@ -1,3 +1,4 @@
+import { searchAcrossLanguages } from "@/lib/queryExpansion";
 import type { Viewport } from "next";
 import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
@@ -112,10 +113,20 @@ async function PlainResults({ q, lang, dict }: { q: string; lang: Locale; dict: 
       error = `${dict.search.not_connected} (${missingSupabaseEnv().join(", ")})`;
     } else {
       // No location: every shop is searched, by item, brand, EAN, shop name, street or town.
-      const result = await supabase.rpc("search_stock", { q, lat: null, lng: null, only_available: false });
-      if (result.error) error = `${result.error.message} · Supabase: ${supabaseEnv()?.url}`;
-      rows = (result.data ?? []) as StockRow[];
-      if (!result.error) {
+      // Every language (update 40): a search with no hit (or in Chinese) also in Claude's words.
+      const run = async (words: string) => {
+        const result = await supabase.rpc("search_stock", { q: words, lat: null, lng: null, only_available: false });
+        if (result.error) throw new Error(`${result.error.message} · Supabase: ${supabaseEnv()?.url}`);
+        return (result.data ?? []) as StockRow[];
+      };
+      let failed: string | null = null;
+      try {
+        rows = await searchAcrossLanguages(q, run, (r) => r.item_id);
+      } catch (e) {
+        failed = e instanceof Error ? e.message : String(e);
+      }
+      error = failed;
+      if (!error) {
         const ids = [...new Set(rows.map((r) => r.shop_id))];
         [shops, calendars, sites] = await Promise.all([getShopsByIds(ids), getShopCalendars(ids).catch(() => new Map()), getLiveSites()]);
       }
