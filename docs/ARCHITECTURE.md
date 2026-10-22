@@ -1351,7 +1351,7 @@ period end). A failed renewal makes it `past_due` → `shop_has_plan()` is false
 "GSR 12V", "Bosch aku" → this shop's items → answer with `photo.read`, `match: found` and the refs → the chat shows what
 was read, "This shop has a match." and the item cards with availability and links.
 
-**An owner uploads a catalogue and a shopper asks in Italian:** dashboard → "Upload a PDF" → the browser reads 40 pages
+**An owner uploads a catalogue and a shopper asks in Italian:** dashboard → "Upload files" (PDFs and pictures in one box) → the browser reads 40 pages
 (text, 3 pictures, 1 scanned page) and sends them through `doc-ingest` → Claude describes the pictures and writes out
 the scan → "Ready". A shopper asks "Come si collega il tubo Flexi?" → Claude calls `search_shop_docs("hadica
 zapojenie")` (Slovak, the catalogue's language) → excerpts of the Public folder → answer in Italian with

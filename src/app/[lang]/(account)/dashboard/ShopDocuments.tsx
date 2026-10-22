@@ -3,7 +3,7 @@ import { t, type Dictionary } from "@/i18n/dictionaries";
 import type { getSession } from "@/lib/auth";
 import { formatDate, formatDateTime, isPast } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
-import { DocsWork, DocUpload, PictureUpload, PreparePages, type FolderOption } from "@/components/DocUpload";
+import { DocsWork, DocUpload, PreparePages, type FolderOption } from "@/components/DocUpload";
 import { FolderKeyForm } from "@/components/FolderKeyForm";
 import { FolderKeySetter } from "@/components/FolderKeySetter";
 import { PendingButton } from "@/components/PendingButton";
@@ -292,10 +292,7 @@ export async function ShopDocuments({
       {hasPlan && waiting > 0 && <DocsWork shopId={shop.id} waiting={waiting} labels={d} />}
 
       {canUpload && (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <DocUpload shopId={shop.id} folders={options} lang={lang} picturesLeft={picturesLeft} labels={d} />
-          <PictureUpload shopId={shop.id} folders={options} lang={lang} labels={d} />
-        </div>
+        <DocUpload shopId={shop.id} folders={options} lang={lang} picturesLeft={picturesLeft} labels={d} />
       )}
 
       <h3 className="pt-2 font-semibold">{d.folders_title}</h3>

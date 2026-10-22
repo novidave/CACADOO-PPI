@@ -176,7 +176,103 @@ function FolderSelect({ folders, labels, name = "folder" }: { folders: FolderOpt
   );
 }
 
-/** "Upload a PDF": read here, uploaded unchanged, its text and pictures sent for the assistant. */
+/** At most this many files are taken in one upload. */
+const MAX_FILES = 20;
+const PICTURE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const isPdf = (f: File) => f.type === "application/pdf" || (!f.type && /\.pdf$/i.test(f.name));
+const isPicture = (f: File) => PICTURE_TYPES.includes(f.type);
+const baseName = (f: File) => f.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 200);
+const fill = (text: string, values: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (_, k: string) => String(values[k] ?? `{${k}}`));
+
+/**
+ * One PDF: read here, uploaded unchanged, its text and pictures sent for the assistant, then its page pictures for
+ * the viewer. Returns how many pictures it took; an upload stopped half-way is removed again (files and text).
+ */
+async function sendPdf(
+  supabase: Supabase,
+  file: File,
+  where: { shopId: string; folderId: string; lang: string; name: string; description: string; picturesLeft: number },
+  status: (text: string) => void,
+  labels: Labels,
+): Promise<number> {
+  let documentId: string | null = null;
+  let pdf: Awaited<ReturnType<typeof openPdf>> | null = null;
+  try {
+    status(labels.reading_start);
+    pdf = await openPdf(file);
+    const { lib, doc } = pdf;
+    const registered = await ingest<{ document_id: string; path: string }>(supabase, {
+      action: "register_document",
+      shop_id: where.shopId,
+      folder_id: where.folderId,
+      name: where.name,
+      description: where.description,
+      pages: doc.numPages,
+      bytes: file.size,
+    });
+    documentId = registered.document_id;
+    status(labels.uploading_pdf);
+    await upload(supabase, registered.path, file, "application/pdf");
+    await ingest(supabase, { action: "document_uploaded", document_id: documentId });
+
+    const seen = new Set<string>();
+    let text: { page: number; text: string }[] = [];
+    let chars = 0;
+    let queue: PdfPicture[] = [];
+    let taken = 0;
+    const allowed = Math.min(PICTURES_PER_PDF, Math.max(0, where.picturesLeft));
+    const flushText = async () => {
+      if (!text.length) return;
+      await ingest(supabase, { action: "text", document_id: documentId, pages: text });
+      text = [];
+      chars = 0;
+    };
+    const flushPictures = async () => {
+      if (!queue.length) return;
+      await flushText(); // the document's language is known first
+      taken += await sendPictures(supabase, { shop_id: where.shopId, document_id: documentId!, lang: where.lang }, queue);
+      queue = [];
+    };
+    for (let n = 1; n <= doc.numPages; n++) {
+      status(fill(labels.reading, { n, total: doc.numPages }));
+      const page = await readPage(lib, doc, n, seen, taken + queue.filter((p) => p.kind === "picture").length < allowed);
+      if (page.text) {
+        text.push({ page: n, text: page.text });
+        chars += page.text.length;
+      }
+      queue.push(...page.pictures);
+      if (text.length >= TEXT_PAGES || chars >= TEXT_CHARS) await flushText();
+      if (queue.length >= PICTURE_BATCH) await flushPictures();
+    }
+    await flushText();
+    await flushPictures();
+    await sendPagePictures(supabase, documentId!, doc, (n, total) => status(fill(labels.preparing_pages, { n, total })));
+    await ingest(supabase, { action: "document_done", document_id: documentId });
+    documentId = null;
+    return taken;
+  } catch (e) {
+    if (documentId) await ingest(supabase, { action: "delete", kind: "document", id: documentId }).catch(() => {});
+    throw e;
+  } finally {
+    await pdf?.close().catch(() => {});
+  }
+}
+
+/** A picture made smaller here (at most 1568 px, WebP), never changed otherwise. */
+async function shrinkPicture(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  try {
+    return await canvasBlob(fitCanvas(bitmap, bitmap.width, bitmap.height));
+  } finally {
+    bitmap.close();
+  }
+}
+
+/**
+ * "Nahrať súbory": one box for PDFs and pictures, several at once (chosen or dropped, up to MAX_FILES). Each file goes
+ * its own way — a PDF is read here and uploaded unchanged, a picture is made smaller — into the same folder with the
+ * same description; a file that fails is listed and the others still go.
+ */
 export function DocUpload({
   shopId,
   folders,
@@ -190,211 +286,196 @@ export function DocUpload({
   picturesLeft: number;
   labels: Labels;
 }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [problems, setProblems] = useState<string[]>([]);
+  const [summary, setSummary] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [name, setName] = useState("");
+  const [dragging, setDragging] = useState(false);
   const work = useWork(shopId, labels);
+
+  const add = (chosen: Iterable<File>) => {
+    const next = [...files];
+    const refused: string[] = [];
+    for (const file of chosen) {
+      if (next.some((f) => f.name === file.name && f.size === file.size && f.lastModified === file.lastModified)) continue;
+      if (!isPdf(file) && !isPicture(file)) refused.push(fill(labels.error_file_type, { name: file.name }));
+      else if (isPdf(file) && file.size > MAX_PDF_BYTES) refused.push(`${file.name}: ${labels.error_too_big}`);
+      else if (isPicture(file) && file.size > MAX_PICTURE_BYTES) refused.push(`${file.name}: ${labels.error_picture_too_big}`);
+      else if (next.length >= MAX_FILES) refused.push(fill(labels.error_too_many, { max: MAX_FILES }));
+      else next.push(file);
+    }
+    setFiles(next);
+    setProblems([...new Set(refused)]);
+    setSummary(null);
+  };
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (files.length === 0 || busy) return;
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const file = form.get("file");
-    if (!(file instanceof File) || file.size === 0) return;
-    if (file.size > MAX_PDF_BYTES) return work.setStatus(labels.error_too_big);
-    if (file.type && file.type !== "application/pdf") return work.setStatus(labels.error_not_pdf);
+    const folderId = String(form.get("folder"));
+    const typed = String(form.get("name") ?? "").trim();
+    const description = String(form.get("description") ?? "").trim().slice(0, 500);
+    const nameOf = (file: File, i: number) => (typed ? (files.length === 1 ? typed : `${typed} ${i + 1}`) : baseName(file)).slice(0, 200);
     setBusy(true);
+    setProblems([]);
+    setSummary(null);
     const supabase = createClient();
-    let documentId: string | null = null;
-    let pdf: Awaited<ReturnType<typeof openPdf>> | null = null;
-    try {
-      work.setStatus(labels.reading_start);
-      pdf = await openPdf(file);
-      const { lib, doc } = pdf;
-      const registered = await ingest<{ document_id: string; path: string }>(supabase, {
-        action: "register_document",
-        shop_id: shopId,
-        folder_id: String(form.get("folder")),
-        name: String(form.get("name") || file.name.replace(/\.pdf$/i, "")).slice(0, 200),
-        description: String(form.get("description") ?? "").slice(0, 500),
-        pages: doc.numPages,
-        bytes: file.size,
-      });
-      documentId = registered.document_id;
-      work.setStatus(labels.uploading_pdf);
-      await upload(supabase, registered.path, file, "application/pdf");
-      await ingest(supabase, { action: "document_uploaded", document_id: documentId });
-
-      const seen = new Set<string>();
-      let text: { page: number; text: string }[] = [];
-      let chars = 0;
-      let queue: PdfPicture[] = [];
-      let taken = 0;
-      const allowed = Math.min(PICTURES_PER_PDF, Math.max(0, picturesLeft));
-      const flushText = async () => {
-        if (!text.length) return;
-        await ingest(supabase, { action: "text", document_id: documentId, pages: text });
-        text = [];
-        chars = 0;
-      };
-      const flushPictures = async () => {
-        if (!queue.length) return;
-        await flushText(); // the document's language is known first
-        taken += await sendPictures(supabase, { shop_id: shopId, document_id: documentId!, lang }, queue);
-        queue = [];
-      };
-      for (let n = 1; n <= doc.numPages; n++) {
-        work.setStatus(labels.reading.replace("{n}", String(n)).replace("{total}", String(doc.numPages)));
-        const page = await readPage(lib, doc, n, seen, taken + queue.filter((p) => p.kind === "picture").length < allowed);
-        if (page.text) {
-          text.push({ page: n, text: page.text });
-          chars += page.text.length;
-        }
-        queue.push(...page.pictures);
-        if (text.length >= TEXT_PAGES || chars >= TEXT_CHARS) await flushText();
-        if (queue.length >= PICTURE_BATCH) await flushPictures();
-      }
-      await flushText();
-      await flushPictures();
-      await sendPagePictures(supabase, documentId!, doc, (n, total) =>
-        work.setStatus(labels.preparing_pages.replace("{n}", String(n)).replace("{total}", String(total))),
+    const failed: string[] = [];
+    let done = 0;
+    let left = picturesLeft;
+    let limitReached = false;
+    // PDFs one by one; pictures are made smaller and sent PICTURE_BATCH at a time.
+    let batch: { file: File; blob: Blob; title: string }[] = [];
+    const flush = async () => {
+      if (!batch.length) return;
+      const items = batch;
+      batch = [];
+      const taken = await sendPictures(
+        supabase,
+        { shop_id: shopId, folder_id: folderId, lang },
+        items.map((p) => ({ blob: p.blob, title: p.title, caption: description })),
       );
-      await ingest(supabase, { action: "document_done", document_id: documentId });
-      documentId = null;
-      formElement.reset();
-      setName("");
-      setBusy(false);
-      await work.start();
-    } catch (e) {
-      work.setStatus(errorText(labels, e));
-      // An upload stopped half-way is removed again (files and text).
-      if (documentId) await ingest(supabase, { action: "delete", kind: "document", id: documentId }).catch(() => {});
-      setBusy(false);
-    } finally {
-      await pdf?.close().catch(() => {});
+      done += taken;
+      left -= taken;
+      if (taken < items.length) limitReached = true;
+    };
+    for (const [i, file] of files.entries()) {
+      const step = (text: string) => work.setStatus(`${fill(labels.file_progress, { n: i + 1, total: files.length, name: file.name })} ${text}`);
+      try {
+        if (isPdf(file)) {
+          await flush();
+          left -= await sendPdf(supabase, file, { shopId, folderId, lang, name: nameOf(file, i), description, picturesLeft: left }, step, labels);
+          done++;
+        } else {
+          step(fill(labels.preparing, { n: i + 1, total: files.length }));
+          batch.push({ file, blob: await shrinkPicture(file), title: nameOf(file, i) });
+          if (batch.length >= PICTURE_BATCH) await flush();
+        }
+      } catch (e) {
+        if (!isPdf(file)) batch = batch.filter((p) => p.file !== file);
+        failed.push(`${file.name}: ${errorText(labels, e)}`);
+      }
     }
+    try {
+      work.setStatus(labels.uploading);
+      await flush();
+    } catch (e) {
+      failed.push(errorText(labels, e));
+    }
+    if (limitReached) failed.push(labels.error_limit_pictures);
+    setSummary(fill(labels.files_done, { n: done, total: files.length }));
+    setProblems(failed);
+    work.setStatus(null);
+    if (done > 0) {
+      setFiles([]);
+      formElement.reset();
+    }
+    setBusy(false);
+    await work.start();
   };
 
   return (
-    <form onSubmit={submit} className="flex min-w-0 flex-col gap-3 border border-line p-3">
-      <span className="font-medium">{labels.upload_pdf}</span>
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{labels.pdf_file}</span>
+    <form onSubmit={submit} className="flex min-w-0 flex-col gap-3 border border-line p-3" data-doc-upload>
+      <span className="font-medium">{labels.upload_files}</span>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          if (!busy) add(e.dataTransfer.files);
+        }}
+        className={`flex flex-col gap-2 border border-dashed p-3 ${dragging ? "border-foreground" : "border-line"}`}
+      >
+        <span className="text-sm">{labels.files_label}</span>
         <input
+          ref={input}
           type="file"
-          name="file"
-          accept="application/pdf,.pdf"
-          required
-          className="max-w-full text-sm"
-          disabled={busy}
+          multiple
+          accept="application/pdf,.pdf,image/jpeg,image/png,image/webp"
+          className="sr-only"
+          tabIndex={-1}
+          data-doc-files
           onChange={(e) => {
-            const f = e.currentTarget.files?.[0];
-            if (f && !name) setName(f.name.replace(/\.pdf$/i, "").slice(0, 200));
+            add(Array.from(e.currentTarget.files ?? []));
+            e.currentTarget.value = "";
           }}
         />
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Blue and underlined like "Vybrať súbor" of the page sections, as the owner asked. */}
+          <button
+            type="button"
+            onClick={() => input.current?.click()}
+            disabled={busy}
+            className="text-blue-700 underline underline-offset-4 hover:text-blue-900 disabled:text-muted disabled:no-underline"
+            data-doc-choose
+          >
+            {labels.choose_files}
+          </button>
+          <span className="text-sm text-muted">{fill(labels.drop_files, { max: MAX_FILES })}</span>
+        </div>
+        {files.length === 0 ? (
+          <button type="button" onClick={() => input.current?.click()} disabled={busy} className="self-start text-sm text-blue-700 underline underline-offset-4 hover:text-blue-900">
+            {labels.files_none}
+          </button>
+        ) : (
+          <ul className="flex flex-col gap-1 text-sm" data-doc-chosen={files.length}>
+            {files.map((file, i) => (
+              <li key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center justify-between gap-2 border-b border-line pb-1">
+                <span className="min-w-0 break-words">
+                  {file.name} <span className="text-muted">· {isPdf(file) ? "PDF" : file.type.replace("image/", "").toUpperCase()} · {file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`}</span>
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setFiles(files.filter((_, j) => j !== i))}
+                  aria-label={fill(labels.remove_file, { name: file.name })}
+                  className="shrink-0 px-2 text-lg leading-none disabled:text-muted"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <label className="flex flex-col gap-1">
+        <span className="text-sm">{labels.file_name}</span>
+        <input name="name" maxLength={200} className={inputClass} disabled={busy} />
+        <span className="text-xs text-muted">{labels.file_name_help}</span>
       </label>
       <label className="flex flex-col gap-1">
-        <span className="text-sm">{labels.name}</span>
-        <input name="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} className={inputClass} disabled={busy} />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{labels.description}</span>
+        <span className="text-sm">{labels.caption}</span>
         <textarea name="description" maxLength={500} rows={2} className={inputClass} disabled={busy} />
       </label>
       <FolderSelect folders={folders} labels={labels} />
       <p className="text-sm text-muted">{labels.pdf_hint}</p>
-      <button type="submit" disabled={busy} className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:text-muted">
-        {busy ? labels.uploading : labels.upload}
+      <p className="text-sm text-muted">{labels.pictures_hint}</p>
+      <button type="submit" disabled={busy || files.length === 0} className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:text-muted" data-doc-submit>
+        {busy ? labels.uploading : files.length > 1 ? fill(labels.upload_n, { n: files.length }) : labels.upload}
       </button>
       {work.status && (
         <p role="status" className="text-sm">
           {work.status}
         </p>
       )}
-    </form>
-  );
-}
-
-/** Pictures the owner adds: made smaller here (at most 1568 px, WebP), never changed otherwise. */
-export function PictureUpload({
-  shopId,
-  folders,
-  lang,
-  labels,
-}: {
-  shopId: string;
-  folders: FolderOption[];
-  lang: string;
-  labels: Labels;
-}) {
-  const [busy, setBusy] = useState(false);
-  const work = useWork(shopId, labels);
-
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-    if (files.length === 0) return;
-    if (files.some((f) => f.size > MAX_PICTURE_BYTES)) return work.setStatus(labels.error_picture_too_big);
-    if (files.some((f) => !["image/jpeg", "image/png", "image/webp"].includes(f.type))) {
-      return work.setStatus(labels.error_picture_type);
-    }
-    setBusy(true);
-    const supabase = createClient();
-    try {
-      const title = String(form.get("title") ?? "").trim();
-      const caption = String(form.get("caption") ?? "").trim();
-      const items = [];
-      for (const [i, file] of files.entries()) {
-        work.setStatus(labels.preparing.replace("{n}", String(i + 1)).replace("{total}", String(files.length)));
-        const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-        const blob = await canvasBlob(fitCanvas(bitmap, bitmap.width, bitmap.height));
-        bitmap.close();
-        items.push({
-          blob,
-          title: (files.length === 1 && title ? title : title ? `${title} ${i + 1}` : file.name.replace(/\.[a-z]+$/i, "")).slice(0, 200),
-          caption,
-        });
-      }
-      work.setStatus(labels.uploading);
-      let taken = 0;
-      for (let i = 0; i < items.length; i += PICTURE_BATCH) {
-        taken += await sendPictures(supabase, { shop_id: shopId, folder_id: String(form.get("folder")), lang }, items.slice(i, i + PICTURE_BATCH));
-      }
-      formElement.reset();
-      setBusy(false);
-      if (taken < items.length) work.setStatus(labels.error_limit_pictures);
-      await work.start();
-    } catch (e) {
-      work.setStatus(errorText(labels, e));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} className="flex min-w-0 flex-col gap-3 border border-line p-3">
-      <span className="font-medium">{labels.upload_pictures}</span>
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{labels.picture_files}</span>
-        <input type="file" name="files" accept="image/jpeg,image/png,image/webp" multiple required disabled={busy} className="max-w-full text-sm" />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{labels.picture_title}</span>
-        <input name="title" maxLength={200} className={inputClass} disabled={busy} />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{labels.caption}</span>
-        <textarea name="caption" maxLength={500} rows={2} className={inputClass} disabled={busy} />
-      </label>
-      <FolderSelect folders={folders} labels={labels} />
-      <p className="text-sm text-muted">{labels.pictures_hint}</p>
-      <button type="submit" disabled={busy} className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:text-muted">
-        {busy ? labels.uploading : labels.upload}
-      </button>
-      {work.status && (
-        <p role="status" className="text-sm">
-          {work.status}
+      {summary && (
+        <p role="status" className="text-sm font-medium" data-doc-summary>
+          {summary}
         </p>
+      )}
+      {problems.length > 0 && (
+        <ul role="alert" className="flex list-disc flex-col gap-1 pl-5 text-sm" data-doc-problems>
+          {problems.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
       )}
     </form>
   );
