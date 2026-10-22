@@ -1,10 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { loginOwner, SHOP, sk, watchConsole } from "./helpers";
+import { loginOwner, sk, watchConsole } from "./helpers";
+
+// These checks upload a stock file and approve its columns: only on a shop made for testing, named explicitly.
+const SHOP = process.env.E2E_OWNER_SHOP ?? "";
 
 // A small stock file in the columns the test shop's approved mapping knows (Kód; Názov tovaru; EAN; Značka; Množstvo; Cena).
 const CSV = "Kód;Názov tovaru;EAN;Značka;Množstvo;Cena s DPH\nE2E1;Test káva e2e;;;5;3,90\nE2E2;Test čaj e2e;;;0;1,90\n";
 
 test.beforeEach(async ({ page }) => {
+  test.skip(!SHOP, "no test shop named (E2E_OWNER_SHOP): these checks change its stock and columns");
   test.skip(!(await loginOwner(page)), "no owner login configured (E2E_OWNER_EMAIL/PASSWORD or E2E_OWNER_LOGIN_URL)");
 });
 
