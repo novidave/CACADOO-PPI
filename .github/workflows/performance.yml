@@ -1,0 +1,61 @@
+# Performance budget and phone e2e on every Vercel preview (performance pass). Runs when Vercel reports a
+# successful deployment; fails the check when a page goes over the budget (lighthouserc.cjs) or a main path breaks.
+# Repository secrets (Settings → Secrets and variables → Actions): VERCEL_AUTOMATION_BYPASS_SECRET (only if the
+# previews are protected). Repository variables: LHCI_SHOP, LHCI_ITEM (a shop with stock and one of its items).
+name: Performance
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Address to test (e.g. a preview)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  budget:
+    if: github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment_status.environment != 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LHCI_BASE_URL: ${{ github.event.inputs.url || github.event.deployment_status.environment_url }}
+      LHCI_SHOP: ${{ vars.LHCI_SHOP }}
+      LHCI_ITEM: ${{ vars.LHCI_ITEM }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Lighthouse CI (phone, slow 4G)
+        run: npx -y @lhci/cli@0.15.1 autorun --config=lighthouserc.cjs
+
+  e2e:
+    if: github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment_status.environment != 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_BASE_URL: ${{ github.event.inputs.url || github.event.deployment_status.environment_url }}
+      E2E_SHOP: ${{ vars.LHCI_SHOP }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Phone e2e (public paths; owner paths are skipped without a login)
+        run: npm run test:e2e
+        env:
+          CI: "1"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report
