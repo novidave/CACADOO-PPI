@@ -360,3 +360,97 @@ begin
     execute format('alter function %s set jit = off', f);
   end loop;
 end $$;
+
+-- =====================================================================================================================
+-- Server errors of the last days (performance pass): "Chyby za posledných 7 dní" on the admin page.
+-- Only what went wrong and where (the route's file path, e.g. /[lang]/shops/[slug]) — never the visitor's address,
+-- query, IP, e-mail, cookies or other personal data; the message is cleaned here once more. The website writes with the
+-- anon key through log_server_error() (no table grants); the same error within 10 minutes only counts up; at most
+-- 2000 new rows an hour; rows older than 30 days go away. Only the admin reads (admin_server_errors(), is_admin()).
+-- =====================================================================================================================
+create table if not exists public.server_errors (
+  id bigint generated always as identity primary key,
+  kind text not null check (kind in ('render', 'route', 'action', 'proxy', 'other')),
+  route text not null check (char_length(route) <= 200),
+  message text not null check (char_length(message) <= 500),
+  digest text check (char_length(digest) <= 64),
+  hits integer not null default 1,
+  first_at timestamptz not null default now(),
+  last_at timestamptz not null default now()
+);
+create index if not exists server_errors_last_idx on public.server_errors (last_at desc);
+create index if not exists server_errors_same_idx on public.server_errors (route, kind, md5(message), last_at desc);
+alter table public.server_errors enable row level security;
+revoke all on public.server_errors from anon, authenticated;
+
+-- E-mail addresses, long numbers, ids, keys and URL queries out of a message (the website cleans it first, too).
+create or replace function public.clean_error_text(p_text text)
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+  select left(
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(
+          regexp_replace(coalesce(p_text, ''), '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '[e-mail]', 'g'),
+          '\?[^\s"'')]*', '?…', 'g'),
+        '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '[id]', 'g'),
+      '[A-Za-z0-9_\-]{24,}|\d{6,}', '[…]', 'g'),
+    500)
+$$;
+
+create or replace function public.log_server_error(p_kind text, p_route text, p_message text, p_digest text default null)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+set jit = off
+as $$
+declare
+  v_kind text := case when p_kind in ('render', 'route', 'action', 'proxy') then p_kind else 'other' end;
+  v_route text := left(regexp_replace(coalesce(nullif(p_route, ''), '?'), '\?.*$', ''), 200);
+  v_message text := public.clean_error_text(coalesce(nullif(p_message, ''), 'error'));
+  v_digest text := nullif(left(regexp_replace(coalesce(p_digest, ''), '[^A-Za-z0-9_-]', '', 'g'), 64), '');
+  v_id bigint;
+begin
+  update public.server_errors
+     set hits = hits + 1, last_at = now(), digest = coalesce(v_digest, digest)
+   where id = (select e.id from public.server_errors e
+                where e.route = v_route and e.kind = v_kind and md5(e.message) = md5(v_message)
+                  and e.last_at > now() - interval '10 minutes'
+                order by e.last_at desc limit 1)
+  returning id into v_id;
+  if v_id is not null then return; end if;
+  if (select count(*) from public.server_errors where first_at > now() - interval '1 hour') >= 2000 then return; end if;
+  insert into public.server_errors (kind, route, message, digest) values (v_kind, v_route, v_message, v_digest);
+  delete from public.server_errors where last_at < now() - interval '30 days';
+end;
+$$;
+revoke all on function public.log_server_error(text, text, text, text) from public;
+grant execute on function public.log_server_error(text, text, text, text) to anon, authenticated, service_role;
+
+create or replace function public.admin_server_errors(p_days integer default 7)
+returns table (kind text, route text, message text, digest text, hits bigint, first_at timestamptz, last_at timestamptz)
+language plpgsql
+stable
+security definer
+set search_path = ''
+set jit = off
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  return query
+    select e.kind, e.route, e.message, max(e.digest), sum(e.hits)::bigint, min(e.first_at), max(e.last_at)
+    from public.server_errors e
+    where e.last_at > now() - make_interval(days => least(greatest(coalesce(p_days, 7), 1), 30))
+    group by e.kind, e.route, e.message
+    order by max(e.last_at) desc
+    limit 200;
+end;
+$$;
+revoke all on function public.admin_server_errors(integer) from public;
+grant execute on function public.admin_server_errors(integer) to authenticated;

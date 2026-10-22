@@ -1705,7 +1705,7 @@
     "who_title": "Ki kezeli az adatokat",
     "who": "A Cacaduu PPI üzemelteti a weboldalt, amelyen a helyi üzletek közzéteszik a készletüket, a nyitvatartásukat és a híreiket. TODO: az üzemeltető neve, címe, cégjegyzékszáma, elérhetősége.",
     "visitors_title": "Látogatók",
-    "visitors": "Az oldalak nem használnak hirdetési vagy követő szkripteket, és nem kérdezik a helyzetet. A keresés csak a beírt szavakat küldi. Az üzlet AI-asszisztenséről az Asszisztens adatvédelme oldalon olvashat. A YouTube-videó csak a ▶ megnyomása után töltődik be (youtube-nocookie.com); addig semmi sem töltődik be a YouTube-ról.",
+    "visitors": "Az oldalak nem használnak hirdetési vagy követő szkripteket, és nem kérdezik a helyzetet. A keresés csak a beírt szavakat küldi. Az üzlet AI-asszisztenséről az Asszisztens adatvédelme oldalon olvashat. A YouTube-videó csak a ▶ megnyomása után töltődik be (youtube-nocookie.com); addig semmi sem töltődik be a YouTube-ról. Az oldalak sebességét és a látogatások számát a Vercel Speed Insights és Web Analytics méri: sütik, hirdetések és helyadatok nélkül, a látogató azonosítására alkalmas adatok nélkül.",
     "owners_title": "Üzlettulajdonosok",
     "owners": "Tároljuk a fiók e-mail-címét és jelszavát (a jelszót csak lenyomatként), az üzlet adatait és a tulajdonos által feltöltött fájlokat. TODO: megőrzési idő, jogok.",
     "facebook_title": "Facebook-adatok",
@@ -2103,5 +2103,17 @@
     "usage_tokens": "Tokenek",
     "usage_cost": "Ár",
     "usage_alerted": "80 %-os figyelmeztetés elküldve"
+  },
+  "admin_errors": {
+    "title": "Hibák az elmúlt 7 napban",
+    "intro": "A weboldal szerverhibái (oldalak, API, űrlapok) hely szerint csoportosítva. Csak a helyet, a megtisztított üzenetet és az időt tároljuk – látogatói adatokat nem. A 30 napnál régebbiek törlődnek.",
+    "none": "Nincs hiba az elmúlt 7 napban.",
+    "unavailable": "A hibalista a 42. adatbázis-frissítés futtatása után lesz elérhető.",
+    "where": "Hol",
+    "what": "Mi",
+    "count": "Darab",
+    "last": "Utoljára",
+    "first": "először {when}",
+    "digest": "kód {digest}"
   }
 }

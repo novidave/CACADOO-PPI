@@ -10,6 +10,7 @@ import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings, saveSectionLimits } from "./actions";
 import { BlogAdmin, type BlogAdminInfo } from "./BlogAdmin";
+import { ErrorsAdmin, type ServerErrorRow } from "./ErrorsAdmin";
 import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
 import { ExternalSearchAdmin, type SearchSettings, type SourcesEnv } from "./ExternalSearchAdmin";
 import { outsideSearchEnabled, sourcesStatus } from "@/lib/productSources";
@@ -108,7 +109,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     hyear: String(hyear),
   })}`;
 
-  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo] = await Promise.all([
+  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo, serverErrors] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
@@ -132,6 +133,8 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
       .invoke<BlogAdminInfo>("shop-blog", { body: { action: "admin_info" } })
       .then(({ data, error }) => (error || !data ? null : data))
       .catch(() => null),
+    // "Chyby za posledných 7 dní" (database update 42).
+    session.supabase.rpc("admin_server_errors", { p_days: 7 }),
   ]);
   const limitRows = sectionLimits.error ? null : ((sectionLimits.data ?? []) as LimitsRow[]);
   if (overview.error) return <DbError message={overview.error.message} dict={dict} />;
@@ -444,6 +447,8 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
           </div>
         )}
       </section>
+
+      <ErrorsAdmin rows={serverErrors.error ? null : ((serverErrors.data ?? []) as ServerErrorRow[])} lang={lang} dict={dict} />
 
       <BlogAdmin
         limits={blogLimits.error ? null : ((blogLimits.data ?? []) as { plan: "free" | "pro"; max_posts: number | null }[])}
