@@ -7,7 +7,7 @@ How fast Cacaduu PPI must be, how it stays that way, and how to measure it. Set 
 
 | Metric | Target | Checked by |
 | --- | --- | --- |
-| LCP | < 2.0 s | Lighthouse CI (median of 3 runs) |
+| LCP | < 2.0 s | Lighthouse CI (median of 3 runs, throttling applied while loading) |
 | INP | < 150 ms | Vercel Speed Insights (real visitors) |
 | CLS | < 0.05 | Lighthouse CI |
 | TTFB | < 600 ms | Lighthouse CI, Speed Insights |
@@ -29,7 +29,8 @@ under test: the Vercel toolbar exists only on previews and is not part of the si
    in the server action that saved it; stock uploads call `/api/revalidate` (`REVALIDATE_SECRET`). A new public read
    needs both: the RPC in `CACHED_RPCS` **and** a refresh where it changes.
 3. **Read in parallel** — one `Promise.all` per page; no `await` in a loop.
-4. **Heavy code after the page** — the map (`ShopMap` → `ShopMapCanvas`), the shop assistant (`ShopAssistant` →
+4. **Heavy code after the page** — the map (`ShopMap` → `ShopMapCanvas`; it starts only after the visitor's first
+   scroll, touch or key — MapLibre blocks a slow phone for most of a second — or at once on a tap), the shop assistant (`ShopAssistant` →
    `ShopChat`), the language list, the picture viewer, Speed Insights/Analytics. Keep the same box size before and after
    (no layout shift). New heavy parts follow the same pattern: a light first view + `import()` when near the screen
    or touched.
@@ -100,6 +101,11 @@ Same result sets before and after (41 of 41 search queries compared row by row).
 - **Not yet under 2.0 s in the simulation:** the main page (2.0–2.2 s), the blog list (2.0–2.6 s) and the shop page
   (2.1–2.6 s); the budget check flags them. Their LCP is a heading or a line of text, so it is the fonts and the
   page's own size, not a picture. Real throttled phone browser: 0.8–1.1 s.
+- **Lighthouse CI applies the throttling while loading** (`throttlingMethod: "devtools"`). Lighthouse's default
+  simulation added every async script's download to the LCP even when the largest element paints with the first frame
+  (main page: observed 0.14 s, simulated 2.0–2.5 s) and it hid the map's real main-thread work.
+- **Main page:** the chat box sizes itself in CSS (`field-sizing: content`), so its placeholder — the page's largest
+  element on phones — is final in the first HTML instead of growing after JavaScript.
 - **Shop pages** stay around 2.1–2.6 s LCP in the simulation (≈ 0.9–1.1 s in a real throttled phone browser): the page
   sends its whole content (details, hours, slider data, items) in the first HTML for search engines and AI assistants,
   and Lighthouse counts parsing it. Fonts without preload would bring it under 2 s but make the text jump (CLS 0.17), so

@@ -578,7 +578,7 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
 `/api/revalidate` with `REVALIDATE_SECRET` after `updated` and after the translations). Search names: the stored
 column `shop_items.names_search` (= `item_names_text()`) with its trigram index and `search_patterns()` (`LIKE ALL`,
 same words as `matches_all_words`); hot functions `set jit = off`. Lazy on public pages: the map (`ShopMap` box →
-`ShopMapCanvas` near the screen after the load event, or on tap), the shop assistant (`ShopAssistant` = the same first
+`ShopMapCanvas` near the screen after the visitor's first scroll/touch/key, at once on a tap or `opened`), the shop assistant (`ShopAssistant` = the same first
 view, `ShopChat` loads near the screen or on touch; the typed text, focus and the key dropdown go along), the language
 list (`LanguagePickerDialog`), the picture viewer (`SectionZoomViewer`), Vercel Speed Insights/Analytics
 (`VercelMetrics`, only on Vercel). One Quicksand declaration only (a second one loads the font twice). Môj obchod
@@ -588,7 +588,8 @@ forms: busy at once, never sent twice), pressed states and 44 px touch areas in 
 filter keep only the newest answer. Errors: `src/instrumentation.ts` → `@/lib/errorLog` (route file path + cleaned
 message only, never the address, IP or personal data) → `log_server_error()` → admin "Chyby za posledných 7 dní";
 Sentry too when `SENTRY_DSN` is set. Budget: `.github/workflows/performance.yml` (Lighthouse CI `lighthouserc.cjs` +
-`npm run test:e2e` on every Vercel preview); first-load JS < 150 kB gzip on public pages.
+`scripts/first-load-js.mjs` + `npm run test:e2e` on every Vercel preview, throttling applied while loading); first-load JS
+< 150 kB gzip on public pages. The main chat box sizes itself in CSS (`field-sizing: content`), not after hydration.
 
 ## Stock upload
 

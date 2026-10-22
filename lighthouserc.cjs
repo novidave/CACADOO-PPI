@@ -5,9 +5,14 @@
  * page, and more than 170 KiB of JavaScript in all on the pages without a map. The exact first-load budget (the first
  * HTML's scripts < 150 kB gzip) is `scripts/first-load-js.mjs`; Lighthouse's total also counts Vercel Speed
  * Insights/Analytics (~11 KiB, loaded after the page) and the response headers. Only warn: LCP of shop and item pages
- * (~2.1–2.6 s in the slow-4G simulation because of the page's size; real phones ~1 s) and LCP + score of the search
- * page (with JavaScript its largest element is the AI answer, which streams for several seconds by design: it measures
- * the AI, not the page). PERFORMANCE.md.
+ * (~1.8 s, close to the line and it moves with each shop's own pictures and number of items) and LCP + score of the
+ * search page (with JavaScript its largest element is the AI answer, which streams for several seconds by design: it
+ * measures the AI, not the page). PERFORMANCE.md.
+ *
+ * Throttling is applied while the page loads ("devtools": slow 4G latency and bandwidth, 4× slower CPU), not
+ * simulated afterwards: the simulation adds the download of every async script that started before the first paint
+ * to the LCP even when the largest element does not wait for them (observed LCP 0.14 s, simulated 2.0–2.5 s on the
+ * main page), and it hid the map's real main-thread work (now started only after the visitor's first interaction).
  */
 const base = (process.env.LHCI_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
 const shop = process.env.LHCI_SHOP || "potraviny-centrum";
@@ -43,6 +48,7 @@ module.exports = {
       numberOfRuns: 3,
       settings: {
         onlyCategories: ["performance"],
+        throttlingMethod: "devtools",
         extraHeaders: JSON.stringify(headers),
       },
     },
