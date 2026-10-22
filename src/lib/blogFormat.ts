@@ -30,6 +30,8 @@ export interface BlogLink {
 }
 
 export interface BlogPost {
+  /** The post's id (update 40: its translations); missing before it. */
+  id?: string;
   slug: string;
   title: string;
   body: string;
@@ -55,12 +57,14 @@ export interface BlogPlace {
   shopSlug: string;
   country: string | null;
   host: string | null;
+  /** The own domain's home language (update 40, public_shops.site_lang); else the country decides. */
+  homeLang?: string | null;
 }
 
 /** A path on the address the visitor is on: "/blog/x" or "/hu/blog/x" on the own domain, "/sk/shops/s/blog/x" on Cacaduu. */
 export function blogPath(lang: string, place: BlogPlace, onSite: boolean, postSlug?: string): string {
   const tail = `/blog${postSlug ? `/${postSlug}` : ""}`;
-  if (onSite) return `${lang === siteLang(place.country) ? "" : `/${lang}`}${tail}`;
+  if (onSite) return `${lang === siteLang(place.country, place.homeLang) ? "" : `/${lang}`}${tail}`;
   return `/${lang}/shops/${place.shopSlug}${tail}`;
 }
 
@@ -70,13 +74,13 @@ export function blogUrl(base: string, lang: string, place: BlogPlace, postSlug?:
   return `${base.replace(/\/+$/, "")}${blogPath(lang, place, false, postSlug)}`;
 }
 
-/** canonical + hreflang (sk, hu, en, and x-default = the shop's language) of a blog page. */
-export function blogAlternates(base: string, lang: string, place: BlogPlace, postSlug?: string) {
-  const home = siteLang(place.country);
+/** canonical + hreflang (the shop's pre-translated languages — sk, hu, en before update 40 — and x-default = the shop's language) of a blog page. */
+export function blogAlternates(base: string, lang: string, place: BlogPlace, postSlug?: string, langs: readonly string[] = LANGS) {
+  const home = siteLang(place.country, place.homeLang);
   return {
     canonical: blogUrl(base, lang, place, postSlug),
     languages: {
-      ...Object.fromEntries(LANGS.map((l) => [l, blogUrl(base, l, place, postSlug)])),
+      ...Object.fromEntries(langs.map((l) => [l, blogUrl(base, l, place, postSlug)])),
       "x-default": blogUrl(base, home, place, postSlug),
     },
   };
@@ -85,7 +89,7 @@ export function blogAlternates(base: string, lang: string, place: BlogPlace, pos
 /** The shop's RSS feed: /blog/rss.xml on the own domain, else on Cacaduu in the shop's language. */
 export function blogRssUrl(base: string, place: BlogPlace): string {
   if (place.host) return `https://${place.host}/blog/rss.xml`;
-  return `${base.replace(/\/+$/, "")}/${siteLang(place.country)}/shops/${place.shopSlug}/blog/rss.xml`;
+  return `${base.replace(/\/+$/, "")}/${siteLang(place.country, place.homeLang)}/shops/${place.shopSlug}/blog/rss.xml`;
 }
 
 /** A photo in the public bucket "blog-photos". */

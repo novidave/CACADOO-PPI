@@ -1,13 +1,16 @@
 /**
  * Môj obchod's pages: "Môj obchod" (stock file columns, details, logo, items, plan, delete), "Obsah stránky" (the
  * shop page's slider and its library of files, database update 38), "Asistent" (its settings, the conversations with their
- * cloud folder, the private folders, the last stock files) and "Priečinok s exportom" (the export folder). A form
+ * cloud folder, the private folders, the last stock files), "Jazyky a preklady" (update 40: the shop's languages and
+ * its translations) and "Priečinok s exportom" (the export folder). A form
  * sends the owner back to the page and section ("at") it came from; a section that moved keeps working under its
  * old name (old links, e-mails, the cloud sign-in coming back with ?at=cloud).
  */
 export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs", "private", "imports"];
 export const EXPORT_SECTIONS = ["export", "conversations-pc"];
 export const CONTENT_SECTIONS = ["content", "library", "sections"];
+/** "Jazyky a preklady" (update 40): the shop's languages and every translation. */
+export const TRANSLATION_SECTIONS = ["languages", "translations"];
 
 /** Old names of sections that were merged into another one (the anchor and the open dropdown follow). */
 const MERGED: Record<string, string> = { private: "docs", sections: "content" };
@@ -21,6 +24,7 @@ export function sectionPath(lang: string, at: string): string {
   if (ASSISTANT_SECTIONS.includes(at)) return `/${lang}/dashboard/assistant`;
   if (EXPORT_SECTIONS.includes(at)) return `/${lang}/sync`;
   if (CONTENT_SECTIONS.includes(at)) return `/${lang}/dashboard/content`;
+  if (TRANSLATION_SECTIONS.includes(at)) return `/${lang}/dashboard/translations`;
   return `/${lang}/dashboard`;
 }
 
@@ -31,18 +35,19 @@ export function sectionUrl(lang: string, at: string, query: Record<string, strin
   return `${sectionPath(lang, at)}?${params}${id ? `#${id}` : ""}`;
 }
 
-const PAGE_SECTIONS: Record<"dashboard" | "sync" | "assistant" | "content", string[]> = {
+const PAGE_SECTIONS: Record<"dashboard" | "sync" | "assistant" | "content" | "translations", string[]> = {
   dashboard: [],
   sync: EXPORT_SECTIONS,
   assistant: ASSISTANT_SECTIONS,
   content: CONTENT_SECTIONS,
+  translations: TRANSLATION_SECTIONS,
 };
 
 /** Whether an address asks a page for a section that is elsewhere now, or by its old name (then it is forwarded). */
 export function movedFrom(page: keyof typeof PAGE_SECTIONS, at: string): boolean {
   if (!at) return false;
   if (MERGED[at]) return true;
-  return [...ASSISTANT_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS].includes(at) && !PAGE_SECTIONS[page].includes(at);
+  return [...ASSISTANT_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS, ...TRANSLATION_SECTIONS].includes(at) && !PAGE_SECTIONS[page].includes(at);
 }
 
 /** The same address on the section's page now (every query parameter kept, `at` and the anchor renamed). */

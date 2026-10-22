@@ -1,6 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Locale } from "@/i18n/config";
+import { languageOf } from "@/i18n/languages";
 import { getDictionary } from "@/i18n/dictionaries";
 import { aiModel } from "./aiModel";
 import { callerHash } from "./apiHttp";
@@ -59,7 +60,6 @@ const TIME_BUDGET_MS = 25_000;
 /** Hard stop, inside the route's 60 seconds, so the shopper always gets an answer or a reason. */
 const DEADLINE_MS = 50_000;
 
-const LANGUAGE_NAMES: Record<Locale, string> = { sk: "Slovak", hu: "Hungarian", en: "English" };
 
 const ITEM_COLUMNS =
   "item_id, item_name, ean, brand, shop_id, shop_slug, shop_name, shop_address, shop_city, shop_country, shop_timezone, shop_lat, shop_lng, price, currency, quantity, availability, is_available, freshness_state, freshness_age_minutes, latest_file_time, updated_at, item_name_lang, item_name_i18n";
@@ -304,7 +304,7 @@ function systemPrompt(shop: ChatShop, lang: Locale, docs: ChatDocument[], news =
         "through search_shop_docs."
       : "You know only this shop's stock, through two tools: search_items and get_item.",
     "You cannot see other shops; never name, compare or suggest other shops or websites.",
-    `Answer in the language the shopper writes in; if that is unclear, in ${LANGUAGE_NAMES[lang]}.`,
+    `Answer in the language the shopper writes in; if that is unclear, in ${languageOf(lang)?.english ?? "Slovak"}.`,
     "",
     "What you do:",
     "- Answer questions about this shop's items, prices and availability, using only what the tools return.",

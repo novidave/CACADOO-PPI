@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { isLocale, locales } from "@/i18n/config";
-import { getDictionary } from "@/i18n/dictionaries";
+import { isLocale } from "@/i18n/config";
+import { getDictionary , indexedLocales } from "@/i18n/dictionaries";
 import { pageAlternates } from "@/lib/site";
+import { MachineTranslationNote } from "@/components/MachineTranslationNote";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/sukromie">): Promise<Metadata> {
   const { lang } = await params;
   if (!isLocale(lang)) return {};
   const dict = await getDictionary(lang);
-  return { title: dict.privacy.title, alternates: pageAlternates(lang, "/sukromie", locales) };
+  return { title: dict.privacy.title, alternates: pageAlternates(lang, "/sukromie", await indexedLocales()) };
 }
 
 /**
@@ -32,6 +33,7 @@ export default async function PrivacyPage({ params }: PageProps<"/[lang]/sukromi
   return (
     <article className="mx-auto flex max-w-2xl flex-col gap-4" data-privacy>
       <h1 className="text-2xl font-semibold tracking-tight">{p.title}</h1>
+      <MachineTranslationNote lang={lang} prefixes={["privacy."]} text={(await getDictionary(lang)).translation.legal_machine} slovakHref="/sk/sukromie" />
       <p className="text-sm text-muted" data-privacy-todo>
         {p.draft}
       </p>

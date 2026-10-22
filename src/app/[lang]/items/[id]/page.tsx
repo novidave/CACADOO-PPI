@@ -9,8 +9,9 @@ export async function generateMetadata({ params }: PageProps<"/[lang]/items/[id]
   return await itemMetadata(lang, id);
 }
 
-export default async function ItemPage({ params }: PageProps<"/[lang]/items/[id]">) {
+export default async function ItemPage({ params, searchParams }: PageProps<"/[lang]/items/[id]">) {
+  const original = (await searchParams).original === "1";
   const { lang, id } = await params;
   if (!isLocale(lang)) notFound();
-  return <ItemView lang={lang} id={id} siteSlug={null} />;
+  return <ItemView lang={lang} id={id} siteSlug={null} original={original} />;
 }

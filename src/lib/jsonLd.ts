@@ -12,14 +12,14 @@ import type { StockRow } from "./stock";
  */
 
 /** The shop's page address: its own domain when live, else on PPI. */
-export function shopPageUrl(base: string, slug: string, country: string | null, lang: string, host: string | null): string {
-  return host ? siteShopUrl(host, lang, siteLang(country)) : `${base}/${lang}/shops/${slug}`;
+export function shopPageUrl(base: string, slug: string, country: string | null, lang: string, host: string | null, home?: string | null): string {
+  return host ? siteShopUrl(host, lang, siteLang(country, home)) : `${base}/${lang}/shops/${slug}`;
 }
 
 /** The shop as a Store (a LocalBusiness): address, place, hours, special days, contact links, facilities. */
 export function storeJsonLd(shop: PublicShop, lang: string, host: string | null, input: StatusInput, base: string, now = new Date()) {
   const special = specialOpeningHoursSpecification(input, now, 60);
-  const url = shopPageUrl(base, shop.slug, shop.country, lang, host);
+  const url = shopPageUrl(base, shop.slug, shop.country, lang, host, shop.site_lang);
   return {
     "@type": "Store",
     "@id": url,
@@ -77,7 +77,7 @@ const SCHEMA_AVAILABILITY: Record<string, string> = {
  */
 export function itemJsonLd(item: StockRow, shop: PublicShop | null, lang: Locale, host: string | null, input: StatusInput | null, base: string) {
   const url = host ? siteItemUrl(host, lang, item.item_id) : `${base}/${lang}/items/${item.item_id}`;
-  const shopUrl = shopPageUrl(base, item.shop_slug, item.shop_country, lang, host);
+  const shopUrl = shopPageUrl(base, item.shop_slug, item.shop_country, lang, host, shop?.site_lang);
   const alternateName = translatedName(item.item_name, item.item_name_i18n, lang);
   const store = shop && input
     ? storeJsonLd(shop, lang, host, input, base)

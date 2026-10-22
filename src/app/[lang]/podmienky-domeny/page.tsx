@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
+import { MachineTranslationNote } from "@/components/MachineTranslationNote";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/podmienky-domeny">): Promise<Metadata> {
   const { lang } = await params;
@@ -20,6 +21,7 @@ export default async function DomainTermsPage({ params }: PageProps<"/[lang]/pod
   return (
     <article className="mx-auto flex max-w-3xl flex-col gap-4">
       <h1 className="text-2xl font-semibold tracking-tight">{t.domain_title}</h1>
+      <MachineTranslationNote lang={lang} prefixes={["terms."]} text={(await getDictionary(lang)).translation.legal_machine} slovakHref="/sk/podmienky-domeny" />
       <p>{t.domain_todo}</p>
       <ul className="flex list-disc flex-col gap-1 pl-6">
         <li>{t.domain_p1}</li>

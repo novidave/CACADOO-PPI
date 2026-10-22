@@ -6,6 +6,7 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { canonicalItemUrl, canonicalShopUrl, loadLiveSites } from "./customDomain";
 import { type CalendarDay, type OpeningHours, shopStatus, statusText } from "./hours";
 import { loadCalendars } from "./shopCalendar";
+import { searchAcrossLanguages } from "./queryExpansion";
 import { missingColumn } from "./missingColumn";
 import { siteUrl } from "./site";
 import type { AvailabilityKey, FreshnessState, StockRow } from "./stock";
@@ -28,12 +29,15 @@ export const DATA_RULES =
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHOP_COLUMNS_BEFORE_26 =
   "id, slug, name, address, city, country, timezone, phone, website, email, facebook_url, opening_hours, lat, lng, freshness_state, freshness_age_minutes, latest_file_time, has_toilet, has_douchette, has_card_terminal";
-const SHOP_COLUMNS = `${SHOP_COLUMNS_BEFORE_26}, booking_url`;
+const SHOP_COLUMNS_BEFORE_40 = `${SHOP_COLUMNS_BEFORE_26}, booking_url`;
+const SHOP_COLUMNS = `${SHOP_COLUMNS_BEFORE_40}, site_lang`;
 
 /** public_shops with the booking link once database update 26 is in, without it before. */
 async function publicShops<T>(query: (columns: string) => PromiseLike<{ data: T | null; error: { code?: string; message: string } | null }>) {
   const result = await query(SHOP_COLUMNS);
-  if (!missingColumn(result.error, "booking_url")) return result;
+  if (!missingColumn(result.error, "site_lang")) return result;
+  const before40 = await query(SHOP_COLUMNS_BEFORE_40);
+  if (!missingColumn(before40.error, "booking_url")) return before40;
   return await query(SHOP_COLUMNS_BEFORE_26);
 }
 
@@ -136,7 +140,7 @@ interface ShopRow {
   has_card_terminal: boolean;
 }
 
-const STATUS_LABELS = { sk: sk.status, hu: hu.status, en: en.status };
+const STATUS_LABELS: Record<string, typeof en.status> = { sk: sk.status, hu: hu.status, en: en.status };
 
 /**
  * The shop's status now — open / break / closed / holiday / no_hours — computed with the same
@@ -152,7 +156,7 @@ export function apiStatus(
   const status = shopStatus({ hours: shop.opening_hours, timeZone: shop.timezone, days: calendar }, now);
   return {
     state: status.state,
-    text: statusText(status, STATUS_LABELS[lang], lang),
+    text: statusText(status, STATUS_LABELS[lang] ?? en.status, lang),
     /** "holiday" = special hours on a holiday or a shortened holiday; "special" = the owner's special hours. */
     label: status.label,
     next_change: status.nextChange,
@@ -236,15 +240,19 @@ export async function searchStock(params: {
   const radius = Math.min(Math.max(Number(params.radiusKm) || 10, 0.1), 500);
   const hasPoint = location?.lat != null && location?.lng != null;
 
-  const { data, error } = await db().rpc("search_stock", {
-    q: params.q.slice(0, 200) || null,
-    lat: hasPoint ? location!.lat : null,
-    lng: hasPoint ? location!.lng : null,
-    radius_km: radius,
-    only_available: Boolean(params.onlyAvailable),
-  });
-  if (error) throw new ApiError(500, error.message);
-  const rows = (data ?? []) as StockRow[];
+  // Every language (update 40): names in any translation; a search with no hit (or in Chinese) also in Claude's words.
+  const run = async (q: string) => {
+    const { data, error } = await db().rpc("search_stock", {
+      q: q.slice(0, 200) || null,
+      lat: hasPoint ? location!.lat : null,
+      lng: hasPoint ? location!.lng : null,
+      radius_km: radius,
+      only_available: Boolean(params.onlyAvailable),
+    });
+    if (error) throw new ApiError(500, error.message);
+    return (data ?? []) as StockRow[];
+  };
+  const rows = await searchAcrossLanguages(params.q, run, (r) => r.item_id);
   // Each result's shop gets its status (the same rule as the page): hours + special days + holidays.
   const ids = [...new Set(rows.map((r) => r.shop_id))];
   const [hours, calendars, sites] = await Promise.all([

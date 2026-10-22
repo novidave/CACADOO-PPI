@@ -17,7 +17,7 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   /* Quicksand everywhere (src/app/fonts.ts); the system font only until it has loaded. */
-  --font-sans: var(--font-quicksand), system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-sans: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 html {
@@ -27,14 +27,14 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-quicksand), system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 /* MapLibre sets its own font on the map, its buttons and the pins' tooltips: Quicksand there too. */
 body .maplibregl-map,
 body .maplibregl-popup,
 body .maplibregl-ctrl {
-  font-family: var(--font-quicksand), system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 /*
@@ -137,5 +137,36 @@ body .maplibregl-ctrl {
   }
   html[data-print-list] [data-print-hide] {
     display: none !important;
+  }
+}
+
+/*
+ * Update 40: Chinese in the system's own fonts (PingFang SC, Microsoft YaHei, Noto Sans CJK; no CJK web font), with
+ * line breaks between characters that never run out of buttons, cards or the slider; Traditional Chinese prefers its
+ * own system fonts. Long Vietnamese or German words break inside buttons and cards instead of overflowing.
+ */
+:lang(zh-hant) body {
+  font-family: var(--font-quicksand), "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans TC", system-ui, sans-serif;
+}
+:lang(zh-hans),
+:lang(zh-hant) {
+  line-break: strict;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+button,
+[role="button"],
+a {
+  overflow-wrap: anywhere;
+}
+
+/* The language picker on a phone: a sheet from the bottom (a centred box from 640 px). */
+dialog.ppi-sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+}
+@media (min-width: 640px) {
+  dialog.ppi-sheet {
+    inset: 0;
   }
 }

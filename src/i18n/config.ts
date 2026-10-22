@@ -1,10 +1,13 @@
-export const locales = ["sk", "hu", "en"] as const;
-export type Locale = (typeof locales)[number];
+import { LANGUAGES, type LanguageCode } from "./languages";
 
-/** Used when the browser asks for a language PPI does not have yet. */
-export const defaultLocale: Locale = "en";
+/** Every language the website knows (src/i18n/languages.ts); the admin switches each on or off (site_languages()). */
+export const locales = LANGUAGES.map((l) => l.code) as readonly LanguageCode[];
+export type Locale = LanguageCode;
 
-/** Cookie that remembers the visitor's language choice. */
+/** Used when the browser asks for no language the website has switched on (update 40: Slovak). */
+export const defaultLocale: Locale = "sk";
+
+/** Cookie that remembers the visitor's language choice (functional: no consent needed). */
 export const LOCALE_COOKIE = "ppi_lang";
 
 export function isLocale(value: string | undefined | null): value is Locale {

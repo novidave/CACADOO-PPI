@@ -1,21 +1,49 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { defaultLocale, isLocale, LOCALE_COOKIE, type Locale } from "@/i18n/config";
+import { fromAcceptLanguage, HANDWRITTEN } from "@/i18n/languages";
 import { siteUrl } from "@/lib/site";
 import { refreshSession } from "@/lib/supabase/session";
 import { supabaseEnv } from "@/lib/supabase/env";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
-function preferredLocale(request: NextRequest): Locale {
-  const saved = request.cookies.get(LOCALE_COOKIE)?.value;
-  if (isLocale(saved)) return saved;
-
-  const header = request.headers.get("accept-language") ?? "";
-  for (const part of header.split(",")) {
-    const code = part.split(";")[0].trim().slice(0, 2).toLowerCase();
-    if (isLocale(code)) return code;
+/** The languages the admin switched on (site_languages(), update 40), kept a minute; sk, hu, en before update 40. */
+let enabledCache: { at: number; codes: string[] } | null = null;
+async function enabledLanguages(): Promise<string[]> {
+  if (enabledCache && Date.now() - enabledCache.at < 60_000) return enabledCache.codes;
+  const env = supabaseEnv();
+  let codes: string[] = [...HANDWRITTEN];
+  if (env) {
+    const res = await fetch(`${env.url}/rest/v1/rpc/site_languages`, {
+      method: "POST",
+      headers: { apikey: env.key, Authorization: `Bearer ${env.key}`, "Content-Type": "application/json" },
+      body: "{}",
+      cache: "no-store",
+    }).catch(() => null);
+    const rows = res?.ok ? ((await res.json().catch(() => null)) as { code: string; enabled: boolean }[] | null) : null;
+    if (Array.isArray(rows) && rows.length) codes = rows.filter((r) => r.enabled && isLocale(r.code)).map((r) => r.code);
+    else if (enabledCache) codes = enabledCache.codes;
   }
-  return defaultLocale;
+  enabledCache = { at: Date.now(), codes };
+  return codes;
+}
+
+/**
+ * The first visit on PPI's own address: the language chosen before (the functional cookie ppi_lang), else the
+ * browser's first language that is switched on (de-AT → de, zh-TW → zh-hant), else Slovak. No location is used.
+ */
+async function preferredLocale(request: NextRequest): Promise<Locale> {
+  const enabled = await enabledLanguages();
+  const saved = request.cookies.get(LOCALE_COOKIE)?.value;
+  if (isLocale(saved) && enabled.includes(saved)) return saved;
+  const browser = fromAcceptLanguage(request.headers.get("accept-language") ?? "", enabled);
+  return isLocale(browser) ? browser : defaultLocale;
+}
+
+/** Remembers the language of the page the visitor is on (a year). */
+function rememberLocale(request: NextRequest, response: NextResponse, lang: string): NextResponse {
+  if (request.cookies.get(LOCALE_COOKIE)?.value !== lang) response.cookies.set(LOCALE_COOKIE, lang, { path: "/", maxAge: ONE_YEAR, sameSite: "lax" });
+  return response;
 }
 
 // ---------------------------------------------------------------- shops' own domains (update 25)
@@ -103,8 +131,13 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
   if (pathname === "/llms.txt") return to(`/api/site/${site.slug}/llms`);
   const keyFile = KEY_FILE.exec(pathname);
   if (keyFile) return to(`/api/site/${site.slug}/indexnow/${keyFile[1]}`);
-  // The domain's own pages: src/app/site/[lang]/[slug] (their own layout, no Cacaduu header).
-  if (parts.length === 0) return to(`/site/${site.lang}/${site.slug}`);
+  // The domain's own pages: src/app/site/[lang]/[slug] (their own layout, no Cacaduu header). The first visit is
+  // in the shop's home language ("/"); a language the visitor chose before on this domain (ppi_lang) is kept.
+  if (parts.length === 0) {
+    const saved = request.cookies.get(LOCALE_COOKIE)?.value;
+    if (isLocale(saved) && saved !== site.lang && (await enabledLanguages()).includes(saved)) return NextResponse.redirect(new URL(`/${saved}${search}`, request.url), 307);
+    return to(`/site/${site.lang}/${site.slug}`);
+  }
   const [first, second, third, fourth, fifth] = parts;
   // The blog: "/blog" and "/blog/{post}" in the shop's language, "/{lang}/blog…" in the others.
   const blog = (lang: Locale, post: string | undefined) =>
@@ -114,7 +147,7 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
     if (r) return r;
   }
   if (isLocale(first)) {
-    if (parts.length === 1) return to(`/site/${first}/${site.slug}`);
+    if (parts.length === 1) return rememberLocale(request, to(`/site/${first}/${site.slug}`), first);
     if (second === "items" && third && parts.length === 3) return to(`/site/${first}/${site.slug}/items/${third}`);
     if (second === "blog" && parts.length <= 3) {
       const r = blog(first, third);
@@ -130,7 +163,7 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
   return NextResponse.redirect(`${siteUrl()}${pathname}${search}`, 307);
 }
 
-/** Every page lives under /sk, /hu or /en. Remembers the chosen language. */
+/** Every page lives under its language (/sk, /de, /zh-hans …). Remembers the chosen language. */
 export async function proxy(request: NextRequest) {
   const host = (request.headers.get("host") ?? "").toLowerCase().replace(/:\d+$/, "");
   if (!isMainHost(host)) return await shopDomain(request, host);
@@ -149,7 +182,7 @@ export async function proxy(request: NextRequest) {
   if (segment === "site") {
     const [, lang, slug, kind, id] = pathname.split("/").filter(Boolean);
     const url = request.nextUrl.clone();
-    const target = isLocale(lang) ? lang : preferredLocale(request);
+    const target = isLocale(lang) ? lang : await preferredLocale(request);
     url.pathname = !slug
       ? `/${target}`
       : kind === "items" && id
@@ -162,7 +195,7 @@ export async function proxy(request: NextRequest) {
 
   if (!isLocale(segment)) {
     const url = request.nextUrl.clone();
-    url.pathname = `/${preferredLocale(request)}${pathname === "/" ? "" : pathname}`;
+    url.pathname = `/${await preferredLocale(request)}${pathname === "/" ? "" : pathname}`;
     return NextResponse.redirect(url);
   }
 
@@ -179,11 +212,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url, 308);
   }
 
-  const response = NextResponse.next();
-  if (request.cookies.get(LOCALE_COOKIE)?.value !== segment) {
-    response.cookies.set(LOCALE_COOKIE, segment, { path: "/", maxAge: ONE_YEAR, sameSite: "lax" });
-  }
-  return refreshSession(request, response);
+  return refreshSession(request, rememberLocale(request, NextResponse.next(), segment));
 }
 
 export const config = {

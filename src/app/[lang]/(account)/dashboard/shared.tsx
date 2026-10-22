@@ -56,6 +56,13 @@ export function errorText(dict: Dictionary, err: string): string {
     const text = (dict.docs as Record<string, string>)[`error_${err.slice("docs_".length)}`];
     if (text) return text;
   }
+  // "Jazyky a preklady" and a product's description (update 40).
+  for (const prefix of ["languages_", "description_", "descriptions_"]) {
+    if (err.startsWith(prefix)) {
+      const text = (dict.owner_tr as unknown as Record<string, string>)[`err_${err}`];
+      if (text) return text;
+    }
+  }
   if (err.startsWith("stripe:")) return t(dict.plan.failed, { message: err.slice("stripe:".length) });
   if (err.startsWith("cloud_")) {
     const code = err.slice("cloud_".length);
@@ -71,10 +78,12 @@ export function errorText(dict: Dictionary, err: string): string {
 }
 
 /** The "ok" messages of every section (unknown ones say "Saved"). */
-export function okTexts(dict: Dictionary, extra: { retention?: number; backfilled?: number } = {}): Record<string, string> {
+export function okTexts(dict: Dictionary, extra: { retention?: number; backfilled?: number; n?: number } = {}): Record<string, string> {
   const o = dict.owner;
   const d = dict.dashboard;
   return {
+    languages: dict.owner_tr.ok_languages,
+    descriptions: t(dict.owner_tr.ok_descriptions, { n: extra.n ?? 1 }),
     columns: o.columns_saved,
     translation: d.translation_saved,
     translation_auto: d.translation_auto_done,

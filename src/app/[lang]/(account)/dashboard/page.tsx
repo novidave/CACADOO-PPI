@@ -307,7 +307,13 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
                   {items.map((item) => (
                     <tr key={item.item_id} className="border-b border-line">
                       <td className="py-2 pr-2">
-                        <ItemNames item={item} lang={lang} dict={dict} hidden={hidden({ at: "items", item_id: item.item_id, q, page: String(page) })} />
+                        <ItemNames
+                          item={item}
+                          lang={lang}
+                          dict={dict}
+                          hidden={hidden({ at: "items", item_id: item.item_id, q, page: String(page) })}
+                          detail={`/${lang}/dashboard/items/${item.item_id}?${new URLSearchParams({ shop: shop.slug })}`}
+                        />
                       </td>
                       <td className="py-2 pr-2 tabular-nums">{item.source_code}</td>
                       <td className="whitespace-nowrap py-2 pr-2 text-right">{formatPrice(item.price, lang, item.currency)}</td>
@@ -359,11 +365,14 @@ function ItemNames({
   lang,
   dict,
   hidden,
+  detail,
 }: {
   item: OwnerItem;
   lang: Locale;
   dict: Dictionary;
   hidden: React.ReactNode;
+  /** The product's page: "Popis" and "Preklady" (update 40). */
+  detail: string;
 }) {
   const d = dict.dashboard;
   const translated = translatedName(item.item_name, item.name_i18n, lang);
@@ -373,6 +382,9 @@ function ItemNames({
       <span>{item.item_name}</span>
       {translated && <span className="text-muted">{translated}</span>}
       {!item.name_i18n && <span className="text-xs text-muted">{d.translation_waiting}</span>}
+      <Link href={detail} className="text-xs underline underline-offset-4" data-item-detail>
+        {dict.owner_tr.item_link}
+      </Link>
       <details>
         <summary className="cursor-pointer text-xs text-muted underline underline-offset-4">
           {item.name_i18n_by_owner ? d.translation_yours : d.translation_edit}

@@ -3,21 +3,24 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isLocale } from "@/i18n/config";
-import { siteLang, sitePath } from "@/lib/customDomain";
+import { getDictionary, enabledLocales } from "@/i18n/dictionaries";
+import { languageOf } from "@/i18n/languages";
+import { sitePath } from "@/lib/customDomain";
 import { getShop } from "@/lib/data";
+import { getShopLanguages } from "@/lib/shopLanguages";
 import { getSiteLogo } from "@/lib/sections";
 import { type SiteVerification, verificationMetadata } from "@/lib/siteFiles";
 import { createPublicClient } from "@/lib/supabase/public";
-import { SiteLanguageSwitch } from "@/components/LanguageSwitch";
-import { quicksand } from "../../../fonts";
+import { LanguagePicker } from "@/components/LanguagePicker";
+import { notoFallback, quicksand } from "../../../fonts";
 import "../../../globals.css";
 
 /**
  * The layout of a shop's own domain (database update 25): no Cacaduu header. The shop's own
  * header, as before update 28: a small logo at the top left that leads to the shop's home page
  * (its header logo, database update 31; else the shop's logo; else its name), or to the address
- * the owner chose for it ("Odkaz loga", database update 32; same window), and the SK · HU · EN
- * switch on the right, a thin line under it. The shop's name and logo are also on the page itself,
+ * the owner chose for it ("Odkaz loga", database update 32; same window), and the language picker (update 40:
+ * "Odporúčané" = the shop's preferred languages; "/" = its "Predvolený jazyk na vlastnej doméne") on the right, a thin line under it. The shop's name and logo are also on the page itself,
  * above its details. Only src/proxy.ts sends visitors here (the page and its items).
  */
 export async function generateMetadata({ params }: LayoutProps<"/site/[lang]/[slug]">): Promise<Metadata> {
@@ -41,8 +44,14 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
   if (!isLocale(lang)) notFound();
   const shop = await getShop(slug);
   if (!shop) notFound();
-  const homeLang = siteLang(shop.country);
-  const siteLogo = await getSiteLogo(slug).catch(() => null);
+  const [langs, enabled, dict, siteLogo] = await Promise.all([
+    getShopLanguages(slug, shop.country),
+    enabledLocales(),
+    getDictionary(lang),
+    getSiteLogo(slug).catch(() => null),
+  ]);
+  if (!enabled.includes(lang)) notFound();
+  const homeLang = langs.home;
   const logo = siteLogo?.url ?? shop.logo_url;
   const own = Boolean(siteLogo?.url);
   // The database checked the address (https of a real host); without one, the home page.
@@ -63,7 +72,7 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
   const linkClass = "flex h-9 min-w-0 items-center overflow-hidden whitespace-nowrap sm:h-10";
 
   return (
-    <html lang={lang} className={`${quicksand.variable} h-full antialiased`}>
+    <html lang={lang} dir="ltr" data-script={languageOf(lang)?.script} className={`${quicksand.variable} ${notoFallback.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <header className="border-b border-line" data-site-header>
           <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3">
@@ -76,7 +85,13 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
                 {content}
               </Link>
             )}
-            <SiteLanguageSwitch current={lang} homeLang={homeLang} />
+            <LanguagePicker
+              current={lang}
+              enabled={enabled}
+              recommended={[...new Set([langs.main, homeLang, ...langs.preferred])]}
+              labels={dict.languages}
+              site={{ homeLang }}
+            />
           </div>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>

@@ -1,8 +1,9 @@
+import { locales } from "@/i18n/config";
 import { CORS_HEADERS, LIMIT_PER_MINUTE } from "@/lib/apiHttp";
 import { DATA_RULES } from "@/lib/publicApi";
 import { siteUrl } from "@/lib/site";
 
-const lang = { name: "lang", in: "query", required: false, schema: { type: "string", enum: ["sk", "hu", "en"], default: "en" }, description: "Language of name_translated and of the source_url pages." };
+const lang = { name: "lang", in: "query", required: false, schema: { type: "string", enum: [...locales], default: "en" }, description: "Language of name_translated and of the source_url pages." };
 
 const freshness = {
   type: "object",

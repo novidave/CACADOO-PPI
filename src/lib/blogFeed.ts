@@ -4,6 +4,7 @@ import { blogPhotoUrl, blogRss, blogRssUrl, blogUrl, excerpt, type BlogPage, typ
 import { siteLang } from "./customDomain";
 import { siteUrl } from "./site";
 import { supabaseEnv } from "./supabase/env";
+import { getShopLanguages } from "./shopLanguages";
 import { createPublicClient } from "./supabase/public";
 
 /**
@@ -20,8 +21,8 @@ export async function blogRssResponse(slug: string, onSite: boolean): Promise<Re
   ]);
   const live = typeof host === "string" && host ? host : null;
   if (!shop || !blog || (onSite && !live)) return new Response("Not found", { status: 404 });
-  const place: BlogPlace = { shopSlug: shop.slug, country: shop.country, host: live };
-  const lang = siteLang(shop.country);
+  const lang = siteLang(shop.country, (await getShopLanguages(shop.slug, shop.country)).home);
+  const place: BlogPlace = { shopSlug: shop.slug, country: shop.country, host: live, homeLang: lang };
   const dict = await getDictionary(lang);
   const base = siteUrl();
   const storage = supabaseEnv()?.url ?? "";

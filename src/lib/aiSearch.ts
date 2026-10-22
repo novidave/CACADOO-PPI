@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { isLocale, type Locale } from "@/i18n/config";
+import { isLocale, locales, type Locale } from "@/i18n/config";
 import { type Dictionary, getDictionary, t } from "@/i18n/dictionaries";
 import { aiModel } from "./aiModel";
 import { callerHash } from "./apiHttp";
@@ -178,8 +178,8 @@ const SEARCH_TOOL: Anthropic.Tool = {
       only_available: { type: "boolean", description: "true: only items in stock with fresh data." },
       lang: {
         type: "string",
-        enum: ["sk", "hu", "en"],
-        description: "The shopper's language when it is sk or hu, else en: the language of the name translations.",
+        enum: [...locales],
+        description: "The shopper's language (a website language code: sk, hu, en, de, el, uk, zh-hans …; else en): the language of the name translations.",
       },
     },
     required: ["query", "near", "only_available", "lang"],
@@ -352,7 +352,7 @@ export async function runChatSearch(opts: {
       return { type: "tool_result", tool_use_id: call.id, is_error: true, content: "No more searches: answer with what you have." };
     }
     const near = cleanText(input.near, 100);
-    const itemLang: Locale = input.lang === "sk" || input.lang === "hu" ? input.lang : "en";
+    const itemLang: Locale = isLocale(typeof input.lang === "string" ? input.lang : null) ? (input.lang as Locale) : "en";
     searched.push(near ? `${query} (${near})` : query);
     const result = await searchStock({ q: query, near: near || null, onlyAvailable: input.only_available === true, lang: itemLang, withStatusInput: true });
     cacaduuSearched = true;
