@@ -2,26 +2,16 @@ import { Noto_Sans, Quicksand } from "next/font/google";
 
 /**
  * The website's one typeface, at the owner's request: Quicksand (variable, 300–700), with the
- * Central European letters (latin-ext: Slovak, Hungarian, Czech…) preloaded; the Vietnamese letters (update 40) come
- * from `quicksandVi` below, only on pages that use them. next/font downloads it at build time and serves it from the site itself — a
- * visitor's browser never asks Google for anything. Both root layouts (PPI's pages and a shop's own domain) put its
+ * Central European letters (latin-ext: Slovak, Hungarian, Czech…) preloaded. The Vietnamese letters (update 40) are in
+ * the same CSS as their own unicode-range file, not preloaded: a browser downloads them only on a page that shows such
+ * letters (one declaration only — a second Quicksand() would make every browser load the font twice). next/font
+ * downloads it at build time and serves it from the site itself — a visitor's browser never asks Google for anything. Both root layouts (PPI's pages and a shop's own domain) put its
  * variable on <html>; globals.css uses it for every page. Code-like values (DNS records, keys) keep `font-mono`.
  */
 export const quicksand = Quicksand({
   subsets: ["latin", "latin-ext"],
   display: "swap",
   variable: "--font-quicksand",
-});
-
-/**
- * Quicksand's Vietnamese letters as their own, not preloaded files: split by unicode-range, a browser downloads them
- * only on a page that shows such letters (the Latin pages no longer preload them).
- */
-export const quicksandVi = Quicksand({
-  subsets: ["vietnamese"],
-  display: "swap",
-  preload: false,
-  variable: "--font-quicksand-vi",
 });
 
 /**

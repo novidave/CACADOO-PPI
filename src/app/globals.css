@@ -17,7 +17,7 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   /* Quicksand everywhere (src/app/fonts.ts); the system font only until it has loaded. */
-  --font-sans: var(--font-quicksand), var(--font-quicksand-vi), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
+  --font-sans: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 html {
@@ -27,14 +27,14 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-quicksand), var(--font-quicksand-vi), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
+  font-family: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 /* MapLibre sets its own font on the map, its buttons and the pins' tooltips: Quicksand there too. */
 body .maplibregl-map,
 body .maplibregl-popup,
 body .maplibregl-ctrl {
-  font-family: var(--font-quicksand), var(--font-quicksand-vi), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
+  font-family: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
 /*
@@ -193,7 +193,7 @@ body .maplibregl-ctrl {
  * own system fonts. Long Vietnamese or German words break inside buttons and cards instead of overflowing.
  */
 :lang(zh-hant) body {
-  font-family: var(--font-quicksand), var(--font-quicksand-vi), "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans TC", system-ui, sans-serif;
+  font-family: var(--font-quicksand), "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans TC", system-ui, sans-serif;
 }
 :lang(zh-hans),
 :lang(zh-hant) {
