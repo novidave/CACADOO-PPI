@@ -3,7 +3,7 @@ import { cache } from "react";
 import type { Locale } from "@/i18n/config";
 import { enabledLocales, indexedLocales } from "@/i18n/dictionaries";
 import { isLocale } from "@/i18n/config";
-import { createPublicClient } from "@/lib/supabase/public";
+import { createCachedPublicClient } from "@/lib/supabase/public";
 import { siteLang } from "./customDomain";
 
 /**
@@ -34,7 +34,7 @@ interface Row {
  */
 export const getShopLanguages = cache(async (slug: string, country: string | null): Promise<ShopLanguages> => {
   const [enabled, mainIndexed] = await Promise.all([enabledLocales(), indexedLocales()]);
-  const db = createPublicClient();
+  const db = createCachedPublicClient();
   let row: Row | null = null;
   if (db) {
     const { data, error } = await db.rpc("shop_languages", { p_slug: slug });

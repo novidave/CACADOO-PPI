@@ -1,7 +1,7 @@
 import "server-only";
 import { after } from "next/server";
 import { supabaseEnv } from "./supabase/env";
-import { createPublicClient } from "./supabase/public";
+import { createCachedPublicClient } from "./supabase/public";
 import type { ShopLanguages } from "./shopLanguages";
 
 /**
@@ -90,7 +90,7 @@ export interface TextsWanted {
  */
 export async function getShopTexts(slug: string, lang: string, langs: ShopLanguages, original: boolean, wanted: TextsWanted[]): Promise<ShopTexts> {
   if (lang === langs.main) return noTexts(lang);
-  const db = createPublicClient();
+  const db = createCachedPublicClient();
   const rows = new Map<string, Translation>();
   if (db) {
     const answers = await Promise.all(
@@ -130,7 +130,7 @@ export function requestTranslation(slug: string, lang: string): void {
 
 /** An item's description and category as the page shows them (update 40; none before it). */
 export async function getItemTexts(itemId: string): Promise<{ description: string | null; source: "shop" | "cacaduu" | null; category: string | null } | null> {
-  const db = createPublicClient();
+  const db = createCachedPublicClient();
   if (!db) return null;
   const { data, error } = await db.rpc("item_texts", { p_item_id: itemId });
   if (error || !data) return null;

@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { BLOG_PER_PAGE, blogPhotoUrl, type BlogPage, type BlogPost } from "./blogFormat";
 import { supabaseEnv } from "./supabase/env";
-import { createClient } from "./supabase/server";
+import { createCachedPublicClient } from "./supabase/public";
 
 /**
  * The shop's blog for its pages (database update 37): only what the database shows (blog_visible_posts: published,
@@ -10,7 +10,7 @@ import { createClient } from "./supabase/server";
  */
 
 export const getBlogPage = cache(async (slug: string, page: number): Promise<BlogPage | null> => {
-  const supabase = await createClient();
+  const supabase = createCachedPublicClient();
   if (!supabase) return null;
   const { data, error } = await supabase.rpc("shop_blog", { p_slug: slug, p_page: page, p_per_page: BLOG_PER_PAGE });
   return error || !data ? null : (data as BlogPage);
@@ -18,7 +18,7 @@ export const getBlogPage = cache(async (slug: string, page: number): Promise<Blo
 
 export const getBlogPost = cache(async (slug: string, postSlug: string): Promise<BlogPost | null> => {
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(postSlug) || postSlug.length > 80) return null;
-  const supabase = await createClient();
+  const supabase = createCachedPublicClient();
   if (!supabase) return null;
   const { data, error } = await supabase.rpc("shop_blog_post", { p_slug: slug, p_post_slug: postSlug });
   return error || !data ? null : (data as BlogPost);
@@ -26,7 +26,7 @@ export const getBlogPost = cache(async (slug: string, postSlug: string): Promise
 
 /** How many posts the shop shows ("Novinky" only with one or more); 0 before update 37 or on any error. */
 export async function blogCount(slug: string): Promise<number> {
-  const supabase = await createClient();
+  const supabase = createCachedPublicClient();
   if (!supabase) return 0;
   const { data, error } = await supabase.rpc("shop_blog_count", { p_slug: slug });
   return error ? 0 : Number(data ?? 0);

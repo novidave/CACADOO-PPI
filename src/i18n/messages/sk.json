@@ -1705,7 +1705,7 @@
     "who_title": "Kto spracúva údaje",
     "who": "Cacaduu PPI prevádzkuje webovú stránku, na ktorej miestne obchody zverejňujú svoje zásoby, otváracie hodiny a novinky. TODO: názov prevádzkovateľa, adresa, IČO, kontakt.",
     "visitors_title": "Návštevníci",
-    "visitors": "Stránky nepoužívajú reklamné ani sledovacie skripty a nepýtajú sa na polohu. Vyhľadávanie posiela len napísané slová. Podrobnosti o AI asistentovi obchodu sú na stránke Súkromie asistenta. Video z YouTube sa načíta až po kliknutí na ▶ (cez youtube-nocookie.com); dovtedy sa nič z YouTube nenačítava.",
+    "visitors": "Stránky nepoužívajú reklamné ani sledovacie skripty a nepýtajú sa na polohu. Vyhľadávanie posiela len napísané slová. Podrobnosti o AI asistentovi obchodu sú na stránke Súkromie asistenta. Video z YouTube sa načíta až po kliknutí na ▶ (cez youtube-nocookie.com); dovtedy sa nič z YouTube nenačítava. Rýchlosť stránok a počet návštev meriame cez Vercel Speed Insights a Web Analytics: bez cookies, bez reklám, bez polohy a bez údajov, podľa ktorých by sa dal návštevník rozpoznať.",
     "owners_title": "Majitelia obchodov",
     "owners": "Ukladáme e-mail a heslo účtu (heslo len ako odtlačok), údaje o obchode a súbory, ktoré majiteľ nahrá. TODO: doba uchovávania, práva.",
     "facebook_title": "Údaje z Facebooku",
@@ -2103,5 +2103,17 @@
     "usage_tokens": "Tokeny",
     "usage_cost": "Cena",
     "usage_alerted": "upozornenie 80 % odoslané"
+  },
+  "admin_errors": {
+    "title": "Chyby za posledných 7 dní",
+    "intro": "Chyby servera webu (stránky, API, formuláre) zoskupené podľa miesta. Ukladáme len miesto, upravenú správu a čas – žiadne údaje návštevníkov. Staršie ako 30 dní sa mažú.",
+    "none": "Žiadne chyby za posledných 7 dní.",
+    "unavailable": "Zoznam chýb bude dostupný po spustení aktualizácie databázy 42.",
+    "where": "Kde",
+    "what": "Čo",
+    "count": "Počet",
+    "last": "Naposledy",
+    "first": "prvýkrát {when}",
+    "digest": "kód {digest}"
   }
 }

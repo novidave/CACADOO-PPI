@@ -105,9 +105,13 @@ export function TranslationsTable({
   const dialog = useRef<HTMLDialogElement>(null);
   const langName = useMemo(() => new Map(langs.map((l) => [l.code, l.native])), [langs]);
 
+  // Only the newest request's answer is shown: a slower answer for filters already changed is dropped.
+  const latest = useRef(0);
   const reload = useCallback(() => {
+    const request = ++latest.current;
     startLoading(async () => {
       const result = await loadTranslations(shopId, { ...filters, ref: item ?? undefined });
+      if (request !== latest.current) return;
       if (!result.ok) {
         setError(result.error);
         return;

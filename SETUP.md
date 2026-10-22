@@ -1588,6 +1588,36 @@ Do the steps in order.
 3. **Check:** Môj obchod → Jazyky a inventár → Tovar → tap each filter: the number on it = the rows listed; "Čo vidí
    zákazník" says the same as your shop page.
 
+## Part AN — Speed, quicker taps and an error list (22 October 2026)
+
+Nothing changes in what the pages show. Pages load faster (search, the shop page, Môj obchod lists), the map, the
+shop assistant and the language list load after the page, taps answer at once, and server errors are listed for the
+admin under **"Chyby za posledných 7 dní"** (no visitor data). Details and numbers: `PERFORMANCE.md`.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/42_performance.sql` → Run → "Success". Safe to run
+   again. It adds a stored search column with its index (can take a minute on a big catalogue), faster search and
+   owner-list functions, the error list, and switches off JIT for the website's queries (if the editor says JIT could
+   not be changed for the whole database, that is fine — the functions carry it themselves).
+2. **New secret `REVALIDATE_SECRET`** (any random text of at least 16 characters, e.g. from a password manager):
+   - Vercel → Project → Settings → Environment Variables → add `REVALIDATE_SECRET` (Production + Preview, Sensitive).
+   - Supabase → Edge Functions → Secrets → add the same `REVALIDATE_SECRET`. `SITE_URL` must already be there
+     (https address of the website).
+   - Supabase → Edge Functions → **stock-pull** → paste the new `supabase/functions/stock-pull/index.ts` → Deploy
+     (after an upload it tells the website to show the new stock at once; without the secret pages refresh within 60 s).
+3. **Region:** `vercel.json` now runs the website's functions in Frankfurt (`fra1`). Check Supabase → Project Settings
+   → General → Region: if it is not Frankfurt (eu-central-1), change `regions` in `vercel.json` to the nearest Vercel
+   region (e.g. `dub1` for Ireland, `arn1` for Stockholm, `cdg1` for Paris) before merging.
+4. **Speed Insights and Web Analytics:** Vercel → Project → Speed Insights → Enable; Analytics → Enable. Both are
+   cookie-free; the privacy page already says so.
+5. **Optional — Sentry:** to get server errors in Sentry as well, add `SENTRY_DSN` (Vercel environment variable).
+   Without it the admin list still works.
+6. **Performance check on every preview (GitHub Actions):** it runs by itself when Vercel reports a preview. Repository
+   → Settings → Secrets and variables → Actions: if previews are protected, add the secret
+   `VERCEL_AUTOMATION_BYPASS_SECRET` (Vercel → Project → Settings → Deployment Protection → Protection Bypass for
+   Automation); add the variables `LHCI_SHOP` (a shop slug with stock) and `LHCI_ITEM` (one of its item ids).
+7. **Check:** open a shop page on a phone — the map box shows at once, the map follows; Môj obchod → Jazyky a inventár →
+   Tovar answers quickly; Admin → Predplatné a domény → "Chyby za posledných 7 dní" shows "Žiadne chyby…" or a list.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

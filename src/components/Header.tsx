@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Locale } from "@/i18n/config";
 import type { Dictionary } from "@/i18n/dictionaries";
-import { MAIN_RECOMMENDED } from "@/i18n/languages";
+import { languageOf, MAIN_RECOMMENDED } from "@/i18n/languages";
 import { LanguagePicker } from "./LanguagePicker";
 
 export function Header({ lang, dict, enabled }: { lang: Locale; dict: Dictionary; enabled: string[] }) {
@@ -17,7 +17,7 @@ export function Header({ lang, dict, enabled }: { lang: Locale; dict: Dictionary
           <Link href={`/${lang}/login`} className="text-sm text-muted hover:text-foreground">
             {dict.account.for_shops}
           </Link>
-          <LanguagePicker current={lang} enabled={enabled} recommended={MAIN_RECOMMENDED} labels={dict.languages} />
+          <LanguagePicker current={lang} currentNative={languageOf(lang)?.native ?? lang} enabled={enabled} recommended={MAIN_RECOMMENDED} labels={dict.languages} />
         </div>
       </div>
     </header>

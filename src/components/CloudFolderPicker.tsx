@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import type { FolderList } from "@/app/[lang]/(account)/dashboard/cloudActions";
 import { PendingButton } from "@/components/PendingButton";
 
@@ -54,12 +54,16 @@ export function CloudFolderPicker({
 
   const errorText = (code: string) => labels.errors[code] ?? labels.folder_failed;
 
-  const show = (target: string, fallback = false): void =>
+  // Two quick taps on folders: only the last one's list is shown.
+  const latest = useRef(0);
+  const show = (target: string, fallback = false): void => {
+    const request = ++latest.current;
     startLoading(async () => {
       setError(null);
       let result = await browse(shopId, target);
       // A folder that does not exist yet: start from the top of the cloud instead.
       if ("error" in result && fallback && target !== "/" && result.error === "folder") result = await browse(shopId, "/");
+      if (request !== latest.current) return;
       if ("error" in result) {
         setError(errorText(result.error));
         return;
@@ -67,6 +71,7 @@ export function CloudFolderPicker({
       setPath(result.path);
       setFolders(result.folders);
     });
+  };
 
   const makeFolder = () =>
     startLoading(async () => {

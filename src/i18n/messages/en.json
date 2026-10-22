@@ -1705,7 +1705,7 @@
     "who_title": "Who processes the data",
     "who": "Cacaduu PPI runs the website on which local shops publish their stock, opening hours and news. TODO: the operator's name, address, company ID, contact.",
     "visitors_title": "Visitors",
-    "visitors": "The pages use no advertising or tracking scripts and never ask for your location. Search sends only the words you type. Details about a shop's AI assistant are on the assistant privacy page. A YouTube video loads only after a tap on ▶ (via youtube-nocookie.com); until then nothing loads from YouTube.",
+    "visitors": "The pages use no advertising or tracking scripts and never ask for your location. Search sends only the words you type. Details about a shop's AI assistant are on the assistant privacy page. A YouTube video loads only after a tap on ▶ (via youtube-nocookie.com); until then nothing loads from YouTube. Page speed and visit counts are measured with Vercel Speed Insights and Web Analytics: no cookies, no ads, no location and nothing that could identify a visitor.",
     "owners_title": "Shop owners",
     "owners": "We keep the account's e-mail and password (the password only as a hash), the shop's details and the files the owner uploads. TODO: retention, rights.",
     "facebook_title": "Data from Facebook",
@@ -2103,5 +2103,17 @@
     "usage_tokens": "Tokens",
     "usage_cost": "Cost",
     "usage_alerted": "80 % alert sent"
+  },
+  "admin_errors": {
+    "title": "Errors in the last 7 days",
+    "intro": "The website's server errors (pages, API, forms) grouped by place. Only the place, a cleaned message and the time are stored – no visitor data. Entries older than 30 days are deleted.",
+    "none": "No errors in the last 7 days.",
+    "unavailable": "The error list is available once database update 42 has been run.",
+    "where": "Where",
+    "what": "What",
+    "count": "Count",
+    "last": "Last",
+    "first": "first {when}",
+    "digest": "code {digest}"
   }
 }

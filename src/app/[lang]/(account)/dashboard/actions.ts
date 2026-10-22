@@ -7,6 +7,7 @@ import { getSession, requestOrigin } from "@/lib/auth";
 import { sanitizeHours } from "@/lib/hours";
 import { sectionUrl } from "@/lib/dashboardPages";
 import { LANGUAGE_COLUMN_ROWS, MAPPING_FIELDS, TEXT_FIELDS } from "@/lib/myShops";
+import { refreshShop } from "@/lib/publicCache";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOGO_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -26,7 +27,11 @@ async function start(formData: FormData) {
   const slug = String(formData.get("shop_slug") ?? "");
   // Back to the section the form was in, with the message shown there.
   const at = String(formData.get("at") ?? "").replace(/[^a-z]/g, "");
-  const back = (query: Record<string, string>) => redirect(sectionUrl(lang, at, { shop: slug, ...query }));
+  const back = (query: Record<string, string>) => {
+    // A saved change a visitor can see: the public pages read it again at once.
+    if (query.ok) refreshShop(slug);
+    return redirect(sectionUrl(lang, at, { shop: slug, ...query }));
+  };
   if (!UUID.test(shopId)) back({ err: "invalid shop" });
   return { session, shopId, back };
 }
@@ -150,6 +155,7 @@ export async function saveShop(formData: FormData) {
   // A bad e-mail, Facebook or booking link comes back as the message "email" / "facebook" / "booking".
   if (error) fail(error.code === "54000" ? "limit" : error.message);
   const { data: saved } = await session.supabase.from("shops").select("slug").eq("id", String(data)).maybeSingle();
+  refreshShop(saved?.slug);
   redirect(
     `/${lang}/dashboard?${new URLSearchParams({ shop: saved?.slug ?? "", ok: isNew ? "created" : "details", ...(isNew ? {} : { at: "details" }) })}${isNew ? "" : "#details"}`,
   );

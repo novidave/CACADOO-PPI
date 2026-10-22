@@ -2,15 +2,21 @@ import { Noto_Sans, Quicksand } from "next/font/google";
 
 /**
  * The website's one typeface, at the owner's request: Quicksand (variable, 300–700), with the
- * Central European letters (latin-ext: Slovak, Hungarian, Czech…) and, since update 40, every Vietnamese letter
- * (ă â đ ê ô ơ ư and the tone marks). next/font downloads it at build time and serves it from the site itself — a
- * visitor's browser never asks Google for anything. Both root layouts (PPI's pages and a shop's own domain) put its
+ * Central European letters (latin-ext: Slovak, Hungarian, Czech…) preloaded. The Vietnamese letters (update 40) are in
+ * the same CSS as their own unicode-range file, not preloaded: a browser downloads them only on a page that shows such
+ * letters (one declaration only — a second Quicksand() would make every browser load the font twice). next/font
+ * downloads it at build time and serves it from the site itself — a visitor's browser never asks Google for anything. Both root layouts (PPI's pages and a shop's own domain) put its
  * variable on <html>; globals.css uses it for every page. Code-like values (DNS records, keys) keep `font-mono`.
  */
 export const quicksand = Quicksand({
-  subsets: ["latin", "latin-ext", "vietnamese"],
+  subsets: ["latin", "latin-ext"],
   display: "swap",
   variable: "--font-quicksand",
+  // Until Quicksand has loaded, a system font of the same width (globals.css, "Fallback faces"): next/font's own
+  // fallback names only local(Arial), which Linux and Android do not have, so they showed a ~10–20 % wider font and
+  // lines re-wrapped when Quicksand came (layout shift on the shop page).
+  adjustFontFallback: false,
+  fallback: ["PpiFallbackArial", "PpiFallbackLiberation", "PpiFallbackRoboto"],
 });
 
 /**
