@@ -5,6 +5,7 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { sectionUrl } from "@/lib/dashboardPages";
 import { rangesFor, weekdayOf, type OpeningHours } from "@/lib/hours";
+import { refreshShop } from "@/lib/publicCache";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -21,7 +22,11 @@ async function start(formData: FormData) {
   if (!session) redirect(`/${lang}/login`);
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
-  const back = (query: Record<string, string>) => redirect(sectionUrl(lang, "holidays", { shop: slug, ...query }));
+  const back = (query: Record<string, string>) => {
+    // A saved change a visitor can see: the public pages read it again at once.
+    if (query.ok) refreshShop(slug);
+    return redirect(sectionUrl(lang, "holidays", { shop: slug, ...query }));
+  };
   if (!UUID.test(shopId)) back({ err: "invalid shop" });
   return { session, shopId, back };
 }

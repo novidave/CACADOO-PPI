@@ -5,6 +5,7 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { sectionUrl } from "@/lib/dashboardPages";
 import type { Cell, CellRow } from "@/lib/translations";
+import { refreshAll, refreshShop } from "@/lib/publicCache";
 
 /**
  * Môj obchod → "Jazyky a inventár" and a product's "Popis" / "Preklady" tabs (database update 40). Every change goes
@@ -34,7 +35,11 @@ export async function saveLanguages(formData: FormData) {
   const { supabase } = await session(lang);
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
-  const back = (query: Record<string, string>) => redirect(sectionUrl(lang, "languages", { shop: slug, ...query }));
+  const back = (query: Record<string, string>) => {
+    // A saved change a visitor can see: the public pages read it again at once.
+    if (query.ok) refreshShop(slug);
+    return redirect(sectionUrl(lang, "languages", { shop: slug, ...query }));
+  };
   if (!UUID.test(shopId)) back({ err: "invalid shop" });
   const main = String(formData.get("main_lang") ?? "");
   const domain = String(formData.get("domain_lang") ?? "");
@@ -56,8 +61,11 @@ export async function saveDescription(formData: FormData) {
   const { supabase } = await session(lang);
   const slug = String(formData.get("shop_slug") ?? "");
   const itemId = String(formData.get("item_id") ?? "");
-  const back = (query: Record<string, string>) =>
-    redirect(`/${lang}/dashboard/items/${itemId}?${new URLSearchParams({ shop: slug, tab: "description", ...query })}`);
+  const back = (query: Record<string, string>) => {
+    // A saved change a visitor can see: the public pages read it again at once.
+    if (query.ok) refreshShop(slug);
+    return redirect(`/${lang}/dashboard/items/${itemId}?${new URLSearchParams({ shop: slug, tab: "description", ...query })}`);
+  };
   if (!UUID.test(itemId)) redirect(`/${lang}/dashboard`);
   const action = String(formData.get("action") ?? "");
   if (action === "show") {
@@ -135,7 +143,9 @@ export async function saveTranslation(shopId: string, cell: Cell, text: string):
   const supabase = await owner();
   if (!supabase || !UUID.test(shopId)) return { ok: false, error: "login" };
   const { error } = await supabase.rpc("owner_save_translation", { p_shop_id: shopId, p_kind: cell.kind, p_ref: cell.ref, p_lang: cell.lang, p_text: text });
-  return error ? { ok: false, error: error.message } : { ok: true, value: null };
+  if (error) return { ok: false, error: error.message };
+  refreshAll();
+  return { ok: true, value: null };
 }
 
 /** "Preložiť znova" / "Navrhnúť nový preklad": Claude's text, nothing saved. */
@@ -156,7 +166,9 @@ export async function acceptTranslation(shopId: string, cell: Cell, text: string
   const { error } = asOwn
     ? await supabase.rpc("owner_save_translation", { p_shop_id: shopId, p_kind: cell.kind, p_ref: cell.ref, p_lang: cell.lang, p_text: text })
     : await supabase.rpc("owner_accept_translation", { p_shop_id: shopId, p_kind: cell.kind, p_ref: cell.ref, p_lang: cell.lang, p_text: text });
-  return error ? { ok: false, error: error.message } : { ok: true, value: null };
+  if (error) return { ok: false, error: error.message };
+  refreshAll();
+  return { ok: true, value: null };
 }
 
 /** "Zmazať" (one or many): returns the rows as they were, for "Späť" within 30 s. */
@@ -164,14 +176,18 @@ export async function deleteTranslations(shopId: string, cells: Cell[], never: b
   const supabase = await owner();
   if (!supabase || !UUID.test(shopId)) return { ok: false, error: "login" };
   const { data, error } = await supabase.rpc("owner_delete_translations", { p_shop_id: shopId, p_cells: cells.slice(0, 1000), p_never: never });
-  return error ? { ok: false, error: error.message } : { ok: true, value: (data ?? []) as unknown[] };
+  if (error) return { ok: false, error: error.message };
+  refreshAll();
+  return { ok: true, value: (data ?? []) as unknown[] };
 }
 
 export async function restoreTranslations(shopId: string, rows: unknown[]): Promise<Result<null>> {
   const supabase = await owner();
   if (!supabase || !UUID.test(shopId)) return { ok: false, error: "login" };
   const { error } = await supabase.rpc("owner_restore_translations", { p_shop_id: shopId, p_rows: rows });
-  return error ? { ok: false, error: error.message } : { ok: true, value: null };
+  if (error) return { ok: false, error: error.message };
+  refreshAll();
+  return { ok: true, value: null };
 }
 
 /** "Preložiť znova" for many: the missing ones of a language are translated now (a part per call). */
@@ -182,5 +198,6 @@ export async function translateNow(shopId: string, lang: string): Promise<Result
     body: { action: "run", shop_id: shopId, lang },
   });
   if (error || !data) return { ok: false, error: data?.error ?? "failed" };
+  refreshAll();
   return { ok: true, value: { saved: Number(data.saved ?? 0), left: Number(data.left ?? 0) } };
 }

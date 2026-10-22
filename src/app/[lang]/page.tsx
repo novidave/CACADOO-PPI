@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, type Dictionary } from "@/i18n/dictionaries";
 import { itemHref, shopHref } from "@/lib/customDomain";
-import { createClient } from "@/lib/supabase/server";
+import { createCachedPublicClient } from "@/lib/supabase/public";
 import { getLiveSites, getShopCalendars, getShopsByIds, type PublicShop } from "@/lib/data";
 import { missingSupabaseEnv, supabaseEnv } from "@/lib/supabase/env";
 import { formatPrice } from "@/lib/format";
@@ -108,7 +108,8 @@ async function PlainResults({ q, lang, dict }: { q: string; lang: Locale; dict: 
   let error: string | null = null;
 
   try {
-    const supabase = await createClient();
+    // The same answer for every visitor: through the short shared cache (search_stock is a read).
+    const supabase = createCachedPublicClient();
     if (!supabase) {
       error = `${dict.search.not_connected} (${missingSupabaseEnv().join(", ")})`;
     } else {

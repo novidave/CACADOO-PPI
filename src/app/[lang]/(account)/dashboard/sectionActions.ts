@@ -6,6 +6,7 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { sectionUrl } from "@/lib/dashboardPages";
 import { MAX_SLIDES, type Slot, type SlotKind } from "@/lib/pageContent";
+import { refreshShop } from "@/lib/publicCache";
 
 /**
  * "Obsah stránky" (database update 38: the slider and its library of PDFs and pictures) and the header logo of an own
@@ -24,7 +25,11 @@ async function start(formData: FormData, at: "content" | "header") {
   if (!session) redirect(`/${lang}/login`);
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
-  const back = (query: Record<string, string>) => redirect(sectionUrl(lang, at, { shop: slug, ...query }));
+  const back = (query: Record<string, string>) => {
+    // A saved change a visitor can see: the public pages read it again at once.
+    if (query.ok) refreshShop(slug);
+    return redirect(sectionUrl(lang, at, { shop: slug, ...query }));
+  };
   if (!UUID.test(shopId)) back({ err: "invalid shop" });
   return { session, shopId, back };
 }

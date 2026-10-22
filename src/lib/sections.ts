@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { createClient } from "@/lib/supabase/server";
+import { createCachedPublicClient } from "@/lib/supabase/public";
 import { supabaseEnv } from "@/lib/supabase/env";
 import type { Locale } from "@/i18n/config";
 import { blogPath, blogPhotoUrl, type BlogPlace } from "./blogFormat";
@@ -25,7 +25,7 @@ export function publicPictureUrl(shopId: string, sectionId: string, version: num
 
 /** The slider's settings and slides; null before database update 38, for an unknown shop or on any error. */
 export const getShopContent = cache(async (slug: string): Promise<PageContent | null> => {
-  const db = await createClient();
+  const db = createCachedPublicClient();
   if (!db) return null;
   const { data, error } = await db.rpc("shop_content", { p_slug: slug });
   if (error || !data) return null;
@@ -111,7 +111,7 @@ export interface SiteLogo {
 }
 
 export const getSiteLogo = cache(async (slug: string): Promise<SiteLogo | null> => {
-  const db = await createClient();
+  const db = createCachedPublicClient();
   if (!db) return null;
   const { data, error } = await db.rpc("shop_site_logo", { p_slug: slug });
   if (error) return null;

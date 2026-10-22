@@ -9,6 +9,7 @@ import { flatten } from "@/i18n/messages";
 import en from "@/i18n/messages/en.json";
 import sk from "@/i18n/messages/sk.json";
 import { getSession } from "@/lib/auth";
+import { refreshAll } from "@/lib/publicCache";
 
 /**
  * "Admin → Preklady" (database update 40): the languages, the interface texts and the limits. The page is shown only
@@ -33,6 +34,8 @@ async function start(formData: FormData) {
   const back = (query: Record<string, string>, at: string): never => {
     const params = new URLSearchParams(keep.startsWith("?") ? keep.slice(1) : keep);
     for (const [k, v] of Object.entries(query)) params.set(k, v);
+    // A saved setting can change every shop's page (holidays, limits, languages): read again at once.
+    if (query.ok) refreshAll();
     redirect(`/${lang}/admin/translations?${params}#${at}`);
   };
   return { session, back };

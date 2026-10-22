@@ -5,6 +5,7 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getSession, requestOrigin } from "@/lib/auth";
 import { localToUtc } from "@/lib/format";
 import { functionFailure } from "@/lib/functionError";
+import { refreshAll, refreshShop } from "@/lib/publicCache";
 
 /**
  * Môj obchod → Novinky / Blog (database update 37). Posts are written through the owner_blog_* functions with the
@@ -55,6 +56,8 @@ export async function saveBlogPost(input: { shopId: string; postId: string | nul
     p_body: String(input.body ?? "").slice(0, 70_001),
   });
   if (error) return { error: code(error.message) };
+  // An edit of a published post shows at once.
+  refreshAll();
   // The address the post has now (a draft's follows its title): the Facebook preview's last line.
   const { data: row } = await s.supabase.from("blog_posts").select("slug").eq("id", String(data)).maybeSingle();
   return { id: String(data), slug: (row as { slug?: string } | null)?.slug };
@@ -82,6 +85,8 @@ export async function publishBlogPost(input: { postId: string; at: string | null
   const { data, error } = await s.supabase.rpc("owner_blog_publish", { p_post_id: input.postId, p_publish_at: at, p_fb_choice: input.choice });
   if (error) return { error: code(error.message) };
   const r = data as { publish_at: string; scheduled: boolean; facebook_now: boolean };
+  // The post is on the shop's pages now (the slider, the blog): read again at once.
+  refreshAll();
   return { publishAt: r.publish_at, scheduled: r.scheduled, facebookNow: r.facebook_now };
 }
 
@@ -172,8 +177,11 @@ async function start(formData: FormData) {
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
   const at = String(formData.get("at") ?? "posts") === "facebook" ? "facebook" : "posts";
-  const back = (query: Record<string, string>): never =>
-    redirect(`/${lang}/dashboard/blog?${new URLSearchParams({ shop: slug, at, ...query })}#${at}`);
+  const back = (query: Record<string, string>): never => {
+    // A saved change a visitor can see: the public pages read it again at once.
+    if (query.ok) refreshShop(slug);
+    return redirect(`/${lang}/dashboard/blog?${new URLSearchParams({ shop: slug, at, ...query })}#${at}`);
+  };
   return { lang, s: s!, shopId, slug, back };
 }
 

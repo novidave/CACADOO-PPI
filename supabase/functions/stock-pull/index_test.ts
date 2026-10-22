@@ -5,7 +5,7 @@ import {
   applyMapping, approvalSample, batches, columnSamples, currencyForCountry, decodeText, detectEncoding, detectFormat, guessLanguageColumns, guessMapping,
   isValidMapping, languageField, languageRows, previewFile,
   importReport, indexNowPayload, indexNowSettings, indexNowUrls, isPrivateColumn, mappedColumns, onlyColumns, parseFile, parseNumber,
-  pingIndexNow, readTranslations, receiveUpload, type IndexNowHostClaim, type Mapping, type NameTranslation, type Translator,
+  pingIndexNow, readTranslations, receiveUpload, revalidateSettings, revalidateSite, type IndexNowHostClaim, type Mapping, type NameTranslation, type Translator,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -194,7 +194,8 @@ Deno.test("a failed translation leaves the stock applied", async () => {
   const { body, background, calls, lastError } = await upload(() => Promise.reject(new Error("Claude is unavailable")));
   eq(body.result, { status: "updated", items: 2, zeroed: 0, skipped: 0 }, "stock applied");
   eq(calls, ["apply_stock_file", "record_stock_import", "items_to_translate"], "translations not saved");
-  eq(background, [{ host: null, sent: 0, status: null, skipped: "no key" }, { saved: 0, failed: 1 }], "failure caught in the background");
+  // IndexNow (no key: nothing), the website's cache (not set up: nothing), the translations
+  eq(background, [{ host: null, sent: 0, status: null, skipped: "no key" }, null, { saved: 0, failed: 1 }], "failure caught in the background");
   eq(lastError, "Item names could not be translated (the stock is fine): Claude is unavailable", "the owner sees why");
 });
 
@@ -205,7 +206,7 @@ Deno.test("translations are saved after the stock, in the background", async () 
   eq(body.result.status, "updated", "stock applied");
   eq(calls, ["apply_stock_file", "record_stock_import", "items_to_translate", "apply_item_translations"], "order of database calls");
   eq((rpc[3].args.p_items as NameTranslation[])[0].en, "White facade paint 5 l", "saved translation");
-  eq(background, [{ host: null, sent: 0, status: null, skipped: "no key" }, { saved: 1, failed: 0 }], "one item translated (no IndexNow key: no request)");
+  eq(background, [{ host: null, sent: 0, status: null, skipped: "no key" }, null, { saved: 1, failed: 0 }], "one item translated (no IndexNow key, no cache settings: no request)");
 });
 
 // ---------------------------------------------------------------- IndexNow (update 36)
@@ -506,4 +507,29 @@ Deno.test("a second file in another language (option B): matched by code or EAN,
     { source_code: "P1", ean: null, name: "Fehér festék", description: null, category: null, quantity: 99, price: 9.9 },
     { source_code: null, ean: "8590000000011", name: "Kávé", description: null, category: null, quantity: null, price: null },
   ], "a row without code and EAN is left out; the purchase price is never read");
+});
+
+Deno.test("the website's cache: SITE_URL + REVALIDATE_SECRET, one POST per shop, never the secret in the address", async () => {
+  const env = (vars: Record<string, string>) => (name: string) => vars[name];
+  const SECRET = "0123456789abcdef0123";
+  eq(revalidateSettings(env({ SITE_URL: "https://ppi.example.com/sk", REVALIDATE_SECRET: ` ${SECRET} ` })), { url: "https://ppi.example.com", secret: SECRET }, "both");
+  eq(revalidateSettings(env({ SITE_URL: "http://ppi.example.com", REVALIDATE_SECRET: "short" })), { url: null, secret: null }, "no https, a short secret");
+  eq(revalidateSettings(env({})), { url: null, secret: null }, "nothing set");
+
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fake = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init ?? {} });
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  eq(await revalidateSite({ url: "https://ppi.example.com", secret: SECRET, fetch: fake }, "potraviny-centrum"), 200, "sent");
+  eq(calls.length, 1, "one request");
+  eq(calls[0].url, "https://ppi.example.com/api/revalidate", "the website's address");
+  eq((calls[0].init.headers as Record<string, string>)["x-ppi-revalidate"], SECRET, "the secret in a header");
+  eq(JSON.parse(String(calls[0].init.body)), { slug: "potraviny-centrum" }, "the shop");
+  eq(calls[0].url.includes(SECRET), false, "never in the address");
+  eq(await revalidateSite({ url: null, secret: SECRET, fetch: fake }, "x"), null, "no SITE_URL: nothing");
+  eq(await revalidateSite({ url: "https://ppi.example.com", secret: SECRET, fetch: fake }, null), null, "no shop: nothing");
+  eq(calls.length, 1, "nothing more sent");
+  const failing = (() => Promise.reject(new Error("down"))) as unknown as typeof fetch;
+  eq(await revalidateSite({ url: "https://ppi.example.com", secret: SECRET, fetch: failing }, "x"), null, "a failure never throws");
 });
