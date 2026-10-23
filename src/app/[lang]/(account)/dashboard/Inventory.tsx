@@ -167,6 +167,7 @@ export function ItemsSection({
   q,
   page,
   filter,
+  filesCleared = false,
 }: {
   shop: MyShop;
   lang: Locale;
@@ -178,6 +179,8 @@ export function ItemsSection({
   q: string;
   page: number;
   filter: ItemFilter;
+  /** The uploaded files were deleted and no file came since (update 43). */
+  filesCleared?: boolean;
 }) {
   const d = dict.dashboard;
   const { notice, section } = m;
@@ -197,7 +200,7 @@ export function ItemsSection({
     return t(forms[`products_${new Intl.PluralRules(lang).select(n)}`] ?? d.products_other, { n });
   };
   const upload = sectionUrl(lang, "export", { shop: shop.slug });
-  const file = fileStatus(shop.latest_file_time, shop.freshness_state);
+  const file = fileStatus(shop.latest_file_time, shop.freshness_state, filesCleared);
   return (
     <DashboardSection {...section("items")} title={d.items_title} summary={productCount(counts ? Number(counts.all_items) : total)}>
               {/* div (not p): details may not sit inside p; that broke hydration. */}
@@ -208,9 +211,13 @@ export function ItemsSection({
                   <span className="mt-1 block">{d.items_more_text}</span>
                 </details>
               </div>
-              <p className="text-sm" data-file-status={file.kind === "none" ? "none" : file.state}>
+              <p className="text-sm" data-file-status={file.kind === "file" ? file.state : file.kind}>
                 {file.kind === "none" ? (
                   d.file_status_none
+                ) : file.kind === "cleared" ? (
+                  <Link href={upload} className="underline underline-offset-4">
+                    {d.file_status_cleared}
+                  </Link>
                 ) : (
                   <>
                     {t(d.file_status, { time: formatDateTime(file.at, lang, shop.timezone) })} ·{" "}

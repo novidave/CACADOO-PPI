@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import type { Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopperPdfAllowed, shopSiteHost, type PublicShop } from "@/lib/data";
+import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
 import { blogCount } from "@/lib/blog";
 import { blogPath } from "@/lib/blogFormat";
@@ -112,6 +112,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     blogCount(shop.slug).catch(() => 0),
   ]);
   if (onSite && !host) notFound();
+  // No products at all after "Vymazať celý sklad" (update 43): "Sortiment sa práve aktualizuje" until the next file.
+  const resetting = items.length === 0 && !q ? await shopStockResetting(shop.slug).catch(() => false) : false;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(requestedPage, pages);
   // The shop's texts in the visitor's language (update 40): the original stays; "Zobraziť originál" = ?original=1.
@@ -263,7 +265,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         </form>
 
         {items.length === 0 ? (
-          <p>{dict.shop.no_items}</p>
+          <p data-stock-note={resetting ? "updating" : "none"}>{resetting ? dict.shop.stock_updating : dict.shop.no_items}</p>
         ) : (
           <ul className="divide-y divide-line border-y border-line">
             {items.map((item) => {

@@ -65,6 +65,8 @@ Deno.test("status line: the last file with aktuálny / starší / zastaraný, or
   eq(fileStatus("2026-10-22T08:00:00Z", "current"), { kind: "file", at: "2026-10-22T08:00:00Z", state: "current" }, "current");
   eq(fileStatus("2026-10-22T08:00:00Z", "recent"), { kind: "file", at: "2026-10-22T08:00:00Z", state: "recent" }, "recent");
   eq(fileStatus("2026-10-20T08:00:00Z", null), { kind: "file", at: "2026-10-20T08:00:00Z", state: "stale" }, "unknown → stale");
+  eq(fileStatus("2026-10-22T08:00:00Z", "current", true), { kind: "cleared" }, "files deleted: never shown as present (update 43)");
+  eq(fileStatus(null, "stale", true), { kind: "cleared" }, "files deleted after a full reset");
   const d = dicts.sk.dashboard as Record<string, string>;
   eq([d.file_state_current, d.file_state_recent, d.file_state_stale], ["aktuálny", "starší", "zastaraný"], "Slovak words");
   eq(d.file_status.includes("{time}"), true, "time placeholder");
@@ -82,4 +84,34 @@ Deno.test("one short line + Viac, the old explanations and the correction dropdo
     eq(Boolean(d.items_more && d.items_more_text && d.shopper_sees), true, `${lang}: new texts`);
   }
   eq(dicts.sk.dashboard.shopper_sees, "Čo vidí zákazník", "column");
+});
+
+// ---------------------------------------------------------------- "Začať sklad odznova" (update 43)
+import { backupHref, nameMatches, readPreview, readState, resetError, resetErrorText } from "./inventoryReset.ts";
+
+Deno.test("Začať sklad odznova: the database's refusals become the page's messages", () => {
+  eq(resetError("confirm_name"), "reset_confirm_name", "typed name");
+  eq(resetError("reset_limit"), "reset_reset_limit", "3 a day");
+  eq(resetError("restore_newer_upload"), "reset_blocked_newer_upload", "a newer file");
+  eq(resetError("Not a member of this shop"), "Not a member of this shop", "anything else as it is");
+  const labels = { err_confirm_name: "Názov nesedí", blocked_newer_upload: "Nový súbor", err_storage: "Úložisko ({message})" };
+  eq(resetErrorText(labels, "reset_confirm_name"), "Názov nesedí", "text");
+  eq(resetErrorText(labels, "reset_blocked_newer_upload"), "Nový súbor", "blocked text");
+  eq(resetErrorText(labels, "reset_storage:missing"), "Úložisko (missing)", "storage");
+  eq(resetErrorText(labels, "other"), null, "not ours");
+});
+
+Deno.test("Začať sklad odznova: the shop's name typed as the database checks it", () => {
+  eq(nameMatches("  davide PAINT shop ", "Davide paint shop"), true, "case and outer spaces");
+  eq(nameMatches("Davide", "Davide paint shop"), false, "part of the name");
+  eq(nameMatches("", ""), false, "never an empty name");
+});
+
+Deno.test("Začať sklad odznova: the state and the preview as the database sends them", () => {
+  eq(readState(null), null, "before update 43");
+  const s = readState({ files: 2, files_cleared: true, needs_file: false, items: "5", resets_left: 1, resets: [{ id: 3, blocked: null }], backups: [], activity: [] });
+  eq([s?.files, s?.files_cleared, s?.items, s?.resets_left, s?.resets.length], [2, true, 5, 1, 1], "fields");
+  const p = readPreview({ shop_name: "Davide paint shop", items: 4, missing: 2, missing_list: [{ code: "D3", name: "Štetec" }], files: 0, resets_left: 3 });
+  eq(p?.missing_list, [{ code: "D3", name: "Štetec" }], "missing list");
+  eq(backupHref(7), "/api/owner/inventory-backups/7", "download address");
 });

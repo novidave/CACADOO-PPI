@@ -1,13 +1,15 @@
 /**
  * Môj obchod's pages: "Môj obchod" (stock file columns, details, logo, items, plan, delete), "Obsah stránky" (the
  * shop page's slider and its library of files, database update 38), "Asistent" (its settings, the conversations with their
- * cloud folder, the private folders, the last stock files), "Jazyky a inventár" (update 40: the shop's languages,
- * the stock file's columns, the items and their translations) and "Priečinok s exportom" (the export folder). A form
+ * cloud folder, the private folders), "Jazyky a inventár" (update 40: the shop's languages, the stock file's columns, the
+ * items and their translations) and "Priečinok s exportom" (the export folder, the last stock files and, update 43, the
+ * danger zone of the stock). A form
  * sends the owner back to the page and section ("at") it came from; a section that moved keeps working under its
  * old name (old links, e-mails, the cloud sign-in coming back with ?at=cloud).
  */
-export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs", "private", "imports"];
-export const EXPORT_SECTIONS = ["export", "conversations-pc"];
+export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs", "private"];
+/** "Posledné nahrané súbory" lives with the stock file again since update 43, next to "Nebezpečná zóna – sklad". */
+export const EXPORT_SECTIONS = ["export", "imports", "conversations-pc", "danger"];
 export const CONTENT_SECTIONS = ["content", "library", "sections"];
 /** "Jazyky a inventár" (update 40): the shop's languages, its stock file's columns, its items, every translation. */
 export const TRANSLATION_SECTIONS = ["languages", "columns", "files", "items", "translations"];

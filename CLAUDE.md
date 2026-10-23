@@ -74,6 +74,7 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
 - `npm run test:strings` — fails on a visible text written into a `.tsx` file instead of the message files
 - `npm run test:items` — unit tests (Deno) of Môj obchod's "Tovar" list (`src/lib/ownerItems_test.ts`): each state of
   "Čo vidí zákazník" (stale → hidden with the reason, sold out, in stock), the filters and the last file's status line
+  (also "Žiadny nahraný súbor" after the files were deleted), and the inventory reset's helpers (update 43)
 - `npm run test:e2e` — Playwright on a phone (Pixel 7) against `E2E_BASE_URL` (default http://localhost:3000): AI
   search → shop → product, the shop page, blog post, language switch; upload + columns and Produkty search only with
   an owner login and `E2E_OWNER_SHOP` (a shop made for testing)
@@ -343,11 +344,12 @@ PPI's sitemap leaves those pages out.
 - Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
   Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (details, logo, header logo, plan,
   delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`
-  "Asistent" (update 38: **four sections, each once, in this order** — "Nastavenia asistenta", "Konverzácie asistenta"
+  "Asistent" (update 38: **three sections, each once, in this order** — "Nastavenia asistenta", "Konverzácie asistenta"
   with the cloud folder as its part `#cloud`, "Súkromné priečinky" = `ShopDocuments` (documents, folders, access keys,
-  "Len zobraziť" / "Zobraziť a stiahnuť"), "Posledné nahrané súbory" = `@/components/RecentImports`; a free shop sees
+  "Len zobraziť" / "Zobraziť a stiahnuť"); "Posledné nahrané súbory" = `@/components/RecentImports` moved to `/sync` in
+  update 43; a free shop sees
   `ProOnly` "Dostupné v Pro" where it has nothing yet, what it has stays reachable) and `/sync` "Priečinok s exportom"
-  (export folder + `FolderSync`, conversations to the PC). **Which page holds a section: only `@/lib/dashboardPages`**
+  (export folder + `FolderSync`, "Posledné nahrané súbory", conversations to the PC, "Nebezpečná zóna – sklad"). **Which page holds a section: only `@/lib/dashboardPages`**
   (`sectionUrl(lang, at, query)` for every form's way back; `movedFrom()` / `forwardUrl()` forward old addresses with
   their query, old names merged: `private` → `docs`, `sections` → `content`; `/dashboard/sections/[id]` → the library).
   Never put a section on two pages. Shared messages/switcher/form parts: `dashboard/shared.tsx`. Sections are
@@ -591,6 +593,24 @@ message only, never the address, IP or personal data) → `log_server_error()` �
 Sentry too when `SENTRY_DSN` is set. Budget: `.github/workflows/performance.yml` (Lighthouse CI `lighthouserc.cjs` +
 `scripts/first-load-js.mjs` + `npm run test:e2e` on every Vercel preview, throttling applied while loading); first-load JS
 < 150 kB gzip on public pages. The main chat box sizes itself in CSS (`field-sizing: content`), not after hydration.
+
+## Začať sklad odznova (update 43)
+
+`supabase/sql/43_inventory_reset.sql` + stock-pull `?action=delete_files` + `sync/inventoryActions.ts` +
+`@/components/InventoryDangerZone` + `@/lib/inventoryReset` + `@/lib/stockImports`. On "Priečinok s exportom" (`/sync`):
+"Posledné nahrané súbory" (moved back from Asistent; old address forwarded) with **"Vymazať všetky nahrané súbory"**
+(`owner_delete_stock_files()`: list, last file name, example rows; stock-pull deletes the raw files saved up to then —
+`owner_raw_files_to_delete()` / `raw_files_deleted()`; the stock and its freshness stay; "Žiadny nahraný súbor · nahrajte
+nový" wherever the last file is shown, `files_cleared`) and, `collapsed` at the bottom, "Nebezpečná zóna – sklad":
+**A** remove the products missing from the last file (sold out and older than the newest `updated_at` of the shop's
+items), **B** delete the whole stock + every uploaded file (typed shop name; keep translations by code — default on;
+clear the mapping — default off). Only `owner_inventory_reset()` decides: membership, 3 per shop and day, a backup CSV
+first (`inventory_backups`, 30 days, public fields + translations only), products into `inventory_trash` (30 days, daily
+`ppi-inventory-purge`), `owner_inventory_restore()` = exactly back (same ids) unless a newer file was applied or a later
+removal exists. Translations/descriptions return by code through the `shop_items_reattach_*` triggers. Every action in
+`shop_activity`. Visitors: `shop_stock_resetting()` → "Sortiment sa práve aktualizuje." Never touches blog, slider,
+assistant, private folders and their files, contacts, domain, subscription or opening hours. There are no customer alerts
+("Upozorniť ma") and no Pomocník yet — the activity log and `owner_inventory_state()` are what they will read.
 
 ## Stock upload
 

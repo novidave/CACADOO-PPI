@@ -1618,6 +1618,30 @@ admin under **"Chyby za posledných 7 dní"** (no visitor data). Details and num
 7. **Check:** open a shop page on a phone — the map box shows at once, the map follows; Môj obchod → Jazyky a inventár →
    Tovar answers quickly; Admin → Predplatné a domény → "Chyby za posledných 7 dní" shows "Žiadne chyby…" or a list.
 
+## Part AO — "Začať sklad odznova": delete uploaded files, remove missing products, reset and restore the stock (23 October 2026)
+
+Môj obchod → **Priečinok s exportom** now holds "Posledné nahrané súbory" again (with **"Vymazať všetky nahrané
+súbory"**) and, collapsed at the bottom, **"Nebezpečná zóna – sklad"**: remove the products missing from the last file,
+delete the whole stock and start again, "Obnoviť sklad" (30 days), "Zálohy" (backup CSVs, 30 days) and "Posledné akcie".
+Blog, slider, assistant, private folders, contacts, domain, subscription and opening hours are never touched.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/43_inventory_reset.sql` → Run → "Success". Safe to run
+   again. If it says "pg_cron is not on", switch on pg_cron (Database → Extensions) and run it once more (the daily job
+   `ppi-inventory-purge` empties the 30-day trash and old backups).
+2. **stock-pull:** Supabase → Edge Functions → **stock-pull** → paste the new `supabase/functions/stock-pull/index.ts` →
+   Deploy ("Verify JWT" stays off). It now deletes a shop's uploaded raw files from Storage when its owner deletes them;
+   until it is deployed the files disappear from the list at once and from Storage with the shop's next upload.
+3. **Check on Davide Paint shop** (in this order):
+   - Priečinok s exportom → Posledné nahrané súbory → "Vymazať všetky nahrané súbory" → the dialog counts the files →
+     "Vymazať": the list says "Žiadny nahraný súbor · nahrajte nový", the products stay on the shop page.
+   - Nebezpečná zóna – sklad → "Odstrániť chýbajúce produkty": the list shows what is missing from the last file →
+     confirm: a backup CSV downloads, only those products are gone.
+   - "Vymazať celý sklad" → type the shop's name → "Vymazať sklad": the CSV downloads, the shop page says
+     "Sortiment sa práve aktualizuje.", Môj obchod asks for a new stock file.
+   - "Obnoviť sklad" → everything is back as it was (products, quantities, prices, translations, descriptions).
+   - Delete the whole stock again → upload a new file with the same codes → the translations and descriptions return.
+   - At most 3 removals a day per shop; "Obnoviť sklad" is refused (with the reason) after a newer file was applied.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

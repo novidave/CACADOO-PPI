@@ -30,6 +30,7 @@ export const PUBLIC_SECONDS = 60;
 const CACHED_RPCS = new Set([
   "search_stock",
   "shop_stock",
+  "shop_stock_resetting",
   "shop_has_plan",
   "shop_stands_alone",
   "shopper_pdf_allowed",

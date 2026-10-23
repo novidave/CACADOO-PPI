@@ -93,14 +93,17 @@ Deno.test("The card's two lines: the post's text as written, cut at a word", () 
 
 Deno.test("Môj obchod: each section has one page; old addresses are forwarded with their query", () => {
   eq(sectionPath("sk", "assistant"), "/sk/dashboard/assistant", "assistant");
-  eq(sectionPath("sk", "imports"), "/sk/dashboard/assistant", "imports moved from /sync");
+  eq(sectionPath("sk", "imports"), "/sk/sync", "imports back with the stock file (update 43)");
+  eq(sectionPath("sk", "danger"), "/sk/sync", "Nebezpečná zóna – sklad");
   eq(sectionPath("hu", "content"), "/hu/dashboard/content", "content");
   eq(sectionPath("sk", "library"), "/sk/dashboard/content", "library");
   eq(sectionPath("sk", "export"), "/sk/sync", "export stays");
   eq(sectionId("private"), "docs", "Súkromné priečinky = the documents");
   eq(sectionId("sections"), "content", "Sekcie stránky (PDF) → Obsah stránky");
   eq(sectionUrl("sk", "cloud", { shop: "davide", ok: "cloud_connected" }), "/sk/dashboard/assistant?shop=davide&ok=cloud_connected&at=cloud#cloud", "cloud");
-  eq(movedFrom("sync", "imports"), true, "/sync?at=imports");
+  eq(movedFrom("sync", "imports"), false, "/sync?at=imports stays");
+  eq(movedFrom("assistant", "imports"), true, "the old address on Asistent is forwarded");
+  eq(forwardUrl("sk", "imports", { shop: "davide", at: "imports" }), "/sk/sync?shop=davide&at=imports#imports", "imports → /sync");
   eq(movedFrom("sync", "private"), true, "/sync?at=private");
   eq(movedFrom("sync", "export"), false, "export");
   eq(movedFrom("dashboard", "sections"), true, "/dashboard?at=sections");

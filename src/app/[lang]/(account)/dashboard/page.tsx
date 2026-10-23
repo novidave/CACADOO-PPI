@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
+import { forwardUrl, movedFrom, sectionUrl } from "@/lib/dashboardPages";
 import { addressLine } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { DashboardSection } from "@/components/DashboardSection";
@@ -83,7 +83,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   }
 
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
-  const [planRow, hasPlan, holidays, header] = await Promise.all([
+  const [planRow, hasPlan, holidays, header, stockState] = await Promise.all([
     supabase
       .from("subscriptions")
       .select("status, plan, current_period_end, cancel_at, stripe_customer_id, stripe_subscription_id")
@@ -94,7 +94,10 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     loadHolidays(supabase, shop),
     // "Logo v hlavičke webu" (database update 31; null before it).
     loadSiteLogo(supabase, shop),
+    // After "Vymazať celý sklad" (database update 43): ask for a new stock file until one is applied.
+    supabase.rpc("owner_inventory_state", { p_shop_id: shop.id }),
   ]);
+  const needsFile = !stockState.error && (stockState.data as { needs_file?: boolean } | null)?.needs_file === true;
   // The database decides whether the shop has the paid plan; before database update 18
   // the Plan section only says that paid plans are not available yet.
   const plan = planRow.error || hasPlan.error ? null : { row: planRow.data as PlanRow | null, active: hasPlan.data === true };
@@ -134,6 +137,15 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           <Link href={`/${lang}/shops/${shop.slug}`} className="text-sm underline underline-offset-4">
             {d.view_public}
           </Link>
+        )}
+        {needsFile && (
+          <div className="flex flex-col gap-1 border border-foreground p-3" data-needs-file>
+            <p className="font-semibold">{dict.reset.upload_new_title}</p>
+            <p className="text-sm">{dict.reset.upload_new_text}</p>
+            <Link href={sectionUrl(lang, "export", { shop: shop.slug })} className="self-start text-sm underline underline-offset-4">
+              {dict.reset.upload_new_link}
+            </Link>
+          </div>
         )}
         {ok === "created" ? (
           <div className="flex flex-col gap-2 border border-foreground p-3">

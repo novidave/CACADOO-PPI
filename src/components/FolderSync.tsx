@@ -35,6 +35,8 @@ interface ServerStatus {
   latest_file_time: string | null;
   mapping_status: "proposed" | "confirmed";
   freshness_state: FreshnessState;
+  /** The owner deleted the uploaded files and none came since (database update 43; missing before it). */
+  files_cleared?: boolean;
 }
 
 /** The last file sent for this shop, so an unchanged situation is not sent again every 15 minutes. */
@@ -431,8 +433,14 @@ export function FolderSync({
           {server && (
             <>
               {" · "}
-              {labels.latest_file}:{" "}
-              {server.latest_file_time ? formatDateTime(server.latest_file_time, lang, timeZone) : labels.never}
+              {server.files_cleared ? (
+                labels.files_cleared
+              ) : (
+                <>
+                  {labels.latest_file}:{" "}
+                  {server.latest_file_time ? formatDateTime(server.latest_file_time, lang, timeZone) : labels.never}
+                </>
+              )}
             </>
           )}
         </dd>

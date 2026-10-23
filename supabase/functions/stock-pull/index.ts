@@ -21,6 +21,10 @@
 //   6. after the reply, in the background: names without a translation (or renamed) get
 //      their Slovak, Hungarian and English names from Claude Haiku; never touches stock,
 //      and whatever fails is tried again with the next file
+//   8. "Vymazať všetky nahrané súbory" / "Vymazať celý sklad" (update 43): the website calls
+//      ?action=delete_files&shop_id=… with the owner's login after the database forgot the files;
+//      the shop's raw files saved up to that moment are deleted from Storage (owner_raw_files_to_delete,
+//      raw_files_deleted). If that call never came, the next upload of the shop deletes them.
 //   7. also in the background (update 36): IndexNow (Bing, Seznam, Yandex… share it) is told
 //      the item pages that changed in a way a search result shows — new, price, in stock ↔
 //      sold out (inventory.indexnow_at; not 12 → 11 pieces) — on their canonical host: the
@@ -950,6 +954,45 @@ async function keepRawFile(db: SupabaseClient, shopId: string, bytes: Uint8Array
   if (old.length) await bucket.remove(old);
 }
 
+/** The shop's raw files saved up to `before` (their names are "<milliseconds>.<format>"); newer ones stay. */
+export function rawFilesUpTo(names: string[], before: string): string[] {
+  const limit = Date.parse(before);
+  if (!Number.isFinite(limit)) return [];
+  return names.filter((name) => {
+    const saved = Number(name.split(".")[0]);
+    return Number.isFinite(saved) && saved <= limit;
+  });
+}
+
+/**
+ * Update 43, the fallback: raw files the owner deleted while this function could not be reached go with the shop's
+ * next upload (before update 43 there is no such mark: nothing happens).
+ */
+export async function deletePendingRawFiles(db: SupabaseClient, shopId: string): Promise<number> {
+  const { data, error } = await db.from("sync_sources").select("raw_files_delete_before").eq("shop_id", shopId).single();
+  const before = (data as { raw_files_delete_before?: string | null } | null)?.raw_files_delete_before;
+  if (error || !before) return 0;
+  return await deleteRawFiles(db, shopId, before);
+}
+
+/** Update 43: deletes the shop's raw files saved up to `before` from Storage, then tells the database. */
+export async function deleteRawFiles(db: SupabaseClient, shopId: string, before: string): Promise<number> {
+  const bucket = db.storage.from("raw-files");
+  let deleted = 0;
+  for (;;) {
+    const { data: files, error } = await bucket.list(shopId, { limit: 1000 });
+    if (error) throw new Error(`Stored files could not be listed: ${error.message}`);
+    const gone = rawFilesUpTo((files ?? []).map((f) => f.name), before).map((name) => `${shopId}/${name}`);
+    if (gone.length === 0) break;
+    const { error: removeError } = await bucket.remove(gone);
+    if (removeError) throw new Error(`Stored files could not be deleted: ${removeError.message}`);
+    deleted += gone.length;
+    if (gone.length < 1000) break;
+  }
+  await db.rpc("raw_files_deleted", { p_shop_id: shopId, p_before: before });
+  return deleted;
+}
+
 type Update = (values: Record<string, unknown>) => PromiseLike<unknown>;
 
 function sourceUpdater(db: SupabaseClient, shopId: string): Update {
@@ -1201,6 +1244,18 @@ export async function receiveUpload(
   const shopId = params.get("shop_id") ?? "";
   if (!UUID.test(shopId)) return reply(400, { error: "shop_id is missing" });
 
+  // Update 43: the owner deleted the uploaded files (or the whole inventory): the raw files go from Storage too.
+  if (params.get("action") === "delete_files") {
+    const { data: before, error: refused } = await asCaller.rpc("owner_raw_files_to_delete", { p_shop_id: shopId });
+    if (refused) return reply(403, { error: "Only this shop's owners may delete its files" });
+    if (!before) return reply(200, { deleted: 0 });
+    try {
+      return reply(200, { deleted: await deleteRawFiles(db, shopId, String(before)) });
+    } catch (e) {
+      return reply(500, { error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   // Checks membership with the uploader's own login and records "PPI window seen".
   const { error: denied } = await asCaller.rpc("upload_check_in", { p_shop_id: shopId });
   if (denied) return reply(403, { error: "Only this shop's owners or the admin may upload its stock" });
@@ -1265,6 +1320,8 @@ export async function receiveUpload(
     later(revalidateSite(revalidate, source.shops?.slug));
     later(translateShopItems(db, shopId, options.translate).finally(() => revalidateSite(revalidate, source.shops?.slug)));
   }
+  // Raw files the owner deleted while this function could not be reached (update 43).
+  (options.background ?? inBackground)(deletePendingRawFiles(db, shopId).catch(() => 0));
   return reply(200, { result: publicResult(result) });
 }
 

@@ -25,10 +25,19 @@ export function shopperView(availability: AvailabilityKey | null): ShopperView {
   return availability === "out_of_stock" ? "sold_out" : "in_stock";
 }
 
-/** The status line above the list: "Posledný súbor: <date> · aktuálny / starší / zastaraný", or no file yet. */
-export type FileStatus = { kind: "none" } | { kind: "file"; at: string; state: FreshnessState };
+/**
+ * The status line above the list: "Posledný súbor: <date> · aktuálny / starší / zastaraný", no file yet, or (update 43)
+ * the uploaded files were deleted and no file came since: "Žiadny nahraný súbor · nahrajte nový" (the stock's freshness
+ * still runs out as usual, but a deleted file is never shown as present).
+ */
+export type FileStatus = { kind: "none" } | { kind: "cleared" } | { kind: "file"; at: string; state: FreshnessState };
 
-export function fileStatus(latestFileTime: string | null | undefined, state: FreshnessState | null | undefined): FileStatus {
+export function fileStatus(
+  latestFileTime: string | null | undefined,
+  state: FreshnessState | null | undefined,
+  filesCleared = false,
+): FileStatus {
+  if (filesCleared) return { kind: "cleared" };
   if (!latestFileTime) return { kind: "none" };
   return { kind: "file", at: latestFileTime, state: state ?? "stale" };
 }

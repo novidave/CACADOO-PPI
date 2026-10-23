@@ -1649,3 +1649,28 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   and **one** link "Popis a preklady" to the product's page (tabs Popis and Preklady — every correction is made there).
 - Column "Čo vidí zákazník": exactly the shopper's text ("22 ks na sklade", "Vypredané"); when the data is older than
   24 hours, grey "Skryté – údaje sú staršie ako 24 h · Nahrať nový súbor". Never "–".
+
+### 6.20 "Začať sklad odznova" (database update 43)
+
+- **Where:** Môj obchod → Priečinok s exportom. "Posledné nahrané súbory" (the last 10 stock files) lives there again
+  with **"Vymazať všetky nahrané súbory"**; at the bottom, collapsed on every device, **"Nebezpečná zóna – sklad"**.
+- **"Vymazať všetky nahrané súbory"** (dialog: "Vymažú sa všetky nahrané súbory (X). Sklad na stránke zostane, kým
+  nenahráte nový súbor." → Vymazať / Zrušiť): the list, the last file's name, the mapping's example rows and the raw
+  files in Storage go; the stock stays and its freshness runs out as usual (hidden after 24 h). Everywhere the last file
+  is shown it says "Žiadny nahraný súbor · nahrajte nový" until a new file comes. Not restorable (the backup covers the
+  data). Private-folder files and the assistant's documents are never touched.
+- **Option A "Odstrániť produkty, ktoré nie sú v poslednom súbore"** (recommended first): only the products that are
+  sold out because the latest file did not list them (not those the file lists with 0); the list and the count before
+  confirming. They return with their translations if a later file lists the same code.
+- **Option B "Vymazať celý sklad a začať odznova"**: every product, quantity and price of the shop and every uploaded
+  file. Choices: "Zachovať preklady a popisy pre produkty, ktoré sa vrátia s rovnakým kódom" (on), "Zrušiť aj nastavenie
+  stĺpcov (mapovanie)" (off). The shop's name is typed to confirm. Until the next file the shop page says "Sortiment sa
+  práve aktualizuje." and Môj obchod shows "Nahrajte nový skladový súbor"; sitemaps, search, API/MCP and llms.txt follow
+  at once.
+- **Safety:** before A or B a backup CSV of the whole stock (code, name, EAN, brand, category, description, quantity,
+  price, currency, file time, the Cacaduu description and every translation — never purchase prices or suppliers) is
+  downloaded and kept 30 days under "Zálohy" (not an uploaded file: "Vymazať všetky nahrané súbory" keeps it). Removed
+  products wait 30 days in a trash; "Obnoviť sklad" brings back the newest removal exactly, unless a newer stock file was
+  applied since (then it says so). At most 3 removals per shop and day. Every action is in "Posledné akcie".
+- **Not built:** customer alerts ("Upozorniť ma") and the Pomocník do not exist yet, so there is no "zrušiť upozornenia"
+  choice; the activity log and `owner_inventory_state()` hold what a future Pomocník needs ("Vymazal sa mi sklad?").

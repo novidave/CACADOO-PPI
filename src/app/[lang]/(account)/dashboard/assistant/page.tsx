@@ -4,16 +4,13 @@ import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
-import { formatDateTime } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
-import { requestTime } from "@/lib/requestTime";
 import { DashboardSection } from "@/components/DashboardSection";
 import { DbError } from "@/components/DbError";
-import { RecentImports, type ImportView } from "@/components/RecentImports";
 import { saveAssistantTexts } from "../actions";
 import { CloudFolder, cloudSummary, loadCloud } from "../CloudFolder";
 import { conversationFilter, Conversations, conversationsSummary, loadConversations } from "../Conversations";
-import { Field, hiddenFields, inputClass, messages, ProOnly, recentlyText, ShopSwitcher, SubmitButton } from "../shared";
+import { Field, hiddenFields, inputClass, messages, ProOnly, ShopSwitcher, SubmitButton } from "../shared";
 import { loadShopDocs, ShopDocuments } from "../ShopDocuments";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant">): Promise<Metadata> {
@@ -26,29 +23,13 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-/** One stock file report (public.stock_imports, written only by stock-pull). */
-interface ImportRow {
-  id: number;
-  file_name: string | null;
-  file_time: string | null;
-  received_at: string;
-  status: "ok" | "errors" | "waiting";
-  total_rows: number;
-  imported: number;
-  zeroed: number;
-  skipped: number;
-  error: string | null;
-  columns: string[] | null;
-  preview: Record<string, unknown>[] | null;
-}
-
 /**
  * "Asistent": everything about the shop's assistant on one page, each part once (update 38), as dropdowns like Môj
  * obchod: 1) "Nastavenia asistenta" (its button text and welcome), 2) "Konverzácie asistenta" (the list with its
  * search, and the cloud folder they are copied to), 3) "Súkromné priečinky" (the documents it answers from, the
- * folders, their access keys and "Len zobraziť" / "Zobraziť a stiahnuť"), 4) "Posledné nahrané súbory" (the last 10
- * stock files, every shop). A free shop sees "Dostupné v Pro" where it has nothing yet; what it already has stays
- * reachable. Every paid part checks shop_has_plan() in SQL.
+ * folders, their access keys and "Len zobraziť" / "Zobraziť a stiahnuť"). "Posledné nahrané súbory" moved to
+ * "Priečinok s exportom" (update 43); its old address is forwarded there. A free shop sees "Dostupné v Pro" where it
+ * has nothing yet; what it already has stays reachable. Every paid part checks shop_has_plan() in SQL.
  */
 export default async function AssistantPage({ params, searchParams }: PageProps<"/[lang]/dashboard/assistant">) {
   const { lang } = await params;
@@ -66,21 +47,13 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   if (!shops.length) redirect(`/${lang}/dashboard`);
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
 
-  const [hasPlan, docsData, conversations, cloud, importRows] = await Promise.all([
+  const [hasPlan, docsData, conversations, cloud] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     loadShopDocs(supabase, shop.id),
     // The assistant's conversations (database update 22): owners only.
     loadConversations(supabase, shop.id, conversationFilter(sp)),
     // The shop's cloud folder (database update 23): owners only, never the tokens.
     loadCloud(supabase, shop.id),
-    // The last 10 stock files: written only by stock-pull, read only by the shop's owners (RLS).
-    supabase
-      .from("stock_imports")
-      .select("id, file_name, file_time, received_at, status, total_rows, imported, zeroed, skipped, error, columns, preview")
-      .eq("shop_id", shop.id)
-      .order("received_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(10),
   ]);
   const planActive = !hasPlan.error && hasPlan.data === true;
   const m = messages(dict, sp, {
@@ -89,26 +62,6 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   });
   const hidden = hiddenFields(lang, shop);
   const planUrl = `/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
-  const now = new Date(requestTime());
-
-  // Before database update 21 there are no stock file reports yet: that section says so.
-  const importList = importRows.error ? null : ((importRows.data ?? []) as ImportRow[]);
-  const imports: ImportView[] | null =
-    importList?.map((row) => ({
-      id: row.id,
-      fileName: row.file_name ?? "",
-      received: formatDateTime(row.received_at, lang, shop.timezone),
-      fileTime: row.file_time ? formatDateTime(row.file_time, lang, shop.timezone) : null,
-      status: row.status,
-      total: row.total_rows,
-      imported: row.imported,
-      zeroed: row.zeroed,
-      skipped: row.skipped,
-      error: row.error,
-      columns: row.columns ?? [],
-      preview: Array.isArray(row.preview) ? row.preview : [],
-    })) ?? null;
-  const latestImport = importList?.[0] ?? null;
 
   // What a free shop still has (from its Pro time) stays reachable; otherwise "Dostupné v Pro".
   const showConversations = planActive || (conversations?.all ?? 0) > 0;
@@ -124,14 +77,6 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
       : showDocs
         ? t(d.summary_docs, { documents: docsData.docs.length, pictures: docsData.pictures.length })
         : d.pro_only,
-    imports: !imports
-      ? dict.imports.unavailable
-      : latestImport
-        ? t(dict.imports.summary, {
-            status: dict.imports[`status_${latestImport.status}`],
-            when: recentlyText(latestImport.received_at, lang, shop.timezone, dict, now),
-          })
-        : d.summary_no_file,
   };
 
   return (
@@ -225,18 +170,6 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
               <p className="text-sm">{dict.docs.intro}</p>
               <ProOnly dict={dict} href={planUrl} />
             </>
-          )}
-        </DashboardSection>
-
-        {/* 4. Posledné nahrané súbory: every shop */}
-        <DashboardSection {...m.section("imports")} title={dict.imports.title} summary={summaries.imports}>
-          {imports ? (
-            <>
-              <p className="text-sm text-muted">{dict.imports.intro}</p>
-              <RecentImports imports={imports} labels={dict.imports} />
-            </>
-          ) : (
-            <p className="text-sm text-muted">{dict.imports.unavailable}</p>
           )}
         </DashboardSection>
       </div>

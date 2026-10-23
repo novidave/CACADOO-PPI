@@ -150,6 +150,15 @@ export async function shopperPdfAllowed(slug: string): Promise<boolean> {
 }
 
 /**
+ * After the owner deleted the whole stock, until the next file is applied: the shop page says "Sortiment sa práve
+ * aktualizuje" instead of "no products" (database update 43 decides; false before it).
+ */
+export async function shopStockResetting(slug: string): Promise<boolean> {
+  const { data, error } = await (await client()).rpc("shop_stock_resetting", { p_slug: slug });
+  return !error && data === true;
+}
+
+/**
  * The shop's own domain while it is live (canonical address, JSON-LD, links), else null.
  * Database update 25 — null before it.
  */
