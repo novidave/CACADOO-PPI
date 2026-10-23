@@ -6961,4 +6961,311 @@ end $$;
 reset role;
 delete from public.server_errors;
 
+-- ------------------------------------------------------------------ update 43: "Začať sklad odznova"
+\echo '--- inventory reset (update 43)'
+-- A test shop of owner A with two files: F1 (A1–A5, A5 at 0) then F2 (A1, A2, A5): A3 and A4 are missing from F2.
+do $$
+declare
+  v_shop uuid;
+begin
+  insert into public.shops (slug, name, ico, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-reset', 'Farby Reset', null, address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.sync_sources (shop_id, file_format, field_mapping, mapping_status, last_file_name, file_columns)
+  values (v_shop, 'csv', '{"source_code":"Kód","name":"Názov","quantity":"Mn","price":"Cena"}', 'confirmed', 'sklad2.csv',
+          array['Kód', 'Názov', 'Mn', 'Cena', 'NákupnáCena']);
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"A1","name":"Farba biela 5 l","ean":"8580000000011","quantity":4,"price":29.9},
+    {"source_code":"A2","name":"Farba modrá 1 l","quantity":2,"price":9.9},
+    {"source_code":"A3","name":"Štetec 50 mm","quantity":7,"price":3.5},
+    {"source_code":"A4","name":"Valček \"Profi\"; 25 cm","quantity":1,"price":6},
+    {"source_code":"A5","name":"Riedidlo 1 l","quantity":0,"price":4}
+  ]', '2026-10-20 08:00:00+00', '[{"Kód":"A1","Názov":"Farba biela 5 l"}]');
+end $$;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_a1 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-reset') and source_code = 'A1');
+  v_a2 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-reset') and source_code = 'A2');
+begin
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"A1","name":"Farba biela 5 l","ean":"8580000000011","quantity":3,"price":29.9},
+    {"source_code":"A2","name":"Farba modrá 1 l","quantity":2,"price":9.9},
+    {"source_code":"A5","name":"Riedidlo 1 l","quantity":0,"price":4}
+  ]', '2026-10-21 08:00:00+00', '[{"Kód":"A1","Názov":"Farba biela 5 l"}]');
+  -- translations and a Cacaduu description
+  update public.shop_items set name_lang = 'sk', translated_name_source = 'Farba biela 5 l', name_i18n_by_owner = true where id = v_a1;
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  values (v_shop, 'item_name', v_a1::text, 'de', 'Weiße Farbe 5 l', 'manual', md5('Farba biela 5 l')),
+         (v_shop, 'item_name', v_a1::text, 'hu', 'Fehér festék 5 l', 'manual', md5('Farba biela 5 l')),
+         (v_shop, 'item_name', v_a1::text, 'en', 'White paint 5 l', 'ai', md5('Farba biela 5 l'));
+  assert (select name_i18n ->> 'hu' from public.shop_items where id = v_a1) = 'Fehér festék 5 l';
+  insert into public.item_descriptions (item_id, shop_id, text, published_at, show)
+  values (v_a2, v_shop, 'Modrá farba na drevo.', now(), 'cacaduu');
+  perform public.record_stock_import(v_shop, 'sklad1.csv', '2026-10-20 08:00:00+00', 'ok', 5, 5, 0, 0, null, '[]');
+  perform public.record_stock_import(v_shop, 'sklad2.csv', '2026-10-21 08:00:00+00', 'ok', 3, 3, 2, 0, null, '[]');
+  assert (select count(*) from public.shop_items where shop_id = v_shop) = 5;
+end $$;
+
+-- Totals of everything a reset must never touch (all shops).
+create temporary table reset_untouched as
+select (select count(*) from public.shop_items si join public.shops s on s.id = si.shop_id where s.slug <> 'farby-reset') as other_items,
+       (select count(*) from public.stock_imports i join public.shops s on s.id = i.shop_id where s.slug <> 'farby-reset') as other_imports,
+       (select count(*) from public.shop_documents) as documents,
+       (select count(*) from public.shop_folders) as folders,
+       (select count(*) from public.shop_page_sections) as sections,
+       (select count(*) from public.blog_posts) as posts,
+       (select count(*) from public.assistant_conversations) as conversations,
+       (select count(*) from public.shop_special_hours) as special_days,
+       (select count(*) from public.subscriptions) as subscriptions;
+grant select on reset_untouched to authenticated;
+
+-- another shop's owner and visitors can do nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+begin
+  begin perform public.owner_inventory_preview(v_shop); raise exception 'B previewed'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_state(v_shop); raise exception 'B read the state'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_delete_stock_files(v_shop); raise exception 'B deleted files'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_reset(v_shop, 'all', 'Farby Reset'); raise exception 'B reset'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_raw_files_to_delete(v_shop); raise exception 'B asked for raw files'; exception when insufficient_privilege then null; end;
+  assert (select count(*) from public.shop_activity where shop_id = v_shop) = 0, 'B reads no activity of A';
+  begin perform 1 from public.inventory_trash; raise exception 'owner read the trash'; exception when insufficient_privilege then null; end;
+  begin perform 1 from public.inventory_backups; raise exception 'owner read the backups table'; exception when insufficient_privilege then null; end;
+  begin perform public.stock_files_clear(v_shop); raise exception 'owner called the internal clear'; exception when insufficient_privilege then null; end;
+  begin perform public.inventory_purge_expired(); raise exception 'owner purged'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_inventory_preview((select id from public.public_shops where slug = 'farby-reset')); raise exception 'anon previewed';
+  exception when insufficient_privilege then null; end;
+  assert public.shop_stock_resetting('farby-reset') = false, 'no note before a reset';
+end $$;
+reset role;
+
+-- owner A: the preview counts only the products missing from the last file (A3, A4), not A5 (in the file with 0)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_p jsonb;
+begin
+  v_p := public.owner_inventory_preview(v_shop);
+  assert (v_p ->> 'items')::int = 5 and (v_p ->> 'missing')::int = 2 and (v_p ->> 'files')::int = 2, format('preview %s', v_p);
+  assert (select array_agg(e ->> 'code' order by e ->> 'code') from jsonb_array_elements(v_p -> 'missing_list') e) = array['A3', 'A4'];
+  assert v_p ->> 'shop_name' = 'Farby Reset' and (v_p ->> 'resets_left')::int = 3;
+end $$;
+
+-- 2b alone: every uploaded file goes (list, name, mapping example); the inventory and its freshness stay
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_r jsonb;
+  v_s jsonb;
+begin
+  v_r := public.owner_delete_stock_files(v_shop);
+  assert (v_r ->> 'files')::int = 2, format('files %s', v_r);
+  assert (select count(*) from public.stock_imports where shop_id = v_shop) = 0, 'the list is empty';
+  assert (select count(*) from public.shop_items where shop_id = v_shop) = 5, '2b keeps the inventory';
+  v_s := public.upload_check_in(v_shop);
+  assert (v_s ->> 'files_cleared')::boolean and v_s ->> 'last_file_name' is null, format('check-in %s', v_s);
+  assert v_s ->> 'latest_file_time' is not null, 'freshness stays (expires normally)';
+  v_s := public.owner_inventory_state(v_shop);
+  assert (v_s ->> 'files_cleared')::boolean and (v_s ->> 'files')::int = 0 and not (v_s ->> 'needs_file')::boolean;
+  assert (select sample_rows is null and last_file_name is null and field_mapping is not null from public.my_shops() where slug = 'farby-reset'),
+    'no example rows, no last file name; the mapping stays';
+  assert public.owner_raw_files_to_delete(v_shop) is not null, 'stock-pull is told to delete the raw files';
+  assert (select action from public.shop_activity where shop_id = v_shop order by at desc limit 1) = 'stock_files_deleted';
+end $$;
+reset role;
+-- stock-pull (service role) clears the mark once the raw files are gone; a new file after 2b shows as present
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+begin
+  perform public.raw_files_deleted(v_shop, (select raw_files_delete_before from public.sync_sources where shop_id = v_shop));
+  assert (select raw_files_delete_before is null from public.sync_sources where shop_id = v_shop);
+end $$;
+
+-- option A: only A3 and A4 go, after a backup of everything; "Obnoviť sklad" brings them back exactly
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_a3 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-reset') and source_code = 'A3');
+  v_r jsonb;
+  v_csv text;
+  v_reset bigint;
+begin
+  v_r := public.owner_inventory_reset(v_shop, 'missing');
+  assert (v_r ->> 'items')::int = 2 and (v_r ->> 'files')::int = 0, format('A %s', v_r);
+  assert (select array_agg(source_code order by source_code) from public.shop_items where shop_id = v_shop) = array['A1', 'A2', 'A5'];
+  select csv into v_csv from public.owner_inventory_backup((v_r ->> 'backup_id')::bigint);
+  assert v_csv like E'\uFEFFkod;nazov;ean;znacka;kategoria;popis;mnozstvo;cena;mena;cas_suboru;popis_cacaduu;nazov@de;popis@de;kategoria@de;nazov@en;%;nazov@hu;popis@hu;kategoria@hu\r\n%',
+    format('csv header %s', left(v_csv, 200));
+  assert (select count(*) from regexp_split_to_table(rtrim(v_csv, E'\r\n'), E'\r\n')) = 6, 'header + all 5 products';
+  assert v_csv like '%"A4";"Valček ""Profi""; 25 cm"%', 'quoted as CSV';
+  assert v_csv like '%"Fehér festék 5 l"%' and v_csv like '%"Weiße Farbe 5 l"%' and v_csv like '%"Modrá farba na drevo."%',
+    'translations and the Cacaduu description are in the backup';
+  assert v_csv not like '%NákupnáCena%' and v_csv not ilike '%nakup%', 'no private column';
+  v_reset := (v_r ->> 'reset_id')::bigint;
+  assert (select (e ->> 'blocked') is null from jsonb_array_elements(public.owner_inventory_state(v_shop) -> 'resets') e
+          where (e ->> 'id')::bigint = v_reset), 'can be restored';
+  v_r := public.owner_inventory_restore(v_reset);
+  assert (v_r ->> 'items')::int = 2;
+  assert (select id from public.shop_items where shop_id = v_shop and source_code = 'A3') = v_a3, 'the same product id';
+  assert (select quantity || '/' || price from public.inventory where shop_item_id = v_a3) = '0/3.5', 'quantity and price as they were';
+  assert (select count(*) from public.shop_items where shop_id = v_shop) = 5;
+  begin perform public.owner_inventory_restore(v_reset); raise exception 'restored twice';
+  exception when raise_exception then assert sqlerrm = 'restore_restored', sqlerrm; end;
+  -- the backups are not uploaded files: they stay through 2b
+  perform public.owner_delete_stock_files(v_shop);
+  assert jsonb_array_length(public.owner_inventory_state(v_shop) -> 'backups') = 1, 'backup survives 2b';
+end $$;
+
+reset role;
+do $$ begin perform public.record_stock_import((select id from public.shops where slug = 'farby-reset'), 'sklad3.csv', '2026-10-21 08:00:00+00', 'ok', 3, 3, 0, 0, null, '[]'); end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+-- option B: the shop's name must be typed; everything goes (files too); the page says "Sortiment sa práve aktualizuje"
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_a1 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-reset') and source_code = 'A1');
+  v_r jsonb;
+begin
+  begin perform public.owner_inventory_reset(v_shop, 'all', 'Farby'); raise exception 'reset without the name';
+  exception when raise_exception then assert sqlerrm = 'confirm_name', sqlerrm; end;
+  v_r := public.owner_inventory_reset(v_shop, 'all', '  farby reset ', true, false);
+  assert (v_r ->> 'items')::int = 5 and (v_r ->> 'files')::int = 1, format('B %s', v_r);
+  assert not exists (select 1 from public.shop_items where shop_id = v_shop), 'no products';
+  assert not exists (select 1 from public.content_translations where shop_id = v_shop and kind like 'item%'), 'no item translations left behind';
+  assert (select count(*) from public.stock_imports where shop_id = v_shop) = 0, 'B deletes the files';
+  assert (select latest_file_time is null and field_mapping is not null and mapping_status = 'confirmed'
+          from public.my_shops() where slug = 'farby-reset'), 'mapping kept, any next file is taken';
+  assert public.owner_inventory_state(v_shop) ->> 'inventory_reset_at' is not null;
+  assert (public.owner_inventory_state(v_shop) ->> 'needs_file')::boolean, 'Môj obchod asks for a new file';
+  assert public.owner_raw_files_to_delete(v_shop) is not null;
+  -- restore within 30 days: the same products, translations, description and file time; the files do not come back
+  v_r := public.owner_inventory_restore((v_r ->> 'reset_id')::bigint);
+  assert (v_r ->> 'items')::int = 5;
+  assert (select name_i18n ->> 'hu' = 'Fehér festék 5 l' and name_i18n_by_owner from public.shop_items where id = v_a1);
+  assert (select text from public.content_translations where shop_id = v_shop and ref = v_a1::text and lang = 'de') = 'Weiße Farbe 5 l';
+  assert exists (select 1 from public.item_descriptions d join public.shop_items si on si.id = d.item_id
+                 where si.shop_id = v_shop and si.source_code = 'A2' and d.text = 'Modrá farba na drevo.');
+  assert (select latest_file_time = '2026-10-21 08:00:00+00' from public.my_shops() where slug = 'farby-reset');
+  assert public.owner_inventory_state(v_shop) ->> 'inventory_reset_at' is null;
+  assert (select count(*) from public.stock_imports where shop_id = v_shop) = 0;
+  assert (select array_agg(action order by id) from public.shop_activity where shop_id = v_shop)
+         = array['stock_files_deleted', 'inventory_missing_removed', 'inventory_restored', 'stock_files_deleted', 'inventory_reset', 'inventory_restored'],
+    'every action is in the log';
+end $$;
+reset role;
+set role anon;
+do $$ begin assert public.shop_stock_resetting('farby-reset') = false, 'no note after the restore'; end $$;
+reset role;
+
+-- B again, with the mapping cleared: the page note shows; a new file brings back A1 and A2 with their translations
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+begin
+  perform public.owner_inventory_reset(v_shop, 'all', 'Farby Reset', true, true);
+  assert (select field_mapping is null and mapping_status = 'proposed' and file_columns is null from public.my_shops() where slug = 'farby-reset'),
+    'the column mapping starts over';
+  assert (public.owner_inventory_preview(v_shop) ->> 'resets_left')::int = 0, 'three resets today';
+  begin perform public.owner_inventory_reset(v_shop, 'missing'); raise exception 'a fourth reset';
+  exception when raise_exception then assert sqlerrm in ('reset_limit', 'nothing_to_remove'), sqlerrm; end;
+  begin perform public.owner_inventory_reset(v_shop, 'all', 'Farby Reset'); raise exception 'a fourth reset';
+  exception when raise_exception then assert sqlerrm = 'reset_limit', sqlerrm; end;
+end $$;
+reset role;
+set role anon;
+do $$ begin assert public.shop_stock_resetting('farby-reset'), 'the page says "Sortiment sa práve aktualizuje"'; end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_a1 uuid;
+  v_reset bigint := (select max(id) from public.inventory_resets where shop_id = (select id from public.shops where slug = 'farby-reset'));
+begin
+  -- stock-pull applies a new file (the owner approved the new columns)
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"A1","name":"Farba biela 5 l","ean":"8580000000011","quantity":9,"price":31},
+    {"source_code":"A2","name":"Farba modrá 1 l","quantity":1,"price":9.9},
+    {"source_code":"B9","name":"Lak bezfarebný","quantity":5,"price":12}
+  ]', '2026-10-23 07:00:00+00');
+  v_a1 := (select id from public.shop_items where shop_id = v_shop and source_code = 'A1');
+  assert (select name_i18n ->> 'en' = 'White paint 5 l' and translated_name_source = 'Farba biela 5 l' and name_i18n_by_owner
+          from public.shop_items where id = v_a1), 'the translated names come back by code';
+  assert (select text from public.content_translations where shop_id = v_shop and ref = v_a1::text and lang = 'de') = 'Weiße Farbe 5 l',
+    'other translations come back on the new row';
+  assert exists (select 1 from public.item_descriptions d join public.shop_items si on si.id = d.item_id
+                 where si.shop_id = v_shop and si.source_code = 'A2' and d.text = 'Modrá farba na drevo.'), 'the description comes back';
+  assert (select name_i18n is null from public.shop_items where shop_id = v_shop and source_code = 'B9'), 'a new product gets nothing';
+  assert (select quantity from public.inventory where shop_item_id = v_a1) = 9, 'stock only from the new file';
+  assert public.inventory_restore_blocked(v_reset) = 'newer_upload', 'no restore over a newer file';
+  assert public.shop_stock_resetting('farby-reset') = false, 'the note goes with the new file';
+  -- a removal without "zachovať preklady": nothing comes back (the day's limit is over: these resets are older)
+  update public.inventory_resets set created_at = created_at - interval '2 days' where shop_id = v_shop;
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_reset bigint;
+begin
+  begin perform public.owner_inventory_restore((select (e ->> 'id')::bigint from jsonb_array_elements(public.owner_inventory_state(v_shop) -> 'resets') e
+                                                order by (e ->> 'id')::bigint desc offset 1 limit 1));
+    raise exception 'an older reset restored';
+  exception when raise_exception then assert sqlerrm like 'restore_%', sqlerrm; end;
+  v_reset := (public.owner_inventory_reset(v_shop, 'all', 'Farby Reset', false, false) ->> 'reset_id')::bigint;
+  assert (select not (e ->> 'keep_translations')::boolean from jsonb_array_elements(public.owner_inventory_state(v_shop) -> 'resets') e
+          where (e ->> 'id')::bigint = v_reset);
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+begin
+  perform public.apply_stock_file(v_shop, '[{"source_code":"A1","name":"Farba biela 5 l","quantity":2,"price":31}]', '2026-10-23 09:00:00+00');
+  assert (select name_i18n is null and not name_i18n_by_owner from public.shop_items where shop_id = v_shop and source_code = 'A1'),
+    'without "zachovať preklady" nothing comes back';
+  assert not exists (select 1 from public.content_translations c join public.shop_items si on si.id::text = c.ref
+                     where si.shop_id = v_shop and si.source_code = 'A1');
+  -- after 30 days: the trash is emptied, the backups go, the log says so
+  update public.inventory_resets set expires_at = now() - interval '1 minute' where shop_id = v_shop and restored_at is null;
+  update public.inventory_backups set expires_at = now() - interval '1 minute' where shop_id = v_shop;
+  assert public.inventory_purge_expired() >= 1;
+  assert not exists (select 1 from public.inventory_trash where shop_id = v_shop), 'the trash is empty';
+  assert not exists (select 1 from public.inventory_backups where shop_id = v_shop), 'old backups are gone';
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'inventory_purged');
+  assert public.inventory_restore_blocked((select max(id) from public.inventory_resets where shop_id = v_shop)) = 'purged';
+  assert exists (select 1 from cron.job where jobname = 'ppi-inventory-purge'), 'the daily purge job';
+  -- nothing else of any shop changed
+  assert (select other_items = (select count(*) from public.shop_items si join public.shops s on s.id = si.shop_id where s.slug <> 'farby-reset')
+             and other_imports = (select count(*) from public.stock_imports i join public.shops s on s.id = i.shop_id where s.slug <> 'farby-reset')
+             and documents = (select count(*) from public.shop_documents)
+             and folders = (select count(*) from public.shop_folders)
+             and sections = (select count(*) from public.shop_page_sections)
+             and posts = (select count(*) from public.blog_posts)
+             and conversations = (select count(*) from public.assistant_conversations)
+             and special_days = (select count(*) from public.shop_special_hours)
+             and subscriptions = (select count(*) from public.subscriptions)
+          from reset_untouched), 'a reset touches nothing else';
+end $$;
+drop table reset_untouched;
+
 \echo 'ALL DATABASE CHECKS PASSED'
