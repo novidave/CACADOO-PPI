@@ -124,9 +124,15 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(movedFrom("dashboard", "sections"), true, "/dashboard?at=sections");
   eq(movedFrom("dashboard", "cloud"), true, "/dashboard?at=cloud");
   eq(movedFrom("dashboard", "items"), true, "/dashboard?at=items → Jazyky a inventár");
-  eq(movedFrom("dashboard", "columns"), true, "/dashboard?at=columns → Jazyky a inventár");
+  eq(movedFrom("dashboard", "columns"), true, "/dashboard?at=columns → Priečinok s exportom");
   eq(movedFrom("translations", "items"), false, "items live on translations");
-  eq(sectionPath("sk", "columns"), "/sk/dashboard/translations", "columns");
+  eq(sectionPath("sk", "columns"), "/sk/sync", "columns (update 45: Po nahratí súboru)");
+  // update 45: the languages, the columns and the files in other languages moved to Priečinok s exportom
+  for (const old of ["languages", "columns", "files"]) eq(movedFrom("translations", old), true, `${old} left Jazyky a inventár`);
+  eq(forwardUrl("sk", "languages", { shop: "davide", at: "languages", ok: "languages" }), "/sk/sync?shop=davide&at=review&ok=languages#review", "languages → review");
+  eq(forwardUrl("sk", "files", { shop: "davide", at: "files" }), "/sk/sync?shop=davide&at=trfolder#trfolder", "files → trfolder");
+  eq(sectionUrl("sk", "columns", { shop: "davide", ok: "columns" }), "/sk/sync?shop=davide&ok=columns&at=review#review", "the columns form comes back to its section");
+  eq([movedFrom("sync", "review"), movedFrom("sync", "trfolder")], [false, false], "they live on sync");
   eq(forwardUrl("sk", "items", { shop: "davide", at: "items", q: "káva" }), "/sk/dashboard/translations?shop=davide&at=items&q=k%C3%A1va#items", "items forwarded with the search");
   eq(movedFrom("assistant", "docs"), false, "docs");
   eq(movedFrom("assistant", "private"), true, "old name");
