@@ -172,8 +172,7 @@
     "category": "Category",
     "description": "Description",
     "availability": "Availability",
-    "price": "Price",
-    "details": "Product details"
+    "price": "Price"
   },
   "login": {
     "title": "Login for shops",

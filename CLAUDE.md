@@ -558,7 +558,7 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   `translation_limits`: free 2, Pro 6) + item names in sk/hu/en; any other language → `request_translation()` (anon,
   once in 10 min) → the function translates while the page shows the original + "Prekladáme…". Machine texts show
   "Preložené automaticky · Zobraziť originál" (`?original=1`) — not on the product page (removed at the owner's request,
-  2026-10-27; its data are one framed box with bullet points: price with the stock dot, Dostupnosť, Značka, EAN,
+  2026-10-27; one framed box holds the names and the data with bullet points: price with the stock dot, Dostupnosť, Značka, EAN,
   Kategória, then Popis). Never translated: brands, codes, EAN, prices,
   quantities, units, URLs, e-mails, phones, colour codes, `{placeholders}`.
 - **SEO:** hreflang/sitemaps only for pre-translated languages (PPI: admin's "preložený vopred"; a shop: its indexed

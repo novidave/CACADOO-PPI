@@ -1718,5 +1718,5 @@ here from "Jazyky a inventár" (old addresses forwarded).
   page language comes first (dark) and the shop's own name under it (light); without a translation only the shop's name.
 - **Stock dot before every price:** green = in stock, red = sold out, yellow = no information (the shop's data are stale).
   Always next to the availability in words.
-- **Product page:** no "Preložené automaticky · Zobraziť originál" line; the data in one frame with bullet points (price
+- **Product page:** no "Preložené automaticky · Zobraziť originál" line; the names and the data in one frame with bullet points (price
   with the dot, Dostupnosť, Značka, EAN, Kategória), the description under a thin line in the same frame.

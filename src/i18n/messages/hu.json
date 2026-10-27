@@ -172,8 +172,7 @@
     "category": "Kategória",
     "description": "Leírás",
     "availability": "Elérhetőség",
-    "price": "Ár",
-    "details": "Termékadatok"
+    "price": "Ár"
   },
   "login": {
     "title": "Bejelentkezés üzleteknek",

@@ -92,20 +92,18 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <JsonLd data={itemJsonLd(item, shop, lang, host, shop ? statusInput(shop, calendars) : null, siteUrl())} />
 
-      {/* The name in the page language first, the shop's own name under it (light); the data in one frame. */}
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{names.primary}</h1>
-        {names.secondary && (
-          <p className="text-lg text-muted" data-item-original-name>
-            {names.secondary}
-          </p>
-        )}
-      </header>
-
-      <section aria-labelledby="details-heading" className="flex flex-col gap-4 border border-line p-4" data-item-details>
-        <h2 id="details-heading" className="sr-only">
-          {dict.item.details}
-        </h2>
+      {/* One frame: the name in the page language first, the shop's own name under it (light), then the data. */}
+      <section aria-labelledby="item-name" className="flex flex-col gap-4 border border-line p-4" data-item-details>
+        <header className="flex flex-col gap-1">
+          <h1 id="item-name" className="text-2xl font-semibold tracking-tight">
+            {names.primary}
+          </h1>
+          {names.secondary && (
+            <p className="text-lg text-muted" data-item-original-name>
+              {names.secondary}
+            </p>
+          )}
+        </header>
         <p className="flex items-center gap-2 text-2xl font-semibold" data-item-price>
           <StockDot availability={item.availability} size={12} />
           <span>
