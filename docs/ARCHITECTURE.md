@@ -2212,3 +2212,28 @@ referenced by `aria-describedby` and passed to `SectionZoomViewer` (`data-zoom-t
 `ratio`, i.e. after update 44; `saveContent` sends `p_ratio` only then); `ScaledPreview` draws each preview at its real
 width (390 px with 16 px margins, 768 px) and scales it with `transform` (ResizeObserver), the box taking the scaled
 height.
+
+## Update 45 — review after an upload, translations folder on the shop PC
+
+`supabase/sql/45_export_translations.sql`: `shop_export_settings` (remember, describe_new, private_columns,
+delete_files_at; members read) and `shop_export_marks` (item → md5 of name/description/category last seen; existing
+items marked by the file). Internal (service role only): `export_item_hash()`, `export_new_items()`, `export_mark_seen()`,
+`export_describe_ids()`, `export_new_columns()` (file_columns − mapped − private, only with an approved mapping). Owner
+functions (all `is_shop_member()` first): `owner_export_review()`, `owner_save_export_review(columns, langs, describe,
+remember)` (a column must be new, a field free and used once; langs = preferred languages within
+`translation_limit_for()`; returns the products to describe, then marks everything seen), `owner_export_auto()`
+(remembered choice), `owner_export_info()` (main language, file languages = preferred ∪ inventory − main, approved
+columns, version hash), `owner_export_rows(lang, offset, limit ≤ 1000)` (approved fields + shown description/draft +
+translations and their states), `owner_apply_export_edits(lang, file, rows)` (by code, then a unique EAN; main file:
+`description` only → `item_descriptions`; language files: name/description/category → `content_translations`
+'manual'; never stock), `owner_request_export_files_delete()` / `owner_log_export_files_deleted()`. Activity actions
+`export_review`, `export_edits`, `export_files_deleted`.
+
+Browser: `lib/xlsx.ts` (zip with CRC-32 and deflate-raw via CompressionStream, OOXML writer with text style "@", bold
+frozen header, autoFilter + `_xlnm._FilterDatabase`, `state="veryHidden"`; reader for shared/inline/rich strings,
+numbers without exponents, `_xHHHH_`), `lib/exportFiles.ts` (columns, hidden `_cacaduu` sheet = meta + keys + headers
++ values + EAN, `editsOf()` diff), `components/TranslationFolderSync.tsx` (IndexedDB `trfolder:<shop>`: handle, tracked
+files {lastModified, size, SHA-256}, version, earlier folders; Web Lock per shop; check = delete request → read edits →
+`exportAuto` → write when needed via `createWritable()`; `ppi:stock-sent` from `FolderSync`), `components/ExportReview.tsx`,
+`sync/exportActions.ts` (server actions; `refreshShop`). `folderStore.newestStockFile()` ignores `sklad.<lang>.xlsx`.
+`dashboardPages`: `review`, `trfolder` on `/sync`; `languages`/`columns` → `review`, `files` → `trfolder`.
