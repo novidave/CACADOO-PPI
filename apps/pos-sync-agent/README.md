@@ -43,6 +43,7 @@ Use Node 24 and npm, in this directory (independent lockfile; root files unchang
 
 ```bash
 npm ci
+npx --no-install install-electron  # fetch/verify Electron 45 once before GUI use
 npm run typecheck
 npm test
 npm run build
@@ -54,6 +55,7 @@ proxy and a writable cache; keep verification enabled:
 
 ```bash
 NODE_USE_ENV_PROXY=1 electron_config_cache=/workspace/.electron-cache npm ci --cache /workspace/.npm
+NODE_USE_ENV_PROXY=1 electron_config_cache=/workspace/.electron-cache npx --no-install install-electron
 ```
 
 The installer and caches stay outside version control. No backend/service starts
@@ -110,6 +112,7 @@ file output are deliberately unsupported in this pilot.
 
 ## Validation recorded in this cloud task
 
+23 core/API/persistence tests passed on Node 24 with Electron 45 types.
 Core/API unit tests exercise privacy, incomplete/duplicate/unknown-stock rejection,
 row and timestamp validation, pagination consistency, private-host restrictions,
 revocation/source generation and mapping approval, and retry receipt identity.

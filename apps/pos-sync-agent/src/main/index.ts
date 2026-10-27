@@ -6,6 +6,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  safeStorage,
 } from "electron";
 import { open, stat, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -338,7 +339,10 @@ else {
     quitting = true;
   });
   void app.whenReady().then(async () => {
-    store = new Store(path.join(app.getPath("userData"), "connector"));
+    store = new Store(
+      path.join(app.getPath("userData"), "connector"),
+      safeStorage,
+    );
     try {
       await store.load();
     } catch {

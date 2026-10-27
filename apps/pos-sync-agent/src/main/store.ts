@@ -1,4 +1,3 @@
-import { safeStorage } from "electron";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import type { Config, Binding, Batch } from "../core/model";
@@ -23,7 +22,7 @@ export class Store {
   state: State = { paused: true, queue: [] };
   constructor(
     private dir: string,
-    private crypto: CryptoStorage = safeStorage,
+    private crypto: CryptoStorage,
   ) {}
   available() {
     return (
