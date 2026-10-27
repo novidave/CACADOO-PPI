@@ -7636,4 +7636,30 @@ begin
 end $$;
 reset role;
 
+-- ------------------------------------------------------------------ update 48: the company on the shop page
+\echo '--- the company on the shop page: shop_company_details() (update 48)'
+set role anon;
+do $$
+declare
+  r record;
+begin
+  select * into r from public.shop_company_details('farby-export');
+  assert r.company_name = 'Farby s.r.o.' and r.dic = '2020123456' and r.zip = '04001', r::text;
+  assert not exists (select 1 from public.shop_company_details('no-such-shop')), 'unknown shop: nothing';
+  begin perform (select company_name from public.shop_company limit 1); raise exception 'anon read the table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+do $$
+begin
+  update public.shops set is_active = false where slug = 'farby-export';
+end $$;
+set role anon;
+do $$
+begin
+  assert not exists (select 1 from public.shop_company_details('farby-export')), 'a hidden shop shows nothing';
+end $$;
+reset role;
+update public.shops set is_active = true where slug = 'farby-export';
+
 \echo 'ALL DATABASE CHECKS PASSED'

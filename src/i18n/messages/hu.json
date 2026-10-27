@@ -153,6 +153,8 @@
     "next": "Következő",
     "map": "Üzletek térképe",
     "meta_description": "{name}, {city}: nyitvatartás, elérhetőség és aktuális készlet.",
+    "company_ico": "Cégazonosító (IČO)",
+    "company_dic": "Adószám (DIČ)",
     "facilities": "Szolgáltatások",
     "toilet": "Mosdó a vásárlóknak",
     "douchette": "Bidézuhany (douchette)",

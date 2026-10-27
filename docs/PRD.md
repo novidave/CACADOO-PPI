@@ -1293,8 +1293,12 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
 ### 6.24 The company in "Môj obchod" (27 October 2026, database update 47)
 
 - The shop's details show, right under the street: PSČ, "Obchodné meno firmy", IČO and DIČ (all optional). No IČ DPH.
-- Owner data only: kept in its own table that only the shop's owners can read; never shown to visitors, in the JSON-LD,
-  the API/MCP or the assistant. An empty field clears the value; an invalid DIČ or PSČ is refused with a clear message.
+- Kept in its own table that only the shop's owners can read; an empty field clears the value; an invalid DIČ or PSČ
+  is refused with a clear message.
+- **Shown on the shop page** (update 48, at the owner's request): the address line gets the PSČ before the town, and
+  under it "Obchodné meno · IČO … · DIČ …" (only what the owner filled in), on the Cacaduu address and the own domain;
+  the JSON-LD gets postalCode, legalName and taxID. Visitors read it through one database function, never the table.
+  Not in the API/MCP or the assistant.
 
 ## 7. Data model (after database update 40)
 
