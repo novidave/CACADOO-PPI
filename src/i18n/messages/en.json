@@ -170,7 +170,10 @@
     "none_elsewhere": "We did not find this product in other shops.",
     "meta_description": "{name} – {shop}, {city}: price and stock availability.",
     "category": "Category",
-    "description": "Description"
+    "description": "Description",
+    "availability": "Availability",
+    "price": "Price",
+    "details": "Product details"
   },
   "login": {
     "title": "Login for shops",

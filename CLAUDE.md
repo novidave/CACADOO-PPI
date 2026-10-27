@@ -31,7 +31,9 @@ Setup steps for humans are in `SETUP.md`.
   **No location services**: the website never asks for or guesses the visitor's location (no device location,
   no IP lookup). Search is text only — item name (original or its sk/hu/en translation), brand, EAN, shop name, street
   or town — across all shops; every word must match (`matches_all_words`, `item_names_text` + trigram index).
-- Show the item name as the shop wrote it, plus `translatedName()` (`@/lib/names`) in the page language under it.
+- Item names (at the owner's request, 2026-10-27): the name **in the page language first** (dark), the name as the shop
+  wrote it **under it** (light) — `itemNames()` (`@/lib/names`) on the shop's list, the product page, the search results
+  and the chat cards; without a translation only the shop's name. The shop's text itself is never changed.
 - Times stored in UTC, shown in the **shop's** time zone (`shops.timezone`) via `@/lib/format`.
   Prices via `formatPrice(value, locale, currency)` with the item's own currency.
 - All visible text comes from `src/i18n/messages/{sk,hu,en}.json`; add every new key to all three (Slovak is the source;
@@ -48,7 +50,8 @@ Sans / Roboto, `adjustFontFallback: false`: no line re-wraps when Quicksand arri
 conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 **No colours** (only exceptions, at the owner's request: the Cacaduu PPI logo in the header, `public/brand/cacaduu-ppi.svg`
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
-the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
+the **stock dot before every price** (`@/components/StockDot`, `@/lib/stockDot`: green #1E9E5A in stock, red #D64545
+sold out, yellow #F2B705 no information/stale; always next to the availability in words; 2026-10-27), the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
 the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
@@ -554,7 +557,9 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   trigger; the search index covers every language). Pre-translated = the shop's main + preferred languages (plan limit
   `translation_limits`: free 2, Pro 6) + item names in sk/hu/en; any other language → `request_translation()` (anon,
   once in 10 min) → the function translates while the page shows the original + "Prekladáme…". Machine texts show
-  "Preložené automaticky · Zobraziť originál" (`?original=1`). Never translated: brands, codes, EAN, prices,
+  "Preložené automaticky · Zobraziť originál" (`?original=1`) — not on the product page (removed at the owner's request,
+  2026-10-27; its data are one framed box with bullet points: price with the stock dot, Dostupnosť, Značka, EAN,
+  Kategória, then Popis). Never translated: brands, codes, EAN, prices,
   quantities, units, URLs, e-mails, phones, colour codes, `{placeholders}`.
 - **SEO:** hreflang/sitemaps only for pre-translated languages (PPI: admin's "preložený vopred"; a shop: its indexed
   languages — shop/item/blog pages set `robots` themselves); others `noindex`.

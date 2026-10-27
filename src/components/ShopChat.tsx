@@ -7,6 +7,7 @@ import { looksLikeKey } from "@/lib/accessKey";
 import type { FolderFile, OpenFolder, OpenSession } from "@/lib/docsAccess";
 import type { ChatCard, ChatDocPrice, ChatListItem, ChatReply, ChatSource, ChatTurn } from "@/lib/shopChat";
 import { FolderAccess, FolderViewer, type ViewTarget } from "./FolderAccess";
+import { StockDot } from "./StockDot";
 
 /** Anthropic's recommended longest side for photos; larger ones only cost more. */
 const MAX_SIDE = 1568;
@@ -1011,11 +1012,14 @@ function ItemLine({ item, quantity, labels }: { item: ChatCard; quantity?: numbe
         <div className="min-w-0">
           {quantity !== undefined && <span className="font-medium">{quantity}× </span>}
           <Link href={item.href} className="font-medium hover:underline">
-            {item.name}
+            {item.translated ?? item.name}
           </Link>
-          {item.translated && <p className="text-sm text-muted">{item.translated}</p>}
+          {item.translated && <p className="text-sm text-muted">{item.name}</p>}
         </div>
-        <span className="whitespace-nowrap font-medium">{item.price}</span>
+        <span className="flex items-center gap-2 whitespace-nowrap font-medium">
+          {item.stock && <StockDot state={item.stock} />}
+          {item.price}
+        </span>
       </div>
       <p className="text-sm">
         {item.availability && <strong>{item.availability} · </strong>}

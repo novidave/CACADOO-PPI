@@ -1711,3 +1711,12 @@ here from "Jazyky a inventár" (old addresses forwarded).
 - **Danger zone B** ("Vymazať celý sklad") also deletes the translation files Cacaduu created (ticked by default; done by
   the shop PC's window). Its backup CSV already contains the descriptions and the translations. There are no customer
   alerts yet, so nothing to cancel there.
+
+### 6.22 Product display (27 October 2026)
+
+- **Names:** in every product list (shop page, search results, chat cards) and on the product page the name in the
+  page language comes first (dark) and the shop's own name under it (light); without a translation only the shop's name.
+- **Stock dot before every price:** green = in stock, red = sold out, yellow = no information (the shop's data are stale).
+  Always next to the availability in words.
+- **Product page:** no "Preložené automaticky · Zobraziť originál" line; the data in one frame with bullet points (price
+  with the dot, Dostupnosť, Značka, EAN, Kategória), the description under a thin line in the same frame.

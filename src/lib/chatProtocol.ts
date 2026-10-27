@@ -1,4 +1,5 @@
 import type { StatusInput } from "./hours";
+import type { StockState } from "./stockDot";
 
 /**
  * The main page's chat search (Prompt 10): what the browser and /api/ai-search say to each
@@ -32,6 +33,8 @@ export interface ChatCard {
   place: string;
   /** "12 ks na sklade" / "Vypredané"; null when the shop's data is stale. */
   availability: string | null;
+  /** The stock dot before the price: available / sold_out / no_info (missing in older answers = no dot). */
+  stock?: StockState;
   /** The freshness badge ("Aktualizované pred 8 min", or the stale text). */
   freshness: string;
   freshnessState: "current" | "recent" | "stale";

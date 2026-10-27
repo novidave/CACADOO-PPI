@@ -170,7 +170,10 @@
     "none_elsewhere": "Más üzletben nem találtuk ezt a terméket.",
     "meta_description": "{name} – {shop}, {city}: ár és készletinformáció.",
     "category": "Kategória",
-    "description": "Leírás"
+    "description": "Leírás",
+    "availability": "Elérhetőség",
+    "price": "Ár",
+    "details": "Termékadatok"
   },
   "login": {
     "title": "Bejelentkezés üzleteknek",

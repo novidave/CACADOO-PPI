@@ -20,6 +20,7 @@ import {
 } from "@/lib/chatProtocol";
 import type { StatusLabels } from "@/lib/hours";
 import { LiveStatus } from "./ShopStatus";
+import { StockDot } from "./StockDot";
 
 // The map loads only when "Ukázať na mape" is opened (MapLibre is the heaviest script on the site).
 const ShopMap = dynamic(() => import("./ShopMap").then((m) => m.ShopMap), { ssr: false });
@@ -786,16 +787,16 @@ function Card({ card, shop, statusLabels, lang }: { card: ChatCard; shop: ChatSh
     <li className="flex flex-col gap-1 py-3" data-card data-shop={card.shopSlug}>
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
-          <a href={card.href} className="font-medium hover:underline" data-card-item>
-            {card.name}
+          {/* the name in the question's language first, the shop's own name under it (light) */}
+          <a href={card.href} className="font-medium hover:underline" lang={card.translated ? (card.translatedLang ?? undefined) : undefined} data-card-item>
+            {card.translated ?? card.name}
           </a>
-          {card.translated && (
-            <p className="text-sm text-muted" lang={card.translatedLang ?? undefined}>
-              {card.translated}
-            </p>
-          )}
+          {card.translated && <p className="text-sm text-muted">{card.name}</p>}
         </div>
-        <span className="whitespace-nowrap font-medium">{card.price}</span>
+        <span className="flex items-center gap-2 whitespace-nowrap font-medium">
+          {card.stock && <StockDot state={card.stock} />}
+          {card.price}
+        </span>
       </div>
       <div className="text-sm text-muted">
         {card.brand && `${card.brand} · `}

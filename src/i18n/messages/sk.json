@@ -170,7 +170,10 @@
     "none_elsewhere": "V iných obchodoch sme tento výrobok nenašli.",
     "meta_description": "{name} – {shop}, {city}: cena a dostupnosť na sklade.",
     "category": "Kategória",
-    "description": "Popis"
+    "description": "Popis",
+    "availability": "Dostupnosť",
+    "price": "Cena",
+    "details": "Údaje o produkte"
   },
   "login": {
     "title": "Prihlásenie pre obchody",
