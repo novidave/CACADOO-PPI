@@ -6194,6 +6194,8 @@ begin
   assert not (v_c #>> '{slides,0,auto}')::boolean and (v_c #>> '{slides,1,auto}')::boolean, 'the pinned post is never repeated';
   assert v_c ->> 'title' = 'Akcie týždňa' and v_c ->> 'display' = 'collapsed' and not (v_c ->> 'show_title')::boolean;
   assert v_c #>> '{slides,4,item,alt}' = 'Plagát: leto', 'the owner''s alt text wins over the AI''s';
+  assert v_c #>> '{slides,4,crop}' = 'center' and v_c #>> '{slides,3,crop}' = 'center', 'file slides carry their Výrez (update 44)';
+  assert v_c ->> 'ratio' = '4:5', 'the default frame (update 44)';
   assert (v_c #>> '{slides,4,item,download}')::boolean;
   assert (select path from public.shop_section_pdf('drogeria-kostolne', v_pic)) like '%/original.webp';
   -- a hidden file drops out, the rest keep their order
@@ -7267,5 +7269,64 @@ begin
           from reset_untouched), 'a reset touches nothing else';
 end $$;
 drop table reset_untouched;
+
+-- ------------------------------------------------------------------ update 44: the slider's fixed frame
+\echo '--- slider ratio and Výrez (update 44)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pic uuid := (select id from public.shop_page_sections where shop_id = v_b and kind = 'picture');
+  v_c jsonb;
+begin
+  assert public.owner_content(v_b) ->> 'ratio' = '4:5', 'default ratio 4:5';
+  -- a picture slot cropped to the top, a post slot's crop is ignored, the ratio 1:1
+  perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(
+    jsonb_build_object('kind', 'auto_post', 'crop', 'bottom'), jsonb_build_object('kind', 'picture', 'item_id', v_pic, 'crop', 'top')),
+    null, '1:1');
+  v_c := public.owner_content(v_b);
+  assert v_c ->> 'ratio' = '1:1' and v_c #>> '{slots,1,crop}' = 'top' and v_c #>> '{slots,0,crop}' = 'center', v_c::text;
+  -- null keeps the ratio; center is stored as nothing
+  perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(
+    jsonb_build_object('kind', 'picture', 'item_id', v_pic, 'crop', 'center')));
+  assert public.owner_content(v_b) ->> 'ratio' = '1:1', 'null keeps the ratio';
+  assert public.owner_content(v_b) #>> '{slots,0,crop}' = 'center';
+  perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(
+    jsonb_build_object('kind', 'picture', 'item_id', v_pic, 'crop', 'bottom')), null, '16:9');
+  foreach v_c in array array['{"r":"3:4"}'::jsonb, '{"crop":"left"}'::jsonb] loop
+    begin
+      if v_c ? 'r' then
+        perform public.owner_save_content(v_b, null, true, 'open', '[]', null, v_c ->> 'r');
+      else
+        perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(jsonb_build_object('kind', 'picture', 'item_id', v_pic, 'crop', v_c ->> 'crop')));
+      end if;
+      raise exception 'bad ratio or crop accepted';
+    exception when raise_exception then
+      assert sqlerrm = 'bad', sqlerrm;
+    end;
+  end loop;
+  begin
+    perform public.owner_save_content(v_a, null, true, 'open', '[]', null, '1:1');
+    raise exception 'owner B set shop A''s ratio';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$ begin
+  assert public.content_slot_crop((select id from public.shops where slug = 'drogeria-kostolne'), 0) = 'bottom', 'the slide''s Výrez';
+end $$;
+set role anon;
+do $$
+declare
+  v_c jsonb := public.shop_content('drogeria-kostolne');
+begin
+  assert v_c ->> 'ratio' = '16:9', 'visitors get the ratio';
+  -- a shown file slide carries its crop (drogeria's files are hidden by the earlier checks: see content_slot_crop above)
+  assert not exists (select 1 from jsonb_array_elements(v_c -> 'slides') e where e ->> 'kind' in ('pdf', 'picture') and e ->> 'crop' is null);
+  assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.shop_content(text)'::regprocedure), 'still without JIT';
+end $$;
+reset role;
 
 \echo 'ALL DATABASE CHECKS PASSED'
