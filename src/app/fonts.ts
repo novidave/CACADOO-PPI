@@ -40,6 +40,9 @@ export const lora = Lora({
   subsets: ["latin", "latin-ext"],
   weight: "400",
   display: "swap",
+  // Not preloaded: on a phone the preloaded files share the slow first second with the blog list's first photo (its
+  // largest picture, LCP); the text shows in the size-matched serif fallback and switches to Lora when it arrives.
+  preload: false,
   variable: "--font-lora",
   fallback: ["Georgia", "Times New Roman", "serif"],
 });
