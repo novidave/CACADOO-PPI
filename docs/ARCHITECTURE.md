@@ -2272,3 +2272,34 @@ applies only a complete snapshot that reads with the approved fields (≤ 5 % un
 the import report, revalidate + IndexNow, finish. Website: `components/InventoryConnect.tsx` (forms, preview + mapping,
 status card), `sync/inventoryApiActions.ts` (approve, disconnect), `admin/domains/InventoryAdmin.tsx`; `dashboardPages`
 `api` first on `/sync`.
+
+## Update 50 — Cacaduu Cloud Connection for the POS Sync Agent, phase A
+
+Contract: `docs/CONNECTOR_CLOUD_API.md` (all three phases), `docs/connector-openapi.json`, `docs/connector-client/`
+(a dependency-free TypeScript client to copy into the agent's repository); `npm run test:connector` checks that the
+OpenAPI file lists exactly the function's routes (method, path, phase), the written contract names every path and keeps
+the "Own API ≠ Cloud Connection" sentence, and the client calls every path.
+
+`supabase/sql/50_connector_pairing.sql`: `connector_devices` (shop, name, `token_hash` + `next_token_hash` /
+`next_token_at` for rotation, agent version, OS, source label, last read result, last error ≤ 500, paired/seen/sync
+times, `revoked_at`; owners may select every column except the hashes, members-read policy), `connector_pairing_codes`
+(hash only, 10-minute expiry, single use; no grants), `connector_hits` (rate limits by device id or a daily-salted
+caller hash). Rules: `connector_text()` (plain text, cut), `connector_device_state()` (revoked / offline after 3
+minutes / error / never_synced / online), `connector_hit()`. Owner (membership checked): `owner_connector_create_code()`
+(alphabet without 0 O 1 I L, random bytes from `gen_random_uuid()`, ≤ 10 an hour), `owner_connector_devices()` (no
+hashes), `owner_connector_rename()`, `owner_connector_revoke()`. Service role only: `connector_pair()` (5 wrong codes
+per 15 minutes per caller → locked; expired / used / unknown = the same 'invalid'), `connector_auth()` (token hash →
+device + shop; the new token replaces the old one when first used, the old one at most 24 h), `connector_heartbeat()`
+(4 a minute), `connector_rotate()` (5 an hour), `connector_status()`. Activity log `connector_paired`,
+`connector_revoked`.
+
+`supabase/functions/connector/index.ts` (one file, Verify JWT off): routes `ROUTES` (phase A served; B and C answer
+`501 not_available`), path after `/connector`, `Cacaduu-Agent-Version` required (`426` below
+`CONNECTOR_MIN_AGENT_VERSION`), bodies ≤ 64 KB, `Authorization: Bearer cdt_<43>` (SHA-256 to `connector_auth`; the shop
+only from the token), tokens of 32 random bytes made in the function and returned once, every answer with
+`api_base_url` (`CONNECTOR_API_BASE_URL` or `<SUPABASE_URL>/functions/v1/connector`), `next_poll_seconds` (60),
+`min_agent_version`, `server_time`. Logs only the failing step, never a token, code or body.
+
+Website: `/sync` section `pos` (after `api`; `@/lib/dashboardPages`) = `@/components/PosAgentPanel` +
+`sync/connectorActions.ts` (server actions → owner functions; no service role). Texts `pos_agent`. Test stand-in:
+`scripts/connector-test-agent.mjs` (pair / heartbeat / status / rotate).
