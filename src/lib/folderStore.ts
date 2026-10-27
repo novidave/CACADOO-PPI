@@ -67,12 +67,14 @@ export function pickFolder(): Promise<FolderHandle> {
 
 /** Stock files the stock-pull function can read (old binary .xls is not one of them). */
 const STOCK_FILE = /\.(xml|csv|txt|xlsx)$/i;
+/** Cacaduu's own translation files (sklad.<lang>.xlsx, update 45) are never a stock file. */
+const OWN_FILE = /^sklad\.[a-z]{2,3}(-[a-z]{2,4})?\.xlsx$/i;
 
 /** The most recently written stock file directly in the folder (subfolders are ignored). */
 export async function newestStockFile(folder: FolderHandle): Promise<{ handle: FolderFile; file: File } | null> {
   let newest: { handle: FolderFile; file: File } | null = null;
   for await (const entry of folder.values()) {
-    if (entry.kind !== "file" || !STOCK_FILE.test(entry.name) || entry.name.startsWith("~$") || entry.name.startsWith(".")) {
+    if (entry.kind !== "file" || !STOCK_FILE.test(entry.name) || OWN_FILE.test(entry.name) || entry.name.startsWith("~$") || entry.name.startsWith(".")) {
       continue;
     }
     try {
@@ -133,4 +135,40 @@ export async function writeNewFile(folder: WritableFolder, sub: string, name: st
   await writable.write(data);
   await writable.close();
   return true;
+}
+
+// ---- The translations folder (update 45): Cacaduu writes its sklad.<lang>.xlsx files there and reads the owner's edits
+
+export interface TranslationFile {
+  kind: "file";
+  name: string;
+  getFile(): Promise<File>;
+  createWritable(options?: { keepExistingData?: boolean }): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void>; abort?(): Promise<void> }>;
+}
+
+export interface TranslationFolder {
+  kind: "directory";
+  name: string;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<TranslationFile>;
+  removeEntry(name: string): Promise<void>;
+  isSameEntry(other: unknown): Promise<boolean>;
+  queryPermission(options: { mode: "readwrite" }): Promise<WritePermission>;
+  requestPermission(options: { mode: "readwrite" }): Promise<WritePermission>;
+}
+
+/** The translations folder (its own remembered place in the picker; never the stock folder). */
+export function pickTranslationFolder(): Promise<TranslationFolder> {
+  const picker = (window as Window & { showDirectoryPicker?: (options?: object) => Promise<TranslationFolder> }).showDirectoryPicker;
+  if (!picker) return Promise.reject(new Error("Folder picker not supported"));
+  return picker.call(window, { id: "ppi-translations", mode: "readwrite", startIn: "documents" });
+}
+
+/** A file of the folder, or null when it is not there. */
+export async function fileIn(folder: TranslationFolder, name: string): Promise<TranslationFile | null> {
+  try {
+    return await folder.getFileHandle(name);
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === "NotFoundError" || e.name === "TypeMismatchError")) return null;
+    throw e;
+  }
 }

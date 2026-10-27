@@ -1679,3 +1679,35 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   applied since (then it says so). At most 3 removals per shop and day. Every action is in "Posledné akcie".
 - **Not built:** customer alerts ("Upozorniť ma") and the Pomocník do not exist yet, so there is no "zrušiť upozornenia"
   choice; the activity log and `owner_inventory_state()` hold what a future Pomocník needs ("Vymazal sa mi sklad?").
+
+### 6.21 "Priečinok s exportom": review after an upload, translations folder on the shop PC (database update 45)
+
+**Page order** of Priečinok s exportom: 1. Priečinok so skladom (read only) · 2. Po nahratí súboru · 3. Preklady v
+priečinku · 4. Posledné nahrané súbory (+ "Vymazať všetky nahrané súbory") · (Pro: conversations to the PC) · 5.
+Nebezpečná zóna – sklad. The shop's languages, the stock file's columns and the stock files in other languages moved
+here from "Jazyky a inventár" (old addresses forwarded).
+
+- **"Nový súbor – skontrolujte"** appears only when something waits for a decision:
+  - a **new column** of the stock file: a free field or **"Súkromné – nezobrazovať"** (the default; nothing is approved
+    by itself — until then the column is private, never read or shown);
+  - **"Nové produkty: X · zmenené: Y"** (name, description or category differ from what the owner last saw): the
+    languages they are translated into (the shop's preferred languages, at most the plan's number: free 2, Pro 6) and
+    **"☐ Vygenerovať popisy"** (drafts for these products only, from the shop's own data);
+  - **"☐ Zapamätať a už sa nepýtať"**: later new products are handled the same way by the shop PC's window; new
+    columns are always asked about.
+- **Translations folder** (Edge/Chrome on the shop PC): "Vybrať priečinok pre preklady" (never the stock folder).
+  Cacaduu writes `sklad.<main>.xlsx` (the approved columns as the stock file names them + "Popis" + "Stav popisu") and
+  `sklad.<lang>.xlsx` per language (Kód, Pôvodný názov, Názov, Popis, Kategória, Stav); every column is text, the header
+  bold, frozen and filtered, a "Návod" sheet explains it. **Never private data** (only approved columns exist in PPI).
+- **Reading the owner's edits** on every check (every 15 minutes, when the window opens, "Skontrolovať teraz"): files
+  whose time or contents changed, untouched for 60 s (open in Excel → "… je otvorený v Exceli", read later). Rows by Kód,
+  then EAN. A changed translation → the owner's own ("upravené ručne", never overwritten); a changed main "Popis" → the
+  owner's published description (its machine translations are made again). Changes in read-only columns, empty cells,
+  unknown or extra rows change nothing (listed). One result line per file; every applied file in the activity log.
+- **Order:** read the edits → the stock file (from the stock folder) → write the files again (only when something
+  changed; through a temporary file that replaces the old one; a file open in Excel waits — "Naposledy zapísané …",
+  "Zapísať teraz"). Cacaduu only writes, reads or deletes files it created itself.
+- **Any browser:** "Stiahnuť preklady (.xlsx, ZIP)" and "Nahrať upravený súbor" (the same rules).
+- **Danger zone B** ("Vymazať celý sklad") also deletes the translation files Cacaduu created (ticked by default; done by
+  the shop PC's window). Its backup CSV already contains the descriptions and the translations. There are no customer
+  alerts yet, so nothing to cancel there.

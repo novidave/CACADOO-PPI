@@ -1655,6 +1655,24 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    slidera" and "Výrez" per picture/PDF change the previews at once; the computer preview is under the phone preview;
    "Uložiť" keeps them.
 
+## Part AQ — "Priečinok s exportom": check after an upload, translations in a folder on the shop PC (27 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/45_export_translations.sql` → Run → "Success". Safe to
+   run again. No Edge Function to deploy, no new secrets.
+2. **On the shop PC (Edge or Chrome), Davide Paint shop → Priečinok s exportom:**
+   - The order is: Priečinok so skladom · Po nahratí súboru · Preklady v priečinku · Posledné nahrané súbory ·
+     Nebezpečná zóna. The languages and the columns are now under "Po nahratí súboru" (old links still work).
+   - After the next stock file, "Nový súbor – skontrolujte" asks about new columns (leave a purchase price as
+     "Súkromné – nezobrazovať") and new products (languages, "Vygenerovať popisy", "Zapamätať a už sa nepýtať").
+   - "Preklady v priečinku" → **Vybrať priečinok pre preklady** → a new empty folder, e.g. `C:\Cacaduu-preklady`
+     (not the export folder) → allow editing. `sklad.sk.xlsx`, `sklad.hu.xlsx`, … appear within a minute.
+   - Open `sklad.hu.xlsx` in Excel, change a "Názov", save and close. Within 15 minutes (or **Skontrolovať teraz**
+     after a minute) the line says "uložené zmeny: 1" and the shop page shows the new Hungarian name. Change "Popis" in
+     `sklad.sk.xlsx` the same way → it is the product's description.
+   - Leave a file open in Excel and click **Zapísať teraz** → "… je otvorený v Exceli"; close it → written.
+   - Then "Vymazať všetky nahrané súbory", danger zone A and B (B with "Vymazať aj súbory s prekladmi" → the files
+     disappear from the folder) and "Obnoviť sklad" as in Part AO.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

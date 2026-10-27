@@ -7329,4 +7329,224 @@ begin
 end $$;
 reset role;
 
+-- ------------------------------------------------------------------ update 45: review after an upload, translations folder
+\echo '--- export folder: review and translation files (update 45)'
+do $$
+declare
+  v_shop uuid;
+begin
+  insert into public.shops (slug, name, ico, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-export', 'Farby Export', null, address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.sync_sources (shop_id, file_format, field_mapping, mapping_status, last_file_name, file_columns)
+  values (v_shop, 'csv', '{"source_code":"Kód","name":"Názov","ean":"EAN","quantity":"Mn","price":"Cena","category":"Kat"}', 'confirmed',
+          'sklad.csv', array['Kód', 'Názov', 'EAN', 'Mn', 'Cena', 'Kat', 'NákupnáCena', 'Poznámka']);
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"E1","name":"Farba biela 5 l","ean":"8580000000101","quantity":4,"price":29.9,"category":"Farby"},
+    {"source_code":"E2","name":"Štetec 50 mm","ean":"8580000000102","quantity":7,"price":3.5},
+    {"source_code":"E3","name":"Valček 25 cm","quantity":0,"price":6}
+  ]', '2026-10-25 08:00:00+00', '[]');
+end $$;
+
+-- another owner and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+begin
+  begin perform public.owner_export_review(v_shop); raise exception 'B read the review'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_export_review(v_shop, '{}', null, false, false); raise exception 'B saved'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_export_auto(v_shop); raise exception 'B auto'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_export_info(v_shop); raise exception 'B info'; exception when insufficient_privilege then null; end;
+  begin perform * from public.owner_export_rows(v_shop, null); raise exception 'B rows'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_apply_export_edits(v_shop, 'hu', 'x', '[]'); raise exception 'B edits'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_log_export_files_deleted(v_shop, 1); raise exception 'B logged'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_request_export_files_delete(v_shop); raise exception 'B asked to delete'; exception when insufficient_privilege then null; end;
+  begin perform public.export_new_items(v_shop); raise exception 'internal function callable'; exception when insufficient_privilege then null; end;
+  begin perform public.export_mark_seen(v_shop); raise exception 'internal function callable'; exception when insufficient_privilege then null; end;
+  assert (select count(*) from public.shop_export_marks where shop_id = v_shop) = 0, 'B reads no marks of A';
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_export_review((select id from public.public_shops where slug = 'farby-export')); raise exception 'anon read';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- owner A: the card asks about the two new columns and the three new products
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_r jsonb := public.owner_export_review((select id from public.shops where slug = 'farby-export'));
+  v_s jsonb;
+begin
+  assert (v_r ->> 'needed')::boolean, 'a decision is needed';
+  assert v_r -> 'new_columns' = '["NákupnáCena", "Poznámka"]'::jsonb, v_r ->> 'new_columns';
+  assert (v_r ->> 'new_products')::int = 3 and (v_r ->> 'changed_products')::int = 0, v_r::text;
+  assert v_r -> 'free_fields' = '["brand", "currency", "description"]'::jsonb, v_r ->> 'free_fields';
+  assert (v_r ->> 'max_langs')::int = 2, 'free plan: two languages';
+  -- refused: a column that is not new, a field already used, the same field twice, more languages than the plan
+  begin perform public.owner_save_export_review(v_shop, '{"Názov":"private"}', null, false, false); raise exception 'old column accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'column'; end;
+  begin perform public.owner_save_export_review(v_shop, '{"Poznámka":"name"}', null, false, false); raise exception 'taken field accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'field'; end;
+  begin perform public.owner_save_export_review(v_shop, '{"Poznámka":"description","NákupnáCena":"description"}', null, false, false);
+    raise exception 'same field twice accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'field'; end;
+  begin perform public.owner_save_export_review(v_shop, '{}', array['hu', 'de', 'en'], false, false); raise exception 'over the plan';
+  exception when invalid_parameter_value then assert sqlerrm = 'limit'; end;
+  assert (select field_mapping ->> 'description' from public.my_shops() where id = v_shop) is null, 'a refused card changed nothing';
+  -- saved: Poznámka → description, NákupnáCena private, hu + de, descriptions for the new products
+  v_s := public.owner_save_export_review(v_shop, '{"Poznámka":"description","NákupnáCena":"private"}', array['hu', 'de'], true, false);
+  assert jsonb_array_length(v_s -> 'describe_ids') = 3 and (v_s ->> 'marked')::int = 3, v_s::text;
+  assert (select field_mapping ->> 'description' from public.my_shops() where id = v_shop) = 'Poznámka';
+  assert (select mapping_status from public.my_shops() where id = v_shop) = 'confirmed', 'still approved';
+  assert (select private_columns from public.shop_export_settings where shop_id = v_shop) = array['NákupnáCena'];
+  assert public.shop_preferred_langs(v_shop) = array['hu', 'de'], 'the languages';
+  v_r := public.owner_export_review(v_shop);
+  assert not (v_r ->> 'needed')::boolean and v_r -> 'new_columns' = '[]'::jsonb, v_r::text;
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'export_review');
+end $$;
+reset role;
+
+-- a changed product (its name in the next file) is asked about again; "Zapamätať" handles it without asking
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+begin
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"E1","name":"Farba biela 5 l","ean":"8580000000101","quantity":4,"price":29.9,"category":"Farby"},
+    {"source_code":"E2","name":"Štetec plochý 50 mm","ean":"8580000000102","quantity":7,"price":3.5},
+    {"source_code":"E3","name":"Valček 25 cm","quantity":0,"price":6},
+    {"source_code":"E4","name":"Páska 50 m","quantity":3,"price":2}
+  ]', '2026-10-26 08:00:00+00', '[]');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_r jsonb := public.owner_export_review((select id from public.shops where slug = 'farby-export'));
+  v_a jsonb;
+begin
+  assert (v_r ->> 'needed')::boolean and (v_r ->> 'new_products')::int = 1 and (v_r ->> 'changed_products')::int = 1, v_r::text;
+  v_a := public.owner_export_auto(v_shop);
+  assert not (v_a ->> 'remember')::boolean and (v_a ->> 'marked')::int = 0, 'nothing without "Zapamätať"';
+  perform public.owner_save_export_review(v_shop, '{}', null, true, true);
+  assert not (public.owner_export_review(v_shop) ->> 'needed')::boolean;
+end $$;
+reset role;
+do $$ begin
+  perform public.apply_stock_file((select id from public.shops where slug = 'farby-export'), '[
+    {"source_code":"E1","name":"Farba biela 5 l","ean":"8580000000101","quantity":4,"price":29.9,"category":"Farby"},
+    {"source_code":"E2","name":"Štetec plochý 50 mm","ean":"8580000000102","quantity":7,"price":3.5},
+    {"source_code":"E3","name":"Valček 25 cm","quantity":0,"price":6},
+    {"source_code":"E4","name":"Páska 50 m","quantity":3,"price":2},
+    {"source_code":"E5","name":"Tmel 300 ml","quantity":5,"price":4}
+  ]', '2026-10-27 08:00:00+00', '[]');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_a jsonb;
+begin
+  assert not (public.owner_export_review(v_shop) ->> 'needed')::boolean, 'remembered: no card for new products';
+  v_a := public.owner_export_auto(v_shop);
+  assert (v_a ->> 'remember')::boolean and (v_a ->> 'marked')::int = 1, v_a::text;
+  -- E5 has no description: it is described; E1–E4 were marked before and are not described again
+  assert v_a -> 'describe_ids' = jsonb_build_array((select id from public.shop_items where shop_id = v_shop and source_code = 'E5')), v_a::text;
+  assert (public.owner_export_auto(v_shop) ->> 'marked')::int = 0, 'only once';
+end $$;
+reset role;
+
+-- the files: what is written (approved columns only) and the owner's edits
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_e1 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-export') and source_code = 'E1');
+begin
+  -- E1 has a category (from the file's texts), Cacaduu's description and an AI translation of it
+  update public.shop_items set category = 'Farby' where id = v_e1;
+  insert into public.item_descriptions (item_id, shop_id, text, published_at) values (v_e1, v_shop, 'Biela farba.', now());
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  values (v_shop, 'item_description', v_e1::text, 'hu', 'Fehér festék.', 'ai', md5('Biela farba.'));
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_e1 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-export') and source_code = 'E1');
+  v_i jsonb := public.owner_export_info((select id from public.shops where slug = 'farby-export'));
+  v_version text;
+  v_e jsonb;
+  v_n integer;
+begin
+  assert v_i -> 'langs' = '["de", "hu"]'::jsonb, v_i ->> 'langs';
+  assert (v_i ->> 'items')::int = 5;
+  assert not (v_i -> 'columns')::text like '%NákupnáCena%', 'a private column is never a column of the files';
+  assert v_i -> 'columns' @> '[{"field":"description","column":"Poznámka"}]'::jsonb, v_i ->> 'columns';
+  v_version := v_i ->> 'version';
+  assert (select count(*) from public.owner_export_rows(v_shop, null)) = 5;
+  assert (select st_name from public.owner_export_rows(v_shop, null) where code = 'E1') is null, 'the main file has no translation states';
+  assert (select st_name from public.owner_export_rows(v_shop, 'hu') where code = 'E1') = 'missing';
+  assert (select st_cat from public.owner_export_rows(v_shop, 'hu') where code = 'E2') = 'no_source', 'E2 has no category';
+  assert (select count(*) from public.owner_export_rows(v_shop, 'hu', 4, 1000)) = 1, 'paged';
+  begin perform * from public.owner_export_rows(v_shop, 'xx-yy'); raise exception 'bad language'; exception when invalid_parameter_value then null; end;
+
+  -- the main file's "Popis" → the owner's approved description; an AI translation of the old one becomes stale
+  v_e := public.owner_apply_export_edits(v_shop, null, 'sklad.sk.xlsx', '[
+    {"code":"E1","field":"description","text":"Biela farba na steny, 5 l."},
+    {"code":"E2","field":"price","text":"1"},
+    {"code":"NEZNAMY","field":"description","text":"x"}
+  ]');
+  assert (v_e ->> 'applied')::int = 1, v_e::text;
+  assert v_e -> 'unknown' = '[{"code":"NEZNAMY","ean":null}]'::jsonb, v_e::text;
+  assert v_e -> 'skipped' @> '[{"code":"E2","field":"price","reason":"readonly"}]'::jsonb, v_e::text;
+  assert (select text from public.item_description_shown(v_e1)) = 'Biela farba na steny, 5 l.';
+  assert (select public.translation_state(c.status, c.source_hash, 'Biela farba na steny, 5 l.') from public.content_translations c
+          where c.shop_id = v_shop and c.kind = 'item_description' and c.ref = v_e1::text and c.lang = 'hu') = 'stale', 'its AI translation is stale';
+  assert (select quantity from public.inventory where shop_item_id = (select id from public.shop_items where shop_id = v_shop and source_code = 'E2')) = 7,
+    'the stock is never changed';
+
+  -- a language file: changed cells → the owner's own translations; matched by EAN when the code is missing
+  v_e := public.owner_apply_export_edits(v_shop, 'hu', 'sklad.hu.xlsx', '[
+    {"code":"E1","field":"name","text":"Fehér festék 5 l"},
+    {"code":"","ean":"8580000000102","field":"name","text":"Lapos ecset 50 mm"},
+    {"code":"E1","field":"category","text":"Festékek"},
+    {"code":"E2","field":"category","text":"Ecsetek"},
+    {"code":"E1","field":"description","text":"   "}
+  ]');
+  assert (v_e ->> 'applied')::int = 3, v_e::text;
+  assert v_e -> 'skipped' @> '[{"code":"E2","field":"category","reason":"no_source"}]'::jsonb, v_e::text;
+  assert (select status from public.content_translations where shop_id = v_shop and kind = 'item_name' and ref = v_e1::text and lang = 'hu') = 'manual';
+  assert (select text from public.content_translations where shop_id = v_shop and kind = 'item_description' and ref = v_e1::text and lang = 'hu') = 'Fehér festék.',
+    'an empty cell changes nothing';
+  assert (select st_name from public.owner_export_rows(v_shop, 'hu') where code = 'E2') = 'manual';
+  -- the same text again: nothing new; the version of the files moved on with the edits
+  v_e := public.owner_apply_export_edits(v_shop, 'hu', 'sklad.hu.xlsx', '[{"code":"E1","field":"name","text":"Fehér festék 5 l"}]');
+  assert (v_e ->> 'applied')::int = 0 and (v_e ->> 'same')::int = 1, v_e::text;
+  assert public.owner_export_info(v_shop) ->> 'version' <> v_version, 'the files are written again';
+  begin perform public.owner_apply_export_edits(v_shop, 'hu', 'x', '{}'); raise exception 'not a list'; exception when invalid_parameter_value then null; end;
+  select count(*) into v_n from public.shop_activity where shop_id = v_shop and action = 'export_edits';
+  assert v_n = 2, 'two applied files in the activity log';
+  assert public.owner_export_info(v_shop) -> 'delete_files_at' = 'null'::jsonb, 'no deletion asked';
+  perform public.owner_request_export_files_delete(v_shop);
+  assert public.owner_export_info(v_shop) ->> 'delete_files_at' is not null, 'the shop PC is asked to delete its files';
+  perform public.owner_log_export_files_deleted(v_shop, 3);
+  assert public.owner_export_info(v_shop) -> 'delete_files_at' = 'null'::jsonb, 'done';
+  assert (select details ->> 'files' from public.shop_activity where shop_id = v_shop and action = 'export_files_deleted') = '3';
+  assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.owner_export_rows(uuid,text,integer,integer)'::regprocedure);
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'

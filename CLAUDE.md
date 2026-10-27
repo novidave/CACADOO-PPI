@@ -72,6 +72,9 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
 - `npm run test:i18n` — unit tests (Deno) of the languages (update 40): the list, the browser's language, the picker's
   search and links, the fallback of interface texts, the same keys and placeholders in sk/hu/en
 - `npm run test:strings` — fails on a visible text written into a `.tsx` file instead of the message files
+- `npm run test:export` — unit tests (Deno) of the translations folder's files (`src/lib/exportFiles_test.ts`): the
+  built-in .xlsx writer/reader (also files as Excel saves them), the files' columns, the owner's edits read back
+  (empty cells, read-only columns, unknown rows, Kód then EAN)
 - `npm run test:items` — unit tests (Deno) of Môj obchod's "Tovar" list (`src/lib/ownerItems_test.ts`): each state of
   "Čo vidí zákazník" (stale → hidden with the reason, sold out, in stock), the filters and the last file's status line
   (also "Žiadny nahraný súbor" after the files were deleted), and the inventory reset's helpers (update 43)
@@ -349,7 +352,8 @@ PPI's sitemap leaves those pages out.
   "Len zobraziť" / "Zobraziť a stiahnuť"); "Posledné nahrané súbory" = `@/components/RecentImports` moved to `/sync` in
   update 43; a free shop sees
   `ProOnly` "Dostupné v Pro" where it has nothing yet, what it has stays reachable) and `/sync` "Priečinok s exportom"
-  (export folder + `FolderSync`, "Posledné nahrané súbory", conversations to the PC, "Nebezpečná zóna – sklad"). **Which page holds a section: only `@/lib/dashboardPages`**
+  (export folder + `FolderSync`, update 45's "Po nahratí súboru" and "Preklady v priečinku", "Posledné nahrané súbory",
+  conversations to the PC, "Nebezpečná zóna – sklad"). **Which page holds a section: only `@/lib/dashboardPages`**
   (`sectionUrl(lang, at, query)` for every form's way back; `movedFrom()` / `forwardUrl()` forward old addresses with
   their query, old names merged: `private` → `docs`, `sections` → `content`; `/dashboard/sections/[id]` → the library).
   Never put a section on two pages. Shared messages/switcher/form parts: `dashboard/shared.tsx`. Sections are
@@ -558,8 +562,9 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   (`item_description_facts()`: name, brand, EAN, category, the shop's own description), never invented; the owner edits
   → "Uložiť a zverejniť" / "Zahodiť"; "Zverejniť vygenerované popisy automaticky" (default off); the shop's own
   description wins unless the owner picks "Popis (Cacaduu)" (`item_description_shown()`).
-- **Owner screens:** Môj obchod → "Jazyky a inventár" (`/dashboard/translations`: Jazyky, Stĺpce súboru so skladom,
-  Súbory so skladom v jazykoch, Tovar, Preklady; columns and items moved here from `/dashboard`, old `?at=` forwarded;
+- **Owner screens:** Môj obchod → "Jazyky a inventár" (`/dashboard/translations`: Tovar, Preklady; since update 45 the
+  languages, the stock file's columns and the stock files in other languages are on `/sync` — see below —, old `?at=`
+  forwarded;
   **"Tovar" since update 41** (`supabase/sql/41_items_list.sql`, `@/lib/ownerItems`): one short line + "Viac", the
   status line "Posledný súbor: … · aktuálny / starší / zastaraný" (`shops.freshness_state`), filters Všetko / Na sklade /
   Vypredané / Bez popisu / Chýba preklad decided only in SQL (`owner_items(…, p_filter)`, `owner_item_counts()`; stock
@@ -622,6 +627,43 @@ removal exists. Translations/descriptions return by code through the `shop_items
 `shop_activity`. Visitors: `shop_stock_resetting()` → "Sortiment sa práve aktualizuje." Never touches blog, slider,
 assistant, private folders and their files, contacts, domain, subscription or opening hours. There are no customer alerts
 ("Upozorniť ma") and no Pomocník yet — the activity log and `owner_inventory_state()` are what they will read.
+
+## Priečinok s exportom: review after an upload, translations folder (update 45)
+
+`supabase/sql/45_export_translations.sql` + `/sync` page + `@/components/ExportReview` + `@/components/TranslationFolderSync`
++ `@/lib/exportFiles` / `@/lib/xlsx` (shared with `exportFiles_test.ts`) + `sync/exportActions.ts` +
+`dashboard/LanguagesForm.tsx`, `Inventory.tsx` `ColumnsForm`. **Page order** (only `@/lib/dashboardPages`):
+"Priečinok so skladom" (`export`, read only) · "Po nahratí súboru" (`review`: the card, "Jazyky", "Stĺpce súboru so
+skladom"; old `languages`/`columns` forwarded) · "Preklady v priečinku" (`trfolder`: the folder, the ZIP/upload, "Súbory
+so skladom v jazykoch"; old `files` forwarded) · "Posledné nahrané súbory" · (Pro) conversations to the PC · "Nebezpečná
+zóna – sklad". **"Nový súbor – skontrolujte"** only when something waits (`owner_export_review()`): columns of the last
+file neither approved nor private (`export_new_columns()`) → a free field or "Súkromné – nezobrazovať" (default; never
+approved by itself; `shop_export_settings.private_columns`), new or changed products (`shop_export_marks` = md5 of name,
+description, category the owner last saw; existing products were marked by the SQL) → languages = the shop's preferred
+languages within `translation_limits`, "Vygenerovať popisy" (only new/changed without any description,
+`export_describe_ids()`, the translate function's `describe`, 20 per call), "Zapamätať a už sa nepýtať" (`remember`:
+`owner_export_auto()` on each check of the PC window; new columns are always asked). Every write via
+`owner_save_export_review()` / server actions (`refreshShop`). **Translations folder** (Edge/Chrome, its own `readwrite`
+handle in IndexedDB `trfolder:<shop>`, never the stock folder — `isSameEntry` refused; stock folder's watcher ignores
+`sklad.<lang>.xlsx`): `sklad.<main>.xlsx` (approved columns as the file names them + "Popis" + "Stav popisu"; only Popis
+editable → `item_descriptions` published, show 'cacaduu' over the shop's own, its AI translations stale) and
+`sklad.<lang>.xlsx` per `owner_export_info().langs` (preferred ∪ inventory − main: Kód, Pôvodný názov, Názov, Popis,
+Kategória, Stav; Názov/Popis/Kategória → `content_translations` 'manual'). **Only the approved columns** ever (rows from
+`owner_export_rows()`, 1 000 per call; private columns are never stored). Every cell text ("@", also new cells), bold
+frozen header + filter, a "Návod" sheet, a **very hidden `_cacaduu` sheet** with what was written (keys, headers, values,
+EAN) — an edit = a non-empty cell that differs from it (empty = no change; other columns and unknown rows only listed;
+rows by Kód, then EAN; columns by header) → `owner_apply_export_edits()` (matched again by Kód then EAN in SQL; the stock,
+quantities, prices and names never change). **Each check** (15 min, window start, "Skontrolovať teraz", after the stock
+folder sent a file — `ppi:stock-sent`): 1. a "Vymazať celý sklad" request (`delete_files_at`) → delete only Cacaduu's
+files (also in folders used before) → `owner_log_export_files_deleted()`; 2. read Cacaduu's files whose mtime/size
+changed, untouched ≥ 60 s, SHA-256 differs (locked by Excel → read later, never written over); 3. `owner_export_auto()`;
+4. write again only when `owner_export_info().version` changed, a file is missing, an edit was applied or "Zapísať teraz":
+`createWritable()` (a temporary file replacing the old one on close; locked → pending "… je otvorený v Exceli"), never a
+file Cacaduu did not write ("nevytvorilo Cacaduu – nechávam ho tak"), nothing while the stock is empty. One window per
+shop (Web Locks). Any browser: "Stiahnuť preklady (.xlsx, ZIP)" and "Nahrať upravený súbor" (same diff). Danger zone B
+ticks "Vymazať aj súbory s prekladmi" (`owner_request_export_files_delete()`); the backup CSV of update 43 already holds
+descriptions and translations. Activity log actions `export_review`, `export_edits`, `export_files_deleted`. No customer
+alerts exist yet (nothing to cancel). Tests: `npm run test:export`, DB block "update 45", e2e owner test (OPFS folder).
 
 ## Stock upload
 

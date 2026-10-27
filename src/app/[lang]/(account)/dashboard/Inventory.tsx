@@ -66,23 +66,29 @@ export async function loadItems(
 }
 
 /** The approval of the stock file's columns (with the language columns of update 40). */
-export function ColumnsSection({ shop, dict, hidden, m, first = false }: { shop: MyShop; dict: Dictionary; hidden: Hidden; m: Messages; first?: boolean }) {
+/** The stock file's columns as a summary line ("Schválené", "Treba schváliť", no file yet). */
+export function columnsSummary(shop: MyShop, dict: Dictionary): string {
+  const columns = shop.file_columns?.length ? shop.file_columns : (shop.sample_rows ?? []).flatMap((row) => Object.keys(row));
+  return columns.length === 0 ? dict.dashboard.summary_no_file : shop.mapping_status === "confirmed" ? dict.owner.state_confirmed : dict.owner.state_proposed;
+}
+
+/**
+ * "Stĺpce súboru so skladom": the approval form of the stock file's columns (on "Priečinok s exportom" → "Po nahratí
+ * súboru" since update 45; its old addresses are forwarded there).
+ */
+export function ColumnsForm({ shop, dict, hidden }: { shop: MyShop; dict: Dictionary; hidden: Hidden }) {
   const o = dict.owner;
-  const d = dict.dashboard;
-  const { notice, section } = m;
   // Columns of the stock file: every column name of the last file (values only of the approved ones).
   const columns = shop.file_columns?.length ? shop.file_columns : [...new Set((shop.sample_rows ?? []).flatMap((row) => Object.keys(row)))];
   const sampleColumns = [...new Set((shop.sample_rows ?? []).flatMap((row) => Object.keys(row)))];
-  const summary = columns.length === 0 ? d.summary_no_file : shop.mapping_status === "confirmed" ? o.state_confirmed : o.state_proposed;
   return (
-    <DashboardSection {...section("columns")} first={first} title={o.columns_title} summary={summary}>
+    <div className="flex flex-col gap-3" id="columns" data-columns-form>
               <p className="text-sm">{o.columns_intro}</p>
               {columns.length === 0 ? (
                 <p className="text-muted">{o.columns_waiting}</p>
               ) : (
                 <form action={approveColumns} className="flex flex-col gap-3">
                   {hidden({ at: "columns" })}
-                  {notice("columns")}
                   <p className="font-semibold">{shop.mapping_status === "confirmed" ? o.state_confirmed : o.state_proposed}</p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {MAPPING_FIELDS.map((field) => (
@@ -147,7 +153,7 @@ export function ColumnsSection({ shop, dict, hidden, m, first = false }: { shop:
                   <SubmitButton pending={o.saving}>{o.approve}</SubmitButton>
                 </form>
               )}
-            </DashboardSection>
+    </div>
   );
 }
 

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
-import { getDictionary, t } from "@/i18n/dictionaries";
+import { enabledLocales, getDictionary, t } from "@/i18n/dictionaries";
+import { languageOf } from "@/i18n/languages";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import { formatDate, formatDateTime } from "@/lib/format";
@@ -11,6 +12,9 @@ import { requestTime } from "@/lib/requestTime";
 import { loadImports } from "@/lib/stockImports";
 import { folderSyncLabels } from "@/lib/syncLabels";
 import { DashboardSection } from "@/components/DashboardSection";
+import { ExportReview, type ReviewState } from "@/components/ExportReview";
+import { LanguageFileUpload } from "@/components/LanguageFileUpload";
+import { TranslationFolderSync } from "@/components/TranslationFolderSync";
 import { ConversationFolderSync } from "@/components/ConversationFolderSync";
 import { DbError } from "@/components/DbError";
 import { FolderSync } from "@/components/FolderSync";
@@ -18,7 +22,10 @@ import { InstallApp } from "@/components/InstallApp";
 import { BackupDownload, DeleteFilesButton, InventoryResetOptions } from "@/components/InventoryDangerZone";
 import { PendingButton } from "@/components/PendingButton";
 import { RecentImports } from "@/components/RecentImports";
-import { messages, recentlyText, ShopSwitcher } from "../dashboard/shared";
+import { ColumnsForm, columnsSummary } from "../dashboard/Inventory";
+import { LanguagesForm, type LanguageSettings } from "../dashboard/LanguagesForm";
+import { hiddenFields, messages, recentlyText, ShopSwitcher } from "../dashboard/shared";
+import { languageList } from "../dashboard/translationShared";
 import { deleteStockFiles, resetInventory, restoreInventory } from "./inventoryActions";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/sync">): Promise<Metadata> {
@@ -32,13 +39,17 @@ function first(value: string | string[] | undefined): string | undefined {
 }
 
 /**
- * "Priečinok s exportom" — also the shop PC's PPI window (the installed app starts here):
- * connect the folder the stock software exports to (while open, the newest file is sent
- * every 15 minutes) and, with the paid plan, a folder the assistant's finished conversations
- * are saved to as PDFs (every 5 minutes), the last 10 stock files ("Posledné nahrané súbory", back here with
- * "Vymazať všetky nahrané súbory" since update 43) and, collapsed at the bottom, "Nebezpečná zóna – sklad"
- * (remove the products missing from the last file, delete the whole stock, restore it, the backups, the last actions).
- * The files in private folders moved to "Asistent" (update 38): their old addresses are forwarded there.
+ * "Priečinok s exportom" — also the shop PC's PPI window (the installed app starts here), in this order:
+ * 1. "Priečinok so skladom": the folder the stock software exports to (read only; while open, the newest file is sent
+ *    every 15 minutes);
+ * 2. "Po nahratí súboru" (update 45): "Nový súbor – skontrolujte" when a file brought new columns or products, the
+ *    shop's languages and the stock file's columns (both moved here from "Jazyky a inventár");
+ * 3. "Preklady v priečinku" (update 45): the translations folder with sklad.<lang>.xlsx (written and read back), the
+ *    ZIP and the upload of an edited file for any browser, and the stock files in other languages;
+ * 4. "Posledné nahrané súbory" with "Vymazať všetky nahrané súbory" (update 43);
+ * then, with the paid plan, the folder the assistant's conversations are saved to, and, collapsed at the bottom,
+ * 5. "Nebezpečná zóna – sklad" (remove the missing products, delete the whole stock — and the translation files —,
+ *    restore it, the backups, the last actions). Old addresses of moved sections are forwarded here.
  * One shop at a time (a shop switcher with more shops; one window per shop on the PC).
  */
 export default async function SyncPage({ params, searchParams }: PageProps<"/[lang]/sync">) {
@@ -47,7 +58,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   const sp = await searchParams;
   const at = typeof sp.at === "string" ? sp.at : "";
   if (movedFrom("sync", at)) redirect(forwardUrl(lang, at, sp));
-  const [dict, { supabase }] = await Promise.all([getDictionary(lang), requireUser(lang)]);
+  const [dict, { supabase }, enabled] = await Promise.all([getDictionary(lang), requireUser(lang), enabledLocales()]);
   const o = dict.owner;
   const d = dict.dashboard;
 
@@ -69,7 +80,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   }
 
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
-  const [hasPlan, itemCount, importData, stateData, previewData] = await Promise.all([
+  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.from("shop_items").select("id", { count: "exact", head: true }).eq("shop_id", shop.id),
     // The last 10 stock files (none before update 21).
@@ -77,7 +88,16 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
     // "Začať sklad odznova" (update 43): files, removals, backups, the last actions; the dialogs' counts.
     supabase.rpc("owner_inventory_state", { p_shop_id: shop.id }),
     supabase.rpc("owner_inventory_preview", { p_shop_id: shop.id }),
+    // "Nový súbor – skontrolujte" (update 45; nothing before it)
+    supabase.rpc("owner_export_review", { p_shop_id: shop.id }),
+    // the shop's languages (update 40)
+    supabase.rpc("owner_language_settings", { p_shop_id: shop.id }),
   ]);
+  const review = reviewData.error ? null : (reviewData.data as ReviewState | null);
+  const settings = settingsData.error ? null : ((Array.isArray(settingsData.data) ? settingsData.data[0] : settingsData.data) as LanguageSettings | undefined) ?? null;
+  const all = languageList(enabled);
+  const hiddenField = hiddenFields(lang, shop);
+  const ex = dict.export_folder;
   const planActive = !hasPlan.error && hasPlan.data === true;
   const m = messages(dict, sp, { n: Math.max(0, Math.floor(Number(first(sp.n)) || 0)) });
   const state = stateData.error ? null : readState(stateData.data);
@@ -137,7 +157,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
       </header>
 
       <div className="flex flex-col border-t border-line">
-        <DashboardSection {...m.section("export")} first title={o.export_title} summary={summaries.export}>
+        <DashboardSection {...m.section("export")} first title={ex.stock_title} summary={summaries.export}>
           <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
             <dt className="text-muted">{d.latest_file}</dt>
             <dd data-latest-file>{state?.files_cleared ? r.files_none : when(shop.latest_file_time)}</dd>
@@ -174,7 +194,73 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
           <InstallApp labels={dict.sync} />
         </DashboardSection>
 
-        {/* The last 10 stock files and "Vymazať všetky nahrané súbory" (the inventory stays). */}
+        {/* 2. After a stock file: the review card, the languages, the columns */}
+        <DashboardSection
+          {...m.section("review")}
+          title={ex.review_title}
+          summary={review?.needed ? dict.export_review.title : `${columnsSummary(shop, dict)}${settings ? ` · ${t(dict.owner_tr.languages_summary, { main: languageOf(settings.main_lang)?.native ?? settings.main_lang, preferred: settings.preferred_langs.map((c) => languageOf(c)?.native ?? c).join(", ") || dict.owner_tr.none })}` : ""}`}
+        >
+          {m.notice("review")}
+          <p className="text-sm">{ex.review_intro}</p>
+          {review === null ? (
+            <p className="text-sm text-muted" data-review-unavailable>
+              {dict.export_review.unavailable}
+            </p>
+          ) : review.needed ? (
+            <ExportReview
+              shopId={shop.id}
+              slug={shop.slug}
+              review={review}
+              languages={all}
+              fieldLabels={o as unknown as Record<string, string>}
+              labels={dict.export_review}
+            />
+          ) : (
+            <p className="text-sm font-semibold" data-review-done>
+              {dict.export_review.nothing}
+            </p>
+          )}
+          {settings && (
+            <section className="flex flex-col gap-3 border-t border-line pt-4" aria-labelledby="languages-title">
+              <h3 id="languages-title" className="font-semibold">
+                {dict.owner_tr.languages_title}
+              </h3>
+              <LanguagesForm settings={settings} all={all} dict={dict} hidden={() => hiddenField()} />
+            </section>
+          )}
+          <section className="flex flex-col gap-3 border-t border-line pt-4" aria-labelledby="columns-title">
+            <h3 id="columns-title" className="font-semibold">
+              {o.columns_title}
+            </h3>
+            <ColumnsForm shop={shop} dict={dict} hidden={hiddenField} />
+          </section>
+        </DashboardSection>
+
+        {/* 3. The translations folder on this PC (and the same files by hand), the stock files in other languages */}
+        <DashboardSection {...m.section("trfolder")} title={ex.folder_title} summary={ex.folder_summary}>
+          {m.notice("trfolder")}
+          <p className="text-sm">{ex.folder_intro}</p>
+          {review === null ? (
+            <p className="text-sm text-muted">{dict.export_review.unavailable}</p>
+          ) : (
+            <TranslationFolderSync shopId={shop.id} slug={shop.slug} lang={lang} timeZone={shop.timezone} loginHref={`/${lang}/login`} labels={ex} />
+          )}
+          {settings && (
+            <section className="flex flex-col gap-3 border-t border-line pt-4" aria-labelledby="files-title" id="files">
+              <h3 id="files-title" className="font-semibold">
+                {dict.owner_tr.files_title}
+              </h3>
+              <LanguageFileUpload
+                shopId={shop.id}
+                langs={languageList(settings.inventory_langs.filter((c) => c !== settings.main_lang))}
+                mainLabel={languageOf(settings.main_lang)?.native ?? settings.main_lang}
+                labels={dict.owner_tr.files}
+              />
+            </section>
+          )}
+        </DashboardSection>
+
+        {/* 4. The last 10 stock files and "Vymazať všetky nahrané súbory" (the inventory stays). */}
         <DashboardSection {...m.section("imports")} title={dict.imports.title} summary={summaries.imports}>
           {m.notice("imports")}
           {importData ? (

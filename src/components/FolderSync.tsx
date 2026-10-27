@@ -243,6 +243,8 @@ export function FolderSync({
         result,
       } satisfies Attempt);
       setMessage(resultText(result));
+      // the translations folder (update 45) writes its files again after the stock file
+      window.dispatchEvent(new Event("ppi:stock-sent"));
       schedule(CHECK_EVERY_MS);
     } catch (e) {
       setMessage(fill(labels.send_failed, { error: errorText(e) }));
@@ -350,6 +352,7 @@ export function FolderSync({
       if (after) setServer(after as ServerStatus);
       setNewest({ name: file.name, time: file.lastModified });
       setMessage(resultText(result));
+      window.dispatchEvent(new Event("ppi:stock-sent"));
     } catch (e) {
       setMessage(fill(labels.send_failed, { error: errorText(e) }));
     } finally {

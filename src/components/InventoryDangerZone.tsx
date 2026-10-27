@@ -204,6 +204,10 @@ function ResetAllForm({
         <input type="checkbox" name="clear_mapping" className="mt-1" data-clear-mapping />
         <span>{labels.b_mapping}</span>
       </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="delete_tr_files" defaultChecked className="mt-1" data-delete-tr-files />
+        <span>{labels.b_tr_files}</span>
+      </label>
       <p className="text-sm">{labels.confirm_backup}</p>
       <p className="text-sm text-muted">{labels.b_folder_note}</p>
       <label className="flex flex-col gap-1 text-sm">
