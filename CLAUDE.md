@@ -691,11 +691,34 @@ ticks "Vymazať aj súbory s prekladmi" (`owner_request_export_files_delete()`);
 descriptions and translations. Activity log actions `export_review`, `export_edits`, `export_files_deleted`. No customer
 alerts exist yet (nothing to cancel). Tests: `npm run test:export`, DB block "update 45", e2e owner test (OPFS folder).
 
+## Pripojiť skladový program (API) (update 49)
+
+`supabase/sql/49_inventory_api.sql` + `supabase/functions/inventory-connect` (one file, Verify JWT off) +
+`@/components/InventoryConnect` + `sync/inventoryApiActions.ts` + `admin/domains/InventoryAdmin.tsx`. First section of
+"Priečinok s exportom" (`api` in `@/lib/dashboardPages`). **The only place PPI pulls stock:** a read-only key, adapters
+behind one interface (`testConnection`, `listProducts` → {rows, complete, total}, `capabilities`, rate limits), built
+only from official docs: SuperFaktúra, WooCommerce, "Vlastné API" (https JSON/CSV); anything unverified (Shoptet,
+Dotykačka) is `built = false` → "Pripravujeme". Plan rule only in SQL (`inventory_plan_settings`: Pro 15 min, Free off
+unless the admin allows it; provider minimum, SuperFaktúra 60). **Key:** browser → function (owner JWT,
+`is_shop_member`), tested first (a failed key is never stored), AES-GCM with `INVENTORY_TOKEN_ENCRYPTION_KEY` bound to
+shop + provider in `inventory_connections.key_cipher` (no owner grant), never logged or shown again ("••••1234" + date);
+"Odpojiť" deletes the row. **One source:** while connected `upload_check_in()` raises `api_connected` (stock-pull 409;
+folder and uploads show "Sklad sa aktualizuje cez <program>"). **Nothing before approval:** preview (5 rows, count,
+fields) → `owner_inventory_approve()`; changed fields → preview again. **Runs** (pg_cron `ppi-inventory-tick` 5 min,
+`inventory_claim` skip locked): only a complete snapshot that reads with the approved fields goes through
+`inventory_apply` → `apply_stock_file()`; partial / empty / older / error never zero the stock; no quantities → names
+and prices only with the owner's consent, freshness never renewed (no availability); back-off 5 min · 2ⁿ ≤ 6 h,
+Retry-After; invalid key → stopped, "Kľúč neplatný", one Brevo e-mail after 24 h; reports `stock_imports.source = 'api'`;
+activity log. Private fields (purchase price, supplier, margin, invoice, internal) are never requested where the API
+lets us choose fields and are dropped before storing otherwise. Only public https hosts, forwards checked, 20 MB.
+Texts `inventory_api`, `admin_inventory`. "Synchronizovať teraz" ≤ 4/hour.
+
 ## Stock upload
 
 `supabase/functions/stock-pull/index.ts` (single file, paste-deployable) only receives uploads:
 `POST ?shop_id=&file_time=&file_name=[&gzip=1]` with the owner's (or legacy admin's) JWT, checked by `upload_check_in()`.
-It downloads nothing and runs on no schedule (cloud links and the cron pull were removed on 2026-10-08, migration 16).
+It downloads nothing and runs on no schedule (cloud links and the cron pull were removed on 2026-10-08, migration 16;
+the only pull is the inventory API above), and refuses files (409 `api_connected`) while a program is connected.
 A file not newer than `latest_file_time` is skipped; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping proposals
 (Claude with structured outputs, else `guessMapping`) are never auto-approved; `apply_stock_file()` writes a full file
 in one transaction (missing items → quantity 0). >5 % unreadable rows → keep old stock, propose a new mapping.

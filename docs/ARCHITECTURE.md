@@ -2237,3 +2237,38 @@ files {lastModified, size, SHA-256}, version, earlier folders; Web Lock per shop
 `exportAuto` → write when needed via `createWritable()`; `ppi:stock-sent` from `FolderSync`), `components/ExportReview.tsx`,
 `sync/exportActions.ts` (server actions; `refreshShop`). `folderStore.newestStockFile()` ignores `sklad.<lang>.xlsx`.
 `dashboardPages`: `review`, `trfolder` on `/sync`; `languages`/`columns` → `review`, `files` → `trfolder`.
+
+## Update 49 — inventory software over an API ("Pripojiť skladový program")
+
+`supabase/sql/49_inventory_api.sql`: `inventory_plan_settings` (pro 15 min allowed, free off / 1440 min; only
+`admin_save_inventory_settings()`), `inventory_providers` (code, built, enabled, min_interval_minutes; only built ones can
+be on; `admin_set_inventory_provider()`), `inventory_connections` (one per shop: provider, `key_cipher` — no grant to
+owners —, key_hint, settings, status preview|active|invalid_key|error, fields, 5 sample rows without private fields,
+product_count, has_quantity, mapping + mapping_status, publish_without_quantity, run times, back-off, last error code,
+manual_runs). `stock_imports.source` file|api. Owner: `owner_inventory_api()`, `owner_inventory_can_connect()`,
+`owner_inventory_approve(mapping, without_quantity)` (`inventory_mapping_ok()`: code, name, price and — unless the
+program sends none and the owner agrees — quantity; never a private column), `owner_inventory_sync_now()` (4/hour),
+`owner_inventory_disconnect()` (deletes the row). `upload_check_in()` raises `api_connected` while a connection exists,
+so stock-pull answers 409 and the folder window says so. Service role only: `inventory_save_connection`,
+`inventory_save_preview` (changed fields → back to preview, asked again), `inventory_key`, `inventory_claim` (due,
+active, approved, plan allowed; `for update skip locked`, `running_since`), `inventory_apply` (`apply_stock_file()` for
+a full snapshot; refuses empty and older; without quantities `inventory_apply_prices()` — names and prices, freshness
+never renewed, so no availability), `inventory_finish` (ok/warning → next interval; error → 5 min · 2ⁿ ≤ 6 h or
+Retry-After ≤ 24 h; invalid key stops the runs), `inventory_key_state`, `inventory_record_import`,
+`inventory_alerts_due` / `inventory_alert_sent` (one e-mail after 24 h of an invalid key). Activity actions
+`inventory_api_connected|key_changed|approved|error|recovered|disconnected`. Cron `ppi-inventory-tick` (5 min, header
+`x-ppi-cron` checked by `inventory_cron_ok()`).
+
+`supabase/functions/inventory-connect/index.ts` (one file, Verify JWT off): adapters behind one interface
+(`parse`, `testConnection`, `listProducts` → {rows, complete, total, currency}, `capabilities`, `proposeMapping`):
+SuperFaktúra (`stock_items/index.json/listinfo:1`, SFAPI header, whitelisted fields + computed `price_with_vat`, complete
+when rows = itemCount, stops before the daily limit, ≥ 60 min), WooCommerce (`wc/v3/products` + variations, read-only
+key over HTTPS Basic, `_fields`, complete when parents = X-WP-Total) and "Vlastné API" (one https JSON/CSV document,
+key in the address or a header). Every request: public https host only, forwards checked, 20 MB, time limit; private
+fields (purchase price, supplier, margin, invoice, internal) dropped before anything is stored. Keys: AES-GCM (HKDF of
+`INVENTORY_TOKEN_ENCRYPTION_KEY`), AAD `inventory:<shop>:<provider>`, tested before saving, never logged. Owner actions
+(owner JWT + `is_shop_member`): connect, test, preview, sync_now; cron: tick (100 s budget) + alerts (Brevo). A run
+applies only a complete snapshot that reads with the approved fields (≤ 5 % unreadable), then `apply_file_texts`,
+the import report, revalidate + IndexNow, finish. Website: `components/InventoryConnect.tsx` (forms, preview + mapping,
+status card), `sync/inventoryApiActions.ts` (approve, disconnect), `admin/domains/InventoryAdmin.tsx`; `dashboardPages`
+`api` first on `/sync`.
