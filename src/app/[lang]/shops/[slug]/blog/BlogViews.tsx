@@ -126,13 +126,14 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
         <ol className="flex flex-col divide-y divide-line border-y border-line">
           {posts.map((post, index) => {
             const href = blogPath(lang, place, onSite, post.slug);
-            // the list shows a thumbnail (≤ 380 px wide on a phone): the 800 px file is enough, the 1600 one only slows the page
+            // a thumbnail beside the title (112 px on a phone, 192 px on a computer): the 800 px file is enough, and a
+            // full-width photo on a phone would be the page's largest element and hold back its first view (LCP)
             const photo = post.photos[0];
             return (
-              <li key={post.slug} className="flex flex-col gap-3 py-5 sm:flex-row" data-blog-post={post.slug}>
+              <li key={post.slug} className="flex flex-row gap-3 py-5" data-blog-post={post.slug}>
                 {photo && (
-                  <Link href={href} className="relative block shrink-0 sm:w-48" tabIndex={-1} aria-hidden>
-                    <BlogPhoto large={photoSrc(photo.small)} small={photoSrc(photo.small)} width={photo.width} height={photo.height} shown={192} alt="" className="aspect-[4/3] h-auto w-full border border-line object-cover" preload={index === 0} />
+                  <Link href={href} className="relative block w-28 shrink-0 sm:w-48" tabIndex={-1} aria-hidden>
+                    <BlogPhoto large={photoSrc(photo.small)} small={photoSrc(photo.small)} width={photo.width} height={photo.height} shown={192} alt="" className="aspect-square h-auto w-full border border-line object-cover sm:aspect-[4/3]" preload={index === 0} />
                     {post.photos.some((p) => p.kind === "video") && (
                       <span className="absolute inset-0 flex items-center justify-center" data-blog-list-video>
                         <PlayMark size={44} />
