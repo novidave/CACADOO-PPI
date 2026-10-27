@@ -20,6 +20,8 @@ import { DbError } from "@/components/DbError";
 import { FolderSync } from "@/components/FolderSync";
 import { InstallApp } from "@/components/InstallApp";
 import { InventoryConnect, type InventoryApiState } from "@/components/InventoryConnect";
+import { PosAgentPanel } from "@/components/PosAgentPanel";
+import type { ConnectorState } from "./connectorActions";
 import { BackupDownload, DeleteFilesButton, InventoryResetOptions } from "@/components/InventoryDangerZone";
 import { PendingButton } from "@/components/PendingButton";
 import { RecentImports } from "@/components/RecentImports";
@@ -83,7 +85,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   }
 
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
-  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData, apiData] = await Promise.all([
+  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData, apiData, posData] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.from("shop_items").select("id", { count: "exact", head: true }).eq("shop_id", shop.id),
     // The last 10 stock files (none before update 21).
@@ -97,7 +99,17 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
     supabase.rpc("owner_language_settings", { p_shop_id: shop.id }),
     // the connected inventory program (update 49; nothing before it)
     supabase.rpc("owner_inventory_api", { p_shop_id: shop.id }),
+    // the paired POS agents (update 50; nothing before it)
+    supabase.rpc("owner_connector_devices", { p_shop_id: shop.id }),
   ]);
+  const pos = posData.error ? null : (posData.data as ConnectorState | null);
+  const pa = dict.pos_agent;
+  const posSummary = !pos || pos.devices.length === 0
+    ? pa.summary_none
+    : t(pa.summary_devices, {
+        n: pos.devices.length,
+        state: (pa as Record<string, string>)[`state_${pos.devices[0].state}`] ?? pos.devices[0].state,
+      });
   const api = apiData.error ? null : (apiData.data as InventoryApiState | null);
   const apiConn = api?.connection ?? null;
   const ia = dict.inventory_api;
@@ -196,6 +208,12 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
               labels={ia}
               fieldLabels={o as unknown as Record<string, string>}
             />
+          </DashboardSection>
+        )}
+
+        {pos && (
+          <DashboardSection {...m.section("pos")} title={pa.title} summary={posSummary}>
+            <PosAgentPanel shopId={shop.id} initial={pos} lang={lang} timeZone={shop.timezone} labels={pa} />
           </DashboardSection>
         )}
 

@@ -1698,6 +1698,27 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
      "X produktov, Y zmien"; then every 15 minutes. The folder and the upload now say "Sklad sa aktualizuje cez …".
    - **Odpojiť** deletes the key at once; the folder and the upload work again; the products stay.
 
+## Part AS — POS Sync Agent, phase A: pairing and heartbeats (27 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/50_connector_pairing.sql` → Run → "Success". Safe to run
+   again.
+2. **Secrets** (Edge Functions → Secrets), all optional:
+   - `CONNECTOR_MIN_AGENT_VERSION` — e.g. `1.0.0`; older agents get "update required" (default `0.0.0` = all allowed).
+   - `CONNECTOR_API_BASE_URL` — only when the API moves (e.g. `https://api.cacaduu.com`); default
+     `https://<project-ref>.supabase.co/functions/v1/connector`.
+   - `API_HASH_SALT` — the same value as in Vercel (it salts the hashed caller IPs for the wrong-code limit).
+   - `CONNECTOR_MAX_MB` is used from phase B on.
+3. **Edge Function:** Edge Functions → Deploy a new function → name **`connector`** → paste
+   `supabase/functions/connector/index.ts` → Deploy → its **Settings → Verify JWT: off**.
+4. **Try it** (Davide Paint shop → Priečinok s exportom → "Prepojenie s pokladňou (POS agent)"):
+   - **Pridať POS agenta** → a code like `K7QM-4WXP` (10 minutes).
+   - On any computer with Node 18+:
+     `node scripts/connector-test-agent.mjs pair --url https://<project-ref>.supabase.co/functions/v1/connector --code K7QM-4WXP --token-file agent.json`
+     then `node scripts/connector-test-agent.mjs heartbeat --token-file agent.json --count 3 --every 60`.
+   - Reload the page: "Online · Ešte nesynchronizované". Stop the script: after 3 minutes "Offline".
+   - **Odpojiť** → the next heartbeat says 401. Delete `agent.json` afterwards (the real agent keeps its token in the
+     system's secure storage).
+
 ## Part D — later, before launch
 
 **Remove the test data:**

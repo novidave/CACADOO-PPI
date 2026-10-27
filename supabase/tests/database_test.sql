@@ -7931,4 +7931,175 @@ begin
 end $$;
 reset role;
 
+-- ------------------------------------------------------------------ update 50: POS agent pairing and devices
+\echo '--- POS agent: pairing codes, devices, tokens, rotation, revoke, heartbeat state (update 50)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_code jsonb;
+  v_raw text;
+  i integer;
+begin
+  v_code := public.owner_connector_create_code(v_shop);
+  v_raw := v_code ->> 'code';
+  assert v_raw ~ '^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$', 'no look-alikes (0 O 1 I L): ' || v_raw;
+  assert (v_code ->> 'expires_at')::timestamptz between now() + interval '9 minutes' and now() + interval '11 minutes';
+  perform set_config('ppi.test_code', replace(v_raw, '-', ''), false);
+  -- owners never read codes or hashes, and never write devices themselves
+  begin perform 1 from public.connector_pairing_codes; raise exception 'codes readable';
+  exception when insufficient_privilege then null; end;
+  begin perform token_hash from public.connector_devices; raise exception 'hash readable';
+  exception when insufficient_privilege then null; end;
+  begin insert into public.connector_devices (shop_id, name, token_hash) values (v_shop, 'x', repeat('a', 64));
+    raise exception 'owner inserted'; exception when insufficient_privilege then null; end;
+  -- the function's steps are not the owner's
+  begin perform public.connector_pair(repeat('a', 64), 'caller-hash-0001', 'x', '1.0.0', 'Windows', repeat('b', 64));
+    raise exception 'pair callable'; exception when insufficient_privilege then null; end;
+  begin perform public.connector_auth(repeat('a', 64)); raise exception 'auth callable';
+  exception when insufficient_privilege then null; end;
+  -- at most 10 codes an hour per shop
+  for i in 2 .. 10 loop perform public.owner_connector_create_code(v_shop); end loop;
+  begin perform public.owner_connector_create_code(v_shop); raise exception '11th code';
+  exception when program_limit_exceeded then assert sqlerrm = 'too_many'; end;
+end $$;
+reset role;
+
+-- an owner of another shop gets nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_connector_create_code((select id from public.shops where slug = 'farby-api'));
+    raise exception 'other owner made a code'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_connector_devices((select id from public.shops where slug = 'farby-api'));
+    raise exception 'other owner listed devices'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_connector_create_code((select id from public.shops where slug = 'farby-api'));
+    raise exception 'visitor made a code'; exception when insufficient_privilege then null; end;
+  begin perform 1 from public.connector_devices; raise exception 'visitor read devices';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the function (service role) pairs, authenticates, rotates, records heartbeats
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_other uuid := (select id from public.shops where slug = 'farby-api-free');
+  v_hash text := encode(sha256(convert_to(current_setting('ppi.test_code'), 'UTF8')), 'hex');
+  v_tok text := encode(sha256(convert_to('device-token-A', 'UTF8')), 'hex');
+  v_tok2 text := encode(sha256(convert_to('device-token-A2', 'UTF8')), 'hex');
+  v_r jsonb;
+  v_dev uuid;
+  v_dev_b uuid;
+  i integer;
+begin
+  v_r := public.connector_pair(v_hash, 'caller-hash-0001', 'Pokladňa 1', '1.2.0', 'Windows 11', v_tok);
+  assert v_r ->> 'status' = 'ok' and (v_r ->> 'shop_id')::uuid = v_shop, v_r::text;
+  v_dev := (v_r ->> 'device_id')::uuid;
+  assert (select token_hash from public.connector_devices where id = v_dev) = v_tok;
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'connector_paired');
+  -- the same code again: used
+  assert public.connector_pair(v_hash, 'caller-hash-0002', 'x', '1.2.0', 'Windows', repeat('c', 64)) ->> 'status' = 'invalid';
+  -- an expired code
+  insert into public.connector_pairing_codes (shop_id, code_hash, expires_at)
+  values (v_shop, encode(sha256(convert_to('EXPIRED1', 'UTF8')), 'hex'), now() - interval '1 second');
+  assert public.connector_pair(encode(sha256(convert_to('EXPIRED1', 'UTF8')), 'hex'), 'caller-hash-0002', 'x', null, null,
+    repeat('d', 64)) ->> 'status' = 'invalid', 'expired';
+  -- 5 wrong codes in 15 minutes → locked, even for a right code
+  insert into public.connector_pairing_codes (shop_id, code_hash, expires_at)
+  values (v_other, encode(sha256(convert_to('GOODCODE', 'UTF8')), 'hex'), now() + interval '10 minutes');
+  for i in 1 .. 5 loop
+    assert public.connector_pair(repeat('e', 64), 'caller-hash-0003', 'x', null, null, repeat('f', 64)) ->> 'status' = 'invalid';
+  end loop;
+  assert public.connector_pair(encode(sha256(convert_to('GOODCODE', 'UTF8')), 'hex'), 'caller-hash-0003', 'x', null, null,
+    repeat('f', 64)) ->> 'status' = 'locked', 'locked out';
+  -- another caller is not locked: the other shop's device
+  v_r := public.connector_pair(encode(sha256(convert_to('GOODCODE', 'UTF8')), 'hex'), 'caller-hash-0004', 'Druhý', null, null,
+    encode(sha256(convert_to('device-token-B', 'UTF8')), 'hex'));
+  assert v_r ->> 'status' = 'ok' and (v_r ->> 'shop_id')::uuid = v_other;
+  v_dev_b := (v_r ->> 'device_id')::uuid;
+  perform set_config('ppi.test_dev_b', v_dev_b::text, false);
+  -- a token belongs to one shop
+  assert (select shop_id from public.connector_auth(v_tok)) = v_shop;
+  assert (select shop_id from public.connector_auth(encode(sha256(convert_to('device-token-B', 'UTF8')), 'hex'))) = v_other;
+  assert not exists (select 1 from public.connector_auth(repeat('9', 64))), 'unknown token';
+  assert not exists (select 1 from public.connector_auth('not-a-hash')), 'malformed token';
+  -- state from the heartbeat times: never seen = offline; seen = never_synced; old = offline; error
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'offline';
+  assert public.connector_heartbeat(v_dev, '1.2.1', 'Windows 11', 'POHODA XML', 'ok', null) ->> 'status' = 'ok';
+  assert (select agent_version = '1.2.1' and source_label = 'POHODA XML' from public.connector_devices where id = v_dev);
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'never_synced';
+  update public.connector_devices set last_sync_at = now() where id = v_dev;
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'online';
+  assert public.connector_heartbeat(v_dev, null, null, 'POHODA XML', 'error', E'súbor sa nedá prečítať\x01' || repeat('x', 600))
+    ->> 'status' = 'ok';
+  assert (select length(last_error) = 500 and position(E'\x01' in last_error) = 0 from public.connector_devices where id = v_dev),
+    'error text cut and plain';
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'error';
+  update public.connector_devices set last_seen_at = now() - interval '4 minutes' where id = v_dev;
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'offline', 'offline after 3 minutes';
+  -- at most 4 heartbeats a minute (2 sent above)
+  assert public.connector_heartbeat(v_dev, null, null, null, 'ok', null) ->> 'status' = 'ok';
+  assert public.connector_heartbeat(v_dev, null, null, null, 'ok', null) ->> 'status' = 'ok';
+  assert public.connector_heartbeat(v_dev, null, null, null, 'ok', null) ->> 'status' = 'too_many';
+  -- rotation: the old token works until the new one is used, then stops
+  assert public.connector_rotate(v_dev, v_tok2) = 'ok';
+  assert (select device_id from public.connector_auth(v_tok)) = v_dev, 'old still works before the new one is used';
+  assert (select device_id from public.connector_auth(v_tok2)) = v_dev, 'new works';
+  assert not exists (select 1 from public.connector_auth(v_tok)), 'old stops once the new one is used';
+  -- rotation: the old token stops 24 h after a rotation even if the new one was never used
+  assert public.connector_rotate(v_dev, v_tok) = 'ok';
+  update public.connector_devices set next_token_at = now() - interval '25 hours' where id = v_dev;
+  assert not exists (select 1 from public.connector_auth(v_tok2)), 'old token expired after 24 h';
+  assert (select device_id from public.connector_auth(v_tok)) = v_dev;
+  -- status for the device itself
+  assert public.connector_status(v_dev) -> 'shop' ->> 'slug' = 'farby-api';
+end $$;
+
+-- the owner sees the device without hashes, renames and revokes it; then the token is dead
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_list jsonb := public.owner_connector_devices((select id from public.shops where slug = 'farby-api'));
+  v_dev uuid := (v_list -> 'devices' -> 0 ->> 'id')::uuid;
+begin
+  assert jsonb_array_length(v_list -> 'devices') = 1;
+  assert not (v_list::text ~ 'token_hash|code_hash'), 'no hashes';
+  assert (select count(*) from public.connector_devices where shop_id = v_shop) = 1, 'RLS: own shop''s rows';
+  perform public.owner_connector_rename(v_dev, '  Pokladňa pri vchode  ');
+  assert (select name from public.connector_devices where id = v_dev) = 'Pokladňa pri vchode';
+  begin perform public.owner_connector_rename(v_dev, '   '); raise exception 'empty name';
+  exception when invalid_parameter_value then null; end;
+  perform public.owner_connector_revoke(v_dev);
+  assert jsonb_array_length(public.owner_connector_devices(v_shop) -> 'devices') = 0;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  assert (select count(*) from public.connector_devices) = 0, 'RLS: another owner sees none of these devices';
+  begin perform public.owner_connector_revoke(current_setting('ppi.test_dev_b')::uuid);
+    raise exception 'revoked another shop''s device'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+do $$
+begin
+  assert not exists (select 1 from public.connector_auth(encode(sha256(convert_to('device-token-A', 'UTF8')), 'hex'))),
+    'revoked: 401';
+  assert public.connector_heartbeat((select id from public.connector_devices where name = 'Pokladňa pri vchode'),
+    null, null, null, null, null) ->> 'status' = 'revoked';
+  assert exists (select 1 from public.shop_activity a join public.shops s on s.id = a.shop_id
+                 where s.slug = 'farby-api' and a.action = 'connector_revoked');
+end $$;
+
 \echo 'ALL DATABASE CHECKS PASSED'

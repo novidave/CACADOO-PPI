@@ -83,6 +83,8 @@ button, the text only after a tap, 2026-10-27); always an extra — every page m
 - `npm run test:export` — unit tests (Deno) of the translations folder's files (`src/lib/exportFiles_test.ts`): the
   built-in .xlsx writer/reader (also files as Excel saves them), the files' columns, the owner's edits read back
   (empty cells, read-only columns, unknown rows, Kód then EAN)
+- `npm run test:connector` — the POS agent contract (`src/lib/connectorContract_test.ts`): the OpenAPI file has exactly
+  the connector function's routes, the written contract names every path, the client calls every path
 - `npm run test:items` — unit tests (Deno) of Môj obchod's "Tovar" list (`src/lib/ownerItems_test.ts`): each state of
   "Čo vidí zákazník" (stale → hidden with the reason, sold out, in stock), the filters and the last file's status line
   (also "Žiadny nahraný súbor" after the files were deleted), and the inventory reset's helpers (update 43)
@@ -712,6 +714,21 @@ Retry-After; invalid key → stopped, "Kľúč neplatný", one Brevo e-mail afte
 activity log. Private fields (purchase price, supplier, margin, invoice, internal) are never requested where the API
 lets us choose fields and are dropped before storing otherwise. Only public https hosts, forwards checked, 20 MB.
 Texts `inventory_api`, `admin_inventory`. "Synchronizovať teraz" ≤ 4/hour.
+
+## Cacaduu Cloud Connection for the POS Sync Agent (Prompt 13; phase A = update 50)
+
+`supabase/sql/50_connector_pairing.sql` + `supabase/functions/connector` (one file, Verify JWT off) +
+`@/components/PosAgentPanel` + `sync/connectorActions.ts` + **the contract `docs/CONNECTOR_CLOUD_API.md`,
+`docs/connector-openapi.json`, `docs/connector-client/`** (keep all three in step with the function's `ROUTES`:
+`npm run test:connector`). The POS Sync Agent is an optional desktop app in its own repository; it only makes
+outbound HTTPS requests. A THIRD way for stock to arrive (the PPI window and "Upload file" stay). The agent's "Own API"
+POS source is not the Cloud Connection. Device endpoints only in the `connector` Edge Function (`/v1/...`,
+`Cacaduu-Agent-Version` on every request, 426 below `CONNECTOR_MIN_AGENT_VERSION`), never Next.js routes. Pairing code:
+8 characters without 0 O 1 I L, single use, 10 minutes, hash only; device token `cdt_` + 32 random bytes, returned once,
+SHA-256 only, one shop per token — **the shop always comes from the token, never from the request**; rotation (old token
+until the new one is used, ≤ 24 h); revoke at once. State only from heartbeat times (`connector_device_state()`), never
+a stored "connected" flag. Owners act only through `owner_connector_*`; hashes are never granted. Phases B (snapshots via
+the private `connector-staging` bucket, one active stock source) and C (Sync Now commands) answer 501 until built.
 
 ## Stock upload
 

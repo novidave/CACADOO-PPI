@@ -84,7 +84,12 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - Shop pages and item pages with map, opening hours, "open now", facilities and freshness
 - Freshness and availability rules applied in the database for every output
 - Self-service accounts and the owner dashboard
-- Two ways for stock to arrive, both uploads: the PPI app window (folder, every 15 minutes) and "Upload file"
+- Two ways for stock to arrive, both uploads: the PPI app window (folder, every 15 minutes) and "Upload file"; and,
+  since update 49, the shop's inventory program over its API (SuperFaktúra, WooCommerce, own JSON/CSV URL)
+- A third way being built (Prompt 13): the **Cacaduu POS Sync Agent**, an optional desktop app (its own repository)
+  that reads stock from the POS and sends it to the Cacaduu Cloud API. Phase A (update 50): pairing with a one-time
+  code, device tokens, heartbeats and the device list in Môj obchod. Phases B (inventory snapshots) and C (Sync Now)
+  follow; the contract for all three is docs/CONNECTOR_CLOUD_API.md
 - AI-proposed column mapping, always approved by the owner
 - Item names in three languages: every name is also kept in plain Slovak, Hungarian and English (made by AI in the
   background, correctable by the owner), so a search in any of the three languages finds it
@@ -115,8 +120,10 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   (and, since 2026-10-14, the same blue "Vybrať súbor" link of page sections)
 - An admin area for shops and stock on the website (removed 2026-10-06; the one operator page since update 25 is
   "Predplatné a domény" for own domains)
-- Software or tunnels on the shop PC (a Cloudflare tunnel + rclone design was built on 2026-10-04 and replaced by the
-  browser app on 2026-10-06)
+- Tunnels into the shop PC (a Cloudflare tunnel + rclone design was built on 2026-10-04 and replaced by the browser app
+  on 2026-10-06). Software on the shop PC is **no longer decided against** (2026-10-27): the POS Sync Agent is an
+  optional desktop app; it only makes outbound HTTPS requests, the cloud never connects to the shop PC, and the PPI app
+  window and "Upload file" stay as they are
 - Google Merchant Center (AI readability replaces it)
 
 **Not built (possible later)**
@@ -1759,3 +1766,16 @@ here from "Jazyky a inventár" (old addresses forwarded).
 - The card: program, connected since, last success ("X produktov, Y zmien"), next sync, the last error in plain
   Slovak, "Synchronizovať teraz" (4× an hour). Invalid key → "Kľúč neplatný" and one e-mail after 24 h.
 - Purchase prices, suppliers and margins are never asked for; if a program sends them they are dropped first.
+
+### 6.24 POS Sync Agent: pairing and devices (database update 50, Prompt 13 phase A)
+
+- Môj obchod → Priečinok s exportom → **"Prepojenie s pokladňou (POS agent)"**: "Pridať POS agenta" shows a one-time
+  code (8 characters without look-alikes, valid 10 minutes, shown once) and three steps; the owner types it into the
+  desktop app and the computer appears in the list.
+- The list: name (Premenovať), agent version and system, POS source label, last online, last sync, paired, the last
+  error as plain text, **Odpojiť** (at once). The state comes from the heartbeat times, never a stored flag: Online
+  (a heartbeat in the last 3 minutes), Offline, Chyba (the agent's last read failed), Ešte nesynchronizované (online,
+  no snapshot applied yet), Synchronizuje (phase C). The list refreshes itself every 30 seconds while the page is open.
+- Each computer has its own token for this one shop, stored by Cacaduu only as a hash; Cacaduu never asks for POS
+  passwords or settings. Wrong codes are limited (5 per 15 minutes per caller).
+- Not yet: stock from the agent (phase B) and Sync Now (phase C). Until then the agent can pair and report only.
