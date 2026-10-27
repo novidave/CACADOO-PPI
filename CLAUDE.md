@@ -52,7 +52,7 @@ conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
 the **stock dot before every price** (`@/components/StockDot`, `@/lib/stockDot`: green #1E9E5A in stock, red #D64545
 sold out, yellow #F2B705 no information/stale; always next to the availability in words; 2026-10-27), the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
-the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
+the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), the blue "GDPR" link of the shop assistant (`AssistantHeading`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
@@ -346,7 +346,14 @@ PPI's sitemap leaves those pages out.
   Reads of `public_shops` fall back without `booking_url` on 42703 (`@/lib/missingColumn`).
 - Assistant button label (≤ 40) and welcome text (≤ 300), paid plan: `owner_set_assistant_texts()`; the database keeps
   plain text only (`plain_text()`: no HTML, links or e-mail addresses); empty = NULL = the i18n default (`chat.title`,
-  `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`).
+  `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`). **Update 46
+  (`supabase/sql/46_assistant_texts.sql`):** both are a preset of every translation run (`preset_translation_kind()`):
+  kept in every pre-translated language (`languages.indexed`), the shop's preferred and asked-for languages **and the
+  shop's own language** (the owner may write them in any language; source_lang `auto` → the translate function lets
+  Claude see the language); the page shows them like its own texts (`PRESET_KINDS` in `@/lib/contentTranslations`, no
+  "Preložené automaticky" note). The small print (what is stored for the shop + "Viac", file limits, "Odpovede píše
+  AI") sits behind the blue "GDPR" link in the assistant heading's right corner (`@/components/AssistantHeading`,
+  `<details>`, closed by default).
 - Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
   Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (details, logo, header logo, plan,
   delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`

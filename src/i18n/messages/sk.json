@@ -517,6 +517,8 @@
     "files_note": "Fotky (JPG, PNG, WebP, HEIC) a PDF do 10 MB, najviac 10 v konverzácii. Polohu (GPS) z fotiek odstraňujeme.",
     "privacy_notice": "Konverzácia a nahrané súbory sa ukladajú pre obchod {shop}.",
     "privacy_more": "Viac",
+    "gdpr": "GDPR",
+    "gdpr_label": "GDPR – ochrana osobných údajov a súbory",
     "file_remove": "Odstrániť",
     "file_working": "Pripravuje sa…",
     "file_type": "Tento súbor sa nedá poslať. Pošlite JPG, PNG, WebP, HEIC alebo PDF.",

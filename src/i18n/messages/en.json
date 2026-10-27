@@ -517,6 +517,8 @@
     "files_note": "Photos (JPG, PNG, WebP, HEIC) and PDFs up to 10 MB, at most 10 per conversation. Location data (GPS) is removed from photos.",
     "privacy_notice": "The conversation and uploaded files are stored for the shop {shop}.",
     "privacy_more": "More",
+    "gdpr": "GDPR",
+    "gdpr_label": "GDPR – data protection and files",
     "file_remove": "Remove",
     "file_working": "Preparing…",
     "file_type": "This file cannot be sent. Please send JPG, PNG, WebP, HEIC or PDF.",
