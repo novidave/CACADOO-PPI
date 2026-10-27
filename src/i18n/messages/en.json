@@ -153,6 +153,8 @@
     "next": "Next",
     "map": "Map of shops",
     "meta_description": "{name}, {city}: opening hours, contact and what is in stock right now.",
+    "company_ico": "Company ID (IČO)",
+    "company_dic": "Tax ID (DIČ)",
     "facilities": "Facilities",
     "toilet": "Customer toilet",
     "douchette": "Douchette (bidet shower)",

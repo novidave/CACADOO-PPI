@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import type { Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
+import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopCompany, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
 import { blogCount } from "@/lib/blog";
 import { blogPath } from "@/lib/blogFormat";
@@ -99,7 +99,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // Everything that needs only the shop, at once (no waterfall). The AI assistant is a paid feature: shown only when
   // the database says the shop has the plan.
-  const [host, langs, { items, total }, assistant, shopperPdf, calendars, content, posts] = await Promise.all([
+  const [host, langs, { items, total }, assistant, shopperPdf, calendars, content, posts, company] = await Promise.all([
     shopSiteHost(shop.slug).catch(() => null),
     getShopLanguages(shop.slug, shop.country),
     getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
@@ -112,6 +112,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     getShopContent(shop.slug).catch(() => null),
     // The blog (database update 37): "Novinky" only with at least one post shown.
     blogCount(shop.slug).catch(() => 0),
+    // PSČ, company name, IČO and DIČ under the address (database update 48; nothing before it).
+    shopCompany(shop.slug).catch(() => null),
   ]);
   if (onSite && !host) notFound();
   // No products at all after "Vymazať celý sklad" (update 43): "Sortiment sa práve aktualizuje" until the next file.
@@ -128,7 +130,13 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const shopPath = onSite ? sitePath(lang, defaultLang) : `/${lang}/shops/${shop.slug}`;
   const pageUrl = (n: number) => `${shopPath}?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}`;
 
-  const address = addressLine(shop.address, shop.city);
+  // "Budince 26, 040 01 Budince": the PSČ before the town (update 48).
+  const address = addressLine(shop.address, [company?.zip, shop.city].filter(Boolean).join(" "));
+  const companyParts = [
+    company?.company_name,
+    company?.ico ? `${dict.shop.company_ico} ${company.ico}` : null,
+    company?.dic ? `${dict.shop.company_dic} ${company.dic}` : null,
+  ].filter(Boolean);
   const hasLocation = shop.lat !== null && shop.lng !== null;
   const input = statusInput(shop, calendars);
   const renderedAt = requestTime();
@@ -144,7 +152,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <JsonLd data={{ "@context": "https://schema.org", ...storeJsonLd(shop, lang, host, input, siteUrl()) }} />
+      <JsonLd data={{ "@context": "https://schema.org", ...storeJsonLd({ ...shop, ...company }, lang, host, input, siteUrl()) }} />
 
       {/* 1. The shop's name and logo, its details under them (on its own domain too). */}
       <header className="flex flex-col gap-2" data-shop-details>
@@ -156,6 +164,11 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           <h1 className="text-2xl font-semibold tracking-tight">{shop.name}</h1>
         </div>
         {address && <p>{address}</p>}
+        {companyParts.length > 0 && (
+          <p className="text-sm text-muted" data-shop-company>
+            {companyParts.join(" · ")}
+          </p>
+        )}
         {(shop.has_toilet || shop.has_douchette) && (
           <p className="text-sm">
             <span className="text-muted">{dict.shop.facilities}: </span>

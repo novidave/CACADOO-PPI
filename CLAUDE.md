@@ -358,7 +358,11 @@ PPI's sitemap leaves those pages out.
   under the street the PSČ, then "Obchodné meno firmy", IČO (`shops.ico`, as before) and DIČ — no IČ DPH. PSČ, company
   name and DIČ live in `shop_company` (RLS: members read; no grants to visitors — anon reads every column of `shops`, so
   never put owner-only data there), written only by `owner_save_company()` (plain text, empty clears, bad DIČ/PSČ →
-  `dic`/`zip`), read through `my_shops()`. Never on public pages, JSON-LD, API/MCP or the assistant.
+  `dic`/`zip`), read through `my_shops()`. **Shown on the shop page since update 48** (`supabase/sql/48_shop_company_public.sql`,
+  at the owner's request): visitors read only `shop_company_details(slug)` (active shops; company name, IČO, DIČ, PSČ;
+  never the table) → `shopCompany()`; the address line "Ulica, PSČ Mesto" and under it "Firma · IČO … · DIČ …"
+  (`data-shop-company`, Cacaduu address and own domain); JSON-LD `postalCode`, `legalName`, `taxID` (DIČ). Not in the
+  API/MCP or the assistant.
 - Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
   Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (details, logo, header logo, plan,
   delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`

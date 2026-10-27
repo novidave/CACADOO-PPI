@@ -39,6 +39,11 @@ export interface PublicShop {
   booking_url: string | null;
   /** The own domain's home language (update 40, "Predvolený jazyk na vlastnej doméne"; null before it). */
   site_lang?: string | null;
+  /** The company under the address (database updates 47/48; from shopCompany(), not public_shops). */
+  zip?: string | null;
+  company_name?: string | null;
+  ico?: string | null;
+  dic?: string | null;
 }
 
 /** One row of public.shop_stock(). */
@@ -153,6 +158,13 @@ export async function shopperPdfAllowed(slug: string): Promise<boolean> {
  * After the owner deleted the whole stock, until the next file is applied: the shop page says "Sortiment sa práve
  * aktualizuje" instead of "no products" (database update 43 decides; false before it).
  */
+/** PSČ, company name, IČO and DIČ for the shop page and its JSON-LD (database update 48; null before it). */
+export async function shopCompany(slug: string): Promise<{ zip: string | null; company_name: string | null; ico: string | null; dic: string | null } | null> {
+  const { data, error } = await (await client()).rpc("shop_company_details", { p_slug: slug });
+  const row = !error && Array.isArray(data) ? data[0] : null;
+  return row ?? null;
+}
+
 export async function shopStockResetting(slug: string): Promise<boolean> {
   const { data, error } = await (await client()).rpc("shop_stock_resetting", { p_slug: slug });
   return !error && data === true;

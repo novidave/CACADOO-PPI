@@ -153,6 +153,8 @@
     "next": "Ďalšia",
     "map": "Mapa obchodov",
     "meta_description": "{name}, {city}: otváracie hodiny, kontakt a čo majú práve na sklade.",
+    "company_ico": "IČO",
+    "company_dic": "DIČ",
     "facilities": "Vybavenie",
     "toilet": "WC pre zákazníkov",
     "douchette": "Bidetová sprška (douchette)",
