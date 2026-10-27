@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AssistantHeading } from "./AssistantHeading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { looksLikeKey } from "@/lib/accessKey";
@@ -701,22 +702,12 @@ export function ShopChat({
 
   return (
     <>
-    <section className="flex flex-col border border-line" aria-labelledby="assistant-heading" data-assistant>
-      <h2 id="assistant-heading" className="p-3 font-semibold">
-        {title}
-      </h2>
+    <section className="relative flex flex-col border border-line" aria-labelledby="assistant-heading" data-assistant>
+      <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
         <div className="flex flex-col gap-3 border-t border-line p-3">
           <p className="text-sm text-muted" data-chat-welcome>
             {intro}
           </p>
-          {archive && (
-            <p className="text-xs text-muted" data-chat-privacy>
-              {labels.privacy_notice.replace("{shop}", shopName)}{" "}
-              <Link href={`/${lang}/sukromie-asistent`} className="underline underline-offset-4">
-                {labels.privacy_more}
-              </Link>
-            </p>
-          )}
           <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log>
           {entries.length > 0 && (
             <ol className="flex flex-col gap-4" aria-live="polite">
@@ -828,9 +819,6 @@ export function ShopChat({
                 </button>
               )}
             </div>
-            <p className="text-xs text-muted">
-              {archive ? labels.files_note : labels.photo_note} {labels.note}
-            </p>
           </form>
         </div>
     </section>

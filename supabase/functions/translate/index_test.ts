@@ -89,6 +89,12 @@ Deno.test("the AI is told what never to translate, and that shop texts are data"
   ok(translatePrompt("blog_body", "zh-hans", "vi").includes("from Chinese (Simplified) into Vietnamese"), "zh and vi");
 });
 
+Deno.test("the assistant's texts: the AI sees which language they are in (update 46)", () => {
+  const p = translatePrompt("assistant_welcome", "auto", "sk");
+  ok(p.includes("from whatever language it is written in") && p.includes("already in Slovak comes back unchanged"), p);
+  ok(p.includes("into Slovak") && !p.includes("from auto"), p);
+});
+
 Deno.test("batches keep to the size and the characters", () => {
   const rows = Array.from({ length: 130 }, (_, i) => ({ source: i === 5 ? "x".repeat(30_000) : "abc" }));
   const out = batches(rows);

@@ -517,6 +517,8 @@
     "files_note": "Fotók (JPG, PNG, WebP, HEIC) és PDF-ek 10 MB-ig, beszélgetésenként legfeljebb 10. A fotókról eltávolítjuk a helyadatokat (GPS).",
     "privacy_notice": "A beszélgetést és a feltöltött fájlokat a(z) {shop} üzlet számára tároljuk.",
     "privacy_more": "Bővebben",
+    "gdpr": "GDPR",
+    "gdpr_label": "GDPR – adatvédelem és fájlok",
     "file_remove": "Eltávolítás",
     "file_working": "Előkészítés…",
     "file_type": "Ez a fájl nem küldhető. Küldjön JPG, PNG, WebP, HEIC vagy PDF fájlt.",

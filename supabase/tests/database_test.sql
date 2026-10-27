@@ -7549,4 +7549,47 @@ begin
 end $$;
 reset role;
 
+-- ------------------------------------------------------------------ update 46: the assistant's texts in every language
+\echo '--- assistant label and welcome: preset translations, also into the shop language (update 46)'
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_hash text;
+  v_langs text[];
+begin
+  update public.shops set assistant_label = 'Keresés Cacadoo Assistenssel',
+    assistant_welcome = 'Keress rá kedvenc termékedre.' where id = v_shop;
+  assert public.shop_main_lang(v_shop) = 'sk', 'a Slovak shop';
+  assert public.preset_translation_kind('assistant_label') and public.preset_translation_kind('assistant_welcome');
+  assert not public.preset_translation_kind('item_name') and not public.preset_translation_kind('blog_body');
+  -- every pre-translated language (sk, hu, en) and the shop's own language; item names never into the shop's own
+  v_langs := public.shop_target_langs(v_shop, 'assistant_label');
+  assert v_langs @> array['sk', 'hu', 'en'], v_langs::text;
+  assert not ('sk' = any (public.shop_target_langs(v_shop, 'item_name'))), 'items keep the old rule';
+  assert not ('sk' = any (public.shop_target_langs(v_shop, 'special_note'))), 'other texts keep the old rule';
+  -- the translate function is told to see the language itself
+  assert (select source_lang from public.translation_work(500, v_shop, 'sk') where kind = 'assistant_label') = 'auto';
+  assert exists (select 1 from public.translation_work(500, v_shop, 'hu') where kind = 'assistant_welcome' and source_lang = 'auto');
+  assert exists (select 1 from public.translation_work(500, v_shop, 'en') where kind = 'assistant_label');
+  -- stored like any AI translation; the shop's own language reads it
+  select source_hash into v_hash from public.translation_work(500, v_shop, 'sk') where kind = 'assistant_label';
+  assert public.apply_translations(jsonb_build_array(jsonb_build_object('shop_id', v_shop, 'kind', 'assistant_label', 'ref', v_shop::text,
+    'lang', 'sk', 'text', 'Hľadanie s asistentom Cacadoo', 'source_hash', v_hash))) = 1;
+  assert (select text from public.shop_translations('farby-export', 'sk', array['assistant_label'])) = 'Hľadanie s asistentom Cacadoo';
+  assert not exists (select 1 from public.translation_work(500, v_shop, 'sk') where kind = 'assistant_label'), 'done once';
+  -- the owner changes the text: made again
+  update public.shops set assistant_label = 'Keresés' where id = v_shop;
+  assert exists (select 1 from public.translation_work(500, v_shop, 'sk') where kind = 'assistant_label'), 'a changed original is translated again';
+  assert not exists (select 1 from public.shop_translations('farby-export', 'sk', array['assistant_label'])), 'never a stale text';
+  assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.translation_work(integer,uuid,text)'::regprocedure);
+end $$;
+set role anon;
+do $$
+begin
+  begin perform public.shop_target_langs((select id from public.public_shops where slug = 'farby-export'), 'assistant_label');
+    raise exception 'anon read the target languages';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'

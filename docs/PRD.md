@@ -1279,6 +1279,17 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
 - **Cost:** a monthly budget for the AI (`TRANSLATION_MONTHLY_BUDGET_EUR`) with one e-mail at 80 %; translations stop
   at 100 % until the next month (pages show the originals).
 
+### 6.23 The shop assistant's texts and the GDPR link (27 October 2026, database update 46)
+
+- The assistant's button label and welcome text are translated with the page automatically, as a preset of every
+  translation run: into every pre-translated language (sk, hu, en by default), the shop's preferred languages, the
+  languages visitors asked for and also the shop's own language, from whatever language the owner wrote them in. The
+  owner's original stays as written; the owner's own translations are never overwritten. No "Preložené automaticky"
+  note for these two texts.
+- The small print of the assistant (the conversation and files are stored for the shop + "Viac", the file limits and
+  GPS removal, "Odpovede píše AI; ceny a zásoby sú priamo z obchodu") is hidden behind a blue "GDPR" link in the right
+  corner of the assistant's heading and opens under the heading when tapped.
+
 ## 7. Data model (after database update 40)
 
 | Table | Main columns | Notes |
