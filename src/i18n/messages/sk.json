@@ -172,8 +172,7 @@
     "category": "Kategória",
     "description": "Popis",
     "availability": "Dostupnosť",
-    "price": "Cena",
-    "details": "Údaje o produkte"
+    "price": "Cena"
   },
   "login": {
     "title": "Prihlásenie pre obchody",
