@@ -9,7 +9,7 @@ import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import { formatDate } from "@/lib/format";
 import { localDateTime } from "@/lib/hours";
 import type { MyShop } from "@/lib/myShops";
-import { cardExcerpt, shownSlots, type ContentLimits, type ContentPost, type Slot, type SlideImage } from "@/lib/pageContent";
+import { cardExcerpt, shownSlots, sliderRatio, type SliderRatio, type ContentLimits, type ContentPost, type Slot, type SlideImage } from "@/lib/pageContent";
 import { postImage } from "@/lib/sections";
 import { requestTime } from "@/lib/requestTime";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -66,6 +66,8 @@ interface OwnerContent {
   display: "open" | "collapsed";
   /** Update 39; missing before it. */
   video_target?: "post" | "facebook";
+  /** Update 44; missing before it. */
+  ratio?: SliderRatio;
   limits: { plan: "free" | "pro"; max_slides: number; max_pdf_slides: number; max_items: number; max_pages: number; max_bytes: number };
   slots: Slot[];
   items: OwnerItem[];
@@ -213,7 +215,7 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
           <p className="text-sm text-muted">{c.slider_intro}</p>
           <ContentEditor
             shopId={shop.id}
-            settings={{ title: data.title, showTitle: data.show_title, display: data.display, videoTarget: data.video_target }}
+            settings={{ title: data.title, showTitle: data.show_title, display: data.display, videoTarget: data.video_target, ratio: data.ratio }}
             slots={data.slots}
             limits={limits}
             items={items}
@@ -351,7 +353,7 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
             <div className="flex scroll-mt-4 flex-col gap-2 border border-foreground p-3" id="item-replace" data-item-replace-form>
               <h3 className="font-semibold">{t(c.replace_title, { title: replace.title || replace.file_name || "" })}</h3>
               <p className="text-sm text-muted">{c.replace_hint}</p>
-              <SectionUploader mode="replace" shopId={shop.id} itemId={replace.id} itemKind={replace.kind} labels={dict.sections} text={c} limits={limits} />
+              <SectionUploader mode="replace" shopId={shop.id} itemId={replace.id} itemKind={replace.kind} labels={dict.sections} text={c} limits={limits} ratio={sliderRatio(data.ratio)} />
               <Link href={`${libraryUrl()}#library`} className="self-start text-sm underline underline-offset-4">
                 {c.cancel}
               </Link>
@@ -361,7 +363,7 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
           {room > 0 ? (
             <div className="flex flex-col gap-2 border-t border-line pt-4" id="item-add" data-library-add>
               <h3 className="font-semibold">{c.add_title}</h3>
-              <SectionUploader mode="new" shopId={shop.id} labels={dict.sections} text={c} limits={limits} room={room} />
+              <SectionUploader mode="new" shopId={shop.id} labels={dict.sections} text={c} limits={limits} room={room} ratio={sliderRatio(data.ratio)} />
             </div>
           ) : (
             <p className="border border-line p-3 text-sm" data-library-full>

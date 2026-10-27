@@ -2,20 +2,26 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import {
   arrangeSlides,
   canAdd,
+  CROPS,
+  DEFAULT_RATIO,
   MAX_SLIDES,
+  ratioSize,
+  SLIDER_RATIOS,
   shownSlots,
   slotCounts,
   SLOT_KINDS,
   type ContentLimits,
+  type Crop,
   type LibraryItem,
   type Slot,
   type SlotKind,
   type SlideImage,
+  type SliderRatio,
   type SlideView,
 } from "@/lib/pageContent";
 import { videoSlide, type PostVideo, type VideoTarget } from "@/lib/video";
@@ -53,6 +59,47 @@ let nextKey = 0;
 type Row = Slot & { key: number };
 const withKey = (slot: Slot): Row => ({ ...slot, key: ++nextKey });
 
+/** The shop page's content column (max-w-3xl) and a phone's screen: what the two previews are drawn at. */
+const DESKTOP_WIDTH = 768;
+const PHONE_WIDTH = 390;
+
+/**
+ * One preview drawn at the real width (a phone's 390 px screen with its 16 px margins, or the shop page's 768 px
+ * column) and made smaller with a CSS transform when the editor's column is narrower: the box takes the scaled height,
+ * so nothing is cut off and nothing scrolls sideways.
+ */
+function ScaledPreview({ width, padding, children }: { width: number; padding: number; children: React.ReactNode }) {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ scale: number; height: number | null }>({ scale: 1, height: null });
+  useEffect(() => {
+    const o = outer.current;
+    const i = inner.current;
+    if (!o || !i || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const scale = Math.min(1, o.clientWidth / width);
+      setSize({ scale, height: Math.ceil(i.offsetHeight * scale) });
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(o);
+    ro.observe(i);
+    measure();
+    return () => ro.disconnect();
+  }, [width]);
+  return (
+    <div ref={outer} className="w-full overflow-hidden" style={{ height: size.height ?? undefined, maxWidth: width }} data-preview-box>
+      <div
+        ref={inner}
+        className="origin-top-left"
+        style={{ width, padding, transform: size.scale < 1 ? `scale(${size.scale})` : undefined }}
+        data-preview-scale={size.scale.toFixed(3)}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Môj obchod → "Obsah stránky" (database update 38): the slider's title and look, the four counters ("Automatické
  * články", "PDF", "Pripnuté články", "Obrázky"; "Zostáva X slotov" within the plan), every slot in order (drag and
@@ -71,7 +118,8 @@ export function ContentEditor({
   planUrl,
 }: {
   shopId: string;
-  settings: { title: string | null; showTitle: boolean; display: "open" | "collapsed"; videoTarget?: VideoTarget };
+  /** `ratio` is missing before database update 44 (then neither "Pomer strán slidera" nor "Výrez" is offered). */
+  settings: { title: string | null; showTitle: boolean; display: "open" | "collapsed"; videoTarget?: VideoTarget; ratio?: SliderRatio | null };
   slots: Slot[];
   limits: ContentLimits;
   items: EditorItem[];
@@ -85,6 +133,8 @@ export function ContentEditor({
   const [showTitle, setShowTitle] = useState(settings.showTitle);
   const [display, setDisplay] = useState(settings.display);
   const [videoTarget, setVideoTarget] = useState<VideoTarget>(settings.videoTarget ?? "post");
+  const hasRatio = settings.ratio !== undefined;
+  const [ratio, setRatio] = useState<SliderRatio>(settings.ratio ?? DEFAULT_RATIO);
   const [rows, setRows] = useState<Row[]>(() => initialSlots.map(withKey));
   const [dragging, setDragging] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -137,6 +187,7 @@ export function ContentEditor({
   };
   const setChoice = (key: number, value: string) =>
     change(rows.map((r) => (r.key !== key ? r : r.kind === "pinned_post" ? { ...r, post_id: value || null } : { ...r, item_id: value || null })));
+  const setCrop = (key: number, crop: Crop) => change(rows.map((r) => (r.key === key ? { ...r, crop } : r)));
 
   async function save() {
     setBusy(true);
@@ -148,7 +199,9 @@ export function ContentEditor({
       display,
       // Before database update 39 there is no such setting (it is then neither shown nor sent).
       videoTarget: settings.videoTarget ? videoTarget : undefined,
-      slots: rows.map(({ kind, item_id, post_id }) => ({ kind, item_id, post_id })),
+      // Before database update 44 there is no ratio (and no "Výrez").
+      ratio: hasRatio ? ratio : undefined,
+      slots: rows.map(({ kind, item_id, post_id, crop }) => ({ kind, item_id, post_id, ...(hasRatio && crop && crop !== "center" ? { crop } : {}) })),
     }).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
     setBusy(false);
     if ("error" in result) {
@@ -169,10 +222,11 @@ export function ContentEditor({
     }
     const item = itemMap.get(a.itemId);
     if (!item?.image) return [];
+    const crop = rows[a.index]?.crop ?? "center";
     if (a.kind === "pdf") {
-      return [{ kind: "pdf", key: `${a.index}-${item.id}`, title: item.title, layout: item.layout, pages: Array.from({ length: Math.max(1, item.pages) }, () => ({ ...item.image!, text: "" })), download: null }];
+      return [{ kind: "pdf", key: `${a.index}-${item.id}`, title: item.title, layout: item.layout, pages: Array.from({ length: Math.max(1, item.pages) }, () => ({ ...item.image!, text: "" })), download: null, crop }];
     }
-    return [{ kind: "picture", key: `${a.index}-${item.id}`, title: item.showTitle ? item.title : null, alt: item.alt || item.title, image: item.image, text: "", download: null }];
+    return [{ kind: "picture", key: `${a.index}-${item.id}`, title: item.showTitle ? item.title : null, alt: item.alt || item.title, image: item.image, text: "", download: null, crop }];
   });
 
   const reason = (row: Row, index: number): string | null => {
@@ -257,6 +311,27 @@ export function ContentEditor({
             </label>
           ))}
         </fieldset>
+        {hasRatio && (
+          <fieldset className="flex flex-col gap-1" data-slider-ratio>
+            <legend className="text-sm">{text.ratio_title}</legend>
+            {SLIDER_RATIOS.map((r) => (
+              <label key={r} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="content-ratio"
+                  checked={ratio === r}
+                  onChange={() => {
+                    setRatio(r);
+                    setDirty(true);
+                  }}
+                  data-ratio-choice={r}
+                />
+                {r === "4:5" ? text.ratio_4_5 : r === "1:1" ? text.ratio_1_1 : text.ratio_16_9}
+              </label>
+            ))}
+            <span className="text-sm text-muted">{fill(text.fill_hint, { ratio, size: ratioSize(ratio) })}</span>
+          </fieldset>
+        )}
         {settings.videoTarget && (
           <fieldset className="flex flex-col gap-1" data-video-target>
             <legend className="text-sm">{text.video_target}</legend>
@@ -410,6 +485,24 @@ export function ContentEditor({
                     ) : (
                       <span className="text-sm text-muted">{row.kind === "pdf" ? text.none_pdf : row.kind === "picture" ? text.none_picture : text.none_post}</span>
                     )}
+                    {hasRatio && (row.kind === "pdf" || row.kind === "picture") && current && (
+                      <label className="flex flex-wrap items-center gap-2 text-sm">
+                        <span>{text.crop_label}</span>
+                        <select
+                          value={row.crop ?? "center"}
+                          onChange={(e) => setCrop(row.key, e.target.value as Crop)}
+                          className="rounded border border-line px-2 py-1 outline-none focus:border-foreground"
+                          aria-label={`${i + 1}. ${text.crop_label}`}
+                          data-slot-crop
+                        >
+                          {CROPS.map((c) => (
+                            <option key={c} value={c}>
+                              {c === "top" ? text.crop_top : c === "bottom" ? text.crop_bottom : text.crop_center}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     {note && row.kind !== "auto_post" && (
                       <span className="text-sm text-muted" data-slot-note>
                         {note}
@@ -463,20 +556,22 @@ export function ContentEditor({
             {text.preview_empty}
           </p>
         ) : (
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-            {/* A fixed width beside the computer preview: sized by its content, the slides' row made the page wider. */}
-            <figure className="flex w-full min-w-0 shrink-0 flex-col gap-1 lg:w-[375px]" data-preview="mobile">
+          // Always one under the other: the phone first, then the computer (both at their real width, scaled to fit).
+          <div className="flex flex-col gap-4" data-previews>
+            <figure className="flex min-w-0 flex-col gap-1" data-preview="mobile">
               <figcaption className="text-xs uppercase tracking-wide text-muted">{text.preview_mobile}</figcaption>
-              <div className="w-full max-w-[375px] border border-line p-3">
-                <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} preview />
+              <div className="w-fit max-w-full border border-line">
+                <ScaledPreview width={PHONE_WIDTH} padding={16}>
+                  <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} ratio={ratio} preview />
+                </ScaledPreview>
               </div>
             </figure>
-            <figure className="flex min-w-0 flex-1 flex-col gap-1" data-preview="desktop">
+            <figure className="flex min-w-0 flex-col gap-1" data-preview="desktop">
               <figcaption className="text-xs uppercase tracking-wide text-muted">{text.preview_desktop}</figcaption>
-              <div className="overflow-x-auto border border-line">
-                <div className="w-[760px] p-4">
-                  <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} preview />
-                </div>
+              <div className="w-full border border-line">
+                <ScaledPreview width={DESKTOP_WIDTH} padding={0}>
+                  <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} ratio={ratio} preview />
+                </ScaledPreview>
               </div>
             </figure>
           </div>

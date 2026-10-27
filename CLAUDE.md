@@ -487,8 +487,19 @@ made smaller, never enlarged, cropped or stretched, PNG transparency kept in Web
 (`original_path`, the function's `original` action) for "Stiahnuť", 800/1600 WebP pages; optional alt text, else the AI
 writes `alt_ai` (never invents). Slides: post card (photo, date, title, two lines, "Čítať"); PDF = first page + title +
 page count, a tap opens `SectionZoom` ("Slider" page by page or "Pod sebou" all pages, per PDF); picture = zoom,
-optional title, optional "Stiahnuť". Swipe, ‹ › and ← →, "3 / 10" + dots, height of the current slide ≤ 80vh, only the
-current and next slide get an `<img>` (`<noscript>` for the rest), `prefers-reduced-motion` = no smooth scroll.
+optional title, optional "Stiahnuť". Swipe, ‹ › and ← →, "3 / 10" + dots, only the current and next slide get an
+`<img>` (`<noscript>` for the rest), `prefers-reduced-motion` = no smooth scroll. **Fixed frame (update 44,
+`supabase/sql/44_slider_ratio.sql`):** every slide has the same frame — "Pomer strán slidera" `shop_page_content.slider_ratio`
+4:5 (default, NULL) / 1:1 / 16:9, only through `owner_save_content(…, p_ratio)` (null keeps it) — as wide as the slider,
+≤ 80vh high (`frameStyle()`); the picture **fills it** (`object-fit: cover`, never stretched) with the slot's "Výrez"
+`shop_content_slots.crop` top / center (default, NULL) / bottom (pdf/picture slots only); the uncropped picture only in
+`SectionZoom`. The slider never changes height: a fixed caption (title 2 lines + "…", meta line = date or "5 strán",
+one action slot bottom-left "Čítať" / "Stiahnuť PDF" / "Stiahnuť", empty places keep their space), arrows centred on the
+frame (hidden at the ends, place kept), ▶ centred, counter (tabular, fixed width) + dots on one row, "Všetky novinky" in
+the title row; a post without a photo = a grey frame with its title. No visible "Zobraziť text": the text is the
+slide's `aria-describedby` (sr-only) and the viewer's. Editor previews (always stacked): the phone (390 px) first, the
+computer (the page's 768 px column) under it, both scaled with a CSS transform to the column, never cut or scrolled
+sideways; the upload hint names the ratio's size (`ratioSize()`).
 Downloads only `/api/shops/[slug]/sections/[id]/download` → shop-files (10-minute signed URL, only when allowed; the
 old `/pdf` address re-exports it). Texts `content` (sk/hu/en). Tests: `npm run test:content`.
 

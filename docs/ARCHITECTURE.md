@@ -1215,7 +1215,7 @@ pictures in or out of `shop-sections-public`) → `shop_content(slug)` (anon; au
 **Website.** `lib/sections.ts` `getShopContent()` + `slideViews()` (post links on the canonical place, dates in the
 shop's time zone, page pictures from the public bucket); `ShopView` renders `components/ContentSlider` after the hours
 (the same file serves the own domain). `ContentSlider` (client): a region with `aria-roledescription`, scroll-snap
-track, ‹ ›, ← →, counter + dots, the box as high as the current slide (ResizeObserver, ≤ 80vh), a "wanted" set (the
+track, ‹ ›, ← →, counter + dots, one fixed frame for every slide since update 44 (below), a "wanted" set (the
 first slide at render, current ± 1 once an IntersectionObserver sees the slider; a collapsed `<details>` loads nothing
 until opened), `<noscript>` pictures for the rest, reduced motion = `behavior: auto`. A PDF's other pages are hidden
 links for `SectionZoom`, which now also has the "Pod sebou" mode (`data-zoom-mode="stacked"`: all pages in one scroll).
@@ -2195,3 +2195,20 @@ before update 41 (the old call is the fallback).
   forwarded), `sync/inventoryActions.ts`, `@/components/InventoryDangerZone` (dialogs, `BackupDownload`),
   `@/lib/inventoryReset` (shapes, error codes, typed-name rule), `@/lib/stockImports`, `/api/owner/inventory-backups/[id]`
   (CSV via `owner_inventory_backup()`), `DashboardSection collapsed`.
+
+## Update 44 — the slider's fixed frame and stacked previews
+
+`supabase/sql/44_slider_ratio.sql`: `shop_page_content.slider_ratio` (4:5 | 1:1 | 16:9, NULL = 4:5) and
+`shop_content_slots.crop` (top | center | bottom, NULL = center; stored only for pdf/picture slots and only when not the
+middle); `content_slot_crop()`; `shop_content()` returns `ratio` and each file slide's `crop`; `owner_content()` returns
+`ratio` and each slot's `crop`; `owner_save_content(…, p_video_target, p_ratio)` checks both ('bad'); JIT stays off.
+`lib/pageContent.ts`: `sliderRatio()`, `slideCrop()`, `ratioValue()`, `ratioCss()`, `cropPosition()`, `ratioSize()`.
+`components/ContentSlider.tsx`: `frameStyle(ratio)` = `aspect-ratio` + `width: min(100%, calc(80vh × ratio))`; pictures
+`absolute inset-0 object-cover` at the crop's `object-position`; caption `h-[7.5rem]` grid (title 2.75rem line-clamp-2,
+meta 1.25rem, action 2.25rem); arrows in an overlay with the frame's size (`disabled:invisible`); nav row `h-6`, counter
+`w-[7ch] tabular-nums`; the ResizeObserver height logic is gone (no layout shift). The slide text is an sr-only element
+referenced by `aria-describedby` and passed to `SectionZoomViewer` (`data-zoom-text`), which shows the picture uncropped.
+`ContentEditor`: "Pomer strán slidera" radios and a "Výrez" select per file slot (only when `owner_content` returns
+`ratio`, i.e. after update 44; `saveContent` sends `p_ratio` only then); `ScaledPreview` draws each preview at its real
+width (390 px with 16 px margins, 768 px) and scales it with `transform` (ResizeObserver), the box taking the scaled
+height.

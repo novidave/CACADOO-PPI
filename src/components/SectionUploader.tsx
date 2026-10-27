@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { functionFailure } from "@/lib/functionError";
-import type { ContentLimits } from "@/lib/pageContent";
+import { DEFAULT_RATIO, ratioSize, type ContentLimits, type SliderRatio } from "@/lib/pageContent";
 import { createClient } from "@/lib/supabase/client";
 import { openPdf, PictureProblem, preparePicture, sectionPage } from "@/lib/pdfRead";
 import { createItem } from "@/app/[lang]/(account)/dashboard/sectionActions";
@@ -147,6 +147,7 @@ export function SectionUploader({
   text,
   limits,
   room,
+  ratio = DEFAULT_RATIO,
 }: {
   mode: "new" | "replace";
   shopId: string;
@@ -157,6 +158,8 @@ export function SectionUploader({
   limits: ContentLimits;
   /** Files the library may still take (mode "new"). */
   room?: number;
+  /** The slider's "Pomer strán slidera" (update 44): the hint names the picture size that fills it. */
+  ratio?: SliderRatio;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -321,6 +324,9 @@ export function SectionUploader({
       </div>
       <p className="text-sm text-muted" data-format-hint>
         {kind === "pdf" ? fill(text.pdf_hint, { pages: limits.maxPages, mb }) : fill(text.picture_hint, { mb })}
+      </p>
+      <p className="text-sm text-muted" data-fill-hint>
+        {fill(text.fill_hint, { ratio, size: ratioSize(ratio) })}
       </p>
       {mode === "new" && (
         <>
