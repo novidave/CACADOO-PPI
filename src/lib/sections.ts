@@ -4,7 +4,7 @@ import { supabaseEnv } from "@/lib/supabase/env";
 import type { Locale } from "@/i18n/config";
 import { blogPath, blogPhotoUrl, type BlogPlace } from "./blogFormat";
 import { formatDate } from "./format";
-import { cardExcerpt, pageImage, type ContentItem, type PageContent, type PostPhoto, type SlideView } from "./pageContent";
+import { cardExcerpt, pageImage, slideCrop, type ContentItem, type PageContent, type PostPhoto, type SlideView } from "./pageContent";
 import { videoSlide } from "./video";
 import type { ShopTexts } from "./contentTranslations";
 
@@ -81,8 +81,9 @@ export function slideViews(
     const pages = itemPages(ctx.shopId, slide.item);
     if (!pages.length) continue;
     const download = slide.item.download ? downloadPath(ctx.slug, slide.item.id) : null;
+    const crop = slideCrop(slide.crop);
     if (slide.kind === "pdf") {
-      views.push({ kind: "pdf", key: `item-${slide.item.id}`, title: tr("section_title", slide.item.id, slide.item.title), layout: slide.item.page_layout, pages, download });
+      views.push({ kind: "pdf", key: `item-${slide.item.id}`, title: tr("section_title", slide.item.id, slide.item.title), layout: slide.item.page_layout, pages, download, crop });
     } else {
       views.push({
         kind: "picture",
@@ -92,6 +93,7 @@ export function slideViews(
         image: pages[0],
         text: pages[0].text,
         download,
+        crop,
       });
     }
   }

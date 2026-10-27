@@ -3,7 +3,22 @@
 // keep their order, the plan's slide and PDF numbers, a downgraded shop), the counters, srcset and excerpts — and
 // where Môj obchod's sections live now (old addresses forwarded). Run: npm run test:content
 import { forwardUrl, movedFrom, sectionId, sectionPath, sectionUrl } from "./dashboardPages.ts";
-import { arrangeSlides, canAdd, cardExcerpt, shownSlots, slotCounts, srcSet, type LibraryItem, type Slot } from "./pageContent.ts";
+import {
+  arrangeSlides,
+  canAdd,
+  cardExcerpt,
+  cropPosition,
+  ratioCss,
+  ratioSize,
+  ratioValue,
+  shownSlots,
+  slideCrop,
+  sliderRatio,
+  slotCounts,
+  srcSet,
+  type LibraryItem,
+  type Slot,
+} from "./pageContent.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -156,4 +171,16 @@ Deno.test("The slider's ▶: the article (at its video) or the post on Facebook,
   eq(videoSlide(null, "facebook", post), null, "not a video post");
   eq(videoSlide(ytShare, "facebook", post)?.facebook, true, "the Facebook label");
   eq(isFacebookUrl("https://fb.watch/abc") && isFacebookUrl("https://m.facebook.com/x") && !isFacebookUrl("http://www.facebook.com/x"), true, "https Facebook only");
+});
+
+Deno.test("update 44: one frame for every slide (Pomer strán slidera) and the Výrez", () => {
+  eq(sliderRatio(null), "4:5", "never chosen = 4:5");
+  eq(sliderRatio("1:1"), "1:1", "1:1 kept");
+  eq(sliderRatio("3:2"), "4:5", "an unknown ratio = 4:5");
+  eq([ratioValue("4:5"), ratioValue("1:1"), ratioValue("16:9").toFixed(4)], [0.8, 1, "1.7778"], "width ÷ height");
+  eq(ratioCss("16:9"), "16 / 9", "CSS aspect-ratio");
+  eq([ratioSize("4:5"), ratioSize("1:1"), ratioSize("16:9")], ["1080 × 1350", "1080 × 1080", "1600 × 900"], "the upload hint's size");
+  eq(1080 / 1350, ratioValue("4:5"), "the hinted size has the frame's ratio");
+  eq([slideCrop(undefined), slideCrop("top"), slideCrop("left")], ["center", "top", "center"], "Výrez: the middle unless chosen");
+  eq([cropPosition("top"), cropPosition("center"), cropPosition("bottom")], ["50% 0%", "50% 50%", "50% 100%"], "object-position");
 });

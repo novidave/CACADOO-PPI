@@ -1642,6 +1642,19 @@ Blog, slider, assistant, private folders, contacts, domain, subscription and ope
    - Delete the whole stock again → upload a new file with the same codes → the translations and descriptions return.
    - At most 3 removals a day per shop; "Obnoviť sklad" is refused (with the reason) after a newer file was applied.
 
+## Part AP — The slider's fixed frame: "Pomer strán slidera" and "Výrez" (27 October 2026)
+
+Every slide of "Obsah stránky" now has the same frame (4:5 unless the shop picks 1:1 or 16:9), filled by its picture;
+the buttons, counter and dots never move. Môj obchod shows the computer preview under the phone preview.
+"Zobraziť text" is gone (the text stays for screen readers and in the viewer).
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/44_slider_ratio.sql` → Run → "Success". Safe to run
+   again. Nothing else to deploy (no Edge Function changed, no new secrets).
+2. **Check on davide.sk** (Davide Paint shop): every slide has the same 4:5 frame and the slider does not change
+   height when you swipe; tap a picture or PDF → it opens whole (not cropped). Môj obchod → Obsah stránky: "Pomer strán
+   slidera" and "Výrez" per picture/PDF change the previews at once; the computer preview is under the phone preview;
+   "Uložiť" keeps them.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

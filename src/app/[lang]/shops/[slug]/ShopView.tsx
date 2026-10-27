@@ -28,6 +28,7 @@ import { shopChatEnabled } from "@/lib/shopChat";
 import { storeJsonLd } from "@/lib/jsonLd";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { getShopContent, slideViews } from "@/lib/sections";
+import { sliderRatio } from "@/lib/pageContent";
 import { getShopLanguages } from "@/lib/shopLanguages";
 import { getShopTexts } from "@/lib/contentTranslations";
 import { TranslationNote } from "@/components/TranslationNote";
@@ -222,6 +223,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           allNews={sliderNews ? newsHref : null}
           labels={dict.content}
           lang={lang}
+          ratio={sliderRatio(content.ratio)}
         />
       )}
 

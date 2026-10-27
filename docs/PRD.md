@@ -1182,8 +1182,11 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
 - Title set by the owner (default "Novinky a ponuky", shown as written); "Zobraziť názov sekcie" on/off (off: the
   title only for screen readers); "Zobrazenie": "Vždy otvorené" (default) or "Rozbaľovacie" (a closed dropdown whose
   pictures load only when opened).
-- At most 10 slides (the admin's number per plan). Swipe, ‹ › and the ← → keys, counter "3 / 10" + dots; the height
-  follows the current slide, at most 80 % of the screen; only the current and the next slide load their picture, the
+- At most 10 slides (the admin's number per plan). Swipe, ‹ › and the ← → keys, counter "3 / 10" + dots; since
+  update 44 every slide has **the same frame** ("Pomer strán slidera": 4:5 recommended and default, 1:1, 16:9; at most
+  80 % of the screen high) filled by its picture (cropped, never stretched; "Výrez" hore / stred / dole per picture or
+  PDF), a fixed caption (title 2 lines + "…", date or page count, one action bottom-left) — the slider never changes
+  height and the arrows, ▶, counter and dots stay in place; only the current and the next slide load their picture, the
   others are lazy; `prefers-reduced-motion` = no animation. "Všetky novinky" → `/blog` when the shop has posts.
 - Slides: **Automatický článok** and **Pripnutý článok** = a card (photo, date, title, first two lines, "Čítať");
   **PDF** = its first page, title and page count; a tap opens the full-screen viewer, per PDF "Slider" (page by page)
@@ -1197,7 +1200,8 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
 - **Editor** (Môj obchod → **Obsah stránky**): the title and display; counters "Automatické články", "PDF",
   "Pripnuté články", "Obrázky" within the plan's total with "Zostáva X slotov"; for each slot the PDF, pinned post or
   picture from the library; drag and drop (or ↑ ↓) of all slots, "Dať automatické články k sebe"; each slot says what
-  it shows now or why it is not shown; a live preview on a phone and a computer before "Uložiť".
+  it shows now or why it is not shown; "Pomer strán slidera" and "Výrez" per file (update 44); a live preview on a
+  phone and, under it, on a computer (both at their real width, scaled to fit, never cut) before "Uložiť".
 - **Knižnica súborov**: upload, "Upraviť" (title, alt text, viewer, download, visible from/until), "Skryť"/"Zobraziť",
   "Nahradiť", "Vymazať" (every file in both buckets). Free 10 files, Pro 30 (admin's settings).
 - **PDF uploads**: at most 10 MB and 20 pages (free 5; the admin's numbers); the real type is checked; JavaScript,
@@ -1207,10 +1211,11 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
   min. 150 dpi, max 10 MB."
 - **Picture uploads**: JPG, PNG, WebP, HEIC/HEIF, at most 10 MB; upright from the camera's EXIF, every EXIF and GPS
   removed; under 600 px wide refused ("Nahrajte aspoň 800 px na šírku"); over 4000 px made smaller; WebP 800/1600 that
-  keep PNG transparency; never cropped, stretched or enlarged. Hint: "Na mobil je najlepší obrázok na výšku 1080 × 1350
+  keep PNG transparency; never cropped, stretched or enlarged when stored (the slider's frame shows it cropped, the
+  viewer whole). Hint: "Na mobil je najlepší obrázok na výšku 1080 × 1350
   px (4:5). …" Optional alt text; when empty the AI writes one from the picture (never inventing prices or offers).
-- Text is extracted once (screen readers, search engines and the Pro assistant's knowledge, "Zobraziť text" under the
-  slide); nothing is invented or changed. Originals stay in the private bucket; the pictures of shown slides are in the
+- Text is extracted once (screen readers through the slide's description, the full-screen viewer, search engines and
+  the Pro assistant's knowledge; no visible "Zobraziť text" since update 44); nothing is invented or changed. Originals stay in the private bucket; the pictures of shown slides are in the
   public bucket only while shown.
 - Migration: SQL 38 turns every shop's sections into its library and its slider (the old page order, then three
   automatic posts); a section of one picture becomes a picture.

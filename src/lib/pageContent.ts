@@ -16,6 +16,48 @@ export interface Slot {
   kind: SlotKind;
   item_id: string | null;
   post_id: string | null;
+  /** "Výrez" of a picture or PDF slide (update 44; missing = center). */
+  crop?: Crop;
+}
+
+// ---------------------------------------------------------------- the fixed frame (update 44)
+
+/** "Pomer strán slidera": every slide has the same frame; null / missing = 4:5 (1080 × 1350 px uploads). */
+export type SliderRatio = "4:5" | "1:1" | "16:9";
+export const SLIDER_RATIOS: SliderRatio[] = ["4:5", "1:1", "16:9"];
+export const DEFAULT_RATIO: SliderRatio = "4:5";
+
+/** "Výrez": which part of a picture stays visible when it does not have the frame's ratio. */
+export type Crop = "top" | "center" | "bottom";
+export const CROPS: Crop[] = ["top", "center", "bottom"];
+
+export function sliderRatio(value: unknown): SliderRatio {
+  return SLIDER_RATIOS.includes(value as SliderRatio) ? (value as SliderRatio) : DEFAULT_RATIO;
+}
+
+export function slideCrop(value: unknown): Crop {
+  return CROPS.includes(value as Crop) ? (value as Crop) : "center";
+}
+
+/** The frame's width ÷ height (4:5 → 0.8). */
+export function ratioValue(ratio: SliderRatio): number {
+  const [w, h] = ratio.split(":").map(Number);
+  return w / h;
+}
+
+/** CSS aspect-ratio of the frame ("4 / 5"). */
+export function ratioCss(ratio: SliderRatio): string {
+  return ratio.replace(":", " / ");
+}
+
+/** CSS object-position of a "Výrez". */
+export function cropPosition(crop: Crop): string {
+  return crop === "top" ? "50% 0%" : crop === "bottom" ? "50% 100%" : "50% 50%";
+}
+
+/** A suggested upload size for a ratio ("1080 × 1350"), shown in the upload hint. */
+export function ratioSize(ratio: SliderRatio): string {
+  return ratio === "1:1" ? "1080 × 1080" : ratio === "16:9" ? "1600 × 900" : "1080 × 1350";
 }
 
 export interface ContentLimits {
@@ -71,7 +113,7 @@ export interface ContentItem {
 
 export type Slide =
   | { kind: "post"; auto: boolean; post: ContentPost }
-  | { kind: "pdf" | "picture"; item: ContentItem };
+  | { kind: "pdf" | "picture"; item: ContentItem; crop?: Crop };
 
 /** shop_content(): the section's settings and its slides in order. */
 export interface PageContent {
@@ -80,6 +122,8 @@ export interface PageContent {
   display: "open" | "collapsed";
   /** "Tlačidlo ▶ pri videách otvorí" (update 39; missing before it = the article). */
   video_target?: VideoTarget;
+  /** "Pomer strán slidera" (update 44; missing before it = 4:5). */
+  ratio?: SliderRatio;
   has_posts: boolean;
   slides: Slide[];
 }
@@ -194,6 +238,7 @@ export type SlideView =
       layout: "slider" | "stacked";
       pages: (SlideImage & { text: string })[];
       download: string | null;
+      crop: Crop;
     }
   | {
       kind: "picture";
@@ -204,6 +249,7 @@ export type SlideView =
       image: SlideImage;
       text: string;
       download: string | null;
+      crop: Crop;
     };
 
 /** A file's page picture: 800 px wide (never more than the picture itself) and 1600 px. */

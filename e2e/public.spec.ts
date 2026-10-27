@@ -38,15 +38,34 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
   await map.tap();
   await expect(map).toHaveAttribute("data-map", "live");
   expect((await map.boundingBox())?.height).toBe(before?.height);
-  // The slider (when the shop has content): next slide and the counter.
+  // The slider (when the shop has content): one frame for every slide (update 44), no "Zobraziť text"; next slide
+  // and the counter; the slider's height, the arrows, the counter and the dots do not move between slides.
   const slider = page.locator("[data-content-slider]");
   if (await slider.count()) {
+    await slider.scrollIntoViewIfNeeded();
+    const frames = await slider.locator("[data-slide-frame]").evaluateAll((els) =>
+      els.map((e) => `${Math.round(e.getBoundingClientRect().width)}x${Math.round(e.getBoundingClientRect().height)}`),
+    );
+    expect(new Set(frames).size).toBe(1);
+    await expect(slider.getByText("Zobraziť text")).toHaveCount(0);
     const next = slider.locator("[data-slider-next]");
     if (await next.isVisible()) {
       const counter = slider.locator("[data-slider-counter]");
       const first = await counter.innerText();
+      const place = () =>
+        Promise.all(
+          ["[data-slider-box]", "[data-slider-next]", "[data-slider-counter]", "[data-slider-dot]"].map((s) =>
+            slider.locator(s).first().evaluate((e) => {
+              const r = e.getBoundingClientRect();
+              return [r.x, r.y, r.width, r.height].map(Math.round).join(",");
+            }),
+          ),
+        );
+      const before = await place();
       await next.tap();
       await expect(counter).not.toHaveText(first);
+      await page.waitForTimeout(600);
+      expect(await place()).toEqual(before);
     }
   }
   // The assistant (paid shops): typing works before and after its code arrives; the key dropdown opens.

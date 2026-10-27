@@ -11,7 +11,8 @@ export interface ZoomLabels {
 }
 
 interface Shown {
-  pages: { src: string; label: string }[];
+  /** `text`: the page's text as written (update 44: a screen reader's description; no visible "Zobraziť text"). */
+  pages: { src: string; label: string; text: string }[];
   index: number;
   /** A PDF set to "Pod sebou" (update 38): every page one under another, scrolled to the one tapped. */
   stacked: boolean;
@@ -51,7 +52,7 @@ export function SectionZoomViewer({
       const links = group
         ? [...document.querySelectorAll<HTMLAnchorElement>("a[data-zoom]")].filter((a) => a.dataset.zoomGroup === group)
         : [link];
-      const pages = links.map((a) => ({ src: a.dataset.zoom ?? a.href, label: a.dataset.zoomLabel ?? "" }));
+      const pages = links.map((a) => ({ src: a.dataset.zoom ?? a.href, label: a.dataset.zoomLabel ?? "", text: a.dataset.zoomText ?? "" }));
       setShown({ pages, index: Math.max(0, links.indexOf(link)), stacked: link.dataset.zoomMode === "stacked" });
       setScale(1);
       setOffset({ x: 0, y: 0 });
@@ -186,10 +187,16 @@ export function SectionZoomViewer({
                   <img
                     src={p.src}
                     alt={p.label}
+                    aria-describedby={p.text ? `zoom-text-${i}` : undefined}
                     loading={Math.abs(i - shown.index) <= 1 ? "eager" : "lazy"}
                     decoding="async"
                     className="block h-auto w-full border border-line"
                   />
+                  {p.text && (
+                    <p id={`zoom-text-${i}`} className="sr-only">
+                      {p.text}
+                    </p>
+                  )}
                   <span className="text-right text-xs text-muted">{p.label}</span>
                 </li>
               ))}
@@ -227,11 +234,17 @@ export function SectionZoomViewer({
               key={page.src}
               src={page.src}
               alt={page.label}
+              aria-describedby={page.text ? "zoom-text" : undefined}
               draggable={false}
               className="absolute inset-0 m-auto h-full w-full object-contain"
               style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`, cursor: scale > 1 ? "grab" : "zoom-in" }}
               data-zoom-scale={scale.toFixed(2)}
             />
+            {page.text && (
+              <p id="zoom-text" className="sr-only" data-zoom-text>
+                {page.text}
+              </p>
+            )}
             {shown.pages.length > 1 && (
               <>
                 <button
