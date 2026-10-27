@@ -38,6 +38,11 @@ export interface MyShop {
   file_columns: string[] | null;
   /** The shop's page in a booking app (database update 26; missing before it). */
   booking_url?: string | null;
+  /** The company behind the shop (database update 47; missing before it). Owner data only. */
+  company_name?: string | null;
+  dic?: string | null;
+  /** PSČ next to the street (update 47). */
+  zip?: string | null;
 }
 
 export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency", "description", "category"] as const;

@@ -1290,6 +1290,12 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
   GPS removal, "Odpovede píše AI; ceny a zásoby sú priamo z obchodu") is hidden behind a blue "GDPR" link in the right
   corner of the assistant's heading and opens under the heading when tapped.
 
+### 6.24 The company in "Môj obchod" (27 October 2026, database update 47)
+
+- The shop's details show, right under the street: PSČ, "Obchodné meno firmy", IČO and DIČ (all optional). No IČ DPH.
+- Owner data only: kept in its own table that only the shop's owners can read; never shown to visitors, in the JSON-LD,
+  the API/MCP or the assistant. An empty field clears the value; an invalid DIČ or PSČ is refused with a clear message.
+
 ## 7. Data model (after database update 40)
 
 | Table | Main columns | Notes |

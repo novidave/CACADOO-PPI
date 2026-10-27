@@ -7592,4 +7592,48 @@ begin
 end $$;
 reset role;
 
+-- ------------------------------------------------------------------ update 47: the company in Môj obchod
+\echo '--- the company under the address: name, IČO, DIČ, PSČ (update 47)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+begin
+  perform public.owner_save_company(v_shop, '  Farby  <s.r.o.> ', ' sk2020123456 ', ' 040  01 ');
+  assert (select zip from public.my_shops() where id = v_shop) = '040 01', 'one space';
+  assert (select company_name from public.my_shops() where id = v_shop) = 'Farby s.r.o.', 'plain text, no tags';
+  assert (select dic from public.my_shops() where id = v_shop) = 'SK2020123456', 'trimmed, upper case';
+  begin perform public.owner_save_company(v_shop, 'Farby', 'x', null); raise exception 'a bad DIČ was kept';
+  exception when invalid_parameter_value then assert sqlerrm = 'dic'; end;
+  begin perform public.owner_save_company(v_shop, repeat('a', 201), null, null); raise exception 'a long name was kept';
+  exception when invalid_parameter_value then assert sqlerrm = 'company_name'; end;
+  begin perform public.owner_save_company(v_shop, 'Farby', null, '04001!'); raise exception 'a bad PSČ was kept';
+  exception when invalid_parameter_value then assert sqlerrm = 'zip'; end;
+  perform public.owner_save_company(v_shop, '', '', '');
+  assert (select company_name is null and dic is null and zip is null from public.my_shops() where id = v_shop), 'empty fields clear';
+  perform public.owner_save_company(v_shop, 'Farby s.r.o.', '2020123456', '04001');
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_save_company((select id from public.shops where slug = 'farby-export'), 'X', null, null);
+    raise exception 'B saved A''s company';
+  exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.shop_company), 'B reads no company of A';
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_save_company((select id from public.public_shops where slug = 'farby-export'), 'X', null, null);
+    raise exception 'anon saved';
+  exception when insufficient_privilege then null; end;
+  begin perform (select company_name from public.shop_company limit 1); raise exception 'anon read the company';
+  exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name in ('public_shops', 'shops')
+    and column_name in ('company_name', 'dic', 'zip')), 'never next to the public shop data';
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'

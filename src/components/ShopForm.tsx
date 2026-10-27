@@ -40,9 +40,28 @@ export function ShopForm({
         <Field label={o.address}>
           <input name="address" maxLength={200} defaultValue={shop?.address ?? ""} className={inputClass} />
         </Field>
+        <Field label={o.zip}>
+          <input name="zip" maxLength={12} autoComplete="postal-code" defaultValue={shop?.zip ?? ""} className={`${inputClass} w-32`} />
+        </Field>
         <Field label={o.city}>
           <input name="city" required maxLength={100} defaultValue={shop?.city ?? ""} className={inputClass} />
         </Field>
+      </div>
+      {/* The company behind the shop, under the address (update 47; owner data, never shown to visitors). */}
+      <div className="grid gap-3 sm:grid-cols-2" data-shop-company>
+        <div className="sm:col-span-2">
+          <Field label={o.company_name}>
+            <input name="company_name" maxLength={200} autoComplete="organization" defaultValue={shop?.company_name ?? ""} className={inputClass} />
+          </Field>
+        </div>
+        <Field label={o.ico}>
+          <input name="ico" maxLength={40} defaultValue={shop?.ico ?? ""} className={inputClass} />
+        </Field>
+        <Field label={o.dic}>
+          <input name="dic" maxLength={20} defaultValue={shop?.dic ?? ""} className={inputClass} />
+        </Field>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label={o.country} hint={o.country_hint}>
           <input
             name="country"
@@ -65,9 +84,6 @@ export function ShopForm({
         </Field>
         <Field label={dict.dashboard.phone}>
           <input name="phone" type="tel" maxLength={40} defaultValue={shop?.phone ?? ""} className={inputClass} />
-        </Field>
-        <Field label={o.ico}>
-          <input name="ico" maxLength={40} defaultValue={shop?.ico ?? ""} className={inputClass} />
         </Field>
       </div>
       <Field label={dict.dashboard.website}>
