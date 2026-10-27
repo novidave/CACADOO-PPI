@@ -56,7 +56,9 @@ the blue "Select picture" link for shop logos and the same blue "Vybrať súbor"
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
-with the status in words in each pin's tooltip (no legend under the map, at the owner's request); always an extra — every page must work and show its data without it.
+with the status in words in each pin's tooltip (no legend under the map, at the owner's request; the map data's credit
+OpenMapTiles/OpenStreetMap — required by their licences, never removed — stays closed behind MapLibre's small "i"
+button, the text only after a tap, 2026-10-27); always an extra — every page must work and show its data without it.
 
 ## Commands
 

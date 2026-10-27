@@ -71,6 +71,12 @@ export function ShopMapCanvas({
         cooperativeGestures: true, // one finger scrolls the page, two move the map
       });
       map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
+      // The credit the map data's licences require (OpenMapTiles, OpenStreetMap) stays closed: only the small "i"
+      // button, the text only after a tap (at the owner's request, 2026-10-27). MapLibre opens it at first on its own.
+      const closeCredit = () =>
+        container.current?.querySelector(".maplibregl-ctrl-attrib.maplibregl-compact")?.classList.remove("maplibregl-compact-show");
+      map.once("styledata", closeCredit);
+      map.once("load", closeCredit);
 
       const bounds = new maplibre.LngLatBounds();
       for (const shop of shops) {
