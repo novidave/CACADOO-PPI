@@ -10,7 +10,7 @@ import { blogCount } from "@/lib/blog";
 import { blogPath } from "@/lib/blogFormat";
 import { docsKeysEnabled } from "@/lib/docsAccess";
 import { addressLine, directionsUrl, formatPrice } from "@/lib/format";
-import { translatedName } from "@/lib/names";
+import { itemNames } from "@/lib/names";
 import {
   DAYS,
   dayName,
@@ -40,6 +40,7 @@ import { SectionZoom } from "@/components/SectionZoom";
 import { ShopAssistant } from "@/components/ShopAssistant";
 import { ShopMap } from "@/components/ShopMap";
 import { LiveStatus } from "@/components/ShopStatus";
+import { StockDot } from "@/components/StockDot";
 import { StockLine } from "@/components/StockLine";
 
 const PAGE_SIZE = 50;
@@ -271,17 +272,20 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         ) : (
           <ul className="divide-y divide-line border-y border-line">
             {items.map((item) => {
-              const translated = translatedName(item.item_name, item.item_name_i18n, lang);
+              const names = itemNames(item.item_name, item.item_name_i18n, lang);
               return (
                 <li key={item.item_id} className="flex flex-col gap-1 py-3">
                   <div className="flex items-baseline justify-between gap-3">
                     <div className="min-w-0">
                       <Link href={`/${lang}/items/${item.item_id}`} className="font-medium hover:underline">
-                        {item.item_name}
+                        {names.primary}
                       </Link>
-                      {translated && <p className="text-sm text-muted">{translated}</p>}
+                      {names.secondary && <p className="text-sm text-muted">{names.secondary}</p>}
                     </div>
-                    <span className="whitespace-nowrap font-medium">{formatPrice(item.price, lang, item.currency)}</span>
+                    <span className="flex items-center gap-2 whitespace-nowrap font-medium">
+                      <StockDot availability={item.availability} />
+                      {formatPrice(item.price, lang, item.currency)}
+                    </span>
                   </div>
                   <div className="text-sm">
                     <StockLine row={item} timeZone={shop.timezone} dict={dict} lang={lang} />
