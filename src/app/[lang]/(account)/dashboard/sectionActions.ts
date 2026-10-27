@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { sectionUrl } from "@/lib/dashboardPages";
-import { MAX_SLIDES, type Slot, type SlotKind } from "@/lib/pageContent";
+import { MAX_SLIDES, slideCrop, sliderRatio, type SliderRatio, type Slot, type SlotKind } from "@/lib/pageContent";
+import { refreshShop } from "@/lib/publicCache";
 
 /**
  * "Obsah stránky" (database update 38: the slider and its library of PDFs and pictures) and the header logo of an own
@@ -24,7 +25,11 @@ async function start(formData: FormData, at: "content" | "header") {
   if (!session) redirect(`/${lang}/login`);
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
-  const back = (query: Record<string, string>) => redirect(sectionUrl(lang, at, { shop: slug, ...query }));
+  const back = (query: Record<string, string>) => {
+    // A saved change a visitor can see: the public pages read it again at once.
+    if (query.ok) refreshShop(slug);
+    return redirect(sectionUrl(lang, at, { shop: slug, ...query }));
+  };
   if (!UUID.test(shopId)) back({ err: "invalid shop" });
   return { session, shopId, back };
 }
@@ -136,6 +141,8 @@ export async function saveContent(input: {
   display: "open" | "collapsed";
   /** "Tlačidlo ▶ pri videách otvorí" (update 39). */
   videoTarget?: "post" | "facebook";
+  /** "Pomer strán slidera" (update 44). */
+  ratio?: SliderRatio;
   slots: Slot[];
 }): Promise<{ ok: true } | { error: string }> {
   const session = await getSession();
@@ -145,6 +152,8 @@ export async function saveContent(input: {
     kind: KINDS.includes(s.kind) ? s.kind : "auto_post",
     item_id: (s.kind === "pdf" || s.kind === "picture") && s.item_id && UUID.test(s.item_id) ? s.item_id : null,
     post_id: s.kind === "pinned_post" && s.post_id && UUID.test(s.post_id) ? s.post_id : null,
+    // "Výrez" only for a file (update 44; the database stores it only when it is not the middle).
+    ...((s.kind === "pdf" || s.kind === "picture") && s.crop && s.crop !== "center" ? { crop: slideCrop(s.crop) } : {}),
   }));
   const { error } = await session.supabase.rpc("owner_save_content", {
     p_shop_id: input.shopId,
@@ -154,6 +163,8 @@ export async function saveContent(input: {
     p_slots: slots,
     // Before update 39 the database has no such setting: it is not sent then.
     ...(input.videoTarget ? { p_video_target: input.videoTarget === "facebook" ? "facebook" : "post" } : {}),
+    // Before update 44 neither: the ratio is then not sent.
+    ...(input.ratio ? { p_ratio: sliderRatio(input.ratio) } : {}),
   });
   if (error) return { error: error.message };
   await syncShop(session.supabase, input.shopId);

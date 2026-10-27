@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { formatDateTime, formatTime, localDay } from "@/lib/format";
+import { resetErrorText } from "@/lib/inventoryReset";
 import type { MyShop } from "@/lib/myShops";
 import { PendingButton } from "@/components/PendingButton";
 
@@ -63,6 +64,9 @@ export function errorText(dict: Dictionary, err: string): string {
       if (text) return text;
     }
   }
+  // "Začať sklad odznova" (update 43).
+  const reset = resetErrorText(dict.reset, err);
+  if (reset) return reset;
   if (err.startsWith("stripe:")) return t(dict.plan.failed, { message: err.slice("stripe:".length) });
   if (err.startsWith("cloud_")) {
     const code = err.slice("cloud_".length);
@@ -85,8 +89,6 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     languages: dict.owner_tr.ok_languages,
     descriptions: t(dict.owner_tr.ok_descriptions, { n: extra.n ?? 1 }),
     columns: o.columns_saved,
-    translation: d.translation_saved,
-    translation_auto: d.translation_auto_done,
     docs_terms: dict.docs.ok_terms,
     docs_deleted: dict.docs.ok_deleted,
     docs_revoked: dict.docs.ok_revoked,
@@ -114,6 +116,10 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     site_logo_removed: dict.sections.ok_site_logo_removed,
     site_logo_link_saved: dict.sections.ok_site_logo_link,
     site_logo_link_removed: dict.sections.ok_site_logo_link_removed,
+    reset_files: t(dict.reset.ok_files, { n: extra.n ?? 0 }),
+    reset_missing: t(dict.reset.ok_missing, { n: extra.n ?? 0 }),
+    reset_all: t(dict.reset.ok_reset, { n: extra.n ?? 0 }),
+    reset_restored: t(dict.reset.ok_restored, { n: extra.n ?? 0 }),
   };
 }
 

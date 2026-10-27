@@ -21,6 +21,10 @@
 //   6. after the reply, in the background: names without a translation (or renamed) get
 //      their Slovak, Hungarian and English names from Claude Haiku; never touches stock,
 //      and whatever fails is tried again with the next file
+//   8. "Vymazať všetky nahrané súbory" / "Vymazať celý sklad" (update 43): the website calls
+//      ?action=delete_files&shop_id=… with the owner's login after the database forgot the files;
+//      the shop's raw files saved up to that moment are deleted from Storage (owner_raw_files_to_delete,
+//      raw_files_deleted). If that call never came, the next upload of the shop deletes them.
 //   7. also in the background (update 36): IndexNow (Bing, Seznam, Yandex… share it) is told
 //      the item pages that changed in a way a search result shows — new, price, in stock ↔
 //      sold out (inventory.indexnow_at; not 12 → 11 pieces) — on their canonical host: the
@@ -33,7 +37,8 @@
 // (this function checks its callers itself). Secrets: ANTHROPIC_API_KEY (optional:
 // AI mapping proposals and the item-name translations); INDEXNOW_KEY (the same key as the
 // website's, public by design) and SITE_URL (the website's address, e.g. https://ppi.cacaduu.sk)
-// for IndexNow — without either, no IndexNow request is sent.
+// for IndexNow — without either, no IndexNow request is sent. REVALIDATE_SECRET (the same value as the website's;
+// optional): after a new file the website's cached shop pages are read again at once (without it, within 60 s).
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { XMLParser } from "npm:fast-xml-parser@5.11.2";
@@ -701,6 +706,48 @@ function inBackground(task: Promise<unknown>): void {
   else task.catch(() => {});
 }
 
+// ---------------------------------------------------------------- the website's cache (performance pass)
+
+/** Where to tell the website that a shop's pages changed: SITE_URL's address and REVALIDATE_SECRET. */
+export interface RevalidateSettings {
+  url: string | null;
+  secret: string | null;
+  fetch?: typeof fetch;
+}
+
+/** SITE_URL (https only) and REVALIDATE_SECRET (16 characters or more); a missing one → nothing is sent. */
+export function revalidateSettings(env: (name: string) => string | undefined): RevalidateSettings {
+  const secret = (env("REVALIDATE_SECRET") ?? "").trim();
+  let url: string | null = null;
+  try {
+    const site = new URL((env("SITE_URL") ?? "").trim());
+    if (site.protocol === "https:") url = site.origin;
+  } catch {
+    // no SITE_URL
+  }
+  return { url, secret: secret.length >= 16 ? secret : null };
+}
+
+/**
+ * The website shows a shop from a short cache (60 s at most): after a new file its pages are read again at once.
+ * Never logs the secret; any failure only means the pages refresh within the minute. Returns the HTTP status.
+ */
+export async function revalidateSite(settings: RevalidateSettings, slug: string | null | undefined): Promise<number | null> {
+  if (!settings.url || !settings.secret || !slug) return null;
+  try {
+    const res = await (settings.fetch ?? fetch)(`${settings.url}/api/revalidate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-ppi-revalidate": settings.secret },
+      body: JSON.stringify({ slug }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    await res.body?.cancel();
+    return res.status;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- IndexNow (update 36)
 
 /** The shared IndexNow endpoint: one request reaches every search engine that takes part. */
@@ -905,6 +952,45 @@ async function keepRawFile(db: SupabaseClient, shopId: string, bytes: Uint8Array
   const cutoff = Date.now() - RAW_FILE_DAYS * 24 * 3600 * 1000;
   const old = (files ?? []).filter((f) => Number(f.name.split(".")[0]) < cutoff).map((f) => `${shopId}/${f.name}`);
   if (old.length) await bucket.remove(old);
+}
+
+/** The shop's raw files saved up to `before` (their names are "<milliseconds>.<format>"); newer ones stay. */
+export function rawFilesUpTo(names: string[], before: string): string[] {
+  const limit = Date.parse(before);
+  if (!Number.isFinite(limit)) return [];
+  return names.filter((name) => {
+    const saved = Number(name.split(".")[0]);
+    return Number.isFinite(saved) && saved <= limit;
+  });
+}
+
+/**
+ * Update 43, the fallback: raw files the owner deleted while this function could not be reached go with the shop's
+ * next upload (before update 43 there is no such mark: nothing happens).
+ */
+export async function deletePendingRawFiles(db: SupabaseClient, shopId: string): Promise<number> {
+  const { data, error } = await db.from("sync_sources").select("raw_files_delete_before").eq("shop_id", shopId).single();
+  const before = (data as { raw_files_delete_before?: string | null } | null)?.raw_files_delete_before;
+  if (error || !before) return 0;
+  return await deleteRawFiles(db, shopId, before);
+}
+
+/** Update 43: deletes the shop's raw files saved up to `before` from Storage, then tells the database. */
+export async function deleteRawFiles(db: SupabaseClient, shopId: string, before: string): Promise<number> {
+  const bucket = db.storage.from("raw-files");
+  let deleted = 0;
+  for (;;) {
+    const { data: files, error } = await bucket.list(shopId, { limit: 1000 });
+    if (error) throw new Error(`Stored files could not be listed: ${error.message}`);
+    const gone = rawFilesUpTo((files ?? []).map((f) => f.name), before).map((name) => `${shopId}/${name}`);
+    if (gone.length === 0) break;
+    const { error: removeError } = await bucket.remove(gone);
+    if (removeError) throw new Error(`Stored files could not be deleted: ${removeError.message}`);
+    deleted += gone.length;
+    if (gone.length < 1000) break;
+  }
+  await db.rpc("raw_files_deleted", { p_shop_id: shopId, p_before: before });
+  return deleted;
 }
 
 type Update = (values: Record<string, unknown>) => PromiseLike<unknown>;
@@ -1151,10 +1237,24 @@ export async function receiveUpload(
     background?: (task: Promise<unknown>) => void;
     /** IndexNow's key and the main host (the handler reads INDEXNOW_KEY and SITE_URL); tests: where it goes. */
     indexnow?: IndexNowSettings;
+    /** The website's cache (SITE_URL + REVALIDATE_SECRET); tests: where it goes. */
+    revalidate?: RevalidateSettings;
   } = {},
 ) {
   const shopId = params.get("shop_id") ?? "";
   if (!UUID.test(shopId)) return reply(400, { error: "shop_id is missing" });
+
+  // Update 43: the owner deleted the uploaded files (or the whole inventory): the raw files go from Storage too.
+  if (params.get("action") === "delete_files") {
+    const { data: before, error: refused } = await asCaller.rpc("owner_raw_files_to_delete", { p_shop_id: shopId });
+    if (refused) return reply(403, { error: "Only this shop's owners may delete its files" });
+    if (!before) return reply(200, { deleted: 0 });
+    try {
+      return reply(200, { deleted: await deleteRawFiles(db, shopId, String(before)) });
+    } catch (e) {
+      return reply(500, { error: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   // Checks membership with the uploader's own login and records "PPI window seen".
   const { error: denied } = await asCaller.rpc("upload_check_in", { p_shop_id: shopId });
@@ -1183,7 +1283,10 @@ export async function receiveUpload(
   if (translationLang !== null) {
     if (!/^[a-z]{2}(-(cyrl|hans|hant))?$/.test(translationLang)) return reply(400, { error: "translation_lang" });
     try {
-      return reply(200, { result: await processLanguageFile(db, source, await readBody(req, params.get("gzip") === "1"), translationLang, encoding) });
+      const outcome = await processLanguageFile(db, source, await readBody(req, params.get("gzip") === "1"), translationLang, encoding);
+      // The shop's names in that language are on its pages now.
+      (options.background ?? inBackground)(revalidateSite(options.revalidate ?? { url: null, secret: null }, source.shops?.slug));
+      return reply(200, { result: outcome });
     } catch (e) {
       return reply(200, { result: { status: "error", error: e instanceof Error ? e.message : String(e) } });
     }
@@ -1212,8 +1315,13 @@ export async function receiveUpload(
     const later = options.background ?? inBackground;
     const indexnow = options.indexnow ?? { key: null, mainHost: null };
     later(pingIndexNow(db, shopId, indexnow).catch((): IndexNowOutcome => ({ host: null, sent: 0, status: null, skipped: "failed" })));
-    later(translateShopItems(db, shopId, options.translate));
+    // The website's cached pages of this shop: read again now, and once more when the new names are translated.
+    const revalidate = options.revalidate ?? { url: null, secret: null };
+    later(revalidateSite(revalidate, source.shops?.slug));
+    later(translateShopItems(db, shopId, options.translate).finally(() => revalidateSite(revalidate, source.shops?.slug)));
   }
+  // Raw files the owner deleted while this function could not be reached (update 43).
+  (options.background ?? inBackground)(deletePendingRawFiles(db, shopId).catch(() => 0));
   return reply(200, { result: publicResult(result) });
 }
 
@@ -1248,7 +1356,10 @@ export async function handler(req: Request): Promise<Response> {
   });
 
   // The only way in: an upload from the PPI window on the shop PC or "Upload file".
-  return await receiveUpload(req, new URL(req.url).searchParams, asCaller, db, { indexnow: indexNowSettings((name) => Deno.env.get(name)) });
+  return await receiveUpload(req, new URL(req.url).searchParams, asCaller, db, {
+    indexnow: indexNowSettings((name) => Deno.env.get(name)),
+    revalidate: revalidateSettings((name) => Deno.env.get(name)),
+  });
 }
 
 if (!Deno.env.get("PPI_STOCK_PULL_TEST")) Deno.serve(handler);

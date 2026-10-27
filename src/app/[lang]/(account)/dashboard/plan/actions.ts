@@ -6,6 +6,7 @@ import { getDictionary } from "@/i18n/dictionaries";
 import { getSession, requestOrigin } from "@/lib/auth";
 import { validSkIco } from "@/lib/domainName";
 import { callDomains, OWNER_FIELDS } from "@/lib/domains";
+import { refreshShop } from "@/lib/publicCache";
 
 /**
  * "Predplatné a doména" (database update 25). Every step that moves a domain goes to the
@@ -22,8 +23,11 @@ async function start(formData: FormData) {
   if (!session) redirect(`/${lang}/login`);
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
-  const back = (query: Record<string, string> = {}, at = "domain"): never =>
-    redirect(`/${lang}/dashboard/plan?${new URLSearchParams({ shop: slug, ...query })}#${at}`);
+  const back = (query: Record<string, string> = {}, at = "domain"): never => {
+    // A saved change a visitor can see: the public pages read it again at once.
+    if (query.ok) refreshShop(slug);
+    return redirect(`/${lang}/dashboard/plan?${new URLSearchParams({ shop: slug, ...query })}#${at}`);
+  };
   const returnUrl = `${await requestOrigin()}/${lang}/dashboard/plan?${new URLSearchParams({ shop: slug })}`;
   return { lang, session, shopId, slug, back, returnUrl };
 }

@@ -12,6 +12,7 @@ import { LanguageFileUpload } from "@/components/LanguageFileUpload";
 import { TranslationsTable } from "@/components/TranslationsTable";
 import { generateDescriptions, saveLanguages } from "../translationActions";
 import { languageList, tableLabels } from "../translationShared";
+import { itemFilter } from "@/lib/ownerItems";
 import { ColumnsSection, ItemsSection, loadItems } from "../Inventory";
 import { hiddenFields, messages, ShopSwitcher, SubmitButton } from "../shared";
 
@@ -63,14 +64,18 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
 
   const q = (first(sp.q) ?? "").trim();
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  const [{ data: settingsData, error }, stock] = await Promise.all([
+  const filter = itemFilter(sp.filter);
+  const [{ data: settingsData, error }, stock, stockState] = await Promise.all([
     supabase.rpc("owner_language_settings", { p_shop_id: shop.id }),
-    loadItems(supabase, shop, q, page),
+    loadItems(supabase, shop, q, page, filter),
+    // Whether the uploaded files were deleted (update 43; before it: never).
+    supabase.rpc("owner_inventory_state", { p_shop_id: shop.id }),
   ]);
+  const filesCleared = !stockState.error && (stockState.data as { files_cleared?: boolean } | null)?.files_cleared === true;
   if (stock.error) return <DbError message={stock.error} dict={dict} />;
   // "Stĺpce súboru so skladom" and "Tovar" (moved here from Môj obchod on 22 October 2026).
   const columnsSection = <ColumnsSection shop={shop} dict={dict} hidden={hidden} m={m} />;
-  const itemsSection = <ItemsSection shop={shop} lang={lang} dict={dict} hidden={hidden} m={m} items={stock.items} total={stock.total} q={q} page={page} />;
+  const itemsSection = <ItemsSection shop={shop} lang={lang} dict={dict} m={m} items={stock.items} total={stock.total} counts={stock.counts} q={q} page={page} filter={filter} filesCleared={filesCleared} />;
   const header = (
     <header className="flex flex-col gap-2">
       <h1 className="text-2xl font-semibold tracking-tight">{dict.account.translations_page}</h1>

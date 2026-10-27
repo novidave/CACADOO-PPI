@@ -1215,7 +1215,7 @@ pictures in or out of `shop-sections-public`) → `shop_content(slug)` (anon; au
 **Website.** `lib/sections.ts` `getShopContent()` + `slideViews()` (post links on the canonical place, dates in the
 shop's time zone, page pictures from the public bucket); `ShopView` renders `components/ContentSlider` after the hours
 (the same file serves the own domain). `ContentSlider` (client): a region with `aria-roledescription`, scroll-snap
-track, ‹ ›, ← →, counter + dots, the box as high as the current slide (ResizeObserver, ≤ 80vh), a "wanted" set (the
+track, ‹ ›, ← →, counter + dots, one fixed frame for every slide since update 44 (below), a "wanted" set (the
 first slide at render, current ± 1 once an IntersectionObserver sees the slider; a collapsed `<details>` loads nothing
 until opened), `<noscript>` pictures for the rest, reduced motion = `behavior: auto`. A PDF's other pages are hidden
 links for `SectionZoom`, which now also has the "Pod sebou" mode (`data-zoom-mode="stacked"`: all pages in one scroll).
@@ -1628,6 +1628,8 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 35 | `supabase/sql/35_partner_feeds.sql` | partner feeds: `partners`, `partner_stores`, `partner_products` (+ `search_blob`, trigram index), `partner_store_stock`, `partner_imports`; helpers `valid_feed_url`, `partner_schedule_interval`, `partner_data_fresh`; the function's steps `partner_start_due`, `partner_imports_waiting`, `partner_import_claim`, `partner_import_release`, `partner_import_downloaded`, `partner_import_unchanged`, `partner_import_rows`, `partner_import_finish`, `partner_import_fail`, `partner_retry_soon` (service role only); `search_partner_products`, `partner_layer_ready` (visitors); `admin_partner_settings`, `admin_save_partner`, `admin_set_partner_file`, `admin_set_partner_logo`, `admin_save_partner_stores`, `admin_queue_partner_import`, `admin_delete_partner` (`is_admin()`); buckets `partner-feeds` (private) and `partner-logos` (public); job `ppi-partner-feeds-tick`. RLS on every table. Safe to run twice |
 | 36 | `supabase/sql/36_domain_findability.sql` | own domains fully findable: `domain_orders.google_txt_record_id` (+ checks, state `present`), `domain_site_verifications` (RLS: members read) + `clean_site_verification`, `owner_set_site_verification`, `site_verification_meta` (anon); `inventory.indexnow_at` (+ `track_inventory_change` redefined, index), `indexnow_hosts`, `indexnow_pings` (RLS on, service role only), `indexnow_claim_host`, `indexnow_done` (service role); `shop_llms_facts` + `stock_categories`, `auto_holidays`. Needs 25 and 33; safe to run twice |
 | 39 | `supabase/sql/39_video_posts.sql` | videos: `youtube_id()`, `blog_post_video()`, `blog_youtube_backfill()` (run once), `shop_page_content.video_target` (+ check), `shop_content()` / `owner_content()` with `video` and `video_target`, `owner_save_content(…, p_video_target)` (the 5-argument one dropped) |
+| 42 | `supabase/sql/42_performance.sql` | speed: stored `shop_items.names_search` (= `item_names_text()`) + its trigram index (the expression index dropped), `search_patterns()`, `search_stock` / `shop_stock` / `owner_item_rows` / `owner_translations` on it (same results, `LIKE ALL`, materialized patterns), `set jit = off` on the hot functions (+ the database when allowed), `server_errors` + `log_server_error()` (cleaned, counted, capped, 30 days) + `admin_server_errors()` |
+| 43 | `supabase/sql/43_inventory_reset.sql` | "Začať sklad odznova": `shop_activity` (members read), `inventory_resets` / `inventory_trash` / `inventory_backups` (no grants), `sync_sources.files_cleared_at` / `raw_files_delete_before` / `inventory_reset_at`; `owner_delete_stock_files()`, `owner_inventory_preview()`, `owner_inventory_reset()` (missing / all, typed name, backup CSV, trash, 3 a day), `owner_inventory_restore()`, `owner_inventory_state()`, `owner_inventory_backup()`, `shop_stock_resetting()` (anon), `owner_raw_files_to_delete()` / `raw_files_deleted()` (stock-pull), triggers re-attaching translations by code, `upload_check_in()` + `files_cleared`, daily `ppi-inventory-purge` |
 | 40 | `supabase/sql/40_translations.sql` | every language: `languages` + `site_languages()` / `admin_save_language()`, `ui_translations` + `ui_messages()` / `ui_unchecked()` / `admin_*` / `apply_ui_translations()`, `translation_limits` / `translation_usage` + budget functions, `shop_language_settings` + `shop_main_lang()` / `shop_home_lang()` / `shop_preferred_langs()` / `shop_languages()` / `owner_*_language_settings()`, `shop_for_host` / `live_shop_sites` / `public_shops` with the home language, `item_descriptions` + `owner_*_description*()`, `content_translations` (+ trigger keeping `name_i18n`, old names moved in), `item_names_text()` over every language (reindexed), `shop_translations()` / `item_texts()`, `translation_requests` / `request_translation()`, `translation_work()` / `apply_translations()`, `owner_translations()` and its actions, `apply_shop_translations()` / `apply_file_texts()`, mapping with description/category/language columns, `query_translations`, `shop_blog*` with the post id, `sync_sources.file_encoding`, `profiles.language` from signup, jobs `ppi-translate-tick` / `ppi-translate-cleanup` |
 | 38 | `supabase/sql/38_page_content.sql` | "Obsah stránky": `section_limits.max_slides` / `max_pdf_slides` / `max_items` (+ `content_limits_for`, `admin_save_content_limits`), library columns on `shop_page_sections` (`kind`, `show_title`, `file_name`, `alt`, `alt_ai`, originals), `shop_page_content`, `shop_content_slots` (RLS), `section_item_ready`, `content_slots`, `content_slots_shown`, `section_visible` via slots, `content_materialize`, `shop_content`, `owner_content`, `owner_save_content`, `owner_save_item`, picture originals in the upload steps, the migration of every shop's sections |
 | 37 | `supabase/sql/37_shop_blog.sql` | the shop blog and its Facebook Page: `blog_limits` (+ `admin_save_blog_limits`), `blog_posts`, `blog_photos`, `shop_blog_settings`, `facebook_connections` (owners: no grant on the token), `facebook_oauth_states`, `facebook_pending_pages` (RLS on every table); `blog_slug`, `blog_visible_posts` / `blog_visible_ids` / `blog_post_visible` (the one rule), triggers `blog_posts_touch` / `blog_photos_touch`; visitors `shop_blog`, `shop_blog_post`, `shop_blog_count`, `blog_index`, `search_shop_blog`; owners `owner_blog_posts`, `owner_blog_post`, `owner_blog_save`, `owner_blog_publish`, `owner_blog_set_choice`, `owner_blog_set_hidden`, `owner_blog_settings`, `owner_blog_photo_order`; the function's steps (service role) `blog_photo_*`, `blog_post_files`, `blog_post_remove`, `blog_stale_uploads`, `blog_orphan_files`, `facebook_state_*`, `facebook_pending_*`, `facebook_connection_*`, `facebook_disconnect`, `facebook_import_*`, `facebook_imports_stalled`, `facebook_sync_*`, `facebook_newest_import`, `blog_import_post`, `blog_posts_to_check` / `_checked` / `_deleted_on_facebook`, `blog_fb_due` / `_claim` / `_result`, `facebook_alerts_due` / `_alert_sent`, `blog_indexnow_claim` / `_done`; bucket `blog-photos` (public); job `ppi-blog-tick`. Needs 36; safe to run twice |
@@ -2129,3 +2131,84 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 - Next useful steps: e-mail alert when a shop's stock stops arriving; own domain; registration with Bing/Google; a
   developer's review of RLS; removing the legacy admin functions together with the unused `file_url` column; deciding
   what the paid plan unlocks (every such feature checks `shop_has_plan()`) and switching Stripe to live.
+
+
+### 2.20 The owner's item list (database update 41, `supabase/sql/41_items_list.sql`)
+
+`owner_item_rows(shop, q)` (security definer, no grants: only the two functions below call it) returns the shop's items
+for a member with `availability` (`availability_label()` with the shop's freshness — null while stale), `has_description`
+(`item_description_shown()`) and `missing_translation` (per item, the languages of `shop_target_langs()` — `item_name`
+without the name's own language, `item_description` only when a description is shown — without a `content_translations`
+row or with a stale AI one). `owner_items(shop, q, limit, offset, p_filter)` filters (all / in_stock / sold_out by the
+file's quantity / no_description / missing_translation; unknown → 22023) and pages; `owner_item_counts(shop)` gives the
+five numbers. The page (`dashboard/Inventory.tsx` → `ItemsSection`, `@/lib/ownerItems`) only picks words: no filters
+before update 41 (the old call is the fallback).
+
+### 2.21 Speed (database update 42, `supabase/sql/42_performance.sql`; `PERFORMANCE.md`)
+
+- **Cached public reads:** `createCachedPublicClient()` (`src/lib/supabase/public.ts`) sends the allowlisted public RPCs
+  (`CACHED_RPCS`) and GET `/rest/v1/` reads through Next's data cache for 60 s, tagged `public` and `shop:<slug>` (or
+  `cross` when a read is not one shop's). `src/lib/publicCache.ts` refreshes them: `refreshShop(slug)` from every owner
+  action that saved something visible, `refreshAll()` for translations, blog posts and admin settings, and
+  `POST /api/revalidate` (header `x-ppi-revalidate` = `REVALIDATE_SECRET`, compared in constant time) from stock-pull
+  after an `updated` file, after the background translations and after a language file.
+- **Search:** `names_search` is stored, so the trigram index is used directly and no name text is built per row;
+  `search_patterns(q)` gives one `%word%` pattern per word of `search_text(q)` (same words as `matches_all_words`).
+  Measured on 60 shops × 2 000 items: `search_stock('kava')` 0.8–1.5 s → ~0.25 s, `shop_stock` with a word 155 → 18 ms,
+  `owner_translations` 2 min → 59 ms, `shop_content` 430 → 5 ms (mostly JIT compiling), the same result sets.
+- **First JavaScript:** the map (`ShopMap` box + `ShopMapCanvas`), the shop assistant (`ShopAssistant` first view →
+  `ShopChat`), the language list (`LanguagePickerDialog`), the picture viewer (`SectionZoomViewer`) and Vercel's
+  metrics (`VercelMetrics`) load after the page; one Quicksand declaration. Public pages: 140–146 kB gzip first load.
+- **Taps:** `TapFeedback` (server-action forms busy at once, never sent twice), pressed states, 44 px touch areas,
+  `useLinkStatus` on the Môj obchod menu, `DashboardSection` opens before the first paint; lists that load on a filter
+  keep only the newest answer.
+- **Errors:** `src/instrumentation.ts` `onRequestError` → `src/lib/errorLog.ts` (kind, the route's file path, a cleaned
+  message, React's digest; no address, query, IP, headers or e-mail) → `log_server_error()` and, with `SENTRY_DSN`,
+  Sentry's envelope endpoint → admin "Chyby za posledných 7 dní" (`ErrorsAdmin.tsx`).
+- **Budget:** `.github/workflows/performance.yml` runs `lighthouserc.cjs` (Lighthouse CI, phone, slow 4G, 3 runs) and
+  `npm run test:e2e` (`e2e/`, Playwright on a Pixel 7) on every Vercel preview. Vercel functions in `fra1`.
+
+### 2.22 "Začať sklad odznova" (database update 43, `supabase/sql/43_inventory_reset.sql`)
+
+- **Files (2b):** `owner_delete_stock_files()` deletes the shop's `stock_imports`, clears `sample_rows` /
+  `last_file_name`, sets `files_cleared_at` and `raw_files_delete_before`; the server action then calls
+  `stock-pull?action=delete_files` with the owner's JWT, which asks `owner_raw_files_to_delete()` (membership), deletes
+  `raw-files/<shop>/<ms>.<ext>` saved up to that time and calls `raw_files_deleted()` (a newer upload stays; a missed call
+  is done by the shop's next upload). `files_cleared` (in `owner_inventory_state()` and `upload_check_in()`) makes every
+  "last file" line say "Žiadny nahraný súbor · nahrajte nový"; `latest_file_time` (the freshness) is not touched.
+- **A / B:** `owner_inventory_reset(shop, 'missing' | 'all', confirm, keep_translations, clear_mapping)`: membership,
+  the typed name for B (case and outer spaces ignored), 3 per shop and day, an advisory lock; then the backup CSV
+  (`inventory_backup_csv()`: UTF-8 BOM, `;`, public fields + `nazov@xx` / `popis@xx` / `kategoria@xx`), the products
+  into `inventory_trash` (item, inventory, Cacaduu description, translations as JSON), then deleted (inventory and
+  descriptions by cascade, item translations explicitly). "Missing" = sold out and older than the newest
+  `shop_items.updated_at` (apply_stock_file stamps every row of a file with one time). B also clears the files, sets
+  `latest_file_time` null (any next file is taken) and `inventory_reset_at`, optionally the mapping.
+- **Restore:** `owner_inventory_restore()` puts the rows back with their ids (`ppi.inventory_restoring` keeps the
+  re-attach triggers out), and for B the stock source (file time, mapping); refused when restored, older than 30 days,
+  not the newest removal, or a newer file was applied (`inventory_restore_blocked()`).
+- **Same code returns:** `shop_items_reattach_names` (before insert: name settings, description, category) and
+  `shop_items_reattach_texts` (after insert: translations, Cacaduu description) take them from the newest trash row of
+  a removal with `keep_translations`; `name_i18n` follows the translations (update 40's trigger).
+- **Visitors:** `shop_stock_resetting(slug)` (cached, `CACHED_RPCS`) → "Sortiment sa práve aktualizuje." on the shop
+  page; every action refreshes the shop's cached reads (`refreshShop`).
+- **Website:** `/sync` (`EXPORT_SECTIONS`: export, imports, conversations-pc, danger; old `/dashboard/assistant?at=imports`
+  forwarded), `sync/inventoryActions.ts`, `@/components/InventoryDangerZone` (dialogs, `BackupDownload`),
+  `@/lib/inventoryReset` (shapes, error codes, typed-name rule), `@/lib/stockImports`, `/api/owner/inventory-backups/[id]`
+  (CSV via `owner_inventory_backup()`), `DashboardSection collapsed`.
+
+## Update 44 — the slider's fixed frame and stacked previews
+
+`supabase/sql/44_slider_ratio.sql`: `shop_page_content.slider_ratio` (4:5 | 1:1 | 16:9, NULL = 4:5) and
+`shop_content_slots.crop` (top | center | bottom, NULL = center; stored only for pdf/picture slots and only when not the
+middle); `content_slot_crop()`; `shop_content()` returns `ratio` and each file slide's `crop`; `owner_content()` returns
+`ratio` and each slot's `crop`; `owner_save_content(…, p_video_target, p_ratio)` checks both ('bad'); JIT stays off.
+`lib/pageContent.ts`: `sliderRatio()`, `slideCrop()`, `ratioValue()`, `ratioCss()`, `cropPosition()`, `ratioSize()`.
+`components/ContentSlider.tsx`: `frameStyle(ratio)` = `aspect-ratio` + `width: min(100%, calc(80vh × ratio))`; pictures
+`absolute inset-0 object-cover` at the crop's `object-position`; caption `h-[7.5rem]` grid (title 2.75rem line-clamp-2,
+meta 1.25rem, action 2.25rem); arrows in an overlay with the frame's size (`disabled:invisible`); nav row `h-6`, counter
+`w-[7ch] tabular-nums`; the ResizeObserver height logic is gone (no layout shift). The slide text is an sr-only element
+referenced by `aria-describedby` and passed to `SectionZoomViewer` (`data-zoom-text`), which shows the picture uncropped.
+`ContentEditor`: "Pomer strán slidera" radios and a "Výrez" select per file slot (only when `owner_content` returns
+`ratio`, i.e. after update 44; `saveContent` sends `p_ratio` only then); `ScaledPreview` draws each preview at its real
+width (390 px with 16 px margins, 768 px) and scales it with `transform` (ResizeObserver), the box taking the scaled
+height.

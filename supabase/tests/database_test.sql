@@ -600,10 +600,11 @@ begin
     v_plan text := '';
     v_line record;
   begin
-    for v_line in execute 'explain select id from public.shop_items where public.item_names_text(name, name_i18n) like ''%white%''' loop
+    -- since update 42 the same text is the stored column names_search with its own index
+    for v_line in execute 'explain select id from public.shop_items where names_search like ''%white%''' loop
       v_plan := v_plan || v_line."QUERY PLAN" || ' ';
     end loop;
-    assert v_plan like '%shop_items_names_search_idx%', 'name search uses the index: ' || v_plan;
+    assert v_plan like '%shop_items_names_search_col_idx%', 'name search uses the index: ' || v_plan;
   end;
 end $$;
 reset role;
@@ -6193,6 +6194,8 @@ begin
   assert not (v_c #>> '{slides,0,auto}')::boolean and (v_c #>> '{slides,1,auto}')::boolean, 'the pinned post is never repeated';
   assert v_c ->> 'title' = 'Akcie týždňa' and v_c ->> 'display' = 'collapsed' and not (v_c ->> 'show_title')::boolean;
   assert v_c #>> '{slides,4,item,alt}' = 'Plagát: leto', 'the owner''s alt text wins over the AI''s';
+  assert v_c #>> '{slides,4,crop}' = 'center' and v_c #>> '{slides,3,crop}' = 'center', 'file slides carry their Výrez (update 44)';
+  assert v_c ->> 'ratio' = '4:5', 'the default frame (update 44)';
   assert (v_c #>> '{slides,4,item,download}')::boolean;
   assert (select path from public.shop_section_pdf('drogeria-kostolne', v_pic)) like '%/original.webp';
   -- a hidden file drops out, the rest keep their order
@@ -6746,5 +6749,584 @@ begin
   delete from public.translation_requests;
   update public.languages set indexed = false where code = 'de';
 end $$;
+
+\echo '--- Môj obchod → Tovar: filters, what the shopper sees, what is missing (update 41)'
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p1 uuid := (select id from public.shop_items where source_code = 'P001');
+  v_p2 uuid := (select id from public.shop_items where source_code = 'P002');
+  v_z uuid := (select id from public.shops where slug = 'zeleziarstvo-vychod');
+begin
+  -- test setup: a visitor asked for German (so descriptions are translated too); P001 gets an approved description;
+  -- P002's name is translated into every language the shop needs
+  delete from public.translation_requests where shop_id = v_a;
+  insert into public.translation_requests (shop_id, lang) values (v_a, 'de');
+  delete from public.content_translations where shop_id = v_a and kind like 'item_%';
+  delete from public.item_descriptions where item_id in (select id from public.shop_items where shop_id = v_a);
+  update public.shop_items set name_lang = 'sk' where shop_id = v_a;
+  insert into public.item_descriptions (item_id, shop_id, text, published_at, show)
+  values (v_p1, v_a, 'Zrnková káva Lavazza, 1 kg.', now(), 'auto');
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  select v_a, 'item_name', v_p2::text, l, 'Kaffee ' || l, 'ai', md5('Káva mletá 250 g')
+  from unnest(public.shop_target_langs(v_a, 'item_name')) l where l <> 'sk';
+  assert cardinality(public.shop_target_langs(v_a, 'item_name')) > 0, 'the shop has languages to translate into';
+  -- for the stale shop's check: owner A is also a member of zeleziarstvo-vychod for a moment
+  insert into public.shop_members (shop_id, user_id) values (v_z, '00000000-0000-0000-0000-00000000000a');
+  perform set_config('ppi.t_z_time', coalesce((select latest_file_time::text from public.sync_sources where shop_id = v_z), ''), false);
+  update public.sync_sources set latest_file_time = now() - interval '25 hours' where shop_id = v_z;
+  -- what the counts must be, straight from the tables (earlier checks added items to this shop)
+  perform set_config('ppi.t_all', (select count(*) from public.shop_items where shop_id = v_a)::text, false);
+  perform set_config('ppi.t_in', (select count(*) from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+    where si.shop_id = v_a and i.quantity > 0)::text, false);
+  perform set_config('ppi.t_desc', (select count(*) from public.shop_items si
+    where si.shop_id = v_a and exists (select 1 from public.item_description_shown(si.id)))::text, false);
+  perform set_config('ppi.t_z_in', (select count(*) from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+    where si.shop_id = v_z and i.quantity > 0)::text, false);
+  perform set_config('ppi.t_z_all', (select count(*) from public.shop_items where shop_id = v_z)::text, false);
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_z uuid := (select id from public.shops where slug = 'zeleziarstvo-vychod');
+  c record;
+begin
+  select * into c from public.owner_item_counts(v_a);
+  assert c.all_items = current_setting('ppi.t_all')::bigint and c.in_stock = current_setting('ppi.t_in')::bigint
+     and c.sold_out = c.all_items - c.in_stock, format('counts %s', c);
+  assert c.in_stock > 0 and c.sold_out > 0, 'both kinds present';
+  assert c.no_description = c.all_items - current_setting('ppi.t_desc')::bigint and c.no_description < c.all_items, format('no description %s', c);
+  assert c.missing_translation between 1 and c.all_items - 1, format('missing %s', c);
+  -- each filter lists the same items as its count; the shopper's label comes from the database
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'in_stock')) = c.in_stock;
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'sold_out')) = c.sold_out;
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'no_description')) = c.no_description;
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'missing_translation')) = c.missing_translation;
+  assert (select availability from public.owner_items(v_a, 'P004', 50, 0, 'sold_out')) = 'out_of_stock', 'sold out: "Vypredané"';
+  assert (select bool_and(availability = 'in_stock_count') from public.owner_items(v_a, null, 100, 0, 'in_stock'));
+  assert (select bool_and(item_id <> (select id from public.shop_items where source_code = 'P001'))
+          from public.owner_items(v_a, null, 50, 0, 'no_description')), 'P001 has a description';
+  assert (select has_description from public.owner_items(v_a, 'P001')), 'the flag comes with the row';
+  assert not exists (select 1 from public.owner_items(v_a, null, 50, 0, 'missing_translation') where source_code = 'P002');
+  assert (select total_count from public.owner_items(v_a, null, 50, 0, 'all') limit 1) = c.all_items
+     and (select total_count from public.owner_items(v_a) limit 1) = c.all_items;
+  assert (select total_count from public.owner_items(v_a, null, 2, 0, 'in_stock') limit 1) = c.in_stock, 'total of the filter, not of the page';
+  begin
+    perform * from public.owner_items(v_a, null, 50, 0, 'hidden');
+    raise exception 'an unknown filter was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  -- stale data: the shopper sees nothing (no label), the filters still go by the file's quantity
+  assert (select bool_and(availability is null) from public.owner_items(v_z)), 'stale: no availability';
+  assert (select in_stock = current_setting('ppi.t_z_in')::bigint and all_items = current_setting('ppi.t_z_all')::bigint
+          from public.owner_item_counts(v_z)), 'stale shop: filters by the quantity in the file';
+  begin
+    perform * from public.owner_item_rows(v_a, null);
+    raise exception 'an owner ran owner_item_rows directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p1 uuid := (select id from public.shop_items where source_code = 'P001');
+  v_p2 uuid := (select id from public.shop_items where source_code = 'P002');
+begin
+  -- a changed original makes P002's AI names stale → missing again; "Neprekladať" is not missing
+  update public.content_translations set source_hash = md5('old name') where shop_id = v_a and ref = v_p2::text;
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  select v_a, 'item_name', v_p1::text, l, null, 'none', null from unnest(public.shop_target_langs(v_a, 'item_name')) l where l <> 'sk';
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select missing_translation from public.owner_items(v_a, 'P002')), 'stale AI names count as missing';
+  -- P001: names "Neprekladať", but its description has no translation yet
+  assert (select missing_translation from public.owner_items(v_a, 'P001')), 'the shown description still needs translating';
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select all_items from public.owner_item_counts(v_a)) = 0, 'owner B counted shop A items';
+  assert not exists (select 1 from public.owner_items(v_a, null, 50, 0, 'in_stock')), 'owner B listed shop A items';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform * from public.owner_item_counts((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'anon ran owner_item_counts';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.shop_members where shop_id = (select id from public.shops where slug = 'zeleziarstvo-vychod')
+    and user_id = '00000000-0000-0000-0000-00000000000a';
+  update public.sync_sources set latest_file_time = nullif(current_setting('ppi.t_z_time'), '')::timestamptz
+  where shop_id = (select id from public.shops where slug = 'zeleziarstvo-vychod');
+  delete from public.content_translations where shop_id = v_a and kind like 'item_%';
+  delete from public.item_descriptions where shop_id = v_a;
+  delete from public.translation_requests where shop_id = v_a;
+end $$;
+
+\echo '--- speed: stored name text, search patterns, no JIT, the error log (update 42)'
+reset role;
+do $$
+declare
+  v_bad integer;
+begin
+  -- The stored column is always the same text the search used to build per row.
+  select count(*) into v_bad from public.shop_items
+  where names_search is distinct from public.item_names_text(name, name_i18n);
+  assert v_bad = 0, 'names_search differs from item_names_text';
+  assert exists (select 1 from pg_indexes where indexname = 'shop_items_names_search_col_idx'), 'trigram index on names_search';
+  -- One LIKE pattern per word, the same words matches_all_words() uses; nothing for an empty query.
+  assert public.search_patterns(null) = '{}'::text[], 'empty query → no patterns';
+  assert public.search_patterns('  ') = '{}'::text[], 'blank query → no patterns';
+  assert cardinality(public.search_patterns('Káva  zrnková')) = 2, 'two words → two patterns';
+  assert public.search_patterns('50%') = array['%50\%%'], '% is escaped';
+  -- Search gives what the rule says: every word matches, sold out still listed, EAN exact.
+  assert (select count(*) from public.search_stock('káva')) = 3, 'three coffees in the seed';
+  assert (select count(*) from public.search_stock('kava zrnkova')) = 1, 'every word must match (no accents)';
+  assert (select count(*) from public.search_stock('káva lavazza')) = 1, 'brand counts as a word';
+  assert (select count(*) from public.search_stock('káva centrum')) = 2, 'shop name counts as a word';
+  assert (select count(*) from public.search_stock('8000070012345')) = 1, 'EAN';
+  assert (select count(*) from public.search_stock('káva neexistuje')) = 0, 'a missing word → nothing';
+  assert not exists (
+    select 1 from public.search_stock('káva') r join public.shop_items si on si.id = r.item_id
+    where not public.matches_all_words(
+      public.item_names_text(si.name, si.name_i18n) || ' ' || coalesce(r.brand, '') || ' ' || coalesce(r.ean, '') || ' '
+        || r.shop_name || ' ' || coalesce(r.shop_address, '') || ' ' || coalesce(r.shop_city, ''), 'káva')
+  ), 'every row matches all words';
+  assert (select count(*) from public.shop_stock('potraviny-centrum', 'káva')) = 2, 'shop_stock with a word';
+  -- No JIT compile on the hot functions (it cost ~0.5 s per call).
+  assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.search_stock(text,double precision,double precision,double precision,boolean)'::regprocedure),
+    'search_stock runs without JIT';
+  assert (select proconfig @> array['jit=off'] from pg_proc where proname = 'shop_content' and pronamespace = 'public'::regnamespace limit 1),
+    'shop_content runs without JIT';
+end $$;
+
+-- The error log: anyone may write through the function (cleaned, counted up), nobody reads the table but the admin.
+set role anon;
+do $$
+begin
+  perform public.log_server_error('render', '/[lang]/shops/[slug]?q=mlieko', 'TypeError: x for jana@obchod.sk 3f2c1b9e-1111-2222-3333-444455556666', 'abc');
+  perform public.log_server_error('render', '/[lang]/shops/[slug]', 'TypeError: x for jana@obchod.sk 3f2c1b9e-1111-2222-3333-444455556666');
+  perform public.log_server_error('nonsense', '', '');
+  begin
+    perform 1 from public.server_errors;
+    raise exception 'anon read server_errors';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.admin_server_errors(7);
+    raise exception 'anon read the error list';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$
+begin
+  assert (select hits from public.server_errors where route = '/[lang]/shops/[slug]') = 2, 'the same error counts up';
+  assert not exists (select 1 from public.server_errors where message ~ '@|3f2c1b9e|mlieko' or route ~ '\?.'), 'no personal data stored';
+  assert exists (select 1 from public.server_errors where kind = 'other' and route = '?' and message = 'error'), 'odd input is made safe';
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin
+    perform * from public.admin_server_errors(7);
+    raise exception 'an owner read the error list';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+set role authenticated;
+do $$
+begin
+  assert (select hits from public.admin_server_errors(7) where route = '/[lang]/shops/[slug]') = 2, 'the admin sees the error';
+end $$;
+reset role;
+delete from public.server_errors;
+
+-- ------------------------------------------------------------------ update 43: "Začať sklad odznova"
+\echo '--- inventory reset (update 43)'
+-- A test shop of owner A with two files: F1 (A1–A5, A5 at 0) then F2 (A1, A2, A5): A3 and A4 are missing from F2.
+do $$
+declare
+  v_shop uuid;
+begin
+  insert into public.shops (slug, name, ico, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-reset', 'Farby Reset', null, address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.sync_sources (shop_id, file_format, field_mapping, mapping_status, last_file_name, file_columns)
+  values (v_shop, 'csv', '{"source_code":"Kód","name":"Názov","quantity":"Mn","price":"Cena"}', 'confirmed', 'sklad2.csv',
+          array['Kód', 'Názov', 'Mn', 'Cena', 'NákupnáCena']);
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"A1","name":"Farba biela 5 l","ean":"8580000000011","quantity":4,"price":29.9},
+    {"source_code":"A2","name":"Farba modrá 1 l","quantity":2,"price":9.9},
+    {"source_code":"A3","name":"Štetec 50 mm","quantity":7,"price":3.5},
+    {"source_code":"A4","name":"Valček \"Profi\"; 25 cm","quantity":1,"price":6},
+    {"source_code":"A5","name":"Riedidlo 1 l","quantity":0,"price":4}
+  ]', '2026-10-20 08:00:00+00', '[{"Kód":"A1","Názov":"Farba biela 5 l"}]');
+end $$;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_a1 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-reset') and source_code = 'A1');
+  v_a2 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-reset') and source_code = 'A2');
+begin
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"A1","name":"Farba biela 5 l","ean":"8580000000011","quantity":3,"price":29.9},
+    {"source_code":"A2","name":"Farba modrá 1 l","quantity":2,"price":9.9},
+    {"source_code":"A5","name":"Riedidlo 1 l","quantity":0,"price":4}
+  ]', '2026-10-21 08:00:00+00', '[{"Kód":"A1","Názov":"Farba biela 5 l"}]');
+  -- translations and a Cacaduu description
+  update public.shop_items set name_lang = 'sk', translated_name_source = 'Farba biela 5 l', name_i18n_by_owner = true where id = v_a1;
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  values (v_shop, 'item_name', v_a1::text, 'de', 'Weiße Farbe 5 l', 'manual', md5('Farba biela 5 l')),
+         (v_shop, 'item_name', v_a1::text, 'hu', 'Fehér festék 5 l', 'manual', md5('Farba biela 5 l')),
+         (v_shop, 'item_name', v_a1::text, 'en', 'White paint 5 l', 'ai', md5('Farba biela 5 l'));
+  assert (select name_i18n ->> 'hu' from public.shop_items where id = v_a1) = 'Fehér festék 5 l';
+  insert into public.item_descriptions (item_id, shop_id, text, published_at, show)
+  values (v_a2, v_shop, 'Modrá farba na drevo.', now(), 'cacaduu');
+  perform public.record_stock_import(v_shop, 'sklad1.csv', '2026-10-20 08:00:00+00', 'ok', 5, 5, 0, 0, null, '[]');
+  perform public.record_stock_import(v_shop, 'sklad2.csv', '2026-10-21 08:00:00+00', 'ok', 3, 3, 2, 0, null, '[]');
+  assert (select count(*) from public.shop_items where shop_id = v_shop) = 5;
+end $$;
+
+-- Totals of everything a reset must never touch (all shops).
+create temporary table reset_untouched as
+select (select count(*) from public.shop_items si join public.shops s on s.id = si.shop_id where s.slug <> 'farby-reset') as other_items,
+       (select count(*) from public.stock_imports i join public.shops s on s.id = i.shop_id where s.slug <> 'farby-reset') as other_imports,
+       (select count(*) from public.shop_documents) as documents,
+       (select count(*) from public.shop_folders) as folders,
+       (select count(*) from public.shop_page_sections) as sections,
+       (select count(*) from public.blog_posts) as posts,
+       (select count(*) from public.assistant_conversations) as conversations,
+       (select count(*) from public.shop_special_hours) as special_days,
+       (select count(*) from public.subscriptions) as subscriptions;
+grant select on reset_untouched to authenticated;
+
+-- another shop's owner and visitors can do nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+begin
+  begin perform public.owner_inventory_preview(v_shop); raise exception 'B previewed'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_state(v_shop); raise exception 'B read the state'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_delete_stock_files(v_shop); raise exception 'B deleted files'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_reset(v_shop, 'all', 'Farby Reset'); raise exception 'B reset'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_raw_files_to_delete(v_shop); raise exception 'B asked for raw files'; exception when insufficient_privilege then null; end;
+  assert (select count(*) from public.shop_activity where shop_id = v_shop) = 0, 'B reads no activity of A';
+  begin perform 1 from public.inventory_trash; raise exception 'owner read the trash'; exception when insufficient_privilege then null; end;
+  begin perform 1 from public.inventory_backups; raise exception 'owner read the backups table'; exception when insufficient_privilege then null; end;
+  begin perform public.stock_files_clear(v_shop); raise exception 'owner called the internal clear'; exception when insufficient_privilege then null; end;
+  begin perform public.inventory_purge_expired(); raise exception 'owner purged'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_inventory_preview((select id from public.public_shops where slug = 'farby-reset')); raise exception 'anon previewed';
+  exception when insufficient_privilege then null; end;
+  assert public.shop_stock_resetting('farby-reset') = false, 'no note before a reset';
+end $$;
+reset role;
+
+-- owner A: the preview counts only the products missing from the last file (A3, A4), not A5 (in the file with 0)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_p jsonb;
+begin
+  v_p := public.owner_inventory_preview(v_shop);
+  assert (v_p ->> 'items')::int = 5 and (v_p ->> 'missing')::int = 2 and (v_p ->> 'files')::int = 2, format('preview %s', v_p);
+  assert (select array_agg(e ->> 'code' order by e ->> 'code') from jsonb_array_elements(v_p -> 'missing_list') e) = array['A3', 'A4'];
+  assert v_p ->> 'shop_name' = 'Farby Reset' and (v_p ->> 'resets_left')::int = 3;
+end $$;
+
+-- 2b alone: every uploaded file goes (list, name, mapping example); the inventory and its freshness stay
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_r jsonb;
+  v_s jsonb;
+begin
+  v_r := public.owner_delete_stock_files(v_shop);
+  assert (v_r ->> 'files')::int = 2, format('files %s', v_r);
+  assert (select count(*) from public.stock_imports where shop_id = v_shop) = 0, 'the list is empty';
+  assert (select count(*) from public.shop_items where shop_id = v_shop) = 5, '2b keeps the inventory';
+  v_s := public.upload_check_in(v_shop);
+  assert (v_s ->> 'files_cleared')::boolean and v_s ->> 'last_file_name' is null, format('check-in %s', v_s);
+  assert v_s ->> 'latest_file_time' is not null, 'freshness stays (expires normally)';
+  v_s := public.owner_inventory_state(v_shop);
+  assert (v_s ->> 'files_cleared')::boolean and (v_s ->> 'files')::int = 0 and not (v_s ->> 'needs_file')::boolean;
+  assert (select sample_rows is null and last_file_name is null and field_mapping is not null from public.my_shops() where slug = 'farby-reset'),
+    'no example rows, no last file name; the mapping stays';
+  assert public.owner_raw_files_to_delete(v_shop) is not null, 'stock-pull is told to delete the raw files';
+  assert (select action from public.shop_activity where shop_id = v_shop order by at desc limit 1) = 'stock_files_deleted';
+end $$;
+reset role;
+-- stock-pull (service role) clears the mark once the raw files are gone; a new file after 2b shows as present
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+begin
+  perform public.raw_files_deleted(v_shop, (select raw_files_delete_before from public.sync_sources where shop_id = v_shop));
+  assert (select raw_files_delete_before is null from public.sync_sources where shop_id = v_shop);
+end $$;
+
+-- option A: only A3 and A4 go, after a backup of everything; "Obnoviť sklad" brings them back exactly
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_a3 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-reset') and source_code = 'A3');
+  v_r jsonb;
+  v_csv text;
+  v_reset bigint;
+begin
+  v_r := public.owner_inventory_reset(v_shop, 'missing');
+  assert (v_r ->> 'items')::int = 2 and (v_r ->> 'files')::int = 0, format('A %s', v_r);
+  assert (select array_agg(source_code order by source_code) from public.shop_items where shop_id = v_shop) = array['A1', 'A2', 'A5'];
+  select csv into v_csv from public.owner_inventory_backup((v_r ->> 'backup_id')::bigint);
+  assert v_csv like E'\uFEFFkod;nazov;ean;znacka;kategoria;popis;mnozstvo;cena;mena;cas_suboru;popis_cacaduu;nazov@de;popis@de;kategoria@de;nazov@en;%;nazov@hu;popis@hu;kategoria@hu\r\n%',
+    format('csv header %s', left(v_csv, 200));
+  assert (select count(*) from regexp_split_to_table(rtrim(v_csv, E'\r\n'), E'\r\n')) = 6, 'header + all 5 products';
+  assert v_csv like '%"A4";"Valček ""Profi""; 25 cm"%', 'quoted as CSV';
+  assert v_csv like '%"Fehér festék 5 l"%' and v_csv like '%"Weiße Farbe 5 l"%' and v_csv like '%"Modrá farba na drevo."%',
+    'translations and the Cacaduu description are in the backup';
+  assert v_csv not like '%NákupnáCena%' and v_csv not ilike '%nakup%', 'no private column';
+  v_reset := (v_r ->> 'reset_id')::bigint;
+  assert (select (e ->> 'blocked') is null from jsonb_array_elements(public.owner_inventory_state(v_shop) -> 'resets') e
+          where (e ->> 'id')::bigint = v_reset), 'can be restored';
+  v_r := public.owner_inventory_restore(v_reset);
+  assert (v_r ->> 'items')::int = 2;
+  assert (select id from public.shop_items where shop_id = v_shop and source_code = 'A3') = v_a3, 'the same product id';
+  assert (select quantity || '/' || price from public.inventory where shop_item_id = v_a3) = '0/3.5', 'quantity and price as they were';
+  assert (select count(*) from public.shop_items where shop_id = v_shop) = 5;
+  begin perform public.owner_inventory_restore(v_reset); raise exception 'restored twice';
+  exception when raise_exception then assert sqlerrm = 'restore_restored', sqlerrm; end;
+  -- the backups are not uploaded files: they stay through 2b
+  perform public.owner_delete_stock_files(v_shop);
+  assert jsonb_array_length(public.owner_inventory_state(v_shop) -> 'backups') = 1, 'backup survives 2b';
+end $$;
+
+reset role;
+do $$ begin perform public.record_stock_import((select id from public.shops where slug = 'farby-reset'), 'sklad3.csv', '2026-10-21 08:00:00+00', 'ok', 3, 3, 0, 0, null, '[]'); end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+-- option B: the shop's name must be typed; everything goes (files too); the page says "Sortiment sa práve aktualizuje"
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_a1 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-reset') and source_code = 'A1');
+  v_r jsonb;
+begin
+  begin perform public.owner_inventory_reset(v_shop, 'all', 'Farby'); raise exception 'reset without the name';
+  exception when raise_exception then assert sqlerrm = 'confirm_name', sqlerrm; end;
+  v_r := public.owner_inventory_reset(v_shop, 'all', '  farby reset ', true, false);
+  assert (v_r ->> 'items')::int = 5 and (v_r ->> 'files')::int = 1, format('B %s', v_r);
+  assert not exists (select 1 from public.shop_items where shop_id = v_shop), 'no products';
+  assert not exists (select 1 from public.content_translations where shop_id = v_shop and kind like 'item%'), 'no item translations left behind';
+  assert (select count(*) from public.stock_imports where shop_id = v_shop) = 0, 'B deletes the files';
+  assert (select latest_file_time is null and field_mapping is not null and mapping_status = 'confirmed'
+          from public.my_shops() where slug = 'farby-reset'), 'mapping kept, any next file is taken';
+  assert public.owner_inventory_state(v_shop) ->> 'inventory_reset_at' is not null;
+  assert (public.owner_inventory_state(v_shop) ->> 'needs_file')::boolean, 'Môj obchod asks for a new file';
+  assert public.owner_raw_files_to_delete(v_shop) is not null;
+  -- restore within 30 days: the same products, translations, description and file time; the files do not come back
+  v_r := public.owner_inventory_restore((v_r ->> 'reset_id')::bigint);
+  assert (v_r ->> 'items')::int = 5;
+  assert (select name_i18n ->> 'hu' = 'Fehér festék 5 l' and name_i18n_by_owner from public.shop_items where id = v_a1);
+  assert (select text from public.content_translations where shop_id = v_shop and ref = v_a1::text and lang = 'de') = 'Weiße Farbe 5 l';
+  assert exists (select 1 from public.item_descriptions d join public.shop_items si on si.id = d.item_id
+                 where si.shop_id = v_shop and si.source_code = 'A2' and d.text = 'Modrá farba na drevo.');
+  assert (select latest_file_time = '2026-10-21 08:00:00+00' from public.my_shops() where slug = 'farby-reset');
+  assert public.owner_inventory_state(v_shop) ->> 'inventory_reset_at' is null;
+  assert (select count(*) from public.stock_imports where shop_id = v_shop) = 0;
+  assert (select array_agg(action order by id) from public.shop_activity where shop_id = v_shop)
+         = array['stock_files_deleted', 'inventory_missing_removed', 'inventory_restored', 'stock_files_deleted', 'inventory_reset', 'inventory_restored'],
+    'every action is in the log';
+end $$;
+reset role;
+set role anon;
+do $$ begin assert public.shop_stock_resetting('farby-reset') = false, 'no note after the restore'; end $$;
+reset role;
+
+-- B again, with the mapping cleared: the page note shows; a new file brings back A1 and A2 with their translations
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+begin
+  perform public.owner_inventory_reset(v_shop, 'all', 'Farby Reset', true, true);
+  assert (select field_mapping is null and mapping_status = 'proposed' and file_columns is null from public.my_shops() where slug = 'farby-reset'),
+    'the column mapping starts over';
+  assert (public.owner_inventory_preview(v_shop) ->> 'resets_left')::int = 0, 'three resets today';
+  begin perform public.owner_inventory_reset(v_shop, 'missing'); raise exception 'a fourth reset';
+  exception when raise_exception then assert sqlerrm in ('reset_limit', 'nothing_to_remove'), sqlerrm; end;
+  begin perform public.owner_inventory_reset(v_shop, 'all', 'Farby Reset'); raise exception 'a fourth reset';
+  exception when raise_exception then assert sqlerrm = 'reset_limit', sqlerrm; end;
+end $$;
+reset role;
+set role anon;
+do $$ begin assert public.shop_stock_resetting('farby-reset'), 'the page says "Sortiment sa práve aktualizuje"'; end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_a1 uuid;
+  v_reset bigint := (select max(id) from public.inventory_resets where shop_id = (select id from public.shops where slug = 'farby-reset'));
+begin
+  -- stock-pull applies a new file (the owner approved the new columns)
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"A1","name":"Farba biela 5 l","ean":"8580000000011","quantity":9,"price":31},
+    {"source_code":"A2","name":"Farba modrá 1 l","quantity":1,"price":9.9},
+    {"source_code":"B9","name":"Lak bezfarebný","quantity":5,"price":12}
+  ]', '2026-10-23 07:00:00+00');
+  v_a1 := (select id from public.shop_items where shop_id = v_shop and source_code = 'A1');
+  assert (select name_i18n ->> 'en' = 'White paint 5 l' and translated_name_source = 'Farba biela 5 l' and name_i18n_by_owner
+          from public.shop_items where id = v_a1), 'the translated names come back by code';
+  assert (select text from public.content_translations where shop_id = v_shop and ref = v_a1::text and lang = 'de') = 'Weiße Farbe 5 l',
+    'other translations come back on the new row';
+  assert exists (select 1 from public.item_descriptions d join public.shop_items si on si.id = d.item_id
+                 where si.shop_id = v_shop and si.source_code = 'A2' and d.text = 'Modrá farba na drevo.'), 'the description comes back';
+  assert (select name_i18n is null from public.shop_items where shop_id = v_shop and source_code = 'B9'), 'a new product gets nothing';
+  assert (select quantity from public.inventory where shop_item_id = v_a1) = 9, 'stock only from the new file';
+  assert public.inventory_restore_blocked(v_reset) = 'newer_upload', 'no restore over a newer file';
+  assert public.shop_stock_resetting('farby-reset') = false, 'the note goes with the new file';
+  -- a removal without "zachovať preklady": nothing comes back (the day's limit is over: these resets are older)
+  update public.inventory_resets set created_at = created_at - interval '2 days' where shop_id = v_shop;
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+  v_reset bigint;
+begin
+  begin perform public.owner_inventory_restore((select (e ->> 'id')::bigint from jsonb_array_elements(public.owner_inventory_state(v_shop) -> 'resets') e
+                                                order by (e ->> 'id')::bigint desc offset 1 limit 1));
+    raise exception 'an older reset restored';
+  exception when raise_exception then assert sqlerrm like 'restore_%', sqlerrm; end;
+  v_reset := (public.owner_inventory_reset(v_shop, 'all', 'Farby Reset', false, false) ->> 'reset_id')::bigint;
+  assert (select not (e ->> 'keep_translations')::boolean from jsonb_array_elements(public.owner_inventory_state(v_shop) -> 'resets') e
+          where (e ->> 'id')::bigint = v_reset);
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-reset');
+begin
+  perform public.apply_stock_file(v_shop, '[{"source_code":"A1","name":"Farba biela 5 l","quantity":2,"price":31}]', '2026-10-23 09:00:00+00');
+  assert (select name_i18n is null and not name_i18n_by_owner from public.shop_items where shop_id = v_shop and source_code = 'A1'),
+    'without "zachovať preklady" nothing comes back';
+  assert not exists (select 1 from public.content_translations c join public.shop_items si on si.id::text = c.ref
+                     where si.shop_id = v_shop and si.source_code = 'A1');
+  -- after 30 days: the trash is emptied, the backups go, the log says so
+  update public.inventory_resets set expires_at = now() - interval '1 minute' where shop_id = v_shop and restored_at is null;
+  update public.inventory_backups set expires_at = now() - interval '1 minute' where shop_id = v_shop;
+  assert public.inventory_purge_expired() >= 1;
+  assert not exists (select 1 from public.inventory_trash where shop_id = v_shop), 'the trash is empty';
+  assert not exists (select 1 from public.inventory_backups where shop_id = v_shop), 'old backups are gone';
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'inventory_purged');
+  assert public.inventory_restore_blocked((select max(id) from public.inventory_resets where shop_id = v_shop)) = 'purged';
+  assert exists (select 1 from cron.job where jobname = 'ppi-inventory-purge'), 'the daily purge job';
+  -- nothing else of any shop changed
+  assert (select other_items = (select count(*) from public.shop_items si join public.shops s on s.id = si.shop_id where s.slug <> 'farby-reset')
+             and other_imports = (select count(*) from public.stock_imports i join public.shops s on s.id = i.shop_id where s.slug <> 'farby-reset')
+             and documents = (select count(*) from public.shop_documents)
+             and folders = (select count(*) from public.shop_folders)
+             and sections = (select count(*) from public.shop_page_sections)
+             and posts = (select count(*) from public.blog_posts)
+             and conversations = (select count(*) from public.assistant_conversations)
+             and special_days = (select count(*) from public.shop_special_hours)
+             and subscriptions = (select count(*) from public.subscriptions)
+          from reset_untouched), 'a reset touches nothing else';
+end $$;
+drop table reset_untouched;
+
+-- ------------------------------------------------------------------ update 44: the slider's fixed frame
+\echo '--- slider ratio and Výrez (update 44)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pic uuid := (select id from public.shop_page_sections where shop_id = v_b and kind = 'picture');
+  v_c jsonb;
+begin
+  assert public.owner_content(v_b) ->> 'ratio' = '4:5', 'default ratio 4:5';
+  -- a picture slot cropped to the top, a post slot's crop is ignored, the ratio 1:1
+  perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(
+    jsonb_build_object('kind', 'auto_post', 'crop', 'bottom'), jsonb_build_object('kind', 'picture', 'item_id', v_pic, 'crop', 'top')),
+    null, '1:1');
+  v_c := public.owner_content(v_b);
+  assert v_c ->> 'ratio' = '1:1' and v_c #>> '{slots,1,crop}' = 'top' and v_c #>> '{slots,0,crop}' = 'center', v_c::text;
+  -- null keeps the ratio; center is stored as nothing
+  perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(
+    jsonb_build_object('kind', 'picture', 'item_id', v_pic, 'crop', 'center')));
+  assert public.owner_content(v_b) ->> 'ratio' = '1:1', 'null keeps the ratio';
+  assert public.owner_content(v_b) #>> '{slots,0,crop}' = 'center';
+  perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(
+    jsonb_build_object('kind', 'picture', 'item_id', v_pic, 'crop', 'bottom')), null, '16:9');
+  foreach v_c in array array['{"r":"3:4"}'::jsonb, '{"crop":"left"}'::jsonb] loop
+    begin
+      if v_c ? 'r' then
+        perform public.owner_save_content(v_b, null, true, 'open', '[]', null, v_c ->> 'r');
+      else
+        perform public.owner_save_content(v_b, null, true, 'open', jsonb_build_array(jsonb_build_object('kind', 'picture', 'item_id', v_pic, 'crop', v_c ->> 'crop')));
+      end if;
+      raise exception 'bad ratio or crop accepted';
+    exception when raise_exception then
+      assert sqlerrm = 'bad', sqlerrm;
+    end;
+  end loop;
+  begin
+    perform public.owner_save_content(v_a, null, true, 'open', '[]', null, '1:1');
+    raise exception 'owner B set shop A''s ratio';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+do $$ begin
+  assert public.content_slot_crop((select id from public.shops where slug = 'drogeria-kostolne'), 0) = 'bottom', 'the slide''s Výrez';
+end $$;
+set role anon;
+do $$
+declare
+  v_c jsonb := public.shop_content('drogeria-kostolne');
+begin
+  assert v_c ->> 'ratio' = '16:9', 'visitors get the ratio';
+  -- a shown file slide carries its crop (drogeria's files are hidden by the earlier checks: see content_slot_crop above)
+  assert not exists (select 1 from jsonb_array_elements(v_c -> 'slides') e where e ->> 'kind' in ('pdf', 'picture') and e ->> 'crop' is null);
+  assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.shop_content(text)'::regprocedure), 'still without JIT';
+end $$;
+reset role;
 
 \echo 'ALL DATABASE CHECKS PASSED'

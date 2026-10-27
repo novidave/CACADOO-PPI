@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { srcSet, type SlideImage, type SlideView } from "@/lib/pageContent";
+import { cropPosition, DEFAULT_RATIO, ratioCss, ratioValue, srcSet, type SliderRatio, type SlideImage, type SlideView } from "@/lib/pageContent";
 import { PlayMark } from "./YouTubePlay";
 
 export interface ContentSliderLabels {
@@ -16,7 +16,6 @@ export interface ContentSliderLabels {
   pages_other: string;
   download_pdf: string;
   download: string;
-  show_text: string;
   open_pdf: string;
   open_picture: string;
   page_of: string;
@@ -38,7 +37,27 @@ const SIZES = "(min-width: 792px) 760px, calc(100vw - 32px)";
 const fill = (text: string, values: Record<string, string | number>) =>
   text.replace(/\{(\w+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all));
 
-function Picture({ image, alt, load, priority, className }: { image: SlideImage; alt: string; load: boolean; priority?: boolean; className: string }) {
+/**
+ * The frame every slide shares (update 44): the ratio, as wide as the slider, at most 80 % of the screen high (then
+ * narrower, centred). The caption, the arrows and the counter use the same width, so nothing moves between slides.
+ */
+export function frameStyle(ratio: SliderRatio): React.CSSProperties {
+  return { aspectRatio: ratioCss(ratio), width: `min(100%, calc(80vh * ${ratioValue(ratio)}))` };
+}
+
+function Picture({
+  image,
+  alt,
+  load,
+  priority,
+  position,
+}: {
+  image: SlideImage;
+  alt: string;
+  load: boolean;
+  priority?: boolean;
+  position: string;
+}) {
   const img = (
     // eslint-disable-next-line @next/next/no-img-element -- pictures are already 800/1600 px: srcset, no optimisation
     <img
@@ -52,25 +71,28 @@ function Picture({ image, alt, load, priority, className }: { image: SlideImage;
       fetchPriority={priority ? "high" : undefined}
       decoding="async"
       draggable={false}
-      className={className}
+      // The frame is filled (never stretched): the owner's "Výrez" keeps the top, the middle or the bottom.
+      className="absolute inset-0 h-full w-full object-cover"
+      style={{ objectPosition: position }}
     />
   );
   // Only the slides that are needed get their picture; without JavaScript every picture is there.
   return load ? img : <noscript>{img}</noscript>;
 }
 
-/** ▶ in black and white (no colours): the blog's mark, smaller next to a word. */
-const PlayIcon = ({ small = false }: { small?: boolean }) => <PlayMark size={small ? 28 : 64} />;
+/** ▶ in black and white (no colours), always the same size in the middle of the frame. */
+const PlayIcon = () => <PlayMark size={64} />;
 
 /**
  * "Obsah stránky" (database update 38): ONE slider on the shop page with blog posts, PDFs and pictures in the owner's
- * order — at most 10 slides. A swipe on a touch screen (native scroll snapping, so it also works without JavaScript),
- * ‹ › buttons and the ← → keys on a computer, "3 / 10" and a dot per slide. The box follows the current slide's
- * height (each picture at most 80 % of the screen high, never cropped or stretched). Only the current and the next
- * slide's pictures load (once the slider is near the screen); the rest when they are next. A PDF or a picture opens
- * in the full-screen viewer (SectionZoom: a PDF "Slider" page by page, or "Pod sebou" all pages one under another).
- * Reduced motion: no smooth scrolling, no height animation. The texts of PDFs and pictures are in the HTML under
- * "Zobraziť text" (screen readers, search engines). `preview`: the editor's live preview (nothing opens).
+ * order — at most 10 slides. Update 44: every slide has the same frame (the shop's "Pomer strán slidera", 4:5 by
+ * default) filled by its picture (object-fit cover, the owner's "Výrez" top / middle / bottom), and the same caption
+ * below it with fixed places — the title (2 lines at most), one meta line (the date, or "5 strán"), one action ("Čítať",
+ * "Stiahnuť PDF", "Stiahnuť") — that keep their space when empty. So the slider never changes height, and the arrows
+ * (centred on the frame), ▶, the counter and the dots stay where they are on every slide. A swipe (native scroll
+ * snapping, also without JavaScript), ‹ › and the ← → keys; only the current and the next slide's pictures load.
+ * A PDF or a picture opens uncropped in the full-screen viewer (SectionZoom); its text is the slide's description for
+ * screen readers (and the viewer's), with no visible "Zobraziť text". `preview`: the editor's live preview.
  */
 export function ContentSlider({
   views,
@@ -80,6 +102,7 @@ export function ContentSlider({
   allNews,
   labels,
   lang,
+  ratio = DEFAULT_RATIO,
   preview = false,
   first = false,
 }: {
@@ -91,6 +114,7 @@ export function ContentSlider({
   allNews: string | null;
   labels: ContentSliderLabels;
   lang: string;
+  ratio?: SliderRatio;
   preview?: boolean;
   /** Right under the shop's opening hours on a phone: the first picture asks to load first. */
   first?: boolean;
@@ -98,14 +122,13 @@ export function ContentSlider({
   const region = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLOListElement>(null);
   const box = useRef<HTMLDivElement>(null);
-  const slides = useRef<(HTMLLIElement | null)[]>([]);
   const [current, setCurrent] = useState(0);
-  const [height, setHeight] = useState<number | null>(null);
   const near = useRef(false);
   const total = views.length;
   const [wanted, setWanted] = useState<ReadonlySet<number>>(() => new Set(display === "open" || preview ? [0] : []));
   const want = (i: number) => setWanted((prev) => withNeighbours(prev, i, total));
   const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const frame = frameStyle(ratio);
 
   // Near the screen (or a closed dropdown opened): the current and the next slide may load.
   useEffect(() => {
@@ -122,15 +145,6 @@ export function ContentSlider({
     return () => io.disconnect();
   }, [total]);
 
-  // The box is as high as the current slide (a picture loading or "Zobraziť text" opened changes it).
-  useEffect(() => {
-    const el = slides.current[current];
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setHeight(el.offsetHeight));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [current, total]);
-
   const go = (index: number) => {
     const el = track.current;
     if (!el) return;
@@ -138,7 +152,7 @@ export function ContentSlider({
     el.scrollTo({ left: i * el.clientWidth, behavior: reduced() ? "auto" : "smooth" });
     setCurrent(i);
     want(i);
-    // ‹ on the first slide or › on the last is disabled and would drop the focus: the keys keep working.
+    // ‹ on the first slide or › on the last is hidden and would drop the focus: the keys keep working.
     const active = document.activeElement as HTMLElement | null;
     if ((i === 0 && active?.dataset.sliderPrev !== undefined) || (i === total - 1 && active?.dataset.sliderNext !== undefined)) {
       region.current?.focus({ preventScroll: true });
@@ -170,7 +184,23 @@ export function ContentSlider({
     return fill(form === "one" ? labels.pages_one : form === "few" ? labels.pages_few : labels.pages_other, { n });
   };
   const inert = preview ? { tabIndex: -1, onClick: (e: React.MouseEvent) => e.preventDefault() } : {};
-  const media = "mx-auto block h-auto max-h-[80vh] w-auto max-w-full object-contain";
+  const frameClass = "relative mx-auto overflow-hidden bg-[#f4f4f4]";
+  const action = "rounded border border-foreground px-3 py-1.5 text-sm font-medium";
+
+  /** The caption under every frame: three fixed places (8 + 44 + 6 + 20 + 6 + 36 = 120 px), each keeps its height when empty. */
+  const caption = (titleNode: React.ReactNode, meta: React.ReactNode, act: React.ReactNode) => (
+    <div className="mx-auto grid h-[7.5rem] grid-rows-[2.75rem_1.25rem_2.25rem] content-start gap-1.5 pt-2" style={{ width: frame.width }} data-slide-caption>
+      <div className="line-clamp-2 font-semibold leading-snug" data-slide-title>
+        {titleNode}
+      </div>
+      <div className="truncate text-sm leading-5 text-muted" data-slide-meta>
+        {meta}
+      </div>
+      <div className="flex items-end" data-slide-action-slot>
+        {act}
+      </div>
+    </div>
+  );
 
   const slide = (view: SlideView, i: number) => {
     const load = wanted.has(i);
@@ -189,42 +219,38 @@ export function ContentSlider({
           }
         : null;
       return (
-        <article className="flex flex-col gap-2" data-slide-kind="post" data-slide-video={video ? "" : undefined}>
-          {view.image && (
-            <div className="relative">
-              <a href={view.href} tabIndex={-1} aria-hidden="true" {...inert} className="block">
-                <Picture image={view.image} alt="" load={load} priority={first && i === 0} className="mx-auto block h-auto max-h-[55vh] w-auto max-w-full object-contain" />
-              </a>
-              {play && (
-                <a {...play} className="absolute inset-0 flex items-center justify-center">
-                  <PlayIcon />
-                </a>
+        <article data-slide-kind="post" data-slide-video={video ? "" : undefined}>
+          <div className={frameClass} style={frame} data-slide-frame>
+            <a href={view.href} tabIndex={-1} aria-hidden="true" {...inert} className="absolute inset-0 block">
+              {view.image ? (
+                <Picture image={view.image} alt="" load={load} priority={first && i === 0} position={cropPosition("center")} />
+              ) : (
+                // No photo: a neutral frame with the title.
+                <span className="absolute inset-0 flex items-center justify-center p-6 text-center text-lg font-semibold" data-slide-no-photo>
+                  {view.title}
+                </span>
               )}
-            </div>
-          )}
-          {play && !view.image && (
-            <a {...play} className="flex items-center gap-2 self-start font-medium underline underline-offset-4">
-              <PlayIcon small />
-              {labels.video}
             </a>
-          )}
-          <time dateTime={view.dateTime} className="text-sm text-muted">
-            {view.date}
-          </time>
-          <h3 className="text-lg font-semibold leading-snug">
+            {play && (
+              <a {...play} className="absolute inset-0 flex items-center justify-center" data-slide-play-mark>
+                <PlayIcon />
+              </a>
+            )}
+          </div>
+          {caption(
             <a href={view.href} tabIndex={focus} {...inert} className="hover:underline">
               {view.title}
-            </a>
-          </h3>
-          {view.excerpt && <p className="line-clamp-2 text-sm">{view.excerpt}</p>}
-          <a href={view.href} tabIndex={focus} {...inert} className="self-start font-medium underline underline-offset-4" data-slide-read>
-            {labels.read}
-          </a>
+            </a>,
+            <time dateTime={view.dateTime}>{view.date}</time>,
+            <a href={view.href} tabIndex={focus} {...inert} className="font-medium underline underline-offset-4" data-slide-read>
+              {labels.read}
+            </a>,
+          )}
         </article>
       );
     }
-    const text = view.kind === "pdf" ? view.pages.map((p) => p.text).filter((t) => t.trim()).join("\n\n") : view.text;
-    const zoom = (image: SlideImage, index: number, label: string, extra: React.AnchorHTMLAttributes<HTMLAnchorElement> = {}) =>
+    const textId = `slide-text-${view.key}`;
+    const zoom = (image: SlideImage, index: number, label: string, text: string) =>
       preview
         ? {}
         : {
@@ -235,62 +261,59 @@ export function ContentSlider({
             "data-zoom-group": view.key,
             "data-zoom-index": index,
             "data-zoom-label": label,
+            ...(text.trim() ? { "data-zoom-text": text } : {}),
             ...(view.kind === "pdf" && view.layout === "stacked" ? { "data-zoom-mode": "stacked" } : {}),
-            ...extra,
           };
+    const text = view.kind === "pdf" ? view.pages.map((p) => p.text).filter((t) => t.trim()).join("\n\n") : view.text;
+    const described = text.trim() ? { "aria-describedby": textId } : {};
+    const download = view.download && !preview && (
+      <a href={view.download} rel="nofollow" tabIndex={focus} className={action} data-slide-download>
+        {view.kind === "pdf" ? labels.download_pdf : labels.download}
+      </a>
+    );
     return (
-      <figure className="flex flex-col gap-2" data-slide-kind={view.kind}>
-        {view.kind === "pdf" ? (
-          <>
-            <a
-              {...zoom(view.pages[0], 0, fill(labels.page_of, { n: 1, total: view.pages.length }))}
-              tabIndex={focus}
-              aria-label={fill(labels.open_pdf, { title: view.title })}
-              className="block border border-line"
-            >
-              <Picture image={view.pages[0]} alt={fill(labels.page_alt, { title: view.title, n: 1 })} load={load} priority={first && i === 0} className={media} />
-            </a>
-            {/* The other pages for the viewer (never loaded here). */}
-            {!preview &&
-              view.pages.slice(1).map((p, k) => (
-                <a key={p.large} {...zoom(p, k + 1, fill(labels.page_of, { n: k + 2, total: view.pages.length }))} hidden tabIndex={-1}>
-                  {fill(labels.page_alt, { title: view.title, n: k + 2 })}
-                </a>
-              ))}
-          </>
-        ) : (
-          <a {...zoom(view.image, 0, view.title ?? view.alt)} tabIndex={focus} aria-label={labels.open_picture} className="block">
-            <Picture image={view.image} alt={view.alt} load={load} priority={first && i === 0} className={media} />
-          </a>
-        )}
-        <figcaption className="flex flex-col gap-1.5">
+      <figure data-slide-kind={view.kind} data-slide-crop={view.crop}>
+        <div className={frameClass} style={frame} data-slide-frame>
           {view.kind === "pdf" ? (
-            <span>
-              <span className="font-semibold">{view.title}</span> <span className="text-sm text-muted">· {plural(view.pages.length)}</span>
-            </span>
+            <>
+              <a
+                {...zoom(view.pages[0], 0, fill(labels.page_of, { n: 1, total: view.pages.length }), view.pages[0].text)}
+                {...described}
+                tabIndex={focus}
+                aria-label={fill(labels.open_pdf, { title: view.title })}
+                className="absolute inset-0 block"
+              >
+                <Picture image={view.pages[0]} alt={fill(labels.page_alt, { title: view.title, n: 1 })} load={load} priority={first && i === 0} position={cropPosition(view.crop)} />
+              </a>
+              {/* The other pages for the viewer (never loaded here). */}
+              {!preview &&
+                view.pages.slice(1).map((p, k) => (
+                  <a key={p.large} {...zoom(p, k + 1, fill(labels.page_of, { n: k + 2, total: view.pages.length }), p.text)} hidden tabIndex={-1}>
+                    {fill(labels.page_alt, { title: view.title, n: k + 2 })}
+                  </a>
+                ))}
+            </>
           ) : (
-            view.title && <span className="font-semibold">{view.title}</span>
-          )}
-          {view.download && !preview && (
-            <a href={view.download} rel="nofollow" tabIndex={focus} className="self-start rounded border border-foreground px-3 py-1.5 text-sm font-medium" data-slide-download>
-              {view.kind === "pdf" ? labels.download_pdf : labels.download}
+            <a {...zoom(view.image, 0, view.title ?? view.alt, view.text)} {...described} tabIndex={focus} aria-label={labels.open_picture} className="absolute inset-0 block">
+              <Picture image={view.image} alt={view.alt} load={load} priority={first && i === 0} position={cropPosition(view.crop)} />
             </a>
           )}
-          {text.trim() && (
-            <details className="text-sm" data-slide-text>
-              <summary className="cursor-pointer" tabIndex={focus}>
-                {labels.show_text}
-              </summary>
-              <p className="whitespace-pre-line pt-1">{text}</p>
-            </details>
-          )}
+        </div>
+        {/* The text as written: the slide's description for screen readers and search engines (no visible button). */}
+        {text.trim() && (
+          <p id={textId} className="sr-only" data-slide-text>
+            {text}
+          </p>
+        )}
+        <figcaption>
+          {caption(view.title, view.kind === "pdf" ? plural(view.pages.length) : null, download || null)}
         </figcaption>
       </figure>
     );
   };
 
   const arrow =
-    "absolute top-1/2 z-10 -translate-y-1/2 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xl leading-none shadow-sm disabled:opacity-0";
+    "pointer-events-auto absolute top-1/2 z-10 -translate-y-1/2 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xl leading-none shadow-sm disabled:invisible";
   const slider = (
     <div
       ref={region}
@@ -301,13 +324,9 @@ export function ContentSlider({
       tabIndex={0}
       onKeyDown={onKeyDown}
       data-content-slider
+      data-ratio={ratio}
     >
-      <div
-        ref={box}
-        className="relative w-full overflow-hidden transition-[height] duration-200 motion-reduce:transition-none"
-        style={height ? { height } : undefined}
-        data-slider-box
-      >
+      <div ref={box} className="relative w-full overflow-hidden" data-slider-box>
         <ol
           ref={track}
           onScroll={onScroll}
@@ -316,10 +335,7 @@ export function ContentSlider({
           {views.map((view, i) => (
             <li
               key={view.key}
-              ref={(el) => {
-                slides.current[i] = el;
-              }}
-              className="w-full shrink-0 snap-start snap-always px-px pb-1"
+              className="w-full shrink-0 snap-start snap-always px-px"
               aria-hidden={i !== current}
               aria-roledescription="slide"
               data-slide={i}
@@ -329,22 +345,23 @@ export function ContentSlider({
           ))}
         </ol>
         {total > 1 && (
-          <>
+          // Over the frame (same width and ratio): ‹ › in its vertical middle, a hidden one keeps its place.
+          <div className="pointer-events-none absolute inset-x-0 top-0 mx-auto" style={frame} data-slider-arrows>
             <button type="button" onClick={() => go(current - 1)} disabled={current === 0} aria-label={labels.prev} className={`${arrow} left-2`} data-slider-prev>
               ‹
             </button>
             <button type="button" onClick={() => go(current + 1)} disabled={current === total - 1} aria-label={labels.next} className={`${arrow} right-2`} data-slider-next>
               ›
             </button>
-          </>
+          </div>
         )}
       </div>
       {total > 1 && (
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm">
-          <span className="tabular-nums" aria-live="polite" data-slider-counter>
+        <div className="flex h-6 items-center justify-center gap-3 text-sm" data-slider-nav>
+          <span className="inline-block w-[7ch] text-center tabular-nums" aria-live="polite" data-slider-counter>
             {current + 1} / {total}
           </span>
-          <span className="flex flex-wrap gap-1.5">
+          <span className="flex gap-1.5">
             {views.map((view, i) => (
               <button
                 key={view.key}
@@ -359,23 +376,31 @@ export function ContentSlider({
           </span>
         </div>
       )}
-      {allNews && (
-        <a href={allNews} {...inert} className="self-end text-sm underline underline-offset-4" data-all-news>
-          {labels.all_news}
-        </a>
-      )}
     </div>
+  );
+
+  // "Všetky novinky": its fixed place in the header row, right of the title (never inside a slide).
+  const news = allNews && (
+    <a href={allNews} {...inert} className="shrink-0 text-sm underline underline-offset-4" data-all-news>
+      {labels.all_news}
+    </a>
   );
 
   // "Vždy otvorené" (default) or "Rozbaľovacie"; the title can be hidden (screen readers still get it).
   return display === "collapsed" ? (
     <details className="border border-line p-3" data-page-content="collapsed">
       <summary className="cursor-pointer text-lg font-semibold">{title}</summary>
-      <div className="pt-3">{slider}</div>
+      <div className="flex flex-col gap-2 pt-3">
+        {news && <div className="flex justify-end">{news}</div>}
+        {slider}
+      </div>
     </details>
   ) : (
     <section aria-label={title} className="flex flex-col gap-3" data-page-content="open">
-      <h2 className={showTitle ? "text-lg font-semibold" : "sr-only"}>{title}</h2>
+      <div className="flex items-baseline justify-between gap-3" data-slider-header>
+        <h2 className={showTitle ? "text-lg font-semibold" : "sr-only"}>{title}</h2>
+        {news}
+      </div>
       {slider}
     </section>
   );

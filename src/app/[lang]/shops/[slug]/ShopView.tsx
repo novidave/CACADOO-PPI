@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import type { Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopperPdfAllowed, shopSiteHost, type PublicShop } from "@/lib/data";
+import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
 import { blogCount } from "@/lib/blog";
 import { blogPath } from "@/lib/blogFormat";
@@ -28,6 +28,7 @@ import { shopChatEnabled } from "@/lib/shopChat";
 import { storeJsonLd } from "@/lib/jsonLd";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { getShopContent, slideViews } from "@/lib/sections";
+import { sliderRatio } from "@/lib/pageContent";
 import { getShopLanguages } from "@/lib/shopLanguages";
 import { getShopTexts } from "@/lib/contentTranslations";
 import { TranslationNote } from "@/components/TranslationNote";
@@ -36,7 +37,7 @@ import { ContactLinks } from "@/components/ContactLinks";
 import { JsonLd } from "@/components/JsonLd";
 import { ContentSlider } from "@/components/ContentSlider";
 import { SectionZoom } from "@/components/SectionZoom";
-import { ShopChat } from "@/components/ShopChat";
+import { ShopAssistant } from "@/components/ShopAssistant";
 import { ShopMap } from "@/components/ShopMap";
 import { LiveStatus } from "@/components/ShopStatus";
 import { StockLine } from "@/components/StockLine";
@@ -91,14 +92,15 @@ export async function shopMetadata(lang: Locale, slug: string): Promise<Metadata
 export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug: string; sp: SearchParams; onSite: boolean }) {
   const [dict, shop] = await Promise.all([getDictionary(lang), getShop(slug)]);
   if (!shop) notFound();
-  const host = await shopSiteHost(shop.slug).catch(() => null);
-  if (onSite && !host) notFound();
   const defaultLang = siteLang(shop.country, shop.site_lang);
 
   const q = (first(sp.q) ?? "").trim();
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
-  // The AI assistant is a paid feature: shown only when the database says the shop has the plan.
-  const [{ items, total }, assistant, shopperPdf, calendars, content, posts] = await Promise.all([
+  // Everything that needs only the shop, at once (no waterfall). The AI assistant is a paid feature: shown only when
+  // the database says the shop has the plan.
+  const [host, langs, { items, total }, assistant, shopperPdf, calendars, content, posts] = await Promise.all([
+    shopSiteHost(shop.slug).catch(() => null),
+    getShopLanguages(shop.slug, shop.country),
     getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
     shopChatEnabled() ? shopHasPlan(shop.id) : Promise.resolve(false),
     // "Stiahnuť túto konverzáciu (PDF)" (database update 24): only with the archive on.
@@ -110,10 +112,12 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     // The blog (database update 37): "Novinky" only with at least one post shown.
     blogCount(shop.slug).catch(() => 0),
   ]);
+  if (onSite && !host) notFound();
+  // No products at all after "Vymazať celý sklad" (update 43): "Sortiment sa práve aktualizuje" until the next file.
+  const resetting = items.length === 0 && !q ? await shopStockResetting(shop.slug).catch(() => false) : false;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(requestedPage, pages);
   // The shop's texts in the visitor's language (update 40): the original stays; "Zobraziť originál" = ?original=1.
-  const langs = await getShopLanguages(shop.slug, shop.country);
   const original = first(sp.original) === "1";
   const postIds = (content?.slides ?? []).flatMap((s) => (s.kind === "post" ? [s.post.id] : []));
   const texts = await getShopTexts(shop.slug, lang, langs, original, [
@@ -160,7 +164,9 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           </p>
         )}
         {shop.has_card_terminal && <p className="text-sm font-semibold">{dict.shop.card_terminal}</p>}
-        <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        {/* Two columns on phones: where a link sits never depends on the letters' widths, so nothing moves when
+            Quicksand replaces the fallback font (one wrapping row re-wrapped and pushed the page down). */}
+        <p className="grid grid-cols-2 items-start gap-x-4 gap-y-1 text-sm sm:flex sm:flex-wrap" data-shop-contacts>
           {hasLocation && (
             <a href={directionsUrl(shop.lat!, shop.lng!)} className="underline underline-offset-4" target="_blank" rel="noopener">
               {dict.shop.directions}
@@ -217,12 +223,13 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           allNews={sliderNews ? newsHref : null}
           labels={dict.content}
           lang={lang}
+          ratio={sliderRatio(content.ratio)}
         />
       )}
 
       {/* 4. and 5. The assistant (paid plan): always open; "Mám prístupový kľúč" as a closed dropdown under it. */}
       {assistant && (
-        <ShopChat
+        <ShopAssistant
           slug={shop.slug}
           lang={lang}
           shopName={shop.name}
@@ -260,7 +267,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         </form>
 
         {items.length === 0 ? (
-          <p>{dict.shop.no_items}</p>
+          <p data-stock-note={resetting ? "updating" : "none"}>{resetting ? dict.shop.stock_updating : dict.shop.no_items}</p>
         ) : (
           <ul className="divide-y divide-line border-y border-line">
             {items.map((item) => {

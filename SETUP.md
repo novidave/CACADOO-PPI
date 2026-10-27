@@ -1572,6 +1572,89 @@ Do the steps in order.
     **"Od obchodu"**. A file with a column per language: `public/samples/stock-sample-2lang.csv` (approve the proposed
     "Názov HU" → Názov tovaru · Magyar in Môj obchod → columns).
 
+## Part AM — A tidier "Tovar" list: one link per product, filters, what the shopper sees (22 October 2026)
+
+- **Môj obchod → Jazyky a inventár → Tovar**: one short line instead of the two explanations ("Viac" opens the rest);
+  above the list "Posledný súbor: <dátum a čas> · aktuálny / starší / zastaraný"; the filters **Všetko / Na sklade /
+  Vypredané / Bez popisu / Chýba preklad** with their numbers; per product one link **"Popis a preklady"** (the old
+  "Upraviť preklad" dropdown is gone — corrections are made on the product's "Preklady" tab); the column **"Čo vidí
+  zákazník"** shows the shopper's exact text ("22 ks na sklade", "Vypredané") or, when the last file is older than
+  24 hours, "Skryté – údaje sú staršie ako 24 h · Nahrať nový súbor".
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/41_items_list.sql` → Run → "Success". Safe to run
+   again. Nothing else to set (no secrets, no functions). Until you run it, the list works without the filters.
+2. **Other languages:** Admin → Preklady → **"Preložiť chýbajúce texty"** for each switched-on language other than
+   SK/HU/EN (the new texts show in English there until then).
+3. **Check:** Môj obchod → Jazyky a inventár → Tovar → tap each filter: the number on it = the rows listed; "Čo vidí
+   zákazník" says the same as your shop page.
+
+## Part AN — Speed, quicker taps and an error list (22 October 2026)
+
+Nothing changes in what the pages show. Pages load faster (search, the shop page, Môj obchod lists), the map, the
+shop assistant and the language list load after the page, taps answer at once, and server errors are listed for the
+admin under **"Chyby za posledných 7 dní"** (no visitor data). Details and numbers: `PERFORMANCE.md`.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/42_performance.sql` → Run → "Success". Safe to run
+   again. It adds a stored search column with its index (can take a minute on a big catalogue), faster search and
+   owner-list functions, the error list, and switches off JIT for the website's queries (if the editor says JIT could
+   not be changed for the whole database, that is fine — the functions carry it themselves).
+2. **New secret `REVALIDATE_SECRET`** (any random text of at least 16 characters, e.g. from a password manager):
+   - Vercel → Project → Settings → Environment Variables → add `REVALIDATE_SECRET` (Production + Preview, Sensitive).
+   - Supabase → Edge Functions → Secrets → add the same `REVALIDATE_SECRET`. `SITE_URL` must already be there
+     (https address of the website).
+   - Supabase → Edge Functions → **stock-pull** → paste the new `supabase/functions/stock-pull/index.ts` → Deploy
+     (after an upload it tells the website to show the new stock at once; without the secret pages refresh within 60 s).
+3. **Region:** `vercel.json` now runs the website's functions in Frankfurt (`fra1`). Check Supabase → Project Settings
+   → General → Region: if it is not Frankfurt (eu-central-1), change `regions` in `vercel.json` to the nearest Vercel
+   region (e.g. `dub1` for Ireland, `arn1` for Stockholm, `cdg1` for Paris) before merging.
+4. **Speed Insights and Web Analytics:** Vercel → Project → Speed Insights → Enable; Analytics → Enable. Both are
+   cookie-free; the privacy page already says so.
+5. **Optional — Sentry:** to get server errors in Sentry as well, add `SENTRY_DSN` (Vercel environment variable).
+   Without it the admin list still works.
+6. **Performance check on every preview (GitHub Actions):** it runs by itself when Vercel reports a preview. Repository
+   → Settings → Secrets and variables → Actions: if previews are protected, add the secret
+   `VERCEL_AUTOMATION_BYPASS_SECRET` (Vercel → Project → Settings → Deployment Protection → Protection Bypass for
+   Automation); add the variables `LHCI_SHOP` (a shop slug with stock) and `LHCI_ITEM` (one of its item ids).
+7. **Check:** open a shop page on a phone — the map box shows at once, the map follows; Môj obchod → Jazyky a inventár →
+   Tovar answers quickly; Admin → Predplatné a domény → "Chyby za posledných 7 dní" shows "Žiadne chyby…" or a list.
+
+## Part AO — "Začať sklad odznova": delete uploaded files, remove missing products, reset and restore the stock (23 October 2026)
+
+Môj obchod → **Priečinok s exportom** now holds "Posledné nahrané súbory" again (with **"Vymazať všetky nahrané
+súbory"**) and, collapsed at the bottom, **"Nebezpečná zóna – sklad"**: remove the products missing from the last file,
+delete the whole stock and start again, "Obnoviť sklad" (30 days), "Zálohy" (backup CSVs, 30 days) and "Posledné akcie".
+Blog, slider, assistant, private folders, contacts, domain, subscription and opening hours are never touched.
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/43_inventory_reset.sql` → Run → "Success". Safe to run
+   again. If it says "pg_cron is not on", switch on pg_cron (Database → Extensions) and run it once more (the daily job
+   `ppi-inventory-purge` empties the 30-day trash and old backups).
+2. **stock-pull:** Supabase → Edge Functions → **stock-pull** → paste the new `supabase/functions/stock-pull/index.ts` →
+   Deploy ("Verify JWT" stays off). It now deletes a shop's uploaded raw files from Storage when its owner deletes them;
+   until it is deployed the files disappear from the list at once and from Storage with the shop's next upload.
+3. **Check on Davide Paint shop** (in this order):
+   - Priečinok s exportom → Posledné nahrané súbory → "Vymazať všetky nahrané súbory" → the dialog counts the files →
+     "Vymazať": the list says "Žiadny nahraný súbor · nahrajte nový", the products stay on the shop page.
+   - Nebezpečná zóna – sklad → "Odstrániť chýbajúce produkty": the list shows what is missing from the last file →
+     confirm: a backup CSV downloads, only those products are gone.
+   - "Vymazať celý sklad" → type the shop's name → "Vymazať sklad": the CSV downloads, the shop page says
+     "Sortiment sa práve aktualizuje.", Môj obchod asks for a new stock file.
+   - "Obnoviť sklad" → everything is back as it was (products, quantities, prices, translations, descriptions).
+   - Delete the whole stock again → upload a new file with the same codes → the translations and descriptions return.
+   - At most 3 removals a day per shop; "Obnoviť sklad" is refused (with the reason) after a newer file was applied.
+
+## Part AP — The slider's fixed frame: "Pomer strán slidera" and "Výrez" (27 October 2026)
+
+Every slide of "Obsah stránky" now has the same frame (4:5 unless the shop picks 1:1 or 16:9), filled by its picture;
+the buttons, counter and dots never move. Môj obchod shows the computer preview under the phone preview.
+"Zobraziť text" is gone (the text stays for screen readers and in the viewer).
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/44_slider_ratio.sql` → Run → "Success". Safe to run
+   again. Nothing else to deploy (no Edge Function changed, no new secrets).
+2. **Check on davide.sk** (Davide Paint shop): every slide has the same 4:5 frame and the slider does not change
+   height when you swipe; tap a picture or PDF → it opens whole (not cropped). Môj obchod → Obsah stránky: "Pomer strán
+   slidera" and "Výrez" per picture/PDF change the previews at once; the computer preview is under the phone preview;
+   "Uložiť" keeps them.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

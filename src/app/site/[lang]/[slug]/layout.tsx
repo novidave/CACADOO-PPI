@@ -10,9 +10,10 @@ import { getShop } from "@/lib/data";
 import { getShopLanguages } from "@/lib/shopLanguages";
 import { getSiteLogo } from "@/lib/sections";
 import { type SiteVerification, verificationMetadata } from "@/lib/siteFiles";
-import { createPublicClient } from "@/lib/supabase/public";
+import { createCachedPublicClient } from "@/lib/supabase/public";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { notoFallback, quicksand } from "../../../fonts";
+import { VercelMetrics } from "@/components/VercelMetrics";
 import "../../../globals.css";
 
 /**
@@ -25,7 +26,7 @@ import "../../../globals.css";
  */
 export async function generateMetadata({ params }: LayoutProps<"/site/[lang]/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const supabase = createPublicClient();
+  const supabase = createCachedPublicClient();
   const [shop, meta, host] = await Promise.all([
     getShop(slug).catch(() => null),
     // The owner's Google ("HTML značka") and Bing meta tags (update 36; nothing before it).
@@ -87,6 +88,7 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
             )}
             <LanguagePicker
               current={lang}
+              currentNative={languageOf(lang)?.native ?? lang}
               enabled={enabled}
               recommended={[...new Set([langs.main, homeLang, ...langs.preferred])]}
               labels={dict.languages}
@@ -95,6 +97,8 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
           </div>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+        {/* Cookie-free, only on Vercel (elsewhere their scripts do not exist); loaded after the page (privacy page). */}
+        {process.env.VERCEL && <VercelMetrics />}
       </body>
     </html>
   );

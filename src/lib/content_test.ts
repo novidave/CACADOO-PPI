@@ -3,7 +3,22 @@
 // keep their order, the plan's slide and PDF numbers, a downgraded shop), the counters, srcset and excerpts — and
 // where Môj obchod's sections live now (old addresses forwarded). Run: npm run test:content
 import { forwardUrl, movedFrom, sectionId, sectionPath, sectionUrl } from "./dashboardPages.ts";
-import { arrangeSlides, canAdd, cardExcerpt, shownSlots, slotCounts, srcSet, type LibraryItem, type Slot } from "./pageContent.ts";
+import {
+  arrangeSlides,
+  canAdd,
+  cardExcerpt,
+  cropPosition,
+  ratioCss,
+  ratioSize,
+  ratioValue,
+  shownSlots,
+  slideCrop,
+  sliderRatio,
+  slotCounts,
+  srcSet,
+  type LibraryItem,
+  type Slot,
+} from "./pageContent.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -93,14 +108,17 @@ Deno.test("The card's two lines: the post's text as written, cut at a word", () 
 
 Deno.test("Môj obchod: each section has one page; old addresses are forwarded with their query", () => {
   eq(sectionPath("sk", "assistant"), "/sk/dashboard/assistant", "assistant");
-  eq(sectionPath("sk", "imports"), "/sk/dashboard/assistant", "imports moved from /sync");
+  eq(sectionPath("sk", "imports"), "/sk/sync", "imports back with the stock file (update 43)");
+  eq(sectionPath("sk", "danger"), "/sk/sync", "Nebezpečná zóna – sklad");
   eq(sectionPath("hu", "content"), "/hu/dashboard/content", "content");
   eq(sectionPath("sk", "library"), "/sk/dashboard/content", "library");
   eq(sectionPath("sk", "export"), "/sk/sync", "export stays");
   eq(sectionId("private"), "docs", "Súkromné priečinky = the documents");
   eq(sectionId("sections"), "content", "Sekcie stránky (PDF) → Obsah stránky");
   eq(sectionUrl("sk", "cloud", { shop: "davide", ok: "cloud_connected" }), "/sk/dashboard/assistant?shop=davide&ok=cloud_connected&at=cloud#cloud", "cloud");
-  eq(movedFrom("sync", "imports"), true, "/sync?at=imports");
+  eq(movedFrom("sync", "imports"), false, "/sync?at=imports stays");
+  eq(movedFrom("assistant", "imports"), true, "the old address on Asistent is forwarded");
+  eq(forwardUrl("sk", "imports", { shop: "davide", at: "imports" }), "/sk/sync?shop=davide&at=imports#imports", "imports → /sync");
   eq(movedFrom("sync", "private"), true, "/sync?at=private");
   eq(movedFrom("sync", "export"), false, "export");
   eq(movedFrom("dashboard", "sections"), true, "/dashboard?at=sections");
@@ -153,4 +171,16 @@ Deno.test("The slider's ▶: the article (at its video) or the post on Facebook,
   eq(videoSlide(null, "facebook", post), null, "not a video post");
   eq(videoSlide(ytShare, "facebook", post)?.facebook, true, "the Facebook label");
   eq(isFacebookUrl("https://fb.watch/abc") && isFacebookUrl("https://m.facebook.com/x") && !isFacebookUrl("http://www.facebook.com/x"), true, "https Facebook only");
+});
+
+Deno.test("update 44: one frame for every slide (Pomer strán slidera) and the Výrez", () => {
+  eq(sliderRatio(null), "4:5", "never chosen = 4:5");
+  eq(sliderRatio("1:1"), "1:1", "1:1 kept");
+  eq(sliderRatio("3:2"), "4:5", "an unknown ratio = 4:5");
+  eq([ratioValue("4:5"), ratioValue("1:1"), ratioValue("16:9").toFixed(4)], [0.8, 1, "1.7778"], "width ÷ height");
+  eq(ratioCss("16:9"), "16 / 9", "CSS aspect-ratio");
+  eq([ratioSize("4:5"), ratioSize("1:1"), ratioSize("16:9")], ["1080 × 1350", "1080 × 1080", "1600 × 900"], "the upload hint's size");
+  eq(1080 / 1350, ratioValue("4:5"), "the hinted size has the frame's ratio");
+  eq([slideCrop(undefined), slideCrop("top"), slideCrop("left")], ["center", "top", "center"], "Výrez: the middle unless chosen");
+  eq([cropPosition("top"), cropPosition("center"), cropPosition("bottom")], ["50% 0%", "50% 50%", "50% 100%"], "object-position");
 });

@@ -1,27 +1,33 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import "maplibre-gl/dist/maplibre-gl.css";
-import { shopStatus, STATUS_COLORS, type StatusInput, type StatusLabels } from "@/lib/hours";
-import { useNow } from "./ShopStatus";
+import dynamic from "next/dynamic";
+import { useEffect, useRef, useState } from "react";
+import type { StatusLabels } from "@/lib/hours";
+import type { MapShop } from "./ShopMapCanvas";
 
-export interface MapShop {
-  slug: string;
-  name: string;
-  lat: number;
-  lng: number;
-  href: string;
-  /** The shop's status dot (open / break / closed / holiday / no hours), refreshed every minute. */
-  status?: StatusInput;
+export type { MapShop } from "./ShopMapCanvas";
+
+// maplibre (≈ 280 kB) and its CSS load only with the canvas, never with the page.
+const ShopMapCanvas = dynamic(() => import("./ShopMapCanvas").then((m) => m.ShopMapCanvas), { ssr: false });
+
+// The visitor's first scroll, touch, key or mouse move on this page (remembered for maps that mount later, e.g. the
+// chat's "Zobraziť mapu"). MapLibre blocks a slow phone's main thread for most of a second while it starts, so it
+// never starts before that: never during the first view, never in the way of the first tap.
+const ENGAGE = ["pointerdown", "touchstart", "keydown", "wheel", "scroll", "mousemove"] as const;
+let engaged = false;
+const waiting = new Set<() => void>();
+function onEngage() {
+  engaged = true;
+  for (const e of ENGAGE) window.removeEventListener(e, onEngage, true);
+  for (const run of waiting) run();
+  waiting.clear();
 }
+if (typeof window !== "undefined") for (const e of ENGAGE) window.addEventListener(e, onEngage, { capture: true, passive: true });
 
 /**
- * Black-and-white map of shops (OpenFreeMap "positron" tiles: free, no API key,
- * commercial use allowed). Purely an extra: every page works without it.
- * Tapping a pin marks that shop's results (elements with data-shop="<slug>").
- * With statuses, each pin is the shop's status colour (white outline, thin dark ring) and says
- * the status in words in its tooltip; the page shows it in words next to the shop too. The
- * colours follow the clock every minute.
+ * The map's place on the page: a plain light box of the map's exact size first (nothing moves when the map comes),
+ * then the interactive map — near the screen after the visitor's first scroll, touch or key (when the browser is
+ * idle), or at once when it is tapped or focused. Purely an extra: every page works and shows its data without it.
  */
 export function ShopMap({
   shops,
@@ -30,6 +36,7 @@ export function ShopMap({
   className = "h-64 md:h-96",
   statusLabels,
   renderedAt = 0,
+  opened = false,
 }: {
   shops: MapShop[];
   visitor?: { lat: number; lng: number } | null;
@@ -39,111 +46,58 @@ export function ShopMap({
   statusLabels?: StatusLabels;
   /** Date.now() on the server (the first render of the colours). */
   renderedAt?: number;
+  /** Opened by a tap (the chat's "Zobraziť mapu"): the map starts at once. */
+  opened?: boolean;
 }) {
-  const container = useRef<HTMLDivElement>(null);
-  const pins = useRef(new Map<string, HTMLElement>());
-  const now = useNow(renderedAt);
-  // Re-create the map only when the pins really change.
-  const key = JSON.stringify({ shops, visitor, statusLabels });
+  const box = useRef<HTMLDivElement>(null);
+  const [live, setLive] = useState(opened);
 
   useEffect(() => {
-    const { shops, visitor, statusLabels } = JSON.parse(key) as {
-      shops: MapShop[];
-      visitor?: { lat: number; lng: number } | null;
-      statusLabels?: StatusLabels;
+    if (live || !box.current) return;
+    // Near the screen and after the visitor's first interaction (above), in an idle moment; a tap on the box: at once.
+    let seen = false;
+    let idle: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const go = () => setLive(true);
+    const maybe = () => {
+      if (!seen || idle !== undefined || timer !== undefined) return;
+      if (!engaged) {
+        waiting.add(maybe);
+        return;
+      }
+      if ("requestIdleCallback" in window) idle = window.requestIdleCallback(go, { timeout: 2500 });
+      else timer = setTimeout(go, 300);
     };
-    if (!container.current || shops.length === 0) return;
-    let map: import("maplibre-gl").Map | undefined;
-    let cancelled = false;
-
-    import("maplibre-gl").then((maplibre) => {
-      if (cancelled || !container.current) return;
-      // Copied there by scripts/copy-maplibre-worker.mjs (see that file for why).
-      maplibre.setWorkerUrl(`/maplibre/${maplibre.getVersion()}/maplibre-gl-worker.mjs`);
-      map = new maplibre.Map({
-        container: container.current,
-        style: "https://tiles.openfreemap.org/styles/positron",
-        center: [shops[0].lng, shops[0].lat],
-        zoom: 14,
-        attributionControl: { compact: true },
-        cooperativeGestures: true, // one finger scrolls the page, two move the map
-      });
-      map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
-
-      const bounds = new maplibre.LngLatBounds();
-      for (const shop of shops) {
-        const pin = document.createElement("button");
-        pin.type = "button";
-        pin.className = "ppi-pin";
-        pin.title = shop.name;
-        pin.setAttribute("aria-label", shop.name);
-        pin.dataset.pin = shop.slug;
-        if (shop.status) paint(pin, shop, statusLabels, Date.now());
-        pins.current.set(shop.slug, pin);
-        pin.addEventListener("click", () => highlight(shop.slug));
-
-        const popup = new maplibre.Popup({ offset: 12, closeButton: false }).setDOMContent(popupContent(shop));
-        new maplibre.Marker({ element: pin }).setLngLat([shop.lng, shop.lat]).setPopup(popup).addTo(map);
-        bounds.extend([shop.lng, shop.lat]);
-      }
-      if (visitor) {
-        const me = document.createElement("div");
-        me.className = "ppi-pin-visitor";
-        new maplibre.Marker({ element: me }).setLngLat([visitor.lng, visitor.lat]).addTo(map);
-        bounds.extend([visitor.lng, visitor.lat]);
-      }
-      if (shops.length > 1 || visitor) map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 0 });
-    });
-
-    const known = pins.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        seen = entries.some((e) => e.isIntersecting);
+        maybe();
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(box.current);
     return () => {
-      cancelled = true;
-      known.clear();
-      map?.remove();
+      observer.disconnect();
+      waiting.delete(maybe);
+      if (idle !== undefined) window.cancelIdleCallback(idle);
+      if (timer) clearTimeout(timer);
     };
-  }, [key]);
-
-  // Every minute (and right after load): the pins' colours follow the clock.
-  useEffect(() => {
-    for (const shop of shops) {
-      const pin = pins.current.get(shop.slug);
-      if (pin && shop.status) paint(pin, shop, statusLabels, now);
-    }
-  }, [now, shops, statusLabels]);
+  }, [live]);
 
   if (shops.length === 0) return null;
-  return <div ref={container} role="region" aria-label={label} className={`w-full border border-line ${className}`} />;
-}
-
-/** The pin in the shop's status colour, with "Name · Otvorené" as its tooltip and label. */
-function paint(pin: HTMLElement, shop: MapShop, labels: StatusLabels | undefined, now: number) {
-  if (!shop.status) return;
-  const status = shopStatus(shop.status, new Date(now));
-  pin.style.background = STATUS_COLORS[status.state];
-  pin.dataset.status = status.state;
-  if (labels) {
-    const text = `${shop.name} · ${status.closedByLaw ? labels.closed_holiday : labels[status.state]}`;
-    pin.title = text;
-    pin.setAttribute("aria-label", text);
-  }
-}
-
-function popupContent(shop: MapShop): HTMLElement {
-  const link = document.createElement("a");
-  link.href = shop.href;
-  link.textContent = shop.name;
-  link.className = "font-medium underline underline-offset-4";
-  return link;
-}
-
-/** Mark one shop's rows in the result list and bring the first into view. */
-function highlight(slug: string) {
-  const rows = document.querySelectorAll<HTMLElement>("[data-shop]");
-  let first: HTMLElement | null = null;
-  rows.forEach((row) => {
-    const match = row.dataset.shop === slug;
-    row.toggleAttribute("data-highlight", match);
-    if (match && !first) first = row;
-  });
-  (first as HTMLElement | null)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  return (
+    <div
+      ref={box}
+      role="region"
+      aria-label={label}
+      className={`ppi-map-box relative w-full border border-line ${className}`}
+      onPointerDown={() => setLive(true)}
+      onFocus={() => setLive(true)}
+      data-map={live ? "live" : "waiting"}
+    >
+      {live && (
+        <ShopMapCanvas shops={shops} visitor={visitor} label={label} className="h-full" statusLabels={statusLabels} renderedAt={renderedAt} />
+      )}
+    </div>
+  );
 }

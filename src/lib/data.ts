@@ -4,7 +4,7 @@ import { loadLiveSites } from "./customDomain";
 import type { CalendarDay } from "./hours";
 import { missingColumn } from "./missingColumn";
 import { loadCalendars } from "./shopCalendar";
-import { createClient } from "./supabase/server";
+import { createCachedPublicClient } from "./supabase/public";
 import type { OpeningHours } from "./hours";
 import type { NameI18n } from "./names";
 import type { AvailabilityKey, FreshnessState, StockRow } from "./stock";
@@ -76,8 +76,12 @@ async function publicShops<T>(query: (columns: string) => PromiseLike<{ data: T 
   return await query(SHOP_COLUMNS_BEFORE_26);
 }
 
+/**
+ * What visitors see, read with the anon key and no cookies through the short shared cache (createCachedPublicClient:
+ * at most 60 s old; owner saves and new stock files refresh it at once). Every visitor — an owner too — sees the same.
+ */
 async function client() {
-  const supabase = await createClient();
+  const supabase = createCachedPublicClient();
   if (!supabase) throw new Error("Supabase is not configured (see SETUP.md)");
   return supabase;
 }
@@ -142,6 +146,15 @@ export async function getShopCalendars(shopIds: string[], days = 16): Promise<Ma
  */
 export async function shopperPdfAllowed(slug: string): Promise<boolean> {
   const { data, error } = await (await client()).rpc("shopper_pdf_allowed", { p_slug: slug });
+  return !error && data === true;
+}
+
+/**
+ * After the owner deleted the whole stock, until the next file is applied: the shop page says "Sortiment sa práve
+ * aktualizuje" instead of "no products" (database update 43 decides; false before it).
+ */
+export async function shopStockResetting(slug: string): Promise<boolean> {
+  const { data, error } = await (await client()).rpc("shop_stock_resetting", { p_slug: slug });
   return !error && data === true;
 }
 

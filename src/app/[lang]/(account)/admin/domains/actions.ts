@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { callDomains } from "@/lib/domains";
+import { refreshAll } from "@/lib/publicCache";
 
 /**
  * "Predplatné a domény" (admin only). The page is shown only to is_admin; every action is
@@ -22,6 +23,8 @@ async function start(formData: FormData) {
   const back = (query: Record<string, string>, at = "shops"): never => {
     const params = new URLSearchParams(keep.startsWith("?") ? keep.slice(1) : keep);
     for (const [k, v] of Object.entries(query)) params.set(k, v);
+    // A saved setting can change every shop's page (holidays, limits, languages): read again at once.
+    if (query.ok) refreshAll();
     redirect(`/${lang}/admin/domains?${params}#${at}`);
   };
   return { session, back };

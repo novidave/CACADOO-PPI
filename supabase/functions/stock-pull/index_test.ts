@@ -5,7 +5,7 @@ import {
   applyMapping, approvalSample, batches, columnSamples, currencyForCountry, decodeText, detectEncoding, detectFormat, guessLanguageColumns, guessMapping,
   isValidMapping, languageField, languageRows, previewFile,
   importReport, indexNowPayload, indexNowSettings, indexNowUrls, isPrivateColumn, mappedColumns, onlyColumns, parseFile, parseNumber,
-  pingIndexNow, readTranslations, receiveUpload, type IndexNowHostClaim, type Mapping, type NameTranslation, type Translator,
+  pingIndexNow, rawFilesUpTo, readTranslations, receiveUpload, revalidateSettings, revalidateSite, type IndexNowHostClaim, type Mapping, type NameTranslation, type Translator,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -194,7 +194,8 @@ Deno.test("a failed translation leaves the stock applied", async () => {
   const { body, background, calls, lastError } = await upload(() => Promise.reject(new Error("Claude is unavailable")));
   eq(body.result, { status: "updated", items: 2, zeroed: 0, skipped: 0 }, "stock applied");
   eq(calls, ["apply_stock_file", "record_stock_import", "items_to_translate"], "translations not saved");
-  eq(background, [{ host: null, sent: 0, status: null, skipped: "no key" }, { saved: 0, failed: 1 }], "failure caught in the background");
+  // IndexNow (no key: nothing), the website's cache (not set up: nothing), the translations
+  eq(background, [{ host: null, sent: 0, status: null, skipped: "no key" }, null, { saved: 0, failed: 1 }, 0], "failure caught in the background");
   eq(lastError, "Item names could not be translated (the stock is fine): Claude is unavailable", "the owner sees why");
 });
 
@@ -205,7 +206,7 @@ Deno.test("translations are saved after the stock, in the background", async () 
   eq(body.result.status, "updated", "stock applied");
   eq(calls, ["apply_stock_file", "record_stock_import", "items_to_translate", "apply_item_translations"], "order of database calls");
   eq((rpc[3].args.p_items as NameTranslation[])[0].en, "White facade paint 5 l", "saved translation");
-  eq(background, [{ host: null, sent: 0, status: null, skipped: "no key" }, { saved: 1, failed: 0 }], "one item translated (no IndexNow key: no request)");
+  eq(background, [{ host: null, sent: 0, status: null, skipped: "no key" }, null, { saved: 1, failed: 0 }, 0], "one item translated (no IndexNow key, no cache settings: no request)");
 });
 
 // ---------------------------------------------------------------- IndexNow (update 36)
@@ -506,4 +507,98 @@ Deno.test("a second file in another language (option B): matched by code or EAN,
     { source_code: "P1", ean: null, name: "Fehér festék", description: null, category: null, quantity: 99, price: 9.9 },
     { source_code: null, ean: "8590000000011", name: "Kávé", description: null, category: null, quantity: null, price: null },
   ], "a row without code and EAN is left out; the purchase price is never read");
+});
+
+Deno.test("the website's cache: SITE_URL + REVALIDATE_SECRET, one POST per shop, never the secret in the address", async () => {
+  const env = (vars: Record<string, string>) => (name: string) => vars[name];
+  const SECRET = "0123456789abcdef0123";
+  eq(revalidateSettings(env({ SITE_URL: "https://ppi.example.com/sk", REVALIDATE_SECRET: ` ${SECRET} ` })), { url: "https://ppi.example.com", secret: SECRET }, "both");
+  eq(revalidateSettings(env({ SITE_URL: "http://ppi.example.com", REVALIDATE_SECRET: "short" })), { url: null, secret: null }, "no https, a short secret");
+  eq(revalidateSettings(env({})), { url: null, secret: null }, "nothing set");
+
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fake = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init ?? {} });
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  eq(await revalidateSite({ url: "https://ppi.example.com", secret: SECRET, fetch: fake }, "potraviny-centrum"), 200, "sent");
+  eq(calls.length, 1, "one request");
+  eq(calls[0].url, "https://ppi.example.com/api/revalidate", "the website's address");
+  eq((calls[0].init.headers as Record<string, string>)["x-ppi-revalidate"], SECRET, "the secret in a header");
+  eq(JSON.parse(String(calls[0].init.body)), { slug: "potraviny-centrum" }, "the shop");
+  eq(calls[0].url.includes(SECRET), false, "never in the address");
+  eq(await revalidateSite({ url: null, secret: SECRET, fetch: fake }, "x"), null, "no SITE_URL: nothing");
+  eq(await revalidateSite({ url: "https://ppi.example.com", secret: SECRET, fetch: fake }, null), null, "no shop: nothing");
+  eq(calls.length, 1, "nothing more sent");
+  const failing = (() => Promise.reject(new Error("down"))) as unknown as typeof fetch;
+  eq(await revalidateSite({ url: "https://ppi.example.com", secret: SECRET, fetch: failing }, "x"), null, "a failure never throws");
+});
+
+// ---------------------------------------------------------------- update 43: deleting the uploaded files
+
+/** A Storage bucket of raw files and the database calls of a "delete_files" request. */
+function rawFilesDb(names: string[], before: string | null, member = true) {
+  const stored = new Set(names.map((n) => `${SHOP}/${n}`));
+  const removed: string[] = [];
+  const rpc: { name: string; args: Record<string, unknown> }[] = [];
+  const db = {
+    rpc(name: string, args: Record<string, unknown>) {
+      rpc.push({ name, args });
+      return Promise.resolve({ data: null, error: null });
+    },
+    from: () => ({ select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { raw_files_delete_before: before }, error: null }) }) }) }),
+    storage: {
+      from: (bucket: string) => {
+        assert(bucket === "raw-files", "only the raw files bucket");
+        return {
+          list: (folder: string) => Promise.resolve({ data: [...stored].filter((p) => p.startsWith(`${folder}/`)).map((p) => ({ name: p.split("/")[1] })), error: null }),
+          remove: (paths: string[]) => {
+            for (const p of paths) {
+              stored.delete(p);
+              removed.push(p);
+            }
+            return Promise.resolve({ error: null });
+          },
+        };
+      },
+    },
+  };
+  const asCaller = {
+    rpc: (name: string) => {
+      rpc.push({ name, args: {} });
+      return Promise.resolve(member ? { data: before, error: null } : { data: null, error: { message: "Not a member of this shop" } });
+    },
+  };
+  return { db: db as unknown as SupabaseClient, asCaller: asCaller as unknown as SupabaseClient, removed, rpc, stored };
+}
+
+const BEFORE = "2026-10-23T08:00:00.000Z";
+const OLD = `${Date.parse(BEFORE) - 60_000}.csv`;
+const SAME = `${Date.parse(BEFORE)}.xlsx`;
+const NEWER = `${Date.parse(BEFORE) + 1}.xml`;
+
+Deno.test("deleting the uploaded files: only those saved up to the owner's tap; a newer upload stays", () => {
+  eq(rawFilesUpTo([OLD, SAME, NEWER, "notes.txt"], BEFORE), [OLD, SAME], "by the time in the name");
+  eq(rawFilesUpTo([OLD], "not a time"), [], "no time: nothing");
+});
+
+Deno.test("delete_files: the owner's login decides; the raw files go from Storage and the mark is cleared", async () => {
+  const url = new URL(`http://localhost/stock-pull?shop_id=${SHOP}&action=delete_files`);
+  const owner = rawFilesDb([OLD, SAME, NEWER], BEFORE);
+  const res = await receiveUpload(new Request(url, { method: "POST" }), url.searchParams, owner.asCaller, owner.db);
+  eq(res.status, 200, "done");
+  eq(await res.json(), { deleted: 2 }, "two files");
+  eq([...owner.stored], [`${SHOP}/${NEWER}`], "the newer upload stays");
+  eq(owner.rpc.map((c) => c.name), ["owner_raw_files_to_delete", "raw_files_deleted"], "asked with the owner's login, then cleared");
+  eq(owner.rpc[1].args, { p_shop_id: SHOP, p_before: BEFORE }, "cleared only for that time");
+
+  const stranger = rawFilesDb([OLD], BEFORE, false);
+  const refused = await receiveUpload(new Request(url, { method: "POST" }), url.searchParams, stranger.asCaller, stranger.db);
+  eq(refused.status, 403, "another shop's owner");
+  eq(stranger.removed, [], "nothing deleted");
+
+  const nothing = rawFilesDb([OLD], null);
+  const none = await receiveUpload(new Request(url, { method: "POST" }), url.searchParams, nothing.asCaller, nothing.db);
+  eq(await none.json(), { deleted: 0 }, "no deletion asked: nothing deleted");
+  eq(nothing.removed, [], "the files stay");
 });

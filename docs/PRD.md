@@ -1182,8 +1182,11 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
 - Title set by the owner (default "Novinky a ponuky", shown as written); "Zobraziť názov sekcie" on/off (off: the
   title only for screen readers); "Zobrazenie": "Vždy otvorené" (default) or "Rozbaľovacie" (a closed dropdown whose
   pictures load only when opened).
-- At most 10 slides (the admin's number per plan). Swipe, ‹ › and the ← → keys, counter "3 / 10" + dots; the height
-  follows the current slide, at most 80 % of the screen; only the current and the next slide load their picture, the
+- At most 10 slides (the admin's number per plan). Swipe, ‹ › and the ← → keys, counter "3 / 10" + dots; since
+  update 44 every slide has **the same frame** ("Pomer strán slidera": 4:5 recommended and default, 1:1, 16:9; at most
+  80 % of the screen high) filled by its picture (cropped, never stretched; "Výrez" hore / stred / dole per picture or
+  PDF), a fixed caption (title 2 lines + "…", date or page count, one action bottom-left) — the slider never changes
+  height and the arrows, ▶, counter and dots stay in place; only the current and the next slide load their picture, the
   others are lazy; `prefers-reduced-motion` = no animation. "Všetky novinky" → `/blog` when the shop has posts.
 - Slides: **Automatický článok** and **Pripnutý článok** = a card (photo, date, title, first two lines, "Čítať");
   **PDF** = its first page, title and page count; a tap opens the full-screen viewer, per PDF "Slider" (page by page)
@@ -1197,7 +1200,8 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
 - **Editor** (Môj obchod → **Obsah stránky**): the title and display; counters "Automatické články", "PDF",
   "Pripnuté články", "Obrázky" within the plan's total with "Zostáva X slotov"; for each slot the PDF, pinned post or
   picture from the library; drag and drop (or ↑ ↓) of all slots, "Dať automatické články k sebe"; each slot says what
-  it shows now or why it is not shown; a live preview on a phone and a computer before "Uložiť".
+  it shows now or why it is not shown; "Pomer strán slidera" and "Výrez" per file (update 44); a live preview on a
+  phone and, under it, on a computer (both at their real width, scaled to fit, never cut) before "Uložiť".
 - **Knižnica súborov**: upload, "Upraviť" (title, alt text, viewer, download, visible from/until), "Skryť"/"Zobraziť",
   "Nahradiť", "Vymazať" (every file in both buckets). Free 10 files, Pro 30 (admin's settings).
 - **PDF uploads**: at most 10 MB and 20 pages (free 5; the admin's numbers); the real type is checked; JavaScript,
@@ -1207,10 +1211,11 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
   min. 150 dpi, max 10 MB."
 - **Picture uploads**: JPG, PNG, WebP, HEIC/HEIF, at most 10 MB; upright from the camera's EXIF, every EXIF and GPS
   removed; under 600 px wide refused ("Nahrajte aspoň 800 px na šírku"); over 4000 px made smaller; WebP 800/1600 that
-  keep PNG transparency; never cropped, stretched or enlarged. Hint: "Na mobil je najlepší obrázok na výšku 1080 × 1350
+  keep PNG transparency; never cropped, stretched or enlarged when stored (the slider's frame shows it cropped, the
+  viewer whole). Hint: "Na mobil je najlepší obrázok na výšku 1080 × 1350
   px (4:5). …" Optional alt text; when empty the AI writes one from the picture (never inventing prices or offers).
-- Text is extracted once (screen readers, search engines and the Pro assistant's knowledge, "Zobraziť text" under the
-  slide); nothing is invented or changed. Originals stay in the private bucket; the pictures of shown slides are in the
+- Text is extracted once (screen readers through the slide's description, the full-screen viewer, search engines and
+  the Pro assistant's knowledge; no visible "Zobraziť text" since update 44); nothing is invented or changed. Originals stay in the private bucket; the pictures of shown slides are in the
   public bucket only while shown.
 - Migration: SQL 38 turns every shop's sections into its library and its slider (the old page order, then three
   automatic posts); a section of one picture becomes a picture.
@@ -1633,3 +1638,44 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
 | 2026-10-20 | Shop blog "Novinky": posts written in Cacaduu (photos, scheduling) or imported from the shop's Facebook Page (all past posts, a daily sync, edits and deletions followed), published to the Page on request ("Zverejniť aj na Facebooku?"); `/blog` pages with JSON-LD, RSS, sitemap, llms.txt and IndexNow on Cacaduu and own domains; free shops show the newest 10; privacy and Facebook data deletion pages |
 | 2026-10-20 | Môj obchod → Asistent with its four sections once each; "Obsah stránky": one slider on the shop page with automatic and pinned blog posts, PDFs and pictures in the owner's order (counters per plan, drag and drop, live preview, library with HEIC/PNG/JPEG/WebP pictures and cleaned PDFs); the page sections of updates 28–31 migrated into it |
 | 2026-10-21 | Videos: ▶ on video posts in the slider (to the article or the post on Facebook, the owner's choice), YouTube shares keep YouTube's picture and play on the blog post after a tap (youtube-nocookie), Facebook videos open on Facebook |
+| 2026-10-22 | Speed and fixes pass: cached public pages refreshed on every change, faster search and owner lists (update 42), map/assistant/language list after the page, tap feedback, no layout jumps in Môj obchod, server error list for the admin, Speed Insights, phone e2e and a performance budget on every preview |
+
+
+### 6.19 The "Tovar" list in Môj obchod (database update 41)
+
+- Under Môj obchod → Jazyky a inventár → Tovar: one short line "Množstvá zobrazujeme presne podľa vášho skladového
+  súboru. Názvy a popisy prekladáme automaticky; vaše úpravy prekladov neprepisujeme." + "Viac" (the longer text).
+- Above the list: "Posledný súbor: <date and time in the shop's time zone> · aktuálny / starší / zastaraný"
+  (+ "Nahrať nový súbor" when out of date); "Zatiaľ ste nenahrali žiadny súbor so zásobami." without a file.
+- Filters with their numbers: Všetko / Na sklade / Vypredané (by the quantity in the file) / Bez popisu (no description
+  on the product page) / Chýba preklad (the name or the shown description has no current translation in a language the
+  shop's texts are translated into; an outdated machine translation counts, "Neprekladať" does not).
+- Per product: the name as written, its translation in the page language, small notes "Bez popisu" / "Chýba preklad",
+  and **one** link "Popis a preklady" to the product's page (tabs Popis and Preklady — every correction is made there).
+- Column "Čo vidí zákazník": exactly the shopper's text ("22 ks na sklade", "Vypredané"); when the data is older than
+  24 hours, grey "Skryté – údaje sú staršie ako 24 h · Nahrať nový súbor". Never "–".
+
+### 6.20 "Začať sklad odznova" (database update 43)
+
+- **Where:** Môj obchod → Priečinok s exportom. "Posledné nahrané súbory" (the last 10 stock files) lives there again
+  with **"Vymazať všetky nahrané súbory"**; at the bottom, collapsed on every device, **"Nebezpečná zóna – sklad"**.
+- **"Vymazať všetky nahrané súbory"** (dialog: "Vymažú sa všetky nahrané súbory (X). Sklad na stránke zostane, kým
+  nenahráte nový súbor." → Vymazať / Zrušiť): the list, the last file's name, the mapping's example rows and the raw
+  files in Storage go; the stock stays and its freshness runs out as usual (hidden after 24 h). Everywhere the last file
+  is shown it says "Žiadny nahraný súbor · nahrajte nový" until a new file comes. Not restorable (the backup covers the
+  data). Private-folder files and the assistant's documents are never touched.
+- **Option A "Odstrániť produkty, ktoré nie sú v poslednom súbore"** (recommended first): only the products that are
+  sold out because the latest file did not list them (not those the file lists with 0); the list and the count before
+  confirming. They return with their translations if a later file lists the same code.
+- **Option B "Vymazať celý sklad a začať odznova"**: every product, quantity and price of the shop and every uploaded
+  file. Choices: "Zachovať preklady a popisy pre produkty, ktoré sa vrátia s rovnakým kódom" (on), "Zrušiť aj nastavenie
+  stĺpcov (mapovanie)" (off). The shop's name is typed to confirm. Until the next file the shop page says "Sortiment sa
+  práve aktualizuje." and Môj obchod shows "Nahrajte nový skladový súbor"; sitemaps, search, API/MCP and llms.txt follow
+  at once.
+- **Safety:** before A or B a backup CSV of the whole stock (code, name, EAN, brand, category, description, quantity,
+  price, currency, file time, the Cacaduu description and every translation — never purchase prices or suppliers) is
+  downloaded and kept 30 days under "Zálohy" (not an uploaded file: "Vymazať všetky nahrané súbory" keeps it). Removed
+  products wait 30 days in a trash; "Obnoviť sklad" brings back the newest removal exactly, unless a newer stock file was
+  applied since (then it says so). At most 3 removals per shop and day. Every action is in "Posledné akcie".
+- **Not built:** customer alerts ("Upozorniť ma") and the Pomocník do not exist yet, so there is no "zrušiť upozornenia"
+  choice; the activity log and `owner_inventory_state()` hold what a future Pomocník needs ("Vymazal sa mi sklad?").

@@ -16,7 +16,7 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-line: var(--line);
-  /* Quicksand everywhere (src/app/fonts.ts); the system font only until it has loaded. */
+  /* Quicksand everywhere (src/app/fonts.ts); until it has loaded, a system font of its width (Fallback faces below). */
   --font-sans: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
 }
 
@@ -28,6 +28,68 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-quicksand), var(--font-noto), system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", Arial, sans-serif;
+}
+
+/*
+ * Fallback faces: the system font shown until Quicksand has loaded, scaled to Quicksand's widths so no line wraps
+ * differently when it comes (no layout shift). Normal and semibold/bold separately (a real bold, not a synthesised
+ * one); the overrides keep Quicksand's ascent (1.0) and descent (0.25). Arial (Windows, macOS, iOS) and Roboto
+ * (Android) from their metrics; Liberation Sans (Linux, Arial's metric twin) measured on the site's own texts, because
+ * Linux rounds small letters to whole pixels. A device with none of them uses the next font in the list, as before.
+ */
+@font-face {
+  font-family: PpiFallbackArial;
+  src: local("Arial"), local("ArialMT");
+  font-weight: 100 500;
+  size-adjust: 102.7%;
+  ascent-override: 97.4%;
+  descent-override: 24.3%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackArial;
+  src: local("Arial Bold"), local("Arial-BoldMT");
+  font-weight: 600 900;
+  size-adjust: 100%;
+  ascent-override: 100.0%;
+  descent-override: 25.0%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackLiberation;
+  src: local("Liberation Sans"), local("LiberationSans");
+  font-weight: 100 500;
+  size-adjust: 107.3%;
+  ascent-override: 93.2%;
+  descent-override: 23.3%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackLiberation;
+  src: local("Liberation Sans Bold"), local("LiberationSans-Bold");
+  font-weight: 600 900;
+  size-adjust: 98.4%;
+  ascent-override: 101.6%;
+  descent-override: 25.4%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackRoboto;
+  src: local("Roboto"), local("Roboto-Regular");
+  font-weight: 100 500;
+  size-adjust: 102.9%;
+  ascent-override: 97.2%;
+  descent-override: 24.3%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: PpiFallbackRoboto;
+  src: local("Roboto Bold"), local("Roboto-Bold");
+  font-weight: 600 900;
+  size-adjust: 106.2%;
+  ascent-override: 94.2%;
+  descent-override: 23.5%;
+  line-gap-override: 0%;
 }
 
 /* MapLibre sets its own font on the map, its buttons and the pins' tooltips: Quicksand there too. */
@@ -96,6 +158,15 @@ body .maplibregl-ctrl {
   }
 }
 
+/* The map's box before the interactive map loads (ShopMap): light grey with faint "streets", no colour. */
+.ppi-map-box {
+  background-color: #f4f4f4;
+  background-image:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
 /* Map pins: black dot for shops, hollow ring for the visitor. No colour. */
 .ppi-pin {
   width: 16px;
@@ -112,6 +183,44 @@ body .maplibregl-ctrl {
   border-radius: 9999px;
   background: var(--background);
   border: 3px solid var(--foreground);
+}
+
+/*
+ * Taps (performance pass): no double-tap zoom wait, a pressed look at once, a sent form's button busy until the answer
+ * (TapFeedback), and on touch screens every button and dropdown answers within 44 × 44 px without looking bigger.
+ */
+@layer base {
+  a,
+  button,
+  summary,
+  label,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+  button:not(:disabled):active,
+  summary:active,
+  [role="button"]:active {
+    opacity: 0.6;
+  }
+  form[data-pending] [data-tap-busy] {
+    opacity: 0.6;
+    cursor: progress;
+  }
+  @media (pointer: coarse) {
+    button:not(.maplibregl-ctrl button),
+    summary {
+      position: relative;
+    }
+    button:not(.maplibregl-ctrl button)::after,
+    summary::after {
+      content: "";
+      position: absolute;
+      top: min(0px, calc((100% - 44px) / 2));
+      bottom: min(0px, calc((100% - 44px) / 2));
+      left: min(0px, calc((100% - 44px) / 2));
+      right: min(0px, calc((100% - 44px) / 2));
+    }
+  }
 }
 
 /* Result rows of the shop whose pin was tapped. */
