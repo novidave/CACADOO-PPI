@@ -640,6 +640,25 @@ Deno.test("Without FACEBOOK_APP_ID / FACEBOOK_APP_SECRET: config says no, nothin
   eq(await (await post(on.deps, { action: "config" }, "")).json(), { facebook: true }, "with them");
 });
 
+Deno.test("The owner's browser may call it: OPTIONS answered, CORS headers on every answer (photo uploads)", async () => {
+  const w = world();
+  const pre = await handle(new Request("https://proj.supabase.co/functions/v1/shop-blog?action=photo&photo_id=x&size=800", {
+    method: "OPTIONS",
+    headers: { Origin: "https://ppi.test", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization, apikey, content-type, x-client-info" },
+  }), w.deps);
+  eq(pre.status, 204, "the browser's check passes");
+  eq(pre.headers.get("access-control-allow-origin"), "*", "any origin");
+  for (const h of ["authorization", "apikey", "content-type", "x-client-info"]) {
+    eq((pre.headers.get("access-control-allow-headers") ?? "").includes(h), true, `allows ${h}`);
+  }
+  eq((pre.headers.get("access-control-allow-methods") ?? "").includes("POST"), true, "POST allowed");
+  const answer = await post(w.deps, { action: "config" }, "");
+  eq(answer.headers.get("access-control-allow-origin"), "*", "a normal answer carries it too");
+  const refused = await post(w.deps, { action: "connect", shop_id: SHOP, return_url: "https://ppi.test/sk/dashboard/blog" }, "Bearer stranger");
+  eq(refused.status, 403, "the login is still checked");
+  eq(refused.headers.get("access-control-allow-origin"), "*", "an error is readable by the browser too");
+});
+
 // ---------------------------------------------------------------- login and the Page choice
 
 Deno.test("Connect: Facebook's login, back with the Pages to pick (encrypted, no token to the browser), the token stored encrypted", async () => {
