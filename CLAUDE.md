@@ -354,6 +354,11 @@ PPI's sitemap leaves those pages out.
   "Preložené automaticky" note). The small print (what is stored for the shop + "Viac", file limits, "Odpovede píše
   AI") sits behind the blue "GDPR" link in the assistant heading's right corner (`@/components/AssistantHeading`,
   `<details>`, closed by default).
+- The shop's company in Môj obchod's details (update 47, `supabase/sql/47_shop_company.sql`, at the owner's request):
+  under the street the PSČ, then "Obchodné meno firmy", IČO (`shops.ico`, as before) and DIČ — no IČ DPH. PSČ, company
+  name and DIČ live in `shop_company` (RLS: members read; no grants to visitors — anon reads every column of `shops`, so
+  never put owner-only data there), written only by `owner_save_company()` (plain text, empty clears, bad DIČ/PSČ →
+  `dic`/`zip`), read through `my_shops()`. Never on public pages, JSON-LD, API/MCP or the assistant.
 - Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
   Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (details, logo, header logo, plan,
   delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`

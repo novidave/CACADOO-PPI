@@ -154,6 +154,17 @@ export async function saveShop(formData: FormData) {
   });
   // A bad e-mail, Facebook or booking link comes back as the message "email" / "facebook" / "booking".
   if (error) fail(error.code === "54000" ? "limit" : error.message);
+  // The company and the PSČ (update 47): their own function; a bad DIČ / PSČ comes back as "dic" / "zip". Not sent before the
+  // database has it (the form always sends the fields; an unknown function = 42883/PGRST202 is ignored).
+  if (formData.has("company_name") || formData.has("dic") || formData.has("zip")) {
+    const { error: companyError } = await session.supabase.rpc("owner_save_company", {
+      p_shop_id: String(data),
+      p_company_name: text(formData, "company_name", 200),
+      p_dic: text(formData, "dic", 20),
+      p_zip: text(formData, "zip", 12),
+    });
+    if (companyError && companyError.code !== "PGRST202" && companyError.code !== "42883") fail(companyError.message);
+  }
   const { data: saved } = await session.supabase.from("shops").select("slug").eq("id", String(data)).maybeSingle();
   refreshShop(saved?.slug);
   redirect(
