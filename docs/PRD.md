@@ -1741,3 +1741,21 @@ here from "Jazyky a inventár" (old addresses forwarded).
   Always next to the availability in words.
 - **Product page:** no "Preložené automaticky · Zobraziť originál" line; the names and the data in one frame with bullet points (price
   with the dot, Dostupnosť, Značka, EAN, Kategória), the description under a thin line in the same frame.
+
+### 6.23 "Pripojiť skladový program (API)" (database update 49)
+
+- On "Priečinok s exportom", first: the shop connects its inventory program with a key that only reads. Built:
+  SuperFaktúra, WooCommerce, "Vlastné API (JSON/CSV URL s API kľúčom)"; Shoptet and Dotykačka "Pripravujeme" (their
+  documentation could not be checked yet). Each program has a hint where to make the key.
+- Pro by default (every 15 min); the admin may allow Free with its own slower interval (default 24 h). SuperFaktúra at
+  most once an hour (its daily limit).
+- The key goes from the browser straight to Cacaduu's function, is tested, stored only encrypted, never shown again
+  ("••••1234" + date). "Otestovať pripojenie", "Zmeniť kľúč", "Odpojiť" (deletes it at once).
+- First a preview (first rows, number of products, the fields) → "Schváliť a spustiť". Changed fields → asked again.
+  Nothing is published before the approval.
+- One source at a time: while connected, the folder and the upload say "Sklad sa aktualizuje cez <program>".
+- A run applies only a complete list; a partial, empty or failed answer never changes the stock. No quantities →
+  "Údaje o množstve tento program neposiela": names and prices only if the owner agrees, never an availability.
+- The card: program, connected since, last success ("X produktov, Y zmien"), next sync, the last error in plain
+  Slovak, "Synchronizovať teraz" (4× an hour). Invalid key → "Kľúč neplatný" and one e-mail after 24 h.
+- Purchase prices, suppliers and margins are never asked for; if a program sends them they are dropped first.

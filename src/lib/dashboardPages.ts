@@ -13,7 +13,7 @@ export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs"
  * stock file's columns), "Preklady v priečinku" (update 45: the translations folder and the stock files in other
  * languages), "Posledné nahrané súbory" (back here since update 43) and "Nebezpečná zóna – sklad".
  */
-export const EXPORT_SECTIONS = ["export", "review", "trfolder", "imports", "conversations-pc", "danger"];
+export const EXPORT_SECTIONS = ["api", "export", "review", "trfolder", "imports", "conversations-pc", "danger"];
 export const CONTENT_SECTIONS = ["content", "library", "sections"];
 /** "Jazyky a inventár" (update 40): the items and every translation (languages, columns and files moved in update 45). */
 export const TRANSLATION_SECTIONS = ["items", "translations"];

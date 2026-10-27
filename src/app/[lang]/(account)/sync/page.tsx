@@ -19,6 +19,7 @@ import { ConversationFolderSync } from "@/components/ConversationFolderSync";
 import { DbError } from "@/components/DbError";
 import { FolderSync } from "@/components/FolderSync";
 import { InstallApp } from "@/components/InstallApp";
+import { InventoryConnect, type InventoryApiState } from "@/components/InventoryConnect";
 import { BackupDownload, DeleteFilesButton, InventoryResetOptions } from "@/components/InventoryDangerZone";
 import { PendingButton } from "@/components/PendingButton";
 import { RecentImports } from "@/components/RecentImports";
@@ -40,6 +41,8 @@ function first(value: string | string[] | undefined): string | undefined {
 
 /**
  * "Priečinok s exportom" — also the shop PC's PPI window (the installed app starts here), in this order:
+ * 0. "Pripojiť skladový program (API)" (update 49): the stock read straight from the shop's inventory program; while
+ *    one is connected it is the only source, so the folder and the uploads below say so instead of sending files;
  * 1. "Priečinok so skladom": the folder the stock software exports to (read only; while open, the newest file is sent
  *    every 15 minutes);
  * 2. "Po nahratí súboru" (update 45): "Nový súbor – skontrolujte" when a file brought new columns or products, the
@@ -80,7 +83,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   }
 
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
-  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData] = await Promise.all([
+  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData, apiData] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.from("shop_items").select("id", { count: "exact", head: true }).eq("shop_id", shop.id),
     // The last 10 stock files (none before update 21).
@@ -92,7 +95,14 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
     supabase.rpc("owner_export_review", { p_shop_id: shop.id }),
     // the shop's languages (update 40)
     supabase.rpc("owner_language_settings", { p_shop_id: shop.id }),
+    // the connected inventory program (update 49; nothing before it)
+    supabase.rpc("owner_inventory_api", { p_shop_id: shop.id }),
   ]);
+  const api = apiData.error ? null : (apiData.data as InventoryApiState | null);
+  const apiConn = api?.connection ?? null;
+  const ia = dict.inventory_api;
+  const programName = apiConn ? ((ia as Record<string, string>)[`name_${apiConn.provider}`] ?? apiConn.provider) : "";
+  const apiTimes = apiData.error ? null : ((apiData.data as { connection?: Record<string, string | null> | null } | null)?.connection ?? null);
   const review = reviewData.error ? null : (reviewData.data as ReviewState | null);
   const settings = settingsData.error ? null : ((Array.isArray(settingsData.data) ? settingsData.data[0] : settingsData.data) as LanguageSettings | undefined) ?? null;
   const all = languageList(enabled);
@@ -117,6 +127,24 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   const latestImport = importData?.latest ?? null;
   // Deleted files are not shown anywhere as present (update 43): "Žiadny nahraný súbor · nahrajte nový".
   const lastUpload = state?.files_cleared ? null : (latestImport?.received_at ?? shop.latest_file_time);
+  const apiTime = (key: string) => {
+    const iso = apiTimes?.[key];
+    return iso ? formatDateTime(iso, lang, shop.timezone) : null;
+  };
+  const apiSummary = !apiConn
+    ? ia.summary_none
+    : apiConn.status === "preview"
+      ? t(ia.summary_preview, { program: programName })
+      : apiConn.last_error_code && apiConn.status !== "active"
+        ? t(ia.summary_error, { program: programName })
+        : t(ia.summary_connected, { program: programName, when: apiTimes?.last_success_at ? recentlyText(apiTimes.last_success_at, lang, shop.timezone, dict, now) : ia.never });
+  // While a program is connected, the folder and the uploads say so instead (one source at a time).
+  const apiLock = apiConn ? (
+    <div className="flex flex-col gap-1 border border-foreground p-3 text-sm" data-api-lock>
+      <p className="font-semibold">{t(ia.lock_note, { program: programName })}</p>
+      <p>{ia.lock_text}</p>
+    </div>
+  ) : null;
   const summaries = {
     export: state?.files_cleared
       ? r.files_none
@@ -157,7 +185,21 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
       </header>
 
       <div className="flex flex-col border-t border-line">
-        <DashboardSection {...m.section("export")} first title={ex.stock_title} summary={summaries.export}>
+        {api && (
+          <DashboardSection {...m.section("api")} first title={ia.title} summary={apiSummary}>
+            <InventoryConnect
+              key={`${apiConn?.provider ?? ""}:${apiConn?.status ?? ""}:${(apiConn?.fields ?? []).join(",")}:${JSON.stringify(apiConn?.mapping ?? {})}`}
+              shopId={shop.id}
+              state={api}
+              dates={{ connected: apiTime("connected_at"), keyChanged: apiTime("key_changed_at"), lastSuccess: apiTime("last_success_at"), nextRun: apiTime("next_run_at") }}
+              planHref={`/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`}
+              labels={ia}
+              fieldLabels={o as unknown as Record<string, string>}
+            />
+          </DashboardSection>
+        )}
+
+        <DashboardSection {...m.section("export")} first={!api} title={ex.stock_title} summary={summaries.export}>
           <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
             <dt className="text-muted">{d.latest_file}</dt>
             <dd data-latest-file>{state?.files_cleared ? r.files_none : when(shop.latest_file_time)}</dd>
@@ -170,15 +212,17 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
             <dt className="text-muted">{d.last_error}</dt>
             <dd>{shop.last_error || dict.account.none}</dd>
           </dl>
-          <FolderSync
-            shopId={shop.id}
-            shopName={shop.name}
-            showName={false}
-            lang={lang}
-            timeZone={shop.timezone}
-            loginHref={`/${lang}/login`}
-            labels={folderSyncLabels(dict)}
-          />
+          {apiLock ?? (
+            <FolderSync
+              shopId={shop.id}
+              shopName={shop.name}
+              showName={false}
+              lang={lang}
+              timeZone={shop.timezone}
+              loginHref={`/${lang}/login`}
+              labels={folderSyncLabels(dict)}
+            />
+          )}
           <div className="flex flex-col gap-1 text-sm">
             <span className="font-medium">{o.export_rules_title}</span>
             <ul className="list-disc pl-6">
@@ -250,12 +294,14 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
               <h3 id="files-title" className="font-semibold">
                 {dict.owner_tr.files_title}
               </h3>
-              <LanguageFileUpload
-                shopId={shop.id}
-                langs={languageList(settings.inventory_langs.filter((c) => c !== settings.main_lang))}
-                mainLabel={languageOf(settings.main_lang)?.native ?? settings.main_lang}
-                labels={dict.owner_tr.files}
-              />
+              {apiLock ?? (
+                <LanguageFileUpload
+                  shopId={shop.id}
+                  langs={languageList(settings.inventory_langs.filter((c) => c !== settings.main_lang))}
+                  mainLabel={languageOf(settings.main_lang)?.native ?? settings.main_lang}
+                  labels={dict.owner_tr.files}
+                />
+              )}
             </section>
           )}
         </DashboardSection>

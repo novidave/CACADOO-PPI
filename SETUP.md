@@ -1673,6 +1673,31 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - Then "Vymazať všetky nahrané súbory", danger zone A and B (B with "Vymazať aj súbory s prekladmi" → the files
      disappear from the folder) and "Obnoviť sklad" as in Part AO.
 
+## Part AR — "Pripojiť skladový program (API)": the stock straight from the shop's program (27 October 2026)
+
+1. **Database:** switch on `pg_cron` and `pg_net` (Database → Extensions; already on from earlier parts), then SQL
+   Editor → paste the whole file `supabase/sql/49_inventory_api.sql` → Run → "Success". Safe to run again. It adds the
+   job `ppi-inventory-tick` (every 5 minutes) and its Vault secret `ppi_inventory_cron` by itself.
+2. **Secret** (Edge Functions → Secrets → Add): `INVENTORY_TOKEN_ENCRYPTION_KEY` = a long random text, e.g. the output
+   of `openssl rand -base64 48`. Keep it: changing it makes every stored key unreadable (the shops then see
+   "Kľúč neplatný" and enter their key again). `BREVO_API_KEY` and `ALERT_EMAIL_FROM` are already there (cloud folder);
+   `SITE_URL`, `REVALIDATE_SECRET` and `INDEXNOW_KEY` too (optional here: the page refreshes within a minute anyway).
+   Never put this key in Vercel or `.env*`.
+3. **Edge Function:** Edge Functions → Deploy a new function → name **`inventory-connect`** → paste the whole file
+   `supabase/functions/inventory-connect/index.ts` → Deploy. Then its **Settings → Verify JWT: off** (the function checks
+   the owner's login and the cron secret itself).
+4. **Admin** (`/sk/admin/domains#inventory`, "Skladové programy (API)"): Pro every 15 minutes (default); Free is off —
+   tick "Povoliť aj bez Pro" to allow it with its own interval (default 24 h). SuperFaktúra, WooCommerce and "Vlastné API"
+   are on; Shoptet and Dotykačka say "Pripravujeme".
+5. **Try it — Davide Paint shop → Priečinok s exportom → "Pripojiť skladový program (API)":**
+   - Pick your program and follow the hint (WooCommerce: a key with "Čítať / Read"; SuperFaktúra: Nástroje → API).
+     For a quick test use **Vlastné API** with any https address that returns your product list as JSON or CSV.
+   - A wrong key → "Kľúč neplatný", nothing is stored. A good key → the preview (first rows, number of products, the
+     fields). Check the fields ("Kód tovaru", "Názov", "Predajná cena", "Množstvo") → **Schváliť a spustiť**.
+   - Within 5 minutes (or **Synchronizovať teraz**, at most 4× an hour) "Posledná úspešná synchronizácia" shows
+     "X produktov, Y zmien"; then every 15 minutes. The folder and the upload now say "Sklad sa aktualizuje cez …".
+   - **Odpojiť** deletes the key at once; the folder and the upload work again; the products stay.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

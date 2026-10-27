@@ -7662,4 +7662,273 @@ end $$;
 reset role;
 update public.shops set is_active = true where slug = 'farby-export';
 
+-- ------------------------------------------------------------------ update 49: inventory program over an API
+\echo '--- inventory API: connection, key never readable, one source, approval, safe runs (update 49)'
+do $$
+declare
+  v_shop uuid;
+  v_free uuid;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-api', 'Farby API', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  perform public.apply_stripe_subscription(v_shop, 'cus_INV1', 'sub_INV1', 'active', 'pro', now() + interval '30 days', null);
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-api-free', 'Farby API Free', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_free;
+  insert into public.shop_members (shop_id, user_id) values (v_free, '00000000-0000-0000-0000-00000000000a');
+  -- the defaults: Pro on every 15 minutes, Free off; SuperFaktúra at least hourly; Shoptet / Dotykačka not built
+  assert (select allowed and interval_minutes = 15 from public.inventory_plan_settings where plan = 'pro');
+  assert (select not allowed and interval_minutes = 1440 from public.inventory_plan_settings where plan = 'free');
+  assert (select not built and not enabled from public.inventory_providers where code = 'shoptet');
+  assert extract(epoch from public.inventory_interval(v_shop, 'superfaktura')) = 3600, 'the provider''s request limit';
+  assert extract(epoch from public.inventory_interval(v_shop, 'woocommerce')) = 900;
+  begin update public.inventory_providers set enabled = true where code = 'dotykacka'; raise exception 'enabled unbuilt';
+  exception when check_violation then null; end;
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_free uuid := (select id from public.shops where slug = 'farby-api-free');
+  v_card jsonb;
+begin
+  assert public.owner_inventory_can_connect(v_shop, 'woocommerce') = 'ok';
+  assert public.owner_inventory_can_connect(v_free, 'woocommerce') = 'plan', 'Free: not by default';
+  assert public.owner_inventory_can_connect(v_shop, 'shoptet') = 'provider', 'Pripravujeme';
+  v_card := public.owner_inventory_api(v_shop);
+  assert (v_card ->> 'allowed')::boolean and v_card -> 'connection' = 'null'::jsonb, v_card::text;
+  assert (select (e ->> 'available')::boolean from jsonb_array_elements(v_card -> 'providers') e where e ->> 'code' = 'shoptet') = false;
+  -- owners never write a connection themselves
+  begin insert into public.inventory_connections (shop_id, provider, key_cipher) values (v_shop, 'custom', 'v1.a.b');
+    raise exception 'owner inserted'; exception when insufficient_privilege then null; end;
+  begin perform public.inventory_save_connection(v_shop, 'custom', 'v1.a.b', '1234', '{}'); raise exception 'service fn callable';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_approve(v_shop, '{}'::jsonb); raise exception 'approved nothing';
+  exception when no_data_found then null; end;
+end $$;
+reset role;
+
+-- the function saves a tested key and the preview
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  perform public.inventory_save_connection(v_shop, 'woocommerce', 'v1.aXY.c2VjcmV0', 'ab12', '{"store_url":"https://obchod.example"}');
+  assert (select status from public.inventory_connections where shop_id = v_shop) = 'preview';
+  assert public.inventory_save_preview(v_shop, array['id', 'sku', 'name', 'price', 'stock_quantity', 'purchase_price'],
+    '[{"sku":"A1","name":"Farba","price":"9.90","stock_quantity":3,"purchase_price":"5"}]', 120, true,
+    '{"source_code":"sku","name":"name","price":"price","quantity":"stock_quantity"}') = 'ok';
+  assert not (select 'purchase_price' = any (fields) from public.inventory_connections where shop_id = v_shop), 'private field dropped';
+  assert not ((select sample_rows -> 0 from public.inventory_connections where shop_id = v_shop) ? 'purchase_price'), 'not in the preview';
+  -- one source: no folder sync, no upload while connected
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_card jsonb;
+begin
+  begin perform public.upload_check_in(v_shop); raise exception 'upload while connected';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'api_connected'; end;
+  -- the key column is not readable, everything else is
+  begin perform (select key_cipher from public.inventory_connections where shop_id = v_shop); raise exception 'key readable';
+  exception when insufficient_privilege then null; end;
+  assert (select key_hint from public.inventory_connections where shop_id = v_shop) = 'ab12';
+  v_card := public.owner_inventory_api(v_shop);
+  assert not (v_card -> 'connection' ? 'key_cipher') and v_card::text not like '%c2VjcmV0%', 'the card has no key';
+  assert v_card #>> '{connection,status}' = 'preview' and v_card #>> '{connection,mapping_status}' = 'proposed';
+  -- nothing runs before the approval
+  begin perform public.owner_inventory_sync_now(v_shop); raise exception 'synced before approval';
+  exception when invalid_parameter_value then assert sqlerrm = 'not_active'; end;
+  -- a mapping must use the API's fields, never a private one, and have code, name, price and quantity
+  begin perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"price"}'); raise exception 'no quantity';
+  exception when invalid_parameter_value then assert sqlerrm = 'mapping'; end;
+  begin perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"purchase_price","quantity":"stock_quantity"}');
+    raise exception 'private field approved'; exception when invalid_parameter_value then null; end;
+  begin perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"nope","price":"price","quantity":"stock_quantity"}');
+    raise exception 'unknown field approved'; exception when invalid_parameter_value then null; end;
+  begin perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"price"}', true);
+    raise exception 'without quantity although it has one'; exception when invalid_parameter_value then null; end;
+  perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"price","quantity":"stock_quantity","ean":null}');
+  assert (select status = 'active' and mapping_status = 'confirmed' and not (mapping ? 'ean') from public.inventory_connections where shop_id = v_shop);
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'inventory_api_approved');
+end $$;
+reset role;
+
+-- runs: claimed once, complete data applied, empty / older never, failures back off, an invalid key stops
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_r jsonb;
+  v_next timestamptz;
+begin
+  assert (select count(*) from public.inventory_claim(10, v_shop)) = 1, 'due';
+  assert (select count(*) from public.inventory_claim(10, v_shop)) = 0, 'never two runs at once';
+  v_r := public.inventory_apply(v_shop, '[{"source_code":"A1","name":"Farba biela","quantity":3,"price":9.9,"currency":"EUR"},
+                                          {"source_code":"A2","name":"Štetec","quantity":0,"price":2.5,"currency":"EUR"}]',
+                                '2026-10-27 10:00:00+00', '[{"sku":"A1"}]');
+  assert v_r ->> 'status' = 'updated' and (v_r ->> 'items')::int = 2 and (v_r ->> 'changed')::int = 2, v_r::text;
+  assert (select public.freshness_label(latest_file_time) from public.sync_sources where shop_id = v_shop) is not null;
+  assert (select last_file_name from public.sync_sources where shop_id = v_shop) = 'API · woocommerce';
+  -- the same or older data again: refused
+  assert public.inventory_apply(v_shop, '[{"source_code":"A1","name":"Farba biela","quantity":0,"price":9.9}]',
+                                '2026-10-27 10:00:00+00', null) ->> 'status' = 'older';
+  -- an empty result is never "everything sold out"
+  assert public.inventory_apply(v_shop, '[]', '2026-10-27 11:00:00+00', null) ->> 'status' = 'empty';
+  assert (select inv.quantity from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+          where si.shop_id = v_shop and si.source_code = 'A1') = 3, 'stock kept';
+  perform public.inventory_record_import(v_shop, 'API · WooCommerce', '2026-10-27 10:00:00+00', 'ok', 2, 2, 0, 0, null,
+    '[{"sku":"A1","name":"Farba biela","price":"9.9","stock_quantity":3,"purchase_price":"5"}]');
+  assert (select source = 'api' and not (preview -> 0 ? 'purchase_price') from public.stock_imports
+          where shop_id = v_shop order by id desc limit 1), 'the report: source api, approved fields only';
+  perform public.inventory_finish(v_shop, '{"kind":"ok","items":2,"changed":2}');
+  assert (select running_since is null and last_success_at is not null and next_run_at > now() + interval '14 minutes'
+          from public.inventory_connections where shop_id = v_shop);
+  -- a warning (incomplete data): nothing applied, the next run as usual
+  perform public.inventory_finish(v_shop, '{"kind":"warning","code":"incomplete","message":"Not all pages"}');
+  assert (select last_error_code = 'incomplete' and fail_count = 0 from public.inventory_connections where shop_id = v_shop);
+  -- failures: 5 min, then 10, logged once
+  perform public.inventory_finish(v_shop, '{"kind":"error","code":"network","message":"timeout"}');
+  select next_run_at into v_next from public.inventory_connections where shop_id = v_shop;
+  assert v_next between now() + interval '4 minutes' and now() + interval '6 minutes', v_next::text;
+  perform public.inventory_finish(v_shop, '{"kind":"error","code":"network","message":"timeout"}');
+  assert (select next_run_at between now() + interval '9 minutes' and now() + interval '11 minutes' from public.inventory_connections where shop_id = v_shop);
+  perform public.inventory_finish(v_shop, '{"kind":"error","code":"rate_limited","message":"429","retry_after":7200}');
+  assert (select next_run_at > now() + interval '119 minutes' from public.inventory_connections where shop_id = v_shop), 'Retry-After';
+  assert (select count(*) from public.shop_activity where shop_id = v_shop and action = 'inventory_api_error') = 1, 'logged once';
+  perform public.inventory_finish(v_shop, '{"kind":"ok","items":2,"changed":0}');
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'inventory_api_recovered');
+  -- an invalid key stops the runs; after 24 h one e-mail
+  perform public.inventory_finish(v_shop, '{"kind":"error","code":"invalid_key","message":"401"}');
+  assert (select status = 'invalid_key' and next_run_at is null from public.inventory_connections where shop_id = v_shop);
+  assert (select count(*) from public.inventory_claim(10, v_shop)) = 0, 'no runs with an invalid key';
+  assert not exists (select 1 from public.inventory_alerts_due() where shop_id = v_shop), 'not before 24 h';
+  update public.inventory_connections set invalid_since = now() - interval '25 hours' where shop_id = v_shop;
+  assert (select emails from public.inventory_alerts_due() where shop_id = v_shop) = array['owner-a@example.invalid'];
+  perform public.inventory_alert_sent(v_shop);
+  assert not exists (select 1 from public.inventory_alerts_due() where shop_id = v_shop), 'once';
+  -- a new valid key brings it back, mapping kept
+  perform public.inventory_save_connection(v_shop, 'woocommerce', 'v1.bmV3.a2V5', 'cd34', '{"store_url":"https://obchod.example"}');
+  assert (select status = 'active' and mapping_status = 'confirmed' and invalid_since is null from public.inventory_connections where shop_id = v_shop);
+  -- the fields changed: asked again, never approved by itself
+  assert public.inventory_save_preview(v_shop, array['id', 'code', 'title', 'price'], '[]', 10, false, '{"source_code":"code"}') = 'changed';
+  assert (select status = 'preview' and mapping_status = 'proposed' from public.inventory_connections where shop_id = v_shop);
+  assert public.inventory_apply(v_shop, '[{"source_code":"A1","name":"x","quantity":0,"price":1}]', now(), null) ->> 'status' = 'not_active';
+end $$;
+
+-- a provider without quantities: names and prices only, never an availability
+do $$
+declare
+  v_free uuid := (select id from public.shops where slug = 'farby-api-free');
+begin
+  update public.inventory_plan_settings set allowed = true where plan = 'free';
+  perform public.inventory_save_connection(v_free, 'custom', 'v1.YQ.Yg', '9999', '{"format":"json"}');
+  perform public.inventory_save_preview(v_free, array['code', 'title', 'price'], '[]', 1, false, '{"source_code":"code","name":"title","price":"price"}');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_free uuid := (select id from public.shops where slug = 'farby-api-free');
+begin
+  perform public.owner_inventory_approve(v_free, '{"source_code":"code","name":"title","price":"price"}', true);
+  assert (select publish_without_quantity from public.inventory_connections where shop_id = v_free);
+end $$;
+reset role;
+do $$
+declare
+  v_free uuid := (select id from public.shops where slug = 'farby-api-free');
+begin
+  assert public.inventory_apply(v_free, '[{"source_code":"P1","name":"Lak","price":4.2,"currency":"EUR"}]', now(), null) ->> 'status' = 'updated';
+  assert (select public.freshness_label(latest_file_time) from public.sync_sources where shop_id = v_free) = 'stale',
+    'the data time is not renewed: no availability is shown';
+  assert (select availability is null and price = 4.2 from public.public_stock where shop_slug = 'farby-api-free' and item_name = 'Lak');
+  update public.inventory_plan_settings set allowed = false where plan = 'free';
+  assert (select count(*) from public.inventory_claim(10, v_free)) = 0, 'Free switched off: no runs';
+end $$;
+
+-- another owner and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  assert not exists (select 1 from public.inventory_connections where shop_id = v_shop), 'B sees no connection of A';
+  begin perform public.owner_inventory_api(v_shop); raise exception 'B read'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_disconnect(v_shop); raise exception 'B disconnected'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_sync_now(v_shop); raise exception 'B synced'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_approve(v_shop, '{}'); raise exception 'B approved'; exception when insufficient_privilege then null; end;
+  begin perform public.admin_inventory_overview(); raise exception 'not admin'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform (select provider from public.inventory_connections limit 1); raise exception 'anon read';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the admin: settings, providers, the list without keys
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare
+  v_o jsonb;
+begin
+  perform public.admin_save_inventory_settings(30, true, 720);
+  assert (select (e ->> 'interval_minutes')::int from jsonb_array_elements(public.admin_inventory_overview() -> 'plans') e where e ->> 'plan' = 'pro') = 30;
+  perform public.admin_set_inventory_provider('shoptet', true);
+  assert (select not (e ->> 'enabled')::boolean from jsonb_array_elements(public.admin_inventory_overview() -> 'providers') e where e ->> 'code' = 'shoptet'), 'not built: stays off';
+  perform public.admin_set_inventory_provider('woocommerce', false);
+  v_o := public.admin_inventory_overview();
+  assert jsonb_array_length(v_o -> 'connections') >= 2 and v_o::text not like '%v1.%' and v_o::text not like '%cd34%', 'no keys';
+  perform public.admin_set_inventory_provider('woocommerce', true);
+  perform public.admin_save_inventory_settings(15, false, 1440);
+end $$;
+reset role;
+
+-- sync now: 4 an hour; disconnect deletes the key and frees the uploads
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  perform public.owner_inventory_approve(v_shop, '{"source_code":"code","name":"title","price":"price"}', false)
+  ;
+exception when invalid_parameter_value then null; -- no quantity field any more: refused (checked above)
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  perform public.inventory_save_preview(v_shop, array['sku', 'name', 'price', 'stock_quantity'], '[]', 2, true,
+    '{"source_code":"sku","name":"name","price":"price","quantity":"stock_quantity"}');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"price","quantity":"stock_quantity"}');
+  for i in 1..4 loop perform public.owner_inventory_sync_now(v_shop); end loop;
+  begin perform public.owner_inventory_sync_now(v_shop); raise exception 'fifth sync';
+  exception when program_limit_exceeded then assert sqlerrm = 'too_many'; end;
+  perform public.owner_inventory_disconnect(v_shop);
+  assert not exists (select 1 from public.inventory_connections where shop_id = v_shop), 'the key is gone';
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'inventory_api_disconnected');
+  perform public.upload_check_in(v_shop);
+end $$;
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'
