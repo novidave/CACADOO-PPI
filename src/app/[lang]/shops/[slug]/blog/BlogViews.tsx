@@ -24,6 +24,7 @@ import { getShop, shopSiteHost, type PublicShop } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import { shopPageUrl } from "@/lib/jsonLd";
 import { siteUrl } from "@/lib/site";
+import { lora } from "@/app/fonts";
 import { BlogGallery } from "@/components/BlogGallery";
 import { BlogPhoto } from "@/components/BlogPhoto";
 import { PlayMark } from "@/components/YouTubePlay";
@@ -100,7 +101,7 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
   const here = (n: number) => `${blogPath(lang, place, onSite)}${n > 1 ? `?page=${n}` : ""}`;
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6" data-blog-list>
+    <div className={`${lora.variable} mx-auto flex max-w-3xl flex-col gap-6`} data-blog-list>
       <JsonLd
         data={blogJsonLd({
           url: listUrl,
@@ -111,8 +112,8 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
       />
       <Breadcrumb dict={dict} items={[{ label: shop.name, href: shopPath(lang, shop, onSite) }, { label: b.title }]} />
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t(b.title_of, { name: shop.name })}</h1>
-        <p className="text-sm">
+        <h1 className="ppi-blog-h1">{t(b.title_of, { name: shop.name })}</h1>
+        <p className="ppi-blog-nav">
           <Link href={shopPath(lang, shop, onSite)} className="underline underline-offset-4">
             {b.back_shop}
           </Link>
@@ -120,7 +121,7 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
       </header>
 
       {posts.length === 0 ? (
-        <p className="text-muted">{b.empty}</p>
+        <p className="ppi-blog-body text-muted">{b.empty}</p>
       ) : (
         <ol className="flex flex-col divide-y divide-line border-y border-line">
           {posts.map((post) => {
@@ -139,16 +140,16 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
                   </Link>
                 )}
                 <div className="flex min-w-0 flex-col gap-1">
-                  <h2 className="text-lg font-semibold leading-snug">
+                  <h2 className="ppi-blog-h2">
                     <Link href={href} className="hover:underline">
                       {post.title}
                     </Link>
                   </h2>
-                  <p className="text-sm text-muted">
+                  <p className="ppi-blog-caption text-muted">
                     <time dateTime={post.publish_at}>{t(b.published, { date: formatDate(post.publish_at, lang, shop.timezone) })}</time>
                   </p>
-                  {post.body.trim() && <p className="break-words">{excerpt(post.body, 240)}</p>}
-                  <p className="text-sm">
+                  {post.body.trim() && <p className="ppi-blog-body break-words">{excerpt(post.body, 240)}</p>}
+                  <p className="ppi-blog-nav">
                     <Link href={href} className="underline underline-offset-4">
                       {b.read_more}
                     </Link>
@@ -161,7 +162,7 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
       )}
 
       {pages > 1 && (
-        <nav className="flex items-center justify-between gap-4 text-sm" aria-label={t(b.page_of, { page: requested, pages })}>
+        <nav className="ppi-blog-nav flex items-center justify-between gap-4" aria-label={t(b.page_of, { page: requested, pages })}>
           {requested > 1 ? (
             <Link href={here(requested - 1)} className="underline underline-offset-4" rel="prev">
               ← {b.newer}
@@ -180,7 +181,7 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
         </nav>
       )}
 
-      <p className="text-sm">
+      <p className="ppi-blog-nav">
         <a href={blogRssUrl(siteUrl(), place)} className="underline underline-offset-4" type="application/rss+xml">
           {b.rss}
         </a>
@@ -235,7 +236,7 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
   const shownVideos = new Set(post.photos.filter((p) => p.kind === "video").map((p) => youtubeId(p.link)).filter(Boolean));
   const links = post.links.filter((l) => !shownVideos.has(youtubeId(l.url)));
   return (
-    <article className="mx-auto flex max-w-3xl flex-col gap-5" data-blog-article={post.slug}>
+    <article className={`${lora.variable} mx-auto flex max-w-3xl flex-col gap-5`} data-blog-article={post.slug}>
       <JsonLd
         data={blogPostingJsonLd({
           post,
@@ -248,8 +249,8 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
       />
       <Breadcrumb dict={dict} items={[{ label: shop.name, href: shopPath(lang, shop, onSite) }, { label: b.title, href: listPath }, { label: post.title }]} />
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold leading-tight tracking-tight">{post.title}</h1>
-        <p className="text-sm text-muted">
+        <h1 className="ppi-blog-h1">{post.title}</h1>
+        <p className="ppi-blog-caption text-muted">
           <time dateTime={post.publish_at}>{t(b.published, { date: formatDate(post.publish_at, lang, shop.timezone) })}</time>
           {changed(post) && (
             <>
@@ -269,10 +270,10 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
           {links.map((link) => (
             <li key={link.url}>
               <a href={link.url} target="_blank" rel="noopener" className="flex flex-col gap-0.5 border border-line p-3 hover:border-foreground">
-                <span className="text-xs uppercase tracking-wide text-muted">{link.kind === "event" ? b.event : b.link}</span>
+                <span className="ppi-blog-caption uppercase tracking-wide text-muted">{link.kind === "event" ? b.event : b.link}</span>
                 <span className="font-medium break-words">{link.title ?? link.url}</span>
-                {link.description && <span className="text-sm text-muted">{link.description}</span>}
-                <span className="truncate text-sm underline underline-offset-4">{link.url.replace(/^https?:\/\//, "")}</span>
+                {link.description && <span className="ppi-blog-caption text-muted">{link.description}</span>}
+                <span className="ppi-blog-caption truncate underline underline-offset-4">{link.url.replace(/^https?:\/\//, "")}</span>
               </a>
             </li>
           ))}
@@ -280,7 +281,7 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
       )}
 
       {post.source === "facebook" && post.fb_permalink && (
-        <p className="text-sm">
+        <p className="ppi-blog-nav">
           {/* A plain link: no Facebook script, pixel or embedded widget on public pages. */}
           <a href={post.fb_permalink} target="_blank" rel="noopener" className="underline underline-offset-4" data-facebook-original>
             {b.facebook_original}
@@ -288,7 +289,7 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
         </p>
       )}
 
-      <p className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-4 text-sm">
+      <p className="ppi-blog-nav flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-4">
         <Link href={listPath} className="underline underline-offset-4">
           {b.all_posts}
         </Link>
@@ -305,7 +306,7 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
 
 function Breadcrumb({ dict, items }: { dict: Dictionary; items: { label: string; href?: string }[] }) {
   return (
-    <nav aria-label={dict.blog.breadcrumb} className="text-sm text-muted">
+    <nav aria-label={dict.blog.breadcrumb} className="ppi-blog-nav text-muted">
       <ol className="flex flex-wrap items-center gap-x-2">
         {items.map((item, i) => (
           <li key={i} className="flex items-center gap-x-2">

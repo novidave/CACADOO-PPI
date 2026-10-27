@@ -279,3 +279,38 @@ dialog.ppi-sheet {
     inset: 0;
   }
 }
+
+/*
+ * The blog's typography (at the owner's request, 2026-10-27), on the blog list and the blog post pages:
+ * main headings Quicksand Bold 36–48 px, article headings Quicksand Semibold 24–30 px, the article text Lora Regular
+ * 17–19 px, navigation and buttons Quicksand Medium 14–16 px, captions Quicksand Medium 13–14 px. Each size grows
+ * with the screen between the two numbers (phone → computer).
+ */
+@layer components {
+  .ppi-blog-h1 {
+    font-weight: 700;
+    font-size: clamp(2.25rem, 1.85rem + 1.6vw, 3rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+  }
+  .ppi-blog-h2 {
+    font-weight: 600;
+    font-size: clamp(1.5rem, 1.35rem + 0.6vw, 1.875rem);
+    line-height: 1.25;
+  }
+  .ppi-blog-body {
+    font-family: var(--font-lora), var(--font-noto), Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    font-size: clamp(17px, 16.2px + 0.25vw, 19px);
+    line-height: 1.7;
+  }
+  .ppi-blog-nav {
+    font-weight: 500;
+    font-size: clamp(14px, 13.4px + 0.2vw, 16px);
+  }
+  .ppi-blog-caption {
+    font-weight: 500;
+    font-size: clamp(13px, 12.7px + 0.1vw, 14px);
+  }
+}
