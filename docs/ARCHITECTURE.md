@@ -1602,7 +1602,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 6 | `20261003000001_europe_wide.sql` | country, time zone, search with or without a location |
 | 7 | `20261004000001_public_pages.sql` | `public_shops`, `shop_stock` |
 | 8 | `20261005000001_dashboard_admin.sql` | `owner_items`, `availability_preview`, logos bucket, (legacy) admin functions |
-| 9 | `20261006000001_amenities.sql` | toilet, douchette, card terminal |
+| 9 | `20261006000001_amenities.sql` | toilet, bidet shower (`has_douchette`), card terminal |
 | 10 | `20261007000001_ai_access.sql` | `api_hit`, `town_center` |
 | 11 | `20261008000001_stock_pull.sql` | `apply_stock_file`, Vault credentials, raw-files bucket |
 | 12 | `20261009000001_folder_upload.sql` | `upload_check_in`, `folder_seen_at`, `last_file_name` |
@@ -2303,3 +2303,27 @@ only from the token), tokens of 32 random bytes made in the function and returne
 Website: `/sync` section `pos` (after `api`; `@/lib/dashboardPages`) = `@/components/PosAgentPanel` +
 `sync/connectorActions.ts` (server actions → owner functions; no service role). Texts `pos_agent`. Test stand-in:
 `scripts/connector-test-agent.mjs` (pair / heartbeat / status / rotate).
+
+## Update 51 — contact buttons on the shop page (press and hold, short / long)
+
+`supabase/sql/51_contact_buttons.sql`: `shops.contact_buttons jsonb` (default `{}`; only the owner's choices that differ
+from the defaults; check `contact_buttons_valid()` — keys facebook / booking / web / email / navigate / phone, values
+"short" / "long"), `owner_set_contact_buttons(shop, widths)` (membership checked; bad input → `contact_buttons`),
+`shop_contact_buttons(slug)` (active shops; anon; in `CACHED_RPCS`, refreshed by `refreshShop()` after saving),
+`my_shops()` + `contact_buttons`. Page layout only, never shop or stock data.
+
+`@/lib/contactButtons` (shared with `contactButtons_test.ts`, `npm run test:site`): order, colours, default widths,
+which buttons a shop shows (empty → hidden), the links (`tel:` without spaces, `mailto:`, directions to lat,lng or else
+to the written address), `gridPlaces()` (the grid's normal flow: a short button before a long one stays in the left
+column). `@/components/ContactButtons` (client): one `<button>` per contact (`aria-label` = the idle label); pointer down
+(primary only, capture released so sliding off = `pointerleave`) or Space/Enter starts 1200 ms; `pointerup` / leave /
+cancel / blur / keyup before that cancels; at completion the action runs — when the browser reports no user activation
+left (`navigator.userActivation`; touch, Safari) it runs on the release's `click` instead, so a new tab is never
+blocked. Labels roll (two layers, 200 ms); fill, pop and ring are CSS (`.ppi-cb*` in globals.css, `--c` = the colour,
+`color-mix`); `prefers-reduced-motion` = no pop, ring or roll and an instant drain; a label too wide at 15 px →
+`data-fit="small"` (12.5 px), measured on hidden copies of all three texts. `@/components/CheckLoop` = the owner's
+orange check (inline SMIL), remounted and reset on each appearance. `ShopView` renders the grid (Cacaduu address and own
+domain) + `<noscript>` links; `ContactLinks` is gone. Môj obchod: `ShopForm` `WidthToggle` radios `cb_<key>` →
+`saveShop` → `owner_set_contact_buttons(widthChoices(...))` (unknown function before update 51 ignored). Texts
+`contact_buttons`. The amenity reads "Bidetová sprška" (the column stays `has_douchette`, the API field
+`facilities.douchette`). e2e: `e2e/contacts.spec.ts` and the owner test "contact buttons".

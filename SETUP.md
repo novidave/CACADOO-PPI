@@ -1719,6 +1719,18 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - **Odpojiť** → the next heartbeat says 401. Delete `agent.json` afterwards (the real agent keeps its token in the
      system's secure storage).
 
+## Part AT — Contact buttons on the shop page (28 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/51_contact_buttons.sql` → Run → "Success". Safe to run
+   again. Every existing shop keeps the defaults (e-mail long, the rest short); nothing else changes.
+2. No secrets, no Edge Function.
+3. **Try it:** Davide Paint shop → Môj obchod → "Údaje obchodu": next to the phone, website, e-mail, Facebook, booking
+   link and the map position there is "Tlačidlo na stránke: Krátke / Dlhé". Pick "Dlhé" for the phone → Uložiť → the
+   shop page shows the phone across both columns at once (no redeploy).
+4. On the phone (iPhone Safari): a quick tap on a contact button does nothing; hold it ~1 second → "Držte stlačené" with
+   a filling bar → it opens (Facebook / web / booking / directions in a new tab, e-mail in the mail app, phone → call).
+   Letting go early or sliding the finger off cancels. No menu or text selection appears while holding.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

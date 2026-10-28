@@ -165,6 +165,12 @@ export async function shopCompany(slug: string): Promise<{ zip: string | null; c
   return row ?? null;
 }
 
+/** The owner's short / long choices of the contact buttons (database update 51; {} before it = the defaults). */
+export async function shopContactButtons(slug: string): Promise<unknown> {
+  const { data, error } = await (await client()).rpc("shop_contact_buttons", { p_slug: slug });
+  return !error && data && typeof data === "object" ? data : {};
+}
+
 export async function shopStockResetting(slug: string): Promise<boolean> {
   const { data, error } = await (await client()).rpc("shop_stock_resetting", { p_slug: slug });
   return !error && data === true;

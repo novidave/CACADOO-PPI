@@ -4,12 +4,13 @@ import { notFound } from "next/navigation";
 import type { Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopCompany, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
+import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopCompany, shopContactButtons, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
 import { blogCount } from "@/lib/blog";
 import { blogPath } from "@/lib/blogFormat";
 import { docsKeysEnabled } from "@/lib/docsAccess";
-import { addressLine, directionsUrl, formatPrice } from "@/lib/format";
+import { addressLine, formatPrice } from "@/lib/format";
+import { contactButtons, contactWidths, CONTACT_KEYS } from "@/lib/contactButtons";
 import { itemNames } from "@/lib/names";
 import {
   DAYS,
@@ -33,7 +34,7 @@ import { getShopLanguages } from "@/lib/shopLanguages";
 import { getShopTexts } from "@/lib/contentTranslations";
 import { TranslationNote } from "@/components/TranslationNote";
 import { freshnessText } from "@/lib/stock";
-import { ContactLinks } from "@/components/ContactLinks";
+import { ContactButtons } from "@/components/ContactButtons";
 import { JsonLd } from "@/components/JsonLd";
 import { ContentSlider } from "@/components/ContentSlider";
 import { SectionZoom } from "@/components/SectionZoom";
@@ -99,7 +100,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // Everything that needs only the shop, at once (no waterfall). The AI assistant is a paid feature: shown only when
   // the database says the shop has the plan.
-  const [host, langs, { items, total }, assistant, shopperPdf, calendars, content, posts, company] = await Promise.all([
+  const [host, langs, { items, total }, assistant, shopperPdf, calendars, content, posts, company, widths] = await Promise.all([
     shopSiteHost(shop.slug).catch(() => null),
     getShopLanguages(shop.slug, shop.country),
     getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
@@ -114,6 +115,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     blogCount(shop.slug).catch(() => 0),
     // PSČ, company name, IČO and DIČ under the address (database update 48; nothing before it).
     shopCompany(shop.slug).catch(() => null),
+    // Short / long contact buttons (database update 51; the defaults before it).
+    shopContactButtons(shop.slug).catch(() => ({})),
   ]);
   if (onSite && !host) notFound();
   // No products at all after "Vymazať celý sklad" (update 43): "Sortiment sa práve aktualizuje" until the next file.
@@ -138,6 +141,18 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     company?.dic ? `${dict.shop.company_dic} ${company.dic}` : null,
   ].filter(Boolean);
   const hasLocation = shop.lat !== null && shop.lng !== null;
+  const contacts = contactButtons({ ...shop, zip: company?.zip }, contactWidths(widths), {
+    facebook: dict.shop.facebook,
+    booking: dict.shop.booking,
+    web: dict.shop.website,
+    navigate: dict.shop.directions,
+  });
+  const cb = dict.contact_buttons;
+  const contactLabels = {
+    hold: cb.hold,
+    announce: cb.announce,
+    done: Object.fromEntries(CONTACT_KEYS.map((k) => [k, cb[`done_${k}`]])) as Record<(typeof CONTACT_KEYS)[number], string>,
+  };
   const input = statusInput(shop, calendars);
   const renderedAt = requestTime();
   const place = { shopSlug: shop.slug, country: shop.country, host, homeLang: shop.site_lang };
@@ -178,37 +193,29 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           </p>
         )}
         {shop.has_card_terminal && <p className="text-sm font-semibold">{dict.shop.card_terminal}</p>}
-        {/* Two columns on phones: where a link sits never depends on the letters' widths, so nothing moves when
-            Quicksand replaces the fallback font (one wrapping row re-wrapped and pushed the page down). */}
-        <p className="grid grid-cols-2 items-start gap-x-4 gap-y-1 text-sm sm:flex sm:flex-wrap" data-shop-contacts>
-          {hasLocation && (
-            <a href={directionsUrl(shop.lat!, shop.lng!)} className="underline underline-offset-4" target="_blank" rel="noopener">
-              {dict.shop.directions}
-            </a>
-          )}
-          {shop.phone && (
-            <a href={`tel:${shop.phone.replace(/\s+/g, "")}`} className="underline underline-offset-4">
-              {shop.phone}
-            </a>
-          )}
-          {shop.website && (
-            <a href={shop.website} className="underline underline-offset-4" target="_blank" rel="noopener">
-              {dict.shop.website}
-            </a>
-          )}
-          <ContactLinks
-            email={shop.email}
-            facebookUrl={shop.facebook_url}
-            facebookLabel={dict.shop.facebook}
-            bookingUrl={shop.booking_url}
-            bookingLabel={dict.shop.booking}
-          />
-          {posts > 0 && !sliderNews && (
+        {/* The contact buttons (update 51): two columns, press and hold; without JavaScript plain links. */}
+        {contacts.length > 0 && (
+          <div className="pt-1" data-shop-contacts>
+            <ContactButtons buttons={contacts} labels={contactLabels} />
+            <noscript>
+              <style>{"[data-contact-buttons]{display:none}"}</style>
+              <span className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                {contacts.map((c) => (
+                  <a key={c.key} href={c.href} className="underline underline-offset-4" {...(c.newTab ? { target: "_blank", rel: "noopener" } : {})}>
+                    {c.label}
+                  </a>
+                ))}
+              </span>
+            </noscript>
+          </div>
+        )}
+        {posts > 0 && !sliderNews && (
+          <p className="text-sm">
             <Link href={newsHref} className="underline underline-offset-4" data-shop-news>
               {dict.shop.news}
             </Link>
-          )}
-        </p>
+          </p>
+        )}
       </header>
 
       <TranslationNote texts={texts} path={shopPath} query={{ ...(q ? { q } : {}), ...(page > 1 ? { page: String(page) } : {}) }} labels={dict.translation} />

@@ -61,7 +61,7 @@ export function storeJsonLd(shop: PublicShop, lang: string, host: string | null,
       ? {
           amenityFeature: [
             ...(shop.has_toilet ? [{ "@type": "LocationFeatureSpecification", name: "Customer toilet", value: true }] : []),
-            ...(shop.has_douchette ? [{ "@type": "LocationFeatureSpecification", name: "Douchette (bidet shower)", value: true }] : []),
+            ...(shop.has_douchette ? [{ "@type": "LocationFeatureSpecification", name: "Bidet shower", value: true }] : []),
           ],
         }
       : {}),

@@ -8,6 +8,7 @@ import { sanitizeHours } from "@/lib/hours";
 import { sectionUrl } from "@/lib/dashboardPages";
 import { LANGUAGE_COLUMN_ROWS, MAPPING_FIELDS, TEXT_FIELDS } from "@/lib/myShops";
 import { refreshShop } from "@/lib/publicCache";
+import { CONTACT_KEYS, widthChoices } from "@/lib/contactButtons";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOGO_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -164,6 +165,14 @@ export async function saveShop(formData: FormData) {
       p_zip: text(formData, "zip", 12),
     });
     if (companyError && companyError.code !== "PGRST202" && companyError.code !== "42883") fail(companyError.message);
+  }
+  // "Krátke / Dlhé" next to each contact field (update 51): only the choices that differ from the default are stored.
+  if (CONTACT_KEYS.some((k) => formData.has(`cb_${k}`))) {
+    const { error: widthError } = await session.supabase.rpc("owner_set_contact_buttons", {
+      p_shop_id: String(data),
+      p_widths: widthChoices(Object.fromEntries(CONTACT_KEYS.map((k) => [k, formData.get(`cb_${k}`)]))),
+    });
+    if (widthError && widthError.code !== "PGRST202" && widthError.code !== "42883") fail(widthError.message);
   }
   const { data: saved } = await session.supabase.from("shops").select("slug").eq("id", String(data)).maybeSingle();
   refreshShop(saved?.slug);

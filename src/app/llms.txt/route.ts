@@ -31,7 +31,7 @@ PPI reads stock from each shop's own stock software: the shop's export file arri
 - Every item has a price, its currency and its quantity exactly as in the shop's own stock file ("12 in stock"; 0 or less = "out of stock").
 - Freshness comes from the time of the shop's latest stock file: "current" (under 30 minutes), "recent" (under 24 hours), "stale" (older or none).
 - For stale shops PPI shows NO availability. Never present a stale shop's item as available.
-- Shop pages also list opening hours (in the shop's time zone), "open now", facilities (customer toilet, douchette, card payment) and the shop's contact links: website, e-mail, Facebook page and booking link (booking_url) when it has them.
+- Shop pages also list opening hours (in the shop's time zone), "open now", facilities (customer toilet, bidet shower, card payment) and the shop's contact links: website, e-mail, Facebook page and booking link (booking_url) when it has them.
 - Please cite the page (source_url) and the "updated" time when you use this data.
 - Some shops have their own domain: their pages live there (the canonical address), and every source_url, the list below and the sitemaps point there.
 

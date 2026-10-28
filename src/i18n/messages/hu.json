@@ -157,7 +157,7 @@
     "company_dic": "Adószám (DIČ)",
     "facilities": "Szolgáltatások",
     "toilet": "Mosdó a vásárlóknak",
-    "douchette": "Bidézuhany (douchette)",
+    "douchette": "Bidézuhany",
     "card_terminal": "Bankkártyás fizetés (terminál)",
     "facebook": "Facebook",
     "booking": "Időpontfoglalás",
@@ -2526,5 +2526,19 @@
     "error_name": "Adjon meg egy nevet.",
     "error_login": "Kérjük, jelentkezzen be újra.",
     "error_failed": "Valami nem sikerült. Próbálja újra."
+  },
+  "contact_buttons": {
+    "hold": "Tartsa lenyomva",
+    "announce": "{label}: {done}",
+    "done_facebook": "Megnyitva",
+    "done_booking": "Foglalás megnyitva",
+    "done_web": "Megnyitva",
+    "done_email": "Megnyitva",
+    "done_navigate": "Navigálás",
+    "done_phone": "Hívás",
+    "width_label": "Gomb az oldalon",
+    "width_short": "Rövid",
+    "width_long": "Hosszú",
+    "width_hint": "A rövid gomb egy oszlopot foglal el, a hosszú az egész sort. A látogató 1,2 másodpercig nyomva tartja, mielőtt megnyílik."
   }
 }

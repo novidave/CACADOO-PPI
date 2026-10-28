@@ -55,7 +55,9 @@ conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
 the **stock dot before every price** (`@/components/StockDot`, `@/lib/stockDot`: green #1E9E5A in stock, red #D64545
 sold out, yellow #F2B705 no information/stale; always next to the availability in words; 2026-10-27), the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
-the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), the blue "GDPR" link of the shop assistant (`AssistantHeading`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
+the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), the blue "GDPR" link of the shop assistant (`AssistantHeading`), the **contact buttons' colours** and their orange
+check (`CONTACT_COLORS` in `@/lib/contactButtons`, `@/components/CheckLoop`; pale backgrounds, no shadows; 2026-10-28),
+and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
@@ -343,12 +345,11 @@ PPI's sitemap leaves those pages out.
   `getOtherOffers`). Only SQL decides: `shop_stands_alone(shop)` (`shopStandsAlone()`; before update 26 it falls back
   to `shop_has_plan`). Free shops and the main search keep it. The shop assistant never names other shops.
 - Shop e-mail and Facebook page (`shops.email`, `facebook_url`; validated in `owner_save_shop()` and by checks:
-  facebook.com / fb.com only) next to the website on the shop page (`@/components/ContactLinks`, mailto; Facebook in a
-  new tab, `rel="noopener"`), in the JSON-LD (`email`, `sameAs`) and in the API's shop.
+  facebook.com / fb.com only) as contact buttons on the shop page (update 51, below: mailto; Facebook in a
+  new tab, `noopener`), in the JSON-LD (`email`, `sameAs`) and in the API's shop.
 - Booking link, every shop (`supabase/sql/26_booking_link.sql`, `shops.booking_url`: https of a real host, ≤ 500;
   `clean_contact('booking', …)` in `owner_save_shop()`, error `booking`; kept when the form does not send it): the shop
-  page's "Rezervovať termín" link in the contact row, same style as e-mail/Facebook (`@/components/ContactLinks`,
-  calendar icon, new tab, `rel="noopener"`), JSON-LD `potentialAction` `ReserveAction`, the API/MCP shop (`booking_url`), llms.txt, and one line
+  page's "Rezervovať termín" contact button (update 51, new tab, `noopener`), JSON-LD `potentialAction` `ReserveAction`, the API/MCP shop (`booking_url`), llms.txt, and one line
   in the shop assistant's prompt (points to that link; never promises a time). PPI only links; nothing is booked here.
   Reads of `public_shops` fall back without `booking_url` on 42703 (`@/lib/missingColumn`).
 - Assistant button label (≤ 40) and welcome text (≤ 300), paid plan: `owner_set_assistant_texts()`; the database keeps
@@ -387,6 +388,22 @@ PPI's sitemap leaves those pages out.
   in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). `RecentImports`: the last 10 `stock_imports` rows as
   cards; a tap opens the quick view (a `<dialog>` slideshow of the full reports, "Súbor n z 10", Novší/Starší, ← → keys,
   swipe, Esc).
+
+## Contact buttons on the shop page (update 51)
+
+`supabase/sql/51_contact_buttons.sql` + `@/lib/contactButtons` (order, colours, links, widths; `contactButtons_test.ts`
+in `npm run test:site`) + `@/components/ContactButtons` / `CheckLoop` + `.ppi-cb*` in globals.css. Under the amenities
+("Bidetová sprška" — the column stays `has_douchette`), two columns (gap 12 px): Facebook · Rezervovať termín / Web ·
+e-mail / Navigovať · phone; an empty link or value hides its button. **Press and hold 1.2 s** (real `<button>`s,
+pointer or Space/Enter): a tap does nothing, early release / sliding off / blur cancels; done → the action (new tab,
+`mailto:`, `tel:`; on the release's click when the browser has no activation left), "Otvorené"-style label with the
+check, back after 2.3 s, announced in an `aria-live` region; `prefers-reduced-motion` respected; `touch-action: none`,
+`-webkit-touch-callout: none`, no selection, no shadows; labels never cut or wrapped (12.5 px when too wide).
+Navigovať = Google Maps directions to the shop's lat,lng, else to its written address. Short / long per button: only
+`owner_set_contact_buttons()` (Môj obchod "Údaje obchodu", "Krátke / Dlhé" next to each field; defaults e-mail long,
+the rest short; `shops.contact_buttons` keeps only differences), read by `shop_contact_buttons(slug)` (cached, refreshed
+on save). Page layout, never shop data. `<noscript>` shows plain links. e2e `e2e/contacts.spec.ts`. Texts
+`contact_buttons`.
 
 ## Shop status and Pro page layout (update 27)
 
