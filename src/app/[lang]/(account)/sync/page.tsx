@@ -22,7 +22,7 @@ import { InstallApp } from "@/components/InstallApp";
 import { InventoryConnect, type InventoryApiState } from "@/components/InventoryConnect";
 import { PosAgentPanel } from "@/components/PosAgentPanel";
 import { StockSourcePanel } from "@/components/StockSourcePanel";
-import type { ConnectorSnapshot, ConnectorState, StockSource } from "./connectorActions";
+import type { ConnectorCommand, ConnectorSnapshot, ConnectorState, StockSource } from "./connectorActions";
 import { BackupDownload, DeleteFilesButton, InventoryResetOptions } from "@/components/InventoryDangerZone";
 import { PendingButton } from "@/components/PendingButton";
 import { RecentImports } from "@/components/RecentImports";
@@ -86,7 +86,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   }
 
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
-  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData, apiData, posData, sourceData, snapData] = await Promise.all([
+  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData, apiData, posData, sourceData, snapData, cmdData] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.from("shop_items").select("id", { count: "exact", head: true }).eq("shop_id", shop.id),
     // The last 10 stock files (none before update 21).
@@ -105,9 +105,12 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
     // "Zdroj zásob" and the POS agent's stock snapshots (update 52; nothing before it)
     supabase.rpc("owner_stock_source", { p_shop_id: shop.id }),
     supabase.rpc("owner_connector_snapshots", { p_shop_id: shop.id }),
+    // "Synchronizovať teraz" requests (update 53; nothing before it)
+    supabase.rpc("owner_connector_commands", { p_shop_id: shop.id }),
   ]);
   const source = sourceData.error ? null : (sourceData.data as StockSource | null);
   const snapshots = snapData.error ? [] : ((snapData.data as ConnectorSnapshot[] | null) ?? []);
+  const commands = cmdData.error ? [] : ((cmdData.data as ConnectorCommand[] | null) ?? []);
   const sst = dict.stock_source;
   const pos = posData.error ? null : (posData.data as ConnectorState | null);
   const pa = dict.pos_agent;
@@ -242,7 +245,16 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
 
         {pos && (
           <DashboardSection {...m.section("pos")} title={pa.title} summary={posSummary}>
-            <PosAgentPanel shopId={shop.id} initial={pos} initialSnapshots={snapshots} lang={lang} timeZone={shop.timezone} labels={pa} />
+            <PosAgentPanel
+              shopId={shop.id}
+              initial={pos}
+              initialSnapshots={snapshots}
+              initialCommands={commands}
+              agentActive={source?.active === "agent"}
+              lang={lang}
+              timeZone={shop.timezone}
+              labels={pa}
+            />
           </DashboardSection>
         )}
 

@@ -8362,4 +8362,184 @@ begin
   assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'x', now(), true, 1, repeat('7', 64), null) ->> 'status' = 'revoked';
 end $$;
 
+-- ------------------------------------------------------------------ update 53: Sync Now commands for the POS agent
+\echo '--- POS agent Sync Now: owner request, claim once, lease, result, snapshot or unchanged, expiry (update 53)'
+do $$
+declare
+  v_shop uuid;
+  v_r jsonb;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'sklad-sync', 'Sklad Sync', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.connector_pairing_codes (shop_id, code_hash, expires_at)
+  values (v_shop, encode(sha256(convert_to('SYNCODE1', 'UTF8')), 'hex'), now() + interval '10 minutes'),
+         (v_shop, encode(sha256(convert_to('SYNCODE2', 'UTF8')), 'hex'), now() + interval '10 minutes');
+  v_r := public.connector_pair(encode(sha256(convert_to('SYNCODE1', 'UTF8')), 'hex'), 'caller-hash-sync1', 'Pokladňa 1',
+    '1.0.0', 'Windows 11', encode(sha256(convert_to('device-token-SYNC1', 'UTF8')), 'hex'));
+  perform set_config('ppi.sync_d1', v_r ->> 'device_id', false);
+  v_r := public.connector_pair(encode(sha256(convert_to('SYNCODE2', 'UTF8')), 'hex'), 'caller-hash-sync2', 'Pokladňa 2',
+    '1.0.0', 'Windows 11', encode(sha256(convert_to('device-token-SYNC2', 'UTF8')), 'hex'));
+  perform set_config('ppi.sync_d2', v_r ->> 'device_id', false);
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'sklad-sync');
+  v_r jsonb;
+begin
+  -- only when the POS agent is the shop's stock source
+  begin perform public.owner_connector_sync_now(v_shop); raise exception 'sync now with files as the source';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'not_agent'; end;
+  perform public.owner_set_stock_source(v_shop, 'agent');
+  v_r := public.owner_connector_sync_now(v_shop);
+  assert v_r ->> 'status' = 'new' and v_r -> 'command' ->> 'state' = 'pending' and v_r -> 'command' ->> 'type' = 'sync_inventory', v_r::text;
+  perform set_config('ppi.sync_c1', v_r -> 'command' ->> 'id', false);
+  -- pressed again while it waits: the same command, never a second one
+  assert public.owner_connector_sync_now(v_shop) ->> 'status' = 'existing';
+  assert (select count(*) from public.connector_commands where shop_id = v_shop) = 1;
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'connector_sync_requested');
+  assert jsonb_array_length(public.owner_connector_commands(v_shop)) = 1;
+  -- owners never write commands themselves
+  begin insert into public.connector_commands (shop_id, type) values (v_shop, 'ping'); raise exception 'owner inserted a command';
+  exception when insufficient_privilege then null; end;
+  begin perform public.connector_command_claim(gen_random_uuid(), gen_random_uuid()); raise exception 'claim callable';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_connector_sync_now((select id from public.shops where slug = 'sklad-sync'));
+    raise exception 'other owner pressed sync now'; exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.connector_commands), 'RLS: another owner sees no command';
+end $$;
+reset role;
+
+-- the function (service role): list, claim once, lease, result
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'sklad-sync');
+  d1 uuid := current_setting('ppi.sync_d1')::uuid;
+  d2 uuid := current_setting('ppi.sync_d2')::uuid;
+  c1 uuid := current_setting('ppi.sync_c1')::uuid;
+  s0 uuid := gen_random_uuid();
+  s1 uuid := gen_random_uuid();
+  v_r jsonb;
+  v_rows jsonb := '[{"source_code":"S1","name":"Skrutka","price":0.1,"currency":"EUR","quantity":100},
+                    {"source_code":"S2","name":"Matica","price":0.05,"currency":"EUR","quantity":50}]';
+begin
+  v_r := public.connector_commands_list(d1, true);
+  assert v_r ->> 'status' = 'ok' and jsonb_array_length(v_r -> 'commands') = 1 and v_r -> 'commands' -> 0 ->> 'id' = c1::text, v_r::text;
+  -- claimed once: the second agent gets already_claimed (one atomic update)
+  v_r := public.connector_command_claim(d1, c1);
+  assert v_r ->> 'status' = 'claimed' and v_r -> 'command' ->> 'state' = 'claimed' and (v_r -> 'command' ->> 'attempt')::int = 1, v_r::text;
+  assert public.connector_command_claim(d2, c1) ->> 'status' = 'already_claimed';
+  assert public.connector_command_claim(d1, gen_random_uuid()) ->> 'status' = 'not_found';
+  assert jsonb_array_length(public.connector_commands_list(d2, false) -> 'commands') = 0, 'claimed: not pending any more';
+  assert public.connector_status(d1) ->> 'state' = 'syncing';
+  -- only the device holding the claim reports; running renews the lease
+  assert public.connector_command_result(d2, c1, 'running', null, null) ->> 'status' = 'not_claimed';
+  assert public.connector_command_result(d1, c1, 'paused', null, null) ->> 'status' = 'bad_state';
+  update public.connector_commands set lease_expires_at = now() + interval '10 seconds' where id = c1;
+  v_r := public.connector_command_result(d1, c1, 'running', null, null);
+  assert v_r -> 'command' ->> 'state' = 'running' and (select lease_expires_at > now() + interval '100 seconds' from public.connector_commands where id = c1), v_r::text;
+  -- completed needs an applied/held snapshot made after the command (or "unchanged")
+  assert public.connector_command_result(d1, c1, 'completed', null, null) ->> 'status' = 'snapshot_not_applied';
+  -- a snapshot just arrived (5-minute rule), but the answer to Sync Now skips the wait
+  perform public.connector_snapshot_announce(d1, s0, 'pos', now() - interval '2 minutes', true, 2, repeat('8', 64), null);
+  assert public.connector_snapshot_announce(d1, gen_random_uuid(), 'pos', now() - interval '1 minute', true, 2, repeat('8', 64), null)
+    ->> 'status' = 'rate_limited';
+  assert public.connector_snapshot_announce(d2, s1, 'pos', now() - interval '1 minute', true, 2, repeat('9', 64), c1)
+    ->> 'status' = 'rate_limited', 'only the device holding the command skips the wait';
+  assert public.connector_snapshot_announce(d1, s1, 'pos', now() - interval '1 minute', true, 2, repeat('9', 64), c1) ->> 'status' = 'new';
+  perform public.connector_snapshot_begin(d1, s1);
+  assert public.connector_snapshot_apply(v_shop, s1, v_rows, '{}', '{"products":2,"skipped":0}', '[]') ->> 'state' = 'applied';
+  assert public.connector_command_result(d1, c1, 'completed', null, s0) ->> 'status' = 'snapshot_not_applied', 'not applied';
+  v_r := public.connector_command_result(d1, c1, 'completed', null, s1);
+  assert v_r ->> 'status' = 'ok' and v_r -> 'command' ->> 'state' = 'completed', v_r::text;
+  assert (select snapshot_id = s1 and finished_at is not null from public.connector_commands where id = c1);
+  assert public.connector_status(d1) ->> 'state' <> 'syncing';
+  assert public.connector_command_result(d1, c1, 'running', null, null) ->> 'status' = 'not_claimed', 'finished stays finished';
+end $$;
+
+-- unchanged stock, lease that runs out (back to pending, failed after 3 attempts), expiry, ping, agent failure
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform set_config('ppi.sync_c2', public.owner_connector_sync_now((select id from public.shops where slug = 'sklad-sync')) -> 'command' ->> 'id', false);
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'sklad-sync');
+  d1 uuid := current_setting('ppi.sync_d1')::uuid;
+  d2 uuid := current_setting('ppi.sync_d2')::uuid;
+  c2 uuid := current_setting('ppi.sync_c2')::uuid;
+  p uuid;
+  v_r jsonb;
+begin
+  -- a lease that runs out: pending again (10 more minutes), another agent may claim it
+  perform public.connector_command_claim(d1, c2);
+  update public.connector_commands set lease_expires_at = now() - interval '1 second' where id = c2;
+  v_r := public.connector_commands_list(d2, false);
+  assert v_r -> 'commands' -> 0 ->> 'id' = c2::text and v_r -> 'commands' -> 0 ->> 'state' = 'pending', v_r::text;
+  assert public.connector_command_result(d1, c2, 'completed', null, null) ->> 'status' = 'not_claimed', 'the lost lease cannot report';
+  assert public.connector_command_claim(d2, c2) ->> 'status' = 'claimed';
+  -- "unchanged": the confirm for this command completes it without a snapshot
+  assert not public.connector_command_confirmed(d1, c2), 'only the device holding it';
+  assert public.connector_confirm(d2, repeat('9', 64), now()) ->> 'status' = 'confirmed';
+  assert public.connector_command_confirmed(d2, c2);
+  v_r := public.connector_command_result(d2, c2, 'completed', null, null);
+  assert v_r -> 'command' ->> 'state' = 'completed', v_r::text;
+  assert (v_r -> 'command' ->> 'attempt')::int = 2;
+
+  -- third attempt runs out: failed (lease_expired)
+  insert into public.connector_commands (shop_id, type, attempt, state, claimed_by, claimed_at, lease_expires_at)
+  values (v_shop, 'sync_inventory', 3, 'running', d1, now() - interval '5 minutes', now() - interval '1 second') returning id into p;
+  perform public.connector_commands_tidy(v_shop);
+  assert (select state = 'failed' and error = 'lease_expired' from public.connector_commands where id = p);
+  -- nobody claims within 10 minutes: expired
+  insert into public.connector_commands (shop_id, type, expires_at) values (v_shop, 'sync_inventory', now() - interval '1 second')
+  returning id into p;
+  assert public.connector_command_claim(d1, p) ->> 'status' = 'already_claimed';
+  assert (select state = 'expired' from public.connector_commands where id = p);
+  -- ping completes without a snapshot
+  insert into public.connector_commands (shop_id, type) values (v_shop, 'ping') returning id into p;
+  perform public.connector_command_claim(d1, p);
+  assert public.connector_command_result(d1, p, 'completed', null, null) -> 'command' ->> 'state' = 'completed';
+  -- the agent reports failure: plain text, cut
+  insert into public.connector_commands (shop_id, type) values (v_shop, 'sync_inventory') returning id into p;
+  perform public.connector_command_claim(d1, p);
+  v_r := public.connector_command_result(d1, p, 'failed', E'POS nie je\n dostupný' || repeat('x', 600), null);
+  assert v_r -> 'command' ->> 'state' = 'failed', v_r::text;
+  assert (select error = 'agent' and length(reason) = 500 and reason !~ '[[:cntrl:]]' from public.connector_commands where id = p);
+  -- a disconnected device can do nothing
+  update public.connector_devices set revoked_at = now() where id = d2;
+  assert public.connector_command_claim(d2, p) ->> 'status' = 'revoked';
+  assert public.connector_commands_list(d2, true) ->> 'status' = 'revoked';
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'sklad-sync');
+  v_list jsonb;
+begin
+  v_list := public.owner_connector_commands(v_shop);
+  assert jsonb_array_length(v_list) = 5, v_list::text;
+  assert v_list::text ~ 'lease_expired' and v_list::text ~ 'expired', v_list::text;
+  -- at most 4 an hour per shop
+  begin perform public.owner_connector_sync_now(v_shop); raise exception 'fifth sync now in an hour';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'too_many'; end;
+end $$;
+reset role;
+
+
 \echo 'ALL DATABASE CHECKS PASSED'

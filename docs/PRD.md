@@ -89,7 +89,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 - A third way being built (Prompt 13): the **Cacaduu POS Sync Agent**, an optional desktop app (its own repository)
   that reads stock from the POS and sends it to the Cacaduu Cloud API. Phase A (update 50): pairing with a one-time
   code, device tokens, heartbeats and the device list in Môj obchod. Phase B (update 52): inventory snapshots and one
-  active stock source ("Zdroj zásob"). Phase C (Sync Now) follows; the contract for all three is
+  active stock source ("Zdroj zásob"). Phase C (update 53): "Synchronizovať teraz". The contract for all three is
   docs/CONNECTOR_CLOUD_API.md
 - AI-proposed column mapping, always approved by the owner
 - Item names in three languages: every name is also kept in plain Slovak, Hungarian and English (made by AI in the
@@ -1776,10 +1776,10 @@ here from "Jazyky a inventár" (old addresses forwarded).
 - The list: name (Premenovať), agent version and system, POS source label, last online, last sync, paired, the last
   error as plain text, **Odpojiť** (at once). The state comes from the heartbeat times, never a stored flag: Online
   (a heartbeat in the last 3 minutes), Offline, Chyba (the agent's last read failed), Ešte nesynchronizované (online,
-  no snapshot applied yet), Synchronizuje (phase C). The list refreshes itself every 30 seconds while the page is open.
+  no snapshot applied yet), Synchronizuje (while it answers "Synchronizovať teraz", 6.27). The list refreshes itself every 30 seconds while the page is open.
 - Each computer has its own token for this one shop, stored by Cacaduu only as a hash; Cacaduu never asks for POS
   passwords or settings. Wrong codes are limited (5 per 15 minutes per caller).
-- Stock from the agent: phase B (6.26). Not yet: Sync Now (phase C).
+- Stock from the agent: phase B (6.26). Sync Now: phase C (6.27).
 
 ### 6.25 Contact buttons on the shop page (database update 51, 28 October 2026)
 
@@ -1820,5 +1820,23 @@ here from "Jazyky a inventár" (old addresses forwarded).
 - "Posledné stavy skladu z POS agenta" (last 10): state, time of the POS read, the computer, counts (products, written,
   set to 0, skipped) and the reason of a refusal in plain words. Each applied snapshot is also a "Posledné nahrané
   súbory" report ("POS agent · <computer>") and refreshes the public pages at once (and IndexNow).
-- Not yet: Sync Now (phase C). Tested with the test stand-in (`scripts/connector-test-agent.mjs snapshot` / `confirm`),
+- Sync Now: phase C (6.27). Tested with the test stand-in (`scripts/connector-test-agent.mjs snapshot` / `confirm`),
   not yet with the real desktop agent.
+
+### 6.27 POS Sync Agent: "Synchronizovať teraz" (database update 53, Prompt 13 phase C)
+
+- Môj obchod → Priečinok s exportom → "Prepojenie s pokladňou (POS agent)" → box **"Synchronizovať teraz"** (shown when
+  an agent is paired). The button works only while "Zdroj zásob" is the POS agent; otherwise the box says so.
+- Pressing it asks the agent to read the till now. The cloud never connects to the shop's computer: the agent sees the
+  request the next time it checks in (it checks every minute, every 15 s while a request waits) — "POS agent prečíta
+  pokladňu hneď, ako sa nabudúce ozve – zvyčajne do minúty."
+- "Posledná požiadavka" shows what happened, refreshed every 5 s while it waits: Čaká na agenta… → "<počítač> číta
+  pokladňu…" → **Hotovo – nový stav skladu prijatý** / **Hotovo – sklad sa nezmenil** / **Nepodarilo sa: <the
+  agent's reason>** / "Nepodarilo sa – agent neodpovedal ani na tretí pokus." / **"Agent je offline – zapnite počítač s
+  POS agentom."** (nobody picked it up within 10 minutes). The device list shows "Synchronizuje" meanwhile.
+- One request at a time (pressing again while it waits changes nothing); at most 4 an hour per shop ("Najviac 4
+  synchronizácie za hodinu – skúste neskôr.").
+- The answer is an ordinary snapshot (6.26: every check, the held rule and the stock source still apply) or "unchanged";
+  it may come sooner than the usual one snapshot per 5 minutes.
+- Only two kinds of request exist (read the stock, ping); the cloud never sends programs, file paths or POS settings.
+- Tested with the test stand-in (`scripts/connector-test-agent.mjs sync`), not yet with the real desktop agent.

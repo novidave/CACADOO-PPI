@@ -205,7 +205,10 @@ export class CacaduuCloudClient {
     return this.request<{ state: "confirmed" | "test_ok" }>("POST", "/v1/inventory/confirm", input);
   }
 
-  // ---------------------------------------------------------------- phase C (501 until switched on)
+  // ---------------------------------------------------------------- phase C (live since update 53)
+  // claim → reportCommand({ state: "running" }) → read the POS → snapshot (or confirmUnchanged) with command_id →
+  // reportCommand({ state: "completed", snapshot_id }) or ({ state: "failed", reason }). 409 already_claimed /
+  // not_claimed: drop the command and look for pending ones again.
 
   listCommands(): Promise<{ commands: Command[] }> {
     return this.request<{ commands: Command[] }>("GET", "/v1/commands");

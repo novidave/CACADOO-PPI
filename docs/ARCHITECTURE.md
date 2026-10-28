@@ -2294,7 +2294,7 @@ device + shop; the new token replaces the old one when first used, the old one a
 `connector_revoked`.
 
 `supabase/functions/connector/index.ts` (one file, Verify JWT off): routes `ROUTES` (phase A served; since update 52 also
-B; C answers `501 not_available`), path after `/connector`, `Cacaduu-Agent-Version` required (`426` below
+B, since update 53 also C), path after `/connector`, `Cacaduu-Agent-Version` required (`426` below
 `CONNECTOR_MIN_AGENT_VERSION`), bodies ≤ 64 KB, `Authorization: Bearer cdt_<43>` (SHA-256 to `connector_auth`; the shop
 only from the token), tokens of 32 random bytes made in the function and returned once, every answer with
 `api_base_url` (`CONNECTOR_API_BASE_URL` or `<SUPABASE_URL>/functions/v1/connector`), `next_poll_seconds` (60),
@@ -2374,3 +2374,33 @@ reload lands on the list. e2e `e2e/shop-search.spec.ts` (the scroll position sta
   held "Áno, použiť tento stav" / "Zahodiť" (`loadSnapshots`, `decideSnapshot` → `refreshShop`); the API section says
   `api_blocked` while the agent is the source; FolderSync knows `agent_connected`. Texts `stock_source`, `pos_agent`.
   Test stand-in: `connector-test-agent.mjs snapshot` (`--csv` / `--json` / `--generate`) and `confirm`.
+
+## Update 53 — POS Sync Agent, phase C: "Synchronizovať teraz" (Sync Now commands)
+
+`supabase/sql/53_connector_commands.sql`:
+- `connector_commands` (shop, `type` sync_inventory | ping only, `state` pending → claimed → running → completed |
+  failed | expired, requested_by, `expires_at` (10 min unclaimed), claimed_by device, lease, `attempt`, `confirmed_at`,
+  `snapshot_id`, `error` lease_expired | agent + the agent's plain-text `reason` ≤ 500, finished_at; members read; 50
+  kept per shop). `connector_hits.kind` + commands / command; activity `connector_sync_requested`.
+- `connector_commands_tidy(shop)` moves states on with time (no job): a lapsed lease → pending again (+10 min) or
+  failed (`lease_expired`) after the 3rd attempt; an unclaimed one past `expires_at` → expired. Called by every
+  command function.
+- Owner: `owner_connector_sync_now(shop)` (member; `no_device` / `not_agent` / `too_many` — 4 an hour; an open one is
+  returned as `existing`), `owner_connector_commands(shop)` (last 5 with the device name). `owner_connector_devices()`
+  and `connector_status()` now say `syncing` while a device holds a live lease (`connector_device_syncing()`).
+- Service role: `connector_commands_list(device, count)` (pending ones of the device's shop; GET counts 6 a minute,
+  the heartbeat's listing does not), `connector_command_claim()` (one UPDATE … WHERE state = 'pending' → claimed +
+  2-minute lease, attempt + 1; else already_claimed / not_found), `connector_command_result()` (holder only:
+  running renews; failed keeps cut plain text; completed for sync_inventory needs a snapshot of the shop
+  applied/held after the command with its command_id or none, or `confirmed_at`), `connector_command_confirmed()`
+  (confirm with a command_id), `connector_command_active()` (update 52's `connector_snapshot_announce()` redefined: the
+  lease holder's snapshot skips the 5-minute limit).
+- `connector/index.ts`: `SERVED_PHASES` A, B, C; heartbeat answers carry `commands` (a failing listing never fails
+  the heartbeat) and `next_poll_seconds` 15 while one waits (`COMMAND_POLL_SECONDS`); `GET /v1/commands`,
+  `POST /v1/commands/{id}/claim` (409 already_claimed), `POST /v1/commands/{id}/result` (409 not_claimed /
+  snapshot_not_applied, 400 for a bad body); confirm accepts `command_id`. Tests `connector/commands_test.ts`.
+  Contract: `docs/CONNECTOR_CLOUD_API.md` phase C live, OpenAPI without 501, client notes.
+- Website: `PosAgentPanel` "Synchronizovať teraz" box (button only while the agent is the stock source, the last
+  request in words, 5 s refresh while open), `connectorActions.ts` `syncNow` / `loadCommands`, `/sync` loads
+  `owner_connector_commands`. Texts `pos_agent.sync_*`, `cmd_*`. Test stand-in: `connector-test-agent.mjs sync`
+  (`--csv` / `--generate` / `--unchanged` / `--fail`; honours 429 Retry-After).

@@ -7,7 +7,7 @@ This is the contract between the **Cacaduu POS Sync Agent** (the Electron deskto
 |---|---|---|
 | A | pairing, device token, heartbeat, status, token rotation | **live** (database update 50, function `connector`) |
 | B | inventory snapshots (staging upload, apply, confirm unchanged) | **live** (database update 52, function `connector`) |
-| C | Sync Now commands (claim, lease, result) | contract only; the paths answer `501 not_available` |
+| C | Sync Now commands (claim, lease, result) | **live** (database update 53, function `connector`) |
 
 Machine-readable version: [`connector-openapi.json`](connector-openapi.json). A small TypeScript client with no imports
 from this repository: [`connector-client/`](connector-client/). Copy both into the agent's repository by hand.
@@ -143,7 +143,7 @@ Cacaduu-Agent-Version: 1.4.2
 }
 ```
 
-`state`: `online` | `offline` | `error` | `never_synced` (`syncing` in phase C). `last_sync` is `null` until a snapshot
+`state`: `online` | `offline` | `error` | `never_synced` | `syncing` (a device holding a live command lease). `last_sync` is `null` until a snapshot
 is applied (or held for the owner).
 
 ### Credential rotation
@@ -267,27 +267,40 @@ applied (`test_ok`). While the POS agent is the source, the PPI window's folder 
 - At most one full snapshot per 5 minutes per shop (`429`), except when answering a Sync Now command.
 - Several paired devices of one shop are applied one after another (a per-shop lock); the newest `source_time` wins.
 
-## Phase C — commands (contract; `501` until deployed)
+## Phase C — commands (live since update 53)
+
+The owner presses **"Synchronizovať teraz"** in Môj obchod (only while the POS agent is the shop's stock source; at
+most 4 an hour per shop; pressed again while one waits, it is the same command). The cloud never connects to the PC:
+the command waits until the agent asks.
 
 - Types: **`sync_inventory`** and **`ping`** only. The agent **ignores any other type** (logs it, never runs it). The
   cloud never sends code, file paths or POS settings.
 - A command: `{ "id": "…", "type": "sync_inventory", "state": "pending", "created_at": "…", "expires_at": "…",
   "attempt": 1 }`.
 - States: `pending` → `claimed` → `running` → `completed` | `failed` | `expired`.
-- Pending commands come in every heartbeat answer (`commands`) and from `GET /v1/commands`.
-- `POST /v1/commands/{id}/claim` → `200 { "state": "claimed", "lease_expires_at": "…" }`, or `409 already_claimed`
-  (another agent got it). One atomic update: two agents never run the same command.
+- Pending commands come in every heartbeat answer (`commands`) and from `GET /v1/commands` (at most 6 a minute per
+  device → `429`). While one waits, `next_poll_seconds` is 15 instead of 60: poll that soon.
+- `POST /v1/commands/{id}/claim` (no body) → `200` with the command (`"state": "claimed"`, `lease_expires_at`,
+  `attempt`), or `409 already_claimed` (another agent got it, or it finished or expired; the answer carries the
+  command). One atomic update: two agents never run the same command.
 - The lease lasts 2 minutes; renew it with `POST /v1/commands/{id}/result { "state": "running" }`. An expired lease
   returns the command to `pending`; after 3 attempts it is `failed`.
 - `POST /v1/commands/{id}/result`:
   - `{ "state": "running" }` (renews the lease),
   - `{ "state": "failed", "reason": "POS nie je dostupný" }` (≤ 500 characters of plain text, no passwords),
-  - `{ "state": "completed", "snapshot_id": "0f6d…" }` for `sync_inventory`: counts only when that snapshot was
-    applied or held. Otherwise `409 snapshot_not_applied`. `ping` completes without a snapshot.
+  - `{ "state": "completed", "snapshot_id": "0f6d…" }` for `sync_inventory`: counts only when that snapshot of this
+    shop was applied or held and announced after the command was made (with this `command_id` or none). Otherwise
+    `409 snapshot_not_applied` (a snapshot still `processing`: wait for it first). After an "unchanged" confirm with
+    this `command_id`, `{ "state": "completed" }` without `snapshot_id` is enough. `ping` completes without a snapshot.
+  - Answer: `200` with the command. Only the device holding the claim may report: otherwise (or after its lease ran
+    out) `409 not_claimed`; stop and look for pending commands again.
 - A command not claimed within 10 minutes expires; the dashboard says "Agent je offline – zapnite počítač s POS
   agentom".
 - A `sync_inventory` answer may use a full snapshot or `confirm` (unchanged), with `command_id` set, outside the
-  5-minute snapshot limit.
+  5-minute snapshot limit (only while this device holds the command's lease).
+- Recommended order: claim → `running` → read the POS → announce/upload/complete with `command_id` (or confirm with
+  `command_id`) → `completed` (or `failed` with a short reason). Renew with `running` every minute while reading a slow
+  POS.
 
 ## Errors
 
@@ -307,6 +320,7 @@ Every error is JSON: `{ "error": "<code>", "message": "<English text for logs>",
 | 409 | `send_full_snapshot` | (B) confirm hash differs from the last applied | upload a full snapshot |
 | 409 | `already_claimed` | (C) another agent claimed the command | ignore the command |
 | 409 | `snapshot_not_applied` | (C) completed with a snapshot that was not applied/held | report `failed` or retry the sync |
+| 409 | `not_claimed` | (C) result from a device that does not hold the command (lease ran out, or finished) | drop it; look for pending commands |
 | 413 | `too_large` | (B) snapshot over `CONNECTOR_MAX_MB` | report to the owner |
 | 422 | `clock_ahead` | (B) `source_time` > 5 min in the future | ask the owner to fix the PC clock |
 | 426 | `update_required` | agent below `min_agent_version` | update the agent; stop calling |
@@ -323,6 +337,9 @@ Every error is JSON: `{ "error": "<code>", "message": "<English text for logs>",
 | rotation | 5 per hour per device | `429 rate_limited`, `Retry-After: 3600` |
 | full snapshots (B) | 1 per 5 minutes per shop (except answering Sync Now) | `429 rate_limited`, `Retry-After: 300` |
 | confirm (B) | 4 per minute per device | `429 rate_limited`, `Retry-After: 60` |
+| `GET /v1/commands` (C) | 6 per minute per device (heartbeats bring the same list) | `429 rate_limited`, `Retry-After: 60` |
+| claim + result (C) | 30 per minute per device | `429 rate_limited`, `Retry-After: 60` |
+| Sync Now (C, the owner) | 4 per hour per shop | the dashboard says so |
 
 `GET /v1/status` has no separate limit; call it when the user opens the agent's window, not in a loop.
 

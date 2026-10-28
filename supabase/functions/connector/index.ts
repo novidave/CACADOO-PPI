@@ -1,6 +1,7 @@
 /**
  * connector — the Cacaduu Cloud API for the POS Sync Agent (database update 50; phase A: pairing, heartbeat,
- * status, token rotation; database update 52; phase B: inventory snapshots). One file so it can be pasted into the Supabase editor; deploy with "Verify JWT" OFF: the
+ * status, token rotation; database update 52; phase B: inventory snapshots; database update 53; phase C: Sync Now
+ * commands). One file so it can be pasted into the Supabase editor; deploy with "Verify JWT" OFF: the
  * agent has no Supabase login, this function checks its device token itself (like stock-pull checks the owner).
  *
  * The contract is docs/CONNECTOR_CLOUD_API.md (+ docs/connector-openapi.json): every path is versioned (/v1/...),
@@ -14,7 +15,11 @@
  * refused; fewer → those rows are skipped and their products keep their stock), keeps only the contract's fields
  * (purchase prices, suppliers, notes… are dropped, never stored) and hands the rows to connector_snapshot_apply(),
  * which decides in SQL: applied, held for the owner, or only checked (the shop's stock source is not the POS agent).
- * Phase C (Sync Now commands) paths answer 501 "not_available" until that update is deployed.
+ * Phase C: the owner's "Synchronizovať teraz" makes one command (owner_connector_sync_now() in SQL). The agent sees it in
+ * its heartbeat answer (or GET /v1/commands; the poll gets shorter while one waits), claims it (one atomic update in
+ * SQL: two agents never run the same command; a 2-minute lease that "running" renews), answers with a snapshot or an
+ * "unchanged" confirm carrying the command_id, and reports completed / failed. Only sync_inventory and ping exist; the
+ * cloud never sends code, paths or POS settings.
  *
  * Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (given by Supabase), CONNECTOR_MIN_AGENT_VERSION (optional, default
  * 0.0.0), CONNECTOR_API_BASE_URL (optional, default <SUPABASE_URL>/functions/v1/connector), API_HASH_SALT (rate limits),
@@ -53,7 +58,7 @@ export interface Staging {
   remove(path: string): Promise<void>;
 }
 
-/** Every path of the contract; phases A and B are served, "C" answers 501 until its update. */
+/** Every path of the contract (all three phases are served). */
 export const ROUTES = [
   { method: "POST", path: "/v1/pair", phase: "A" },
   { method: "POST", path: "/v1/heartbeat", phase: "A" },
@@ -68,8 +73,10 @@ export const ROUTES = [
   { method: "POST", path: "/v1/commands/{id}/result", phase: "C" },
 ] as const;
 
-export const SERVED_PHASES: ReadonlySet<string> = new Set(["A", "B"]);
+export const SERVED_PHASES: ReadonlySet<string> = new Set(["A", "B", "C"]);
 export const DEFAULT_POLL_SECONDS = 60;
+/** While a command waits, the agent calls again sooner (the contract's minimum). */
+export const COMMAND_POLL_SECONDS = 15;
 export const DEFAULT_MAX_MB = 20;
 const MAX_BODY = 64 * 1024;
 const VERSION = /^(\d{1,4})\.(\d{1,4})\.(\d{1,6})(?:[-+][0-9A-Za-z.-]{1,40})?$/;
@@ -169,11 +176,11 @@ async function readBody(req: Request): Promise<Json | null> {
   }
 }
 
-/** What every answer tells the agent about where and how often to call. */
-function pollInfo(deps: Deps): Json {
+/** What every answer tells the agent about where and how often to call (sooner while a command waits). */
+function pollInfo(deps: Deps, waiting = false): Json {
   return {
     api_base_url: deps.apiBaseUrl,
-    next_poll_seconds: DEFAULT_POLL_SECONDS,
+    next_poll_seconds: waiting ? COMMAND_POLL_SECONDS : DEFAULT_POLL_SECONDS,
     min_agent_version: deps.minAgentVersion,
     server_time: deps.now().toISOString(),
   };
@@ -247,8 +254,12 @@ async function heartbeat(device: Device, deps: Deps, body: Json): Promise<Respon
   if (answer.status === "too_many") {
     return fail(429, "rate_limited", "At most 4 heartbeats a minute.", { retry_after: 60 }, { "retry-after": "60" });
   }
-  // phase C fills "commands" (and shortens next_poll_seconds while a Sync Now waits)
-  return reply(200, { shop: { name: answer.shop_name }, commands: [], ...pollInfo(deps) });
+  // pending Sync Now commands ride along; a failure here never fails the heartbeat itself
+  let commands: Json[] = [];
+  const listed = await deps.rpc("connector_commands_list", { p_device_id: device.device_id, p_count: false });
+  if (listed.error) console.error("connector: heartbeat commands", listed.error.message.slice(0, 160));
+  else if ((listed.data as { status?: string } | null)?.status === "ok") commands = (listed.data as { commands: Json[] }).commands ?? [];
+  return reply(200, { shop: { name: answer.shop_name }, commands, ...pollInfo(deps, commands.length > 0) });
 }
 
 async function status(device: Device, deps: Deps): Promise<Response> {
@@ -541,8 +552,11 @@ async function complete(device: Device, deps: Deps, rawId: string): Promise<Resp
 async function confirm(device: Device, deps: Deps, body: Json): Promise<Response> {
   const hash = typeof body.content_hash === "string" && HEX64.test(body.content_hash) ? body.content_hash : null;
   const time = isoTime(body.source_time);
-  if (!hash || !time) {
-    return fail(400, "bad_request", "Send content_hash (SHA-256 hex, lower case) and source_time (ISO 8601 with a time zone).");
+  const command = body.command_id === undefined || body.command_id === null
+    ? null
+    : typeof body.command_id === "string" && UUID.test(body.command_id) ? body.command_id.toLowerCase() : undefined;
+  if (!hash || !time || command === undefined) {
+    return fail(400, "bad_request", "Send content_hash (SHA-256 hex, lower case), source_time (ISO 8601 with a time zone) and command_id (a UUID or null).");
   }
   const { data, error } = await deps.rpc("connector_confirm", {
     p_device_id: device.device_id, p_hash: hash, p_source_time: time.toISOString(),
@@ -557,7 +571,71 @@ async function confirm(device: Device, deps: Deps, body: Json): Promise<Response
   }
   if (out.status === "test_ok") return reply(200, { state: "test_ok", ...pollInfo(deps) });
   deps.afterApply?.(out.shop_id!);
+  // "unchanged" as the answer to a Sync Now: enough to report that command completed
+  if (command) {
+    const noted = await deps.rpc("connector_command_confirmed", { p_device_id: device.device_id, p_command_id: command });
+    if (noted.error) throw new Error(`confirm command: ${noted.error.message}`);
+  }
   return reply(200, { state: "confirmed", ...pollInfo(deps) });
+}
+
+// ------------------------------------------------------------------ phase C: Sync Now commands
+
+const COMMAND_STATES = new Set(["running", "failed", "completed"]);
+
+const revoked = () => fail(401, "unauthorized", "This device was disconnected. Pair it again.");
+const commandsLimited = () => fail(429, "rate_limited", "Too many command requests. Wait a minute.", { retry_after: 60 }, { "retry-after": "60" });
+
+async function listCommands(device: Device, deps: Deps): Promise<Response> {
+  const { data, error } = await deps.rpc("connector_commands_list", { p_device_id: device.device_id, p_count: true });
+  if (error) throw new Error(`commands: ${error.message}`);
+  const out = data as { status: string; commands?: Json[] };
+  if (out.status === "revoked") return revoked();
+  if (out.status === "too_many") return commandsLimited();
+  const commands = out.commands ?? [];
+  return reply(200, { commands, ...pollInfo(deps, commands.length > 0) });
+}
+
+async function claimCommand(device: Device, deps: Deps, id: string): Promise<Response> {
+  const { data, error } = await deps.rpc("connector_command_claim", { p_device_id: device.device_id, p_command_id: id.toLowerCase() });
+  if (error) throw new Error(`claim: ${error.message}`);
+  const out = data as { status: string; command?: Json };
+  if (out.status === "revoked") return revoked();
+  if (out.status === "too_many") return commandsLimited();
+  if (out.status === "not_found") return fail(404, "not_found", "Unknown command.");
+  if (out.status === "already_claimed") {
+    return fail(409, "already_claimed", "This command is not pending any more (another agent has it, or it finished or expired).",
+      { command: out.command, ...pollInfo(deps) });
+  }
+  return reply(200, { ...out.command, ...pollInfo(deps) });
+}
+
+async function commandResult(device: Device, deps: Deps, id: string, body: Json): Promise<Response> {
+  const state = typeof body.state === "string" && COMMAND_STATES.has(body.state) ? body.state : null;
+  const snapshot = body.snapshot_id === undefined || body.snapshot_id === null
+    ? null
+    : typeof body.snapshot_id === "string" && UUID.test(body.snapshot_id) ? body.snapshot_id.toLowerCase() : undefined;
+  if (!state || snapshot === undefined || (body.reason !== undefined && body.reason !== null && typeof body.reason !== "string")) {
+    return fail(400, "bad_request", "Send state (running, failed or completed), for failed a reason (plain text, at most 500 characters), for a completed sync_inventory its snapshot_id.");
+  }
+  const { data, error } = await deps.rpc("connector_command_result", {
+    p_device_id: device.device_id, p_command_id: id.toLowerCase(), p_state: state, p_reason: text(body.reason, 500), p_snapshot_id: snapshot,
+  });
+  if (error) throw new Error(`result: ${error.message}`);
+  const out = data as { status: string; command?: Json };
+  if (out.status === "revoked") return revoked();
+  if (out.status === "too_many") return commandsLimited();
+  if (out.status === "not_found") return fail(404, "not_found", "Unknown command.");
+  if (out.status === "bad_state") return fail(400, "bad_request", "state must be running, failed or completed.");
+  if (out.status === "not_claimed") {
+    return fail(409, "not_claimed", "This device does not hold this command (its lease ran out, or it finished).", { command: out.command, ...pollInfo(deps) });
+  }
+  if (out.status === "snapshot_not_applied") {
+    return fail(409, "snapshot_not_applied",
+      "A sync_inventory completes only with a snapshot applied or held after the command was made, or after an unchanged confirm with its command_id.",
+      { command: out.command, ...pollInfo(deps) });
+  }
+  return reply(200, { ...out.command, ...pollInfo(deps) });
 }
 
 // ------------------------------------------------------------------ the entry point
@@ -597,7 +675,10 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
     if (match.route.path === "/v1/inventory/snapshots") return await announce(device, deps, body);
     if (match.route.path === "/v1/inventory/snapshots/{id}/complete") return await complete(device, deps, match.id!);
     if (match.route.path === "/v1/inventory/snapshots/{id}") return await snapshotState(device, deps, match.id!);
-    return await confirm(device, deps, body);
+    if (match.route.path === "/v1/inventory/confirm") return await confirm(device, deps, body);
+    if (match.route.path === "/v1/commands") return await listCommands(device, deps);
+    if (match.route.path === "/v1/commands/{id}/claim") return await claimCommand(device, deps, match.id!);
+    return await commandResult(device, deps, match.id!, body);
   } catch (e) {
     // never log a token, code or body: only which step failed
     console.error("connector:", match.route.path, e instanceof Error ? e.message.slice(0, 160) : "error");

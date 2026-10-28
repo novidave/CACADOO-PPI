@@ -4,8 +4,8 @@ import { getSession } from "@/lib/auth";
 import { refreshShop } from "@/lib/publicCache";
 
 /**
- * "Prepojenie s pokladňou (POS agent)" (database update 50) and its stock snapshots + "Zdroj zásob" (update 52),
- * called from the owner's browser. Every write goes
+ * "Prepojenie s pokladňou (POS agent)" (database update 50), its stock snapshots + "Zdroj zásob" (update 52) and
+ * "Synchronizovať teraz" (update 53), called from the owner's browser. Every write goes
  * through an owner_connector_* function (membership checked there). No service role is needed: pairing itself, the
  * device tokens and heartbeats are the connector Edge Function's job.
  */
@@ -139,4 +139,39 @@ export async function setStockSource(shopId: string, source: string): Promise<Re
   const { error } = await supabase.rpc("owner_set_stock_source", { p_shop_id: shopId, p_source: source });
   if (error) return { ok: false, error: ["api_connected", "no_device"].includes(error.message) ? error.message : "failed" };
   return loadStockSource(shopId);
+}
+
+/** One "Synchronizovať teraz" request (update 53), as owner_connector_commands() lists it. */
+export interface ConnectorCommand {
+  id: string;
+  type: "sync_inventory" | "ping";
+  state: "pending" | "claimed" | "running" | "completed" | "failed" | "expired";
+  created_at: string;
+  expires_at: string;
+  claimed_at: string | null;
+  finished_at: string | null;
+  attempt: number;
+  error: "lease_expired" | "agent" | null;
+  reason: string | null;
+  unchanged: boolean;
+  snapshot_id: string | null;
+  device: string | null;
+}
+
+/** The last 5 requests (refreshed with the devices; the database moves expired ones on first). */
+export async function loadCommands(shopId: string): Promise<Result<ConnectorCommand[]>> {
+  const supabase = await owner();
+  if (!supabase || !UUID.test(shopId)) return { ok: false, error: "login" };
+  const { data, error } = await supabase.rpc("owner_connector_commands", { p_shop_id: shopId });
+  if (error) return { ok: false, error: "failed" };
+  return { ok: true, value: (data as ConnectorCommand[] | null) ?? [] };
+}
+
+/** "Synchronizovať teraz": one command for the shop's POS agent ('existing' when one already waits). */
+export async function syncNow(shopId: string): Promise<Result<{ status: "new" | "existing" }>> {
+  const supabase = await owner();
+  if (!supabase || !UUID.test(shopId)) return { ok: false, error: "login" };
+  const { data, error } = await supabase.rpc("owner_connector_sync_now", { p_shop_id: shopId });
+  if (error) return { ok: false, error: ["no_device", "not_agent", "too_many"].includes(error.message) ? error.message : "failed" };
+  return { ok: true, value: { status: (data as { status: "new" | "existing" }).status } };
 }

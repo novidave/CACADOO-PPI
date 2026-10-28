@@ -1,4 +1,5 @@
-// Tests of the connector function (the Cacaduu Cloud API for the POS Sync Agent, phase A) against a fake database.
+// Tests of the connector function (the Cacaduu Cloud API for the POS Sync Agent, phase A) against a fake database
+// (phase B: snapshots_test.ts, phase C: commands_test.ts).
 // Run: npm run test:functions
 import { assert, assertEquals, assertMatch, assertNotEquals } from "jsr:@std/assert@1";
 import { type Deps, handle, matchRoute, normalizeCode, routePath, sha256Hex, versionBelow } from "./index.ts";
@@ -43,6 +44,9 @@ function fakeDb() {
         if (!d || d.revoked) return Promise.resolve({ data: { status: "revoked" }, error: null });
         beats++;
         return Promise.resolve({ data: beats > 4 ? { status: "too_many" } : { status: "ok", shop_name: "Cacaduu Paint" }, error: null });
+      }
+      if (name === "connector_commands_list") {
+        return Promise.resolve({ data: { status: "ok", commands: [] }, error: null });
       }
       if (name === "connector_status") {
         return Promise.resolve({ data: { shop: { name: "Cacaduu Paint", slug: "paint" }, state: "never_synced" }, error: null });
@@ -195,11 +199,12 @@ Deno.test("rotation: a new token, different from the old; both work until the ne
   assertEquals((await handle(call("/v1/status", { method: "GET", token: body.device_token }), d)).status, 200);
 });
 
-Deno.test("phase C paths answer 501 until switched on; phase B needs a token; wrong methods 405; unknown 404; bad JSON 400", async () => {
+Deno.test("phases B and C need a token; wrong methods 405; unknown 404; bad JSON 400", async () => {
   const db = fakeDb();
   const d = deps(db);
   assertEquals((await handle(call("/v1/inventory/snapshots", { body: {} }), d)).status, 401);
-  assertEquals((await handle(call("/v1/commands", { method: "GET" }), d)).status, 501);
+  assertEquals((await handle(call("/v1/commands", { method: "GET" }), d)).status, 401);
+  assertEquals((await handle(call("/v1/commands/11111111-1111-4111-8111-111111111111/claim"), d)).status, 401);
   assertEquals((await handle(call("/v1/pair", { method: "GET" }), d)).status, 405);
   assertEquals((await handle(call("/v2/pair"), d)).status, 404);
   const bad = new Request(`${BASE}/v1/pair`, { method: "POST", headers: { "cacaduu-agent-version": "1.2.0" }, body: "[1,2]" });
