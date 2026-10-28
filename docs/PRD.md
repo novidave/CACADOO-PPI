@@ -1786,7 +1786,8 @@ here from "Jazyky a inventár" (old addresses forwarded).
   e-mail / Navigovať · phone. A button whose link or value is empty is not shown; the rest move up.
 - **Press and hold** (1.2 s): a quick tap does nothing. While held: "Držte stlačené" and a bar filling from the left;
   letting go early or sliding off empties it and nothing happens. When full: the link opens (Facebook, web, booking and
-  directions in a new tab, e-mail → mail app, phone → call), the button says Otvorené / Rezervácie otvorené / Navigujem /
+  directions in a new tab on a computer and in the same tab on a phone — the back button returns —, e-mail → mail app,
+  phone → call), the button says Otvorené / Rezervácie otvorené / Navigujem /
   Volám with an orange check, then goes back after ~2 s. Screen readers hear "<button>: <result>".
 - Navigovať leads to the shop's map position (exact); a shop without one is navigated to its written address.
 - Each button has its own colour (Facebook blue, booking orange, web purple, e-mail teal, navigation amber, phone

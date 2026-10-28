@@ -1728,7 +1728,8 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    link and the map position there is "Tlačidlo na stránke: Krátke / Dlhé". Pick "Dlhé" for the phone → Uložiť → the
    shop page shows the phone across both columns at once (no redeploy).
 4. On the phone (iPhone Safari): a quick tap on a contact button does nothing; hold it ~1 second → "Držte stlačené" with
-   a filling bar → it opens (Facebook / web / booking / directions in a new tab, e-mail in the mail app, phone → call).
+   a filling bar → it opens (Facebook / web / booking / directions in the same tab — back returns to the shop —, e-mail
+   in the mail app, phone → call; on a computer the links open in a new tab).
    Letting go early or sliding the finger off cancels. No menu or text selection appears while holding.
 
 ## Part D — later, before launch

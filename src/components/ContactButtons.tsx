@@ -49,8 +49,10 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
   const nextId = useRef(1);
   const holdTimer = useRef<number | undefined>(undefined);
   const doneTimer = useRef<number | undefined>(undefined);
-  // Phones (and any browser without user activation left) allow opening a link only inside a gesture: a finger hold
-  // opens it when the finger is lifted (touchend), never from the timer. Phones send no click after a long press.
+  // Opening a NEW tab is a pop-up: browsers allow it only inside a user gesture. A mouse or keyboard hold is still inside
+  // its press's gesture when it completes; a mouse without one left opens on the release (pending). A finger hold has no
+  // gesture at all (touchstart gives none, phones send no click after a long press, and whether a late touchend counts
+  // differs between phones), so on a phone the link opens in the SAME tab at completion — never blocked anywhere.
   const pending = useRef(false);
   const byTouch = useRef(false);
   const ref = useRef<HTMLButtonElement>(null);
@@ -64,18 +66,22 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
     setLayers((all) => [...all.filter((l) => !l.leaving).map((l) => ({ ...l, leaving: true })), { id, phase: next, leaving: false }]);
   }, []);
 
-  const act = useCallback(() => {
-    pending.current = false;
-    if (button.newTab) window.open(button.href, "_blank", "noopener");
-    else window.location.href = button.href;
-  }, [button.href, button.newTab]);
+  const act = useCallback(
+    (sameTab = false) => {
+      pending.current = false;
+      if (button.newTab && !sameTab) window.open(button.href, "_blank", "noopener");
+      else window.location.assign(button.href);
+    },
+    [button.href, button.newTab],
+  );
 
   const complete = useCallback(() => {
     holdTimer.current = undefined;
     go("done");
     onDone(fill(labels.announce, { label: button.label, done: doneLabel }));
     const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
-    if (byTouch.current || (activation && !activation.isActive)) pending.current = true;
+    if (byTouch.current) act(true);
+    else if (activation && !activation.isActive) pending.current = true;
     else act();
     doneTimer.current = window.setTimeout(() => go("idle"), DONE_MS);
   }, [act, button.label, doneLabel, go, labels.announce, onDone]);
@@ -103,7 +109,7 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
   );
 
   // No long-press gesture of the phone's own (context menu, callout, selection, a cancelled pointer): the touch belongs
-  // to the button. Pointer events still arrive; touchend still counts as a gesture for opening the link.
+  // to the button. Pointer events still arrive.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -113,6 +119,19 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
     el.addEventListener("touchstart", stop, { passive: false });
     return () => el.removeEventListener("touchstart", stop);
   }, []);
+
+  // Back from the opened page (the browser's back-forward cache keeps the page as it was): start again from idle.
+  useEffect(() => {
+    const back = (e: PageTransitionEvent) => {
+      if (!e.persisted || phaseRef.current === "idle") return;
+      window.clearTimeout(holdTimer.current);
+      window.clearTimeout(doneTimer.current);
+      pending.current = false;
+      go("idle");
+    };
+    window.addEventListener("pageshow", back);
+    return () => window.removeEventListener("pageshow", back);
+  }, [go]);
 
   // A label that does not fit at 15 px is set at 12.5 px (never cut, never wrapped); checked again when the width or
   // the font changes. Written on the element, not in state: it never re-renders the button.
@@ -167,14 +186,13 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
         }
         start();
       }}
-      onPointerUp={(e) => {
+      onPointerUp={() => {
         if (phaseRef.current === "holding") cancel();
-        // a mouse or pen release opens a link that was waiting; a finger waits for its touchend (iPhone Safari's gesture)
-        else if (pending.current && e.pointerType !== "touch") act();
+        // a mouse or pen release opens a link that was waiting (a fresh gesture)
+        else if (pending.current) act();
       }}
       onTouchEnd={() => {
         if (phaseRef.current === "holding") cancel();
-        else if (pending.current) act();
       }}
       onPointerLeave={cancel}
       onPointerCancel={cancel}
