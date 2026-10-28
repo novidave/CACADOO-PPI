@@ -93,6 +93,8 @@ export interface SnapshotState {
   state: SnapshotStateName;
   upload_url?: string;
   upload_expires_at?: string;
+  /** largest gzipped upload accepted (with upload_url) */
+  max_bytes?: number;
   reason?: string;
   error?: string;
   message?: string;
@@ -173,7 +175,7 @@ export class CacaduuCloudClient {
     return this.request<RotateResponse>("POST", "/v1/credentials/rotate", {});
   }
 
-  // ---------------------------------------------------------------- phase B (501 until switched on)
+  // ---------------------------------------------------------------- phase B (live since update 52)
 
   createSnapshot(announce: SnapshotAnnounce): Promise<SnapshotState> {
     return this.request<SnapshotState>("POST", "/v1/inventory/snapshots", announce);
@@ -183,7 +185,7 @@ export class CacaduuCloudClient {
   async uploadSnapshot(uploadUrl: string, gzipped: Uint8Array): Promise<void> {
     const res = await this.fetchWithTimeout(uploadUrl, {
       method: "PUT",
-      headers: { "content-type": "application/gzip" },
+      headers: { "content-type": "application/gzip", "x-upsert": "true" },
       // a copy as a plain ArrayBuffer (works with every TypeScript version's fetch types)
       body: gzipped.slice().buffer as ArrayBuffer,
     });
@@ -198,8 +200,9 @@ export class CacaduuCloudClient {
     return this.request<SnapshotState>("GET", `/v1/inventory/snapshots/${encodeURIComponent(snapshotId)}`);
   }
 
-  confirmUnchanged(input: { content_hash: string; source_time: string; command_id?: string | null }): Promise<{ state: "confirmed" }> {
-    return this.request<{ state: "confirmed" }>("POST", "/v1/inventory/confirm", input);
+  /** "test_ok": the shop's stock source is not the POS agent, nothing changed. 409 send_full_snapshot: upload a full one. */
+  confirmUnchanged(input: { content_hash: string; source_time: string; command_id?: string | null }): Promise<{ state: "confirmed" | "test_ok" }> {
+    return this.request<{ state: "confirmed" | "test_ok" }>("POST", "/v1/inventory/confirm", input);
   }
 
   // ---------------------------------------------------------------- phase C (501 until switched on)

@@ -1732,6 +1732,29 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    in the mail app, phone → call; on a computer the links open in a new tab).
    Letting go early or sliding the finger off cancels. No menu or text selection appears while holding.
 
+## Part AU — POS Sync Agent, phase B: stock snapshots and "Zdroj zásob" (28 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/52_connector_snapshots.sql` → Run → "Success". Safe to
+   run again. It makes the private bucket `connector-staging`; every shop's stock source stays "Súbory".
+2. **Secrets** (Edge Functions → Secrets): nothing new is needed. Supabase secrets are shared by every function, so
+   `connector` already reads `SITE_URL`, `REVALIDATE_SECRET` and `INDEXNOW_KEY` (set in Parts AG and AQ) and refreshes
+   the pages after an applied snapshot. Only if you want a different size limit: `CONNECTOR_MAX_MB` (the largest
+   gzipped snapshot, default 20).
+3. **Edge Functions** (paste the whole file → Deploy; Verify JWT stays as it was):
+   - `connector` ← `supabase/functions/connector/index.ts`
+   - `stock-pull` ← `supabase/functions/stock-pull/index.ts` (refuses files while the POS agent is the source)
+   - `inventory-connect` ← `supabase/functions/inventory-connect/index.ts` (new message "agent")
+4. **Try it** with the test stand-in (an agent paired as in Part AS, `agent.json`):
+   - `node scripts/connector-test-agent.mjs snapshot --token-file agent.json --generate 25` → "test_ok": checked, not
+     used, listed under "Posledné stavy skladu z POS agenta".
+   - Priečinok s exportom → **Zdroj zásob** → "POS agent" → Uložiť. Wait 5 minutes (one snapshot per 5 minutes), run the
+     same command again → "applied"; the shop page shows the 25 test products.
+   - `node scripts/connector-test-agent.mjs confirm --token-file agent.json` → "confirmed" (only the time moves).
+   - After 5 minutes `… snapshot --token-file agent.json --generate 5` → "held": the dashboard asks "Áno, použiť tento
+     stav" / "Zahodiť".
+   - **Zdroj zásob → Súbory** → Uložiť to go back; then upload the real file (it replaces the test products).
+   - A CSV of your own: `--csv stock.csv` with the header `source_code;name;ean;brand;price;currency;quantity`.
+
 ## Part D — later, before launch
 
 **Remove the test data:**

@@ -369,7 +369,8 @@
     "upload_file": "Fájl feltöltése",
     "uploading_file": "Fájl feltöltése…",
     "files_cleared": "Nincs feltöltött fájl · töltsön fel újat",
-    "api_connected": "A készlet a csatlakoztatott készletkezelő programon keresztül frissül – fájlokat most nem töltünk fel."
+    "api_connected": "A készlet a csatlakoztatott készletkezelő programon keresztül frissül – fájlokat most nem töltünk fel.",
+    "agent_connected": "A készlet a POS ügynökön keresztül frissül – most nem töltünk fel fájlokat."
   },
   "owner": {
     "shop_name": "Üzlet neve",
@@ -2227,7 +2228,11 @@
     "activity_inventory_api_recovered": "A készletkezelő program újra működik",
     "activity_inventory_api_disconnected": "Készletkezelő program leválasztva",
     "activity_connector_paired": "POS ügynök párosítva",
-    "activity_connector_revoked": "POS ügynök leválasztva"
+    "activity_connector_revoked": "POS ügynök leválasztva",
+    "activity_stock_source_changed": "Módosult a készlet forrása",
+    "activity_connector_snapshot_held": "A POS ügynök készletállapota döntésre vár",
+    "activity_connector_snapshot_approved": "Felhasznált POS ügynök készletállapot",
+    "activity_connector_snapshot_discarded": "Elvetett POS ügynök készletállapot"
   },
   "export_review": {
     "title": "Új fájl – ellenőrizze",
@@ -2456,7 +2461,8 @@
     "error_mapping": "Rendelje hozzá legalább a kódot, a nevet, az árat és a mennyiséget.",
     "error_login": "Kérjük, jelentkezzen be újra.",
     "error_config": "A kapcsolat még nincs beállítva a szerveren. Szóljon a Cacaduu adminisztrátorának.",
-    "error_failed": "Valami nem sikerült. Kis idő múlva próbálja újra."
+    "error_failed": "Valami nem sikerült. Kis idő múlva próbálja újra.",
+    "error_agent": "Amíg a készletet a POS ügynök küldi, készletkezelő programot nem lehet csatlakoztatni."
   },
   "admin_inventory": {
     "title": "Készletkezelő programok (API)",
@@ -2489,7 +2495,7 @@
     "title": "Kapcsolat a pénztárral (POS ügynök)",
     "summary_none": "Nincs POS ügynök",
     "summary_devices": "{n} · {state}",
-    "intro": "A Cacaduu POS ügynök egy választható alkalmazás az üzlet számítógépén. Kiolvassa a készletet a pénztárrendszerből (POHODA, iKelp, fájlok, adatbázis…) és elküldi a Cacaduunak. A készletmappa és a Fájl feltöltése továbbra is ugyanúgy működik.",
+    "intro": "A Cacaduu POS ügynök egy választható alkalmazás a bolt számítógépén. Kiolvassa a készletet a pénztárprogramból (POHODA, iKelp, fájlok, adatbázis…), és elküldi a Cacaduunak. Az oldalon a készletet csak akkor módosítja, ha a „Készlet forrása” részben a POS ügynököt választja; addig az állapotait csak ellenőrizzük és itt megmutatjuk.",
     "add": "POS ügynök hozzáadása",
     "working": "Egy pillanat…",
     "code_title": "Párosító kód",
@@ -2525,7 +2531,39 @@
     "error_too_many": "Óránként legfeljebb 10 kód – próbálja később.",
     "error_name": "Adjon meg egy nevet.",
     "error_login": "Kérjük, jelentkezzen be újra.",
-    "error_failed": "Valami nem sikerült. Próbálja újra."
+    "error_failed": "Valami nem sikerült. Próbálja újra.",
+    "snapshots_title": "A POS ügynök legutóbbi készletállapotai",
+    "snapshots_none": "Még egy sincs. Az ügynök a párosítás után küldi el a készletet.",
+    "snap_applied": "Felhasználva",
+    "snap_held": "Az Ön döntésére vár",
+    "snap_test_ok": "Ellenőrizve, nem felhasználva – a készlet forrása nem a POS ügynök",
+    "snap_rejected": "Elutasítva",
+    "snap_discarded": "Elvetve",
+    "snap_awaiting_upload": "Fájlra vár",
+    "snap_processing": "Feldolgozás alatt",
+    "snap_products": "Termékek: {products}",
+    "snap_counts": "Termékek: {products} · beírva: {imported} · elfogyott: {zeroed} · kihagyva: {skipped}",
+    "snap_time": "Állapot: {time} · {device}",
+    "held_shrinking": "Az új állapotban jóval kevesebb termék van ({products} a {previous} helyett). Lehet, hogy hiba történt a pénztár kiolvasásakor.",
+    "held_empty": "Az új állapotban nincs egy termék sem. Ha felhasználja, minden termék elfogyottként jelenik meg.",
+    "held_use": "Igen, ezt az állapotot használom",
+    "held_discard": "Elvetés",
+    "held_used": "A készletállapot felhasználva.",
+    "held_discarded": "Az állapot elvetve, a készlet nem változott.",
+    "skipped_note": "Kihagyott sorok (termékeik változatlanok maradtak): {text}",
+    "reason_hash_mismatch": "A fájl nem egyezik az ellenőrző összeggel.",
+    "reason_count_mismatch": "A fájlban lévő termékek száma nem egyezik.",
+    "reason_bad_format": "A fájl formátuma hibás.",
+    "reason_bad_gzip": "A fájl nincs tömörítve (gzip).",
+    "reason_invalid_rows": "Túl sok hibás sor (több mint 5 %).",
+    "reason_too_large": "A fájl túl nagy.",
+    "reason_upload_expired": "A fájl nem érkezett meg időben.",
+    "reason_incomplete": "Hiányos állapot – nem használjuk fel.",
+    "reason_stale": "Régebbi, mint az utoljára felhasznált állapot.",
+    "reason_rejected": "Elutasítva.",
+    "error_stale": "Közben újabb állapot érkezett – ezt már nem használjuk fel.",
+    "error_not_agent": "A készlet forrása nem a POS ügynök – előbb módosítsa a „Készlet forrása” részben.",
+    "error_not_held": "Ez az állapot már nem vár döntésre."
   },
   "contact_buttons": {
     "hold": "Tartsa lenyomva",
@@ -2540,5 +2578,27 @@
     "width_short": "Rövid",
     "width_long": "Hosszú",
     "width_hint": "A rövid gomb egy oszlopot foglal el, a hosszú az egész sort. A látogató 1,2 másodpercig nyomva tartja, mielőtt megnyílik."
+  },
+  "stock_source": {
+    "title": "Készlet forrása",
+    "intro": "Honnan származik a készlet az oldalán. Egyszerre csak egy forrás érvényes, hogy ne írják felül egymást.",
+    "summary_file": "Fájlok (mappa vagy feltöltés)",
+    "summary_agent": "POS ügynök",
+    "summary_api": "Készletkezelő program ({program})",
+    "file": "Fájlok – készletmappa vagy kézi feltöltés",
+    "file_hint": "A bolt számítógépén futó PPI ablak elküldi a fájlt a mappából, vagy kézzel tölti fel.",
+    "agent": "POS ügynök – alkalmazás a pénztár melletti számítógépen",
+    "agent_hint": "A készletet a párosított POS ügynök küldi. A mappa és a fájlfeltöltés ilyenkor kikapcsol.",
+    "agent_no_device": "Előbb párosítson egy POS ügynököt a „Kapcsolat a pénztárral (POS ügynök)” részben.",
+    "api_active": "A készlet most a csatlakoztatott {program} készletkezelő programon keresztül frissül. Más forráshoz előbb bontsa a kapcsolatot a „Készletkezelő program csatlakoztatása (API)” részben.",
+    "save": "Forrás mentése",
+    "saving": "Mentés…",
+    "saved": "A készlet forrása elmentve.",
+    "error_api_connected": "Előbb bontsa a kapcsolatot a készletkezelő programmal.",
+    "error_no_device": "Előbb párosítson egy POS ügynököt.",
+    "error_failed": "Nem sikerült menteni. Próbálja újra.",
+    "agent_lock_note": "A készlet a POS ügynökön keresztül frissül.",
+    "agent_lock_text": "A mappából küldött fájlok és a kézi feltöltés ki vannak kapcsolva. Ezt a „Készlet forrása” részben módosíthatja.",
+    "api_blocked": "Amíg a készletet a POS ügynök küldi, készletkezelő programot nem lehet csatlakoztatni. Előbb a „Készlet forrása” részben válassza a Fájlokat."
   }
 }

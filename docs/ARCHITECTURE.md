@@ -2293,8 +2293,8 @@ device + shop; the new token replaces the old one when first used, the old one a
 (4 a minute), `connector_rotate()` (5 an hour), `connector_status()`. Activity log `connector_paired`,
 `connector_revoked`.
 
-`supabase/functions/connector/index.ts` (one file, Verify JWT off): routes `ROUTES` (phase A served; B and C answer
-`501 not_available`), path after `/connector`, `Cacaduu-Agent-Version` required (`426` below
+`supabase/functions/connector/index.ts` (one file, Verify JWT off): routes `ROUTES` (phase A served; since update 52 also
+B; C answers `501 not_available`), path after `/connector`, `Cacaduu-Agent-Version` required (`426` below
 `CONNECTOR_MIN_AGENT_VERSION`), bodies ≤ 64 KB, `Authorization: Bearer cdt_<43>` (SHA-256 to `connector_auth`; the shop
 only from the token), tokens of 32 random bytes made in the function and returned once, every answer with
 `api_base_url` (`CONNECTOR_API_BASE_URL` or `<SUPABASE_URL>/functions/v1/connector`), `next_poll_seconds` (60),
@@ -2340,3 +2340,37 @@ giving `#items` a `min-height` of its current height (fewer results would shorte
 closing the phone's keyboard. Without JavaScript the form's action and the list's page links end in `#items`, so the
 reload lands on the list. e2e `e2e/shop-search.spec.ts` (the scroll position stays within 4 px).
 
+## Update 52 — POS Sync Agent, phase B: inventory snapshots and one stock source
+
+`supabase/sql/52_connector_snapshots.sql`:
+- `shop_stock_source` (one row per shop: `source` file|agent, who/when changed, the last applied snapshot's id, hash,
+  product count, `source_time`, applied time; members read, written only by functions). `stock_source_of(shop)`
+  (service role) = `api` (an `inventory_connections` row) > `agent` (chosen and an unrevoked device) > `file`.
+  `owner_stock_source()` / `owner_set_stock_source()` (errors `source`, `api_connected`, `no_device`; activity
+  `stock_source_changed`). `upload_check_in()` now also raises `agent_connected` (stock-pull answers 409, FolderSync
+  and the upload show the lock); `owner_inventory_can_connect()` returns `agent` while the agent is the source.
+- `connector_snapshots` (pk shop + id; device, source id/time, count, hash, command id; state awaiting_upload →
+  processing → applied | held | test_ok | rejected | discarded; error, message, result, a 5-row preview; `held_rows` /
+  `held_keep` never granted; owners select the other columns; 50 kept per shop). Private bucket `connector-staging`
+  (50 MB; no policies — only the service role signs uploads and reads).
+- Service role: `connector_snapshot_announce()` (revoked / existing / clock_ahead / stale / rate_limited — complete
+  snapshots only, 5 min — / new; incomplete → rejected), `connector_snapshot_get()`, `_begin()` (→ processing; a
+  stuck one may restart after 5 min), `_wait()`, `_reject()`, `_apply()` → `connector_snapshot_settle()` under
+  `pg_advisory_xact_lock` per shop: stale (older `source_time` than the last applied) → rejected; source ≠ agent →
+  test_ok; not decided and (0 products or < half the last count) → held (rows kept for the owner); else
+  `connector_apply_rows()` (same rules as files: upsert by `source_code`, missing → 0 except `p_keep` = codes of skipped
+  rows; freshness = least(source_time, received)), a `stock_imports` report (`source = 'agent'`), device
+  `last_sync_at`. `connector_confirm()` (4 a minute per device, `connector_hits.kind` confirm; only the last applied
+  hash; freshness only forward). Owner: `owner_connector_snapshots()` (last 10), `owner_connector_decide(shop, id, use)`
+  (held only; use → settle with decided = true; activity `connector_snapshot_approved` / `_discarded`).
+- `connector/index.ts`: phase B routes — announce (201 + a signed upload URL from `createSignedUploadUrl` +
+  `max_bytes`), `GET` state (202 while processing), complete (size ≤ `CONNECTOR_MAX_MB` (default 20) → gunzip with a
+  10× cap → SHA-256 of the uncompressed bytes → `cacaduu.inventory.v1` with the announced id/source/time → count →
+  `checkRows()` (> 5 % bad → rejected `invalid_rows`) → apply; the staged file is deleted), confirm. After `applied`,
+  in the background: `/api/revalidate` (`SITE_URL`, `REVALIDATE_SECRET`) and IndexNow (`INDEXNOW_KEY`) like stock-pull.
+  Tests `connector/snapshots_test.ts` (in-memory storage). Contract: `docs/CONNECTOR_CLOUD_API.md` phase B, the
+  OpenAPI file without 501 on B paths, the client's `max_bytes` / `x-upsert`.
+- Website: `/sync` section `source` first (`@/components/StockSourcePanel`); `PosAgentPanel` lists snapshots with
+  held "Áno, použiť tento stav" / "Zahodiť" (`loadSnapshots`, `decideSnapshot` → `refreshShop`); the API section says
+  `api_blocked` while the agent is the source; FolderSync knows `agent_connected`. Texts `stock_source`, `pos_agent`.
+  Test stand-in: `connector-test-agent.mjs snapshot` (`--csv` / `--json` / `--generate`) and `confirm`.

@@ -195,10 +195,10 @@ Deno.test("rotation: a new token, different from the old; both work until the ne
   assertEquals((await handle(call("/v1/status", { method: "GET", token: body.device_token }), d)).status, 200);
 });
 
-Deno.test("phase B and C paths answer 501 until switched on; wrong methods 405; unknown paths 404; bad JSON 400", async () => {
+Deno.test("phase C paths answer 501 until switched on; phase B needs a token; wrong methods 405; unknown 404; bad JSON 400", async () => {
   const db = fakeDb();
   const d = deps(db);
-  assertEquals((await handle(call("/v1/inventory/snapshots", { body: {} }), d)).status, 501);
+  assertEquals((await handle(call("/v1/inventory/snapshots", { body: {} }), d)).status, 401);
   assertEquals((await handle(call("/v1/commands", { method: "GET" }), d)).status, 501);
   assertEquals((await handle(call("/v1/pair", { method: "GET" }), d)).status, 405);
   assertEquals((await handle(call("/v2/pair"), d)).status, 404);

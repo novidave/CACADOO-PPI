@@ -3,7 +3,7 @@
   "info": {
     "title": "Cacaduu Cloud API for the POS Sync Agent",
     "version": "1.0.0",
-    "description": "See docs/CONNECTOR_CLOUD_API.md. Every request carries the header Cacaduu-Agent-Version. x-cacaduu-phase: A = live (update 50); B and C answer 501 not_available until their updates are deployed."
+    "description": "See docs/CONNECTOR_CLOUD_API.md. Every request carries the header Cacaduu-Agent-Version. x-cacaduu-phase: A = live (update 50); B = live (update 52); C answers 501 not_available until its update is deployed."
   },
   "servers": [
     {
@@ -433,16 +433,6 @@
                 }
               }
             }
-          },
-          "501": {
-            "description": "Phase not switched on yet (not_available)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         },
         "requestBody": {
@@ -548,8 +538,18 @@
               }
             }
           },
-          "501": {
-            "description": "Phase not switched on yet (not_available)",
+          "409": {
+            "description": "not_uploaded (PUT the file first), stale (a newer snapshot was applied) or not_processing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "too_large (the snapshot is rejected)",
             "content": {
               "application/json": {
                 "schema": {
@@ -643,16 +643,6 @@
           },
           "429": {
             "description": "Rate limited",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Phase not switched on yet (not_available)",
             "content": {
               "application/json": {
                 "schema": {
@@ -756,16 +746,6 @@
           },
           "429": {
             "description": "Rate limited",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Phase not switched on yet (not_available)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1607,17 +1587,20 @@
           },
           "upload_url": {
             "type": "string",
-            "format": "uri"
+            "format": "uri",
+            "description": "Signed Supabase Storage upload URL (15 minutes): PUT the gzipped JSON, Content-Type application/gzip, x-upsert true. No device token."
           },
           "upload_expires_at": {
             "type": "string",
             "format": "date-time"
           },
           "reason": {
-            "type": "string"
+            "type": "string",
+            "description": "For held: empty or shrinking."
           },
           "error": {
-            "type": "string"
+            "type": "string",
+            "description": "For rejected: incomplete, upload_expired, too_large, bad_gzip, hash_mismatch, bad_format, count_mismatch, invalid_rows, stale, discarded_by_owner."
           },
           "message": {
             "type": "string"
@@ -1638,6 +1621,10 @@
                 "type": "integer"
               }
             }
+          },
+          "max_bytes": {
+            "type": "integer",
+            "description": "Largest gzipped upload accepted (only with upload_url)."
           }
         }
       },
@@ -1672,7 +1659,12 @@
         ],
         "properties": {
           "state": {
-            "const": "confirmed"
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "test_ok"
+            ],
+            "description": "test_ok = the shop's stock source is not the POS agent; nothing changed."
           }
         }
       },

@@ -88,8 +88,9 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   since update 49, the shop's inventory program over its API (SuperFaktúra, WooCommerce, own JSON/CSV URL)
 - A third way being built (Prompt 13): the **Cacaduu POS Sync Agent**, an optional desktop app (its own repository)
   that reads stock from the POS and sends it to the Cacaduu Cloud API. Phase A (update 50): pairing with a one-time
-  code, device tokens, heartbeats and the device list in Môj obchod. Phases B (inventory snapshots) and C (Sync Now)
-  follow; the contract for all three is docs/CONNECTOR_CLOUD_API.md
+  code, device tokens, heartbeats and the device list in Môj obchod. Phase B (update 52): inventory snapshots and one
+  active stock source ("Zdroj zásob"). Phase C (Sync Now) follows; the contract for all three is
+  docs/CONNECTOR_CLOUD_API.md
 - AI-proposed column mapping, always approved by the owner
 - Item names in three languages: every name is also kept in plain Slovak, Hungarian and English (made by AI in the
   background, correctable by the owner), so a search in any of the three languages finds it
@@ -1778,7 +1779,7 @@ here from "Jazyky a inventár" (old addresses forwarded).
   no snapshot applied yet), Synchronizuje (phase C). The list refreshes itself every 30 seconds while the page is open.
 - Each computer has its own token for this one shop, stored by Cacaduu only as a hash; Cacaduu never asks for POS
   passwords or settings. Wrong codes are limited (5 per 15 minutes per caller).
-- Not yet: stock from the agent (phase B) and Sync Now (phase C). Until then the agent can pair and report only.
+- Stock from the agent: phase B (6.26). Not yet: Sync Now (phase C).
 
 ### 6.25 Contact buttons on the shop page (database update 51, 28 October 2026)
 
@@ -1795,3 +1796,29 @@ here from "Jazyky a inventár" (old addresses forwarded).
 - Môj obchod → "Údaje obchodu": "Tlačidlo na stránke: Krátke / Dlhé" next to each contact field. Short = one column,
   long = the whole row; defaults: e-mail long, the rest short. Saved with the shop's details; the page shows it at once.
 - Without JavaScript the page shows the same contacts as plain links.
+
+### 6.26 POS Sync Agent: inventory snapshots and one stock source (database update 52, Prompt 13 phase B)
+
+- Môj obchod → Priečinok s exportom starts with **"Zdroj zásob"**: *Súbory – priečinok so skladom alebo ručné nahratie*
+  (default) or *POS agent – aplikácia na počítači pri pokladni* (only with a paired, not disconnected agent). One source
+  at a time, so two sources never overwrite each other. A connected inventory program (update 49) always wins and is
+  only named there. While the POS agent is the source, the folder window and "Nahrať súbor" say that the stock comes
+  from the POS agent and refuse files; switching back to files is one click.
+- The agent sends the shop's **whole** stock (a snapshot: code, name, EAN, brand, price, currency, quantity) as a
+  gzipped file straight to private storage, then asks Cacaduu to check it. Cacaduu never asks for POS passwords; any
+  field outside the list (purchase price, supplier, margin, …) is dropped and never stored.
+- Checks: the announced count and SHA-256 must match the file; > 5 % invalid rows → the whole snapshot is refused and
+  the old stock stays; ≤ 5 % → those rows are skipped and listed, and those products keep their previous stock. A
+  product missing from a snapshot is set to 0, as with files. Older than the last applied snapshot → refused. At most
+  one full snapshot per 5 minutes per shop.
+- **Never automatic:** a snapshot with 0 products, or fewer than half of the last applied count, waits as "Čaká na vaše
+  rozhodnutie" ("Nový stav má výrazne menej produktov (1 namiesto 3). Môže ísť o chybu pri čítaní pokladne.") with
+  **"Áno, použiť tento stav"** / **"Zahodiť"**.
+- While the source is still "Súbory", snapshots are checked and listed as "Skontrolované, nepoužité – zdroj zásob nie je
+  POS agent" (a safe test before switching).
+- Unchanged stock: the agent only confirms the same content hash; the freshness time moves forward, nothing else.
+- "Posledné stavy skladu z POS agenta" (last 10): state, time of the POS read, the computer, counts (products, written,
+  set to 0, skipped) and the reason of a refusal in plain words. Each applied snapshot is also a "Posledné nahrané
+  súbory" report ("POS agent · <computer>") and refreshes the public pages at once (and IndexNow).
+- Not yet: Sync Now (phase C). Tested with the test stand-in (`scripts/connector-test-agent.mjs snapshot` / `confirm`),
+  not yet with the real desktop agent.

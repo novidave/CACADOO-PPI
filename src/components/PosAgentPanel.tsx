@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   type ConnectorDevice,
+  type ConnectorSnapshot,
   type ConnectorState,
   createPairingCode,
+  decideSnapshot,
   loadDevices,
+  loadSnapshots,
   renameDevice,
   revokeDevice,
 } from "@/app/[lang]/(account)/sync/connectorActions";
@@ -24,22 +27,27 @@ const REFRESH_MS = 30_000;
  * "Prepojenie s pokladňou (POS agent)" (database update 50): pair a Cacaduu POS Sync Agent with a one-time code,
  * the paired devices with their state (worked out in SQL from the heartbeat times, refreshed every 30 s while the
  * page is open), rename and "Odpojiť". The code is shown once; nothing secret is kept in the page afterwards.
+ * Update 52: the last stock snapshots the agents sent (used / checked only / refused with the reason), and for a held
+ * one — empty or far smaller than the last — "Áno, použiť tento stav" or "Zahodiť".
  */
 export function PosAgentPanel({
   shopId,
   initial,
+  initialSnapshots = [],
   lang,
   timeZone,
   labels,
 }: {
   shopId: string;
   initial: ConnectorState;
+  initialSnapshots?: ConnectorSnapshot[];
   lang: Locale;
   timeZone: string | null;
   labels: Labels;
 }) {
   const l = labels as Record<string, string>;
   const [state, setState] = useState<ConnectorState>(initial);
+  const [snapshots, setSnapshots] = useState<ConnectorSnapshot[]>(initialSnapshots);
   const [code, setCode] = useState<{ code: string; expires_at: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -48,7 +56,8 @@ export function PosAgentPanel({
   const when = (iso: string | null) => (iso ? formatDateTime(iso, lang, timeZone) : labels.never);
 
   const refresh = useCallback(async () => {
-    const result = await loadDevices(shopId);
+    const [result, snaps] = await Promise.all([loadDevices(shopId), loadSnapshots(shopId)]);
+    if (snaps.ok) setSnapshots(snaps.value);
     if (!result.ok) return;
     setState(result.value);
     // once a device paired after the code was made, the code has done its job
@@ -84,6 +93,18 @@ export function PosAgentPanel({
         setEditing(null);
         await refresh();
       } else setMessage(l[`error_${result.error}`] ?? labels.error_failed);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function decide(snapshot: ConnectorSnapshot, use: boolean) {
+    setBusy(snapshot.id);
+    setMessage(null);
+    try {
+      const result = await decideSnapshot(shopId, snapshot.id, use);
+      await refresh();
+      setMessage(result.ok ? (use ? labels.held_used : labels.held_discarded) : (l[`error_${result.error}`] ?? labels.error_failed));
     } finally {
       setBusy(null);
     }
@@ -210,6 +231,72 @@ export function PosAgentPanel({
                     >
                       {labels.revoke}
                     </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2" aria-labelledby="pos-snapshots-title" data-pos-snapshots>
+        <h3 id="pos-snapshots-title" className="font-semibold">
+          {labels.snapshots_title}
+        </h3>
+        {snapshots.length === 0 ? (
+          <p className="text-sm">{labels.snapshots_none}</p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {snapshots.map((snap) => (
+              <li key={snap.id} className="flex flex-col gap-1 border border-line p-3 text-sm" data-snapshot={snap.id} data-snapshot-state={snap.state}>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-semibold">{l[`snap_${snap.state}`] ?? snap.state}</span>
+                  <span className="text-muted">{fill(labels.snap_time, { time: when(snap.source_time), device: snap.device ?? "–" })}</span>
+                </div>
+                <span>
+                  {snap.state === "applied" && snap.result
+                    ? fill(labels.snap_counts, {
+                        products: snap.result.products ?? snap.product_count,
+                        imported: snap.result.imported ?? 0,
+                        zeroed: snap.result.zeroed ?? 0,
+                        skipped: snap.result.skipped ?? 0,
+                      })
+                    : fill(labels.snap_products, { products: snap.product_count })}
+                </span>
+                {snap.state === "rejected" && snap.error && (
+                  <span data-snapshot-reason>{l[`reason_${snap.error}`] ?? labels.reason_rejected}</span>
+                )}
+                {snap.result?.skipped_text && snap.state !== "rejected" && (
+                  /* plain text: line numbers and field names only */
+                  <span className="break-words text-muted">{fill(labels.skipped_note, { text: snap.result.skipped_text })}</span>
+                )}
+                {snap.state === "held" && (
+                  <div className="flex flex-col gap-2 border border-foreground p-3" data-held>
+                    <p className="font-semibold">
+                      {snap.product_count === 0
+                        ? labels.held_empty
+                        : fill(labels.held_shrinking, { products: snap.product_count, previous: snap.previous_count ?? "–" })}
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void decide(snap, true)}
+                        disabled={busy !== null}
+                        className="border border-foreground px-3 py-2 font-medium disabled:opacity-50"
+                        data-held-use
+                      >
+                        {labels.held_use}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void decide(snap, false)}
+                        disabled={busy !== null}
+                        className="border border-line px-3 py-2 disabled:opacity-50"
+                        data-held-discard
+                      >
+                        {labels.held_discard}
+                      </button>
+                    </div>
                   </div>
                 )}
               </li>

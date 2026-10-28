@@ -369,7 +369,8 @@
     "upload_file": "Upload file",
     "uploading_file": "Uploading file…",
     "files_cleared": "No uploaded file · upload a new one",
-    "api_connected": "The stock is updated through the connected inventory software – files are not uploaded now."
+    "api_connected": "The stock is updated through the connected inventory software – files are not uploaded now.",
+    "agent_connected": "The stock is updated through the POS agent – files are not uploaded now."
   },
   "owner": {
     "shop_name": "Shop name",
@@ -2227,7 +2228,11 @@
     "activity_inventory_api_recovered": "Inventory software works again",
     "activity_inventory_api_disconnected": "Inventory software disconnected",
     "activity_connector_paired": "POS agent paired",
-    "activity_connector_revoked": "POS agent disconnected"
+    "activity_connector_revoked": "POS agent disconnected",
+    "activity_stock_source_changed": "Stock source changed",
+    "activity_connector_snapshot_held": "POS agent stock waiting for a decision",
+    "activity_connector_snapshot_approved": "POS agent stock used",
+    "activity_connector_snapshot_discarded": "POS agent stock discarded"
   },
   "export_review": {
     "title": "New file – please check",
@@ -2456,7 +2461,8 @@
     "error_mapping": "Match at least the code, name, price and quantity.",
     "error_login": "Please log in again.",
     "error_config": "The connection is not set up on the server yet. Please tell the Cacaduu administrator.",
-    "error_failed": "Something went wrong. Please try again in a moment."
+    "error_failed": "Something went wrong. Please try again in a moment.",
+    "error_agent": "While the POS agent sends the stock, inventory software cannot be connected."
   },
   "admin_inventory": {
     "title": "Inventory software (API)",
@@ -2489,7 +2495,7 @@
     "title": "Connection to the POS (POS agent)",
     "summary_none": "No POS agent",
     "summary_devices": "{n} · {state}",
-    "intro": "The Cacaduu POS agent is an optional app on the shop PC. It reads the stock from your POS (POHODA, iKelp, files, database…) and sends it to Cacaduu. The stock folder and Upload file keep working as before.",
+    "intro": "The Cacaduu POS agent is an optional app on the shop's computer. It reads the stock from your point of sale (POHODA, iKelp, files, a database…) and sends it to Cacaduu. It changes the stock on your page only once you choose the POS agent under \"Stock source\"; until then its stock is only checked and shown here.",
     "add": "Add a POS agent",
     "working": "One moment…",
     "code_title": "Pairing code",
@@ -2525,7 +2531,39 @@
     "error_too_many": "At most 10 codes an hour – try later.",
     "error_name": "Enter a name.",
     "error_login": "Please log in again.",
-    "error_failed": "Something went wrong. Please try again."
+    "error_failed": "Something went wrong. Please try again.",
+    "snapshots_title": "Latest stock from the POS agent",
+    "snapshots_none": "None yet. The agent sends the stock after pairing.",
+    "snap_applied": "Used",
+    "snap_held": "Waiting for your decision",
+    "snap_test_ok": "Checked, not used – the stock source is not the POS agent",
+    "snap_rejected": "Refused",
+    "snap_discarded": "Discarded",
+    "snap_awaiting_upload": "Waiting for the file",
+    "snap_processing": "Processing",
+    "snap_products": "Products: {products}",
+    "snap_counts": "Products: {products} · written: {imported} · sold out: {zeroed} · skipped: {skipped}",
+    "snap_time": "Stock of {time} · {device}",
+    "held_shrinking": "The new stock has far fewer products ({products} instead of {previous}). Reading the point of sale may have gone wrong.",
+    "held_empty": "The new stock has no products. If you use it, every product will show as sold out.",
+    "held_use": "Yes, use this stock",
+    "held_discard": "Discard",
+    "held_used": "The stock was used.",
+    "held_discarded": "The stock was discarded; nothing changed.",
+    "skipped_note": "Skipped rows (their products stayed as they were): {text}",
+    "reason_hash_mismatch": "The file does not match its checksum.",
+    "reason_count_mismatch": "The number of products in the file does not match.",
+    "reason_bad_format": "The file has the wrong format.",
+    "reason_bad_gzip": "The file is not gzipped.",
+    "reason_invalid_rows": "Too many invalid rows (more than 5 %).",
+    "reason_too_large": "The file is too large.",
+    "reason_upload_expired": "The file did not arrive in time.",
+    "reason_incomplete": "Incomplete stock – not used.",
+    "reason_stale": "Older than the last stock used.",
+    "reason_rejected": "Refused.",
+    "error_stale": "A newer stock arrived in the meantime – this one is no longer used.",
+    "error_not_agent": "The stock source is not the POS agent – change it under \"Stock source\" first.",
+    "error_not_held": "This stock is no longer waiting for a decision."
   },
   "contact_buttons": {
     "hold": "Keep holding",
@@ -2540,5 +2578,27 @@
     "width_short": "Short",
     "width_long": "Long",
     "width_hint": "A short button takes one column, a long one the whole row. Visitors hold it for 1.2 s before it opens."
+  },
+  "stock_source": {
+    "title": "Stock source",
+    "intro": "Where the stock on your page comes from. Only one source counts at a time, so they never overwrite each other.",
+    "summary_file": "Files (folder or upload)",
+    "summary_agent": "POS agent",
+    "summary_api": "Inventory software ({program})",
+    "file": "Files – the stock folder or a manual upload",
+    "file_hint": "The PPI window on the shop's computer sends the file from the folder, or you upload it by hand.",
+    "agent": "POS agent – the app on the computer at the till",
+    "agent_hint": "The paired POS agent sends the stock. The folder and file uploads are switched off then.",
+    "agent_no_device": "Pair a POS agent under \"Connection to the POS (POS agent)\" first.",
+    "api_active": "The stock is updated through the connected inventory software {program}. For another source, disconnect it under \"Connect inventory software (API)\" first.",
+    "save": "Save source",
+    "saving": "Saving…",
+    "saved": "The stock source is saved.",
+    "error_api_connected": "Disconnect the inventory software first.",
+    "error_no_device": "Pair a POS agent first.",
+    "error_failed": "Could not save. Try again.",
+    "agent_lock_note": "The stock is updated through the POS agent.",
+    "agent_lock_text": "Files from the folder and manual uploads are switched off. Change this under \"Stock source\".",
+    "api_blocked": "While the POS agent sends the stock, inventory software cannot be connected. Choose Files under \"Stock source\" first."
   }
 }

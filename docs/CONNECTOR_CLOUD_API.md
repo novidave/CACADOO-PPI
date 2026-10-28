@@ -6,7 +6,7 @@ This is the contract between the **Cacaduu POS Sync Agent** (the Electron deskto
 | Phase | What | Status in this repository |
 |---|---|---|
 | A | pairing, device token, heartbeat, status, token rotation | **live** (database update 50, function `connector`) |
-| B | inventory snapshots (staging upload, apply, confirm unchanged) | contract only; the paths answer `501 not_available` |
+| B | inventory snapshots (staging upload, apply, confirm unchanged) | **live** (database update 52, function `connector`) |
 | C | Sync Now commands (claim, lease, result) | contract only; the paths answer `501 not_available` |
 
 Machine-readable version: [`connector-openapi.json`](connector-openapi.json). A small TypeScript client with no imports
@@ -143,8 +143,8 @@ Cacaduu-Agent-Version: 1.4.2
 }
 ```
 
-`state`: `online` | `offline` | `error` | `never_synced` (`syncing` in phase C). `last_sync` is `null` until phase B
-applies a snapshot.
+`state`: `online` | `offline` | `error` | `never_synced` (`syncing` in phase C). `last_sync` is `null` until a snapshot
+is applied (or held for the owner).
 
 ### Credential rotation
 
@@ -164,7 +164,12 @@ applies a snapshot.
 The owner clicks **Odpojiť** in the dashboard. It takes effect at once: the next request with that token gets `401`
 (also the old token after a rotation). The agent deletes the stored token and shows "Pair this computer again".
 
-## Phase B — inventory snapshots (contract; `501` until deployed)
+## Phase B — inventory snapshots (live since update 52)
+
+A snapshot is applied to the shop's stock only when the owner picked **"POS agent"** as the shop's stock source
+(Môj obchod → Priečinok s exportom → "Zdroj zásob"). Until then every snapshot is checked and shown to the owner but not
+applied (`test_ok`). While the POS agent is the source, the PPI window's folder and "Nahrať súbor" are refused
+(`agent_connected`); a connected inventory program (Cacaduu's own API pull) always wins over the agent.
 
 ### The snapshot JSON (uncompressed)
 
@@ -218,11 +223,15 @@ The owner clicks **Odpojiť** in the dashboard. It takes effect at once: the nex
      "complete": true, "product_count": 152, "content_hash": "9c1e…", "command_id": null }
    ```
 
-   → `201` `{ "snapshot_id": "0f6d…", "state": "awaiting_upload", "upload_url": "https://…", "upload_expires_at": "…" }`
-   (the URL is valid 15 minutes and points to `connector-staging/<shop>/<snapshot_id>.json.gz`).
+   → `201` `{ "snapshot_id": "0f6d…", "state": "awaiting_upload", "upload_url": "https://…", "upload_expires_at": "…",
+   "max_bytes": 20971520 }` (a signed Supabase Storage upload URL, valid 15 minutes, for
+   `connector-staging/<shop>/<snapshot_id>.json.gz`; `max_bytes` = the compressed size limit).
+   `complete: false` → the snapshot is recorded as `rejected` (`incomplete`) and nothing is uploaded.
    The same `snapshot_id` again → `200` with its current state (and a fresh `upload_url` while still awaiting upload).
-2. **Upload**: `PUT <upload_url>` with the gzipped JSON as the body, `Content-Type: application/gzip`. The size limit is
-   the server's `CONNECTOR_MAX_MB` (compressed). The body never goes through the function.
+2. **Upload**: `PUT <upload_url>` with the gzipped JSON as the body, `Content-Type: application/gzip` (send
+   `x-upsert: true` so a retried upload of the same snapshot replaces the first try). The size limit is `max_bytes`
+   (the server's `CONNECTOR_MAX_MB`, default 20). The body never goes through the function; no device token on this
+   request — the signed URL is the permission.
 3. **Complete**: `POST /v1/inventory/snapshots/{id}/complete` (no body). The server reads the file, checks it and applies
    it (or holds it, see below). Answers:
    - `200` `{ "state": "applied", "result": { "products": 152, "imported": 150, "zeroed": 2, "skipped": 0 } }`
@@ -232,21 +241,28 @@ The owner clicks **Odpojiť** in the dashboard. It takes effect at once: the nex
    - `200` `{ "state": "rejected", "error": "invalid_rows", "message": "…" }` — the previous stock stays.
    - `202` `{ "state": "processing" }` — ask again with `GET /v1/inventory/snapshots/{id}` (every 5 s, at most 5
      minutes).
+   - `409 not_uploaded` — the file is not there yet: finish the `PUT`, then complete again. After `upload_expires_at`
+     the snapshot becomes `rejected` (`upload_expired`); announce a new one with a new `snapshot_id`.
+   - `413 too_large` — over `max_bytes` (or over 10× that when unpacked); the snapshot is `rejected`.
+   - Completing an already finished snapshot again returns its final state (idempotent).
 4. **Unchanged stock**: when the POS was re-read and the content is identical, don't upload again:
    `POST /v1/inventory/confirm` `{ "content_hash": "9c1e…", "source_time": "…", "command_id": null }`.
    If the hash equals the last applied snapshot of this shop, only the freshness time moves forward (`200
-   { "state": "confirmed" }`); otherwise `409 send_full_snapshot`.
+   { "state": "confirmed" }`; never backwards); otherwise `409 send_full_snapshot`. `200 { "state": "test_ok" }` when
+   the shop's stock source is not the POS agent (nothing changes). At most 4 confirmations a minute per device.
 
 ### What makes a snapshot count
 
 - `complete: true`, `product_count` equal to the real number of products and a matching `content_hash`; otherwise
-  `rejected` (`count_mismatch`, `hash_mismatch`). A partial or failed upload never counts and never sets anything to 0.
+  `rejected` (`count_mismatch`, `hash_mismatch`; also `bad_gzip`, `bad_format` — not `cacaduu.inventory.v1`, or a
+  `snapshot_id` / `source_id` / `source_time` different from the announcement). A partial or failed upload never counts and never sets anything to 0.
 - `source_time` must be newer than the last applied snapshot (`409 stale`), except the same snapshot again.
 - `source_time` more than 5 minutes in the future → `422 clock_ahead` ("skontrolujte čas na počítači"). Freshness =
   the earlier of `source_time` and the time Cacaduu received it.
 - Invalid rows (bad price, quantity or currency): more than 5 % → the whole snapshot is `rejected` (`invalid_rows`);
   5 % or less → those rows are skipped and reported, and their items keep their previous stock (not set to 0).
-- 0 products, or fewer than half of the last applied count → `held` until the owner approves it. Never automatic.
+- 0 products, or fewer than half of the last applied count → `held` until the owner approves it ("Áno, použiť tento
+  stav") or discards it. Never automatic. A held snapshot older than a later applied one can no longer be used.
 - Applied in one transaction; on any failure the previous stock stays.
 - At most one full snapshot per 5 minutes per shop (`429`), except when answering a Sync Now command.
 - Several paired devices of one shop are applied one after another (a per-shop lock); the newest `source_time` wins.
@@ -286,6 +302,8 @@ Every error is JSON: `{ "error": "<code>", "message": "<English text for logs>",
 | 404 | `not_found` | unknown path or id | check the path / `api_base_url` |
 | 405 | `method_not_allowed` | wrong HTTP method | fix the request |
 | 409 | `stale` | (B) `source_time` not newer than the last applied | read the POS again |
+| 409 | `not_uploaded` | (B) complete called before the upload arrived | finish the `PUT`, complete again |
+| 409 | `not_processing` | (B) complete raced another complete of the same snapshot | `GET` the snapshot |
 | 409 | `send_full_snapshot` | (B) confirm hash differs from the last applied | upload a full snapshot |
 | 409 | `already_claimed` | (C) another agent claimed the command | ignore the command |
 | 409 | `snapshot_not_applied` | (C) completed with a snapshot that was not applied/held | report `failed` or retry the sync |
@@ -303,7 +321,8 @@ Every error is JSON: `{ "error": "<code>", "message": "<English text for logs>",
 | wrong pairing codes | 5 per 15 minutes per caller | `429 pairing_locked`, `Retry-After: 900` |
 | heartbeat | 4 per minute per device | `429 rate_limited`, `Retry-After: 60` |
 | rotation | 5 per hour per device | `429 rate_limited`, `Retry-After: 3600` |
-| full snapshots (B) | 1 per 5 minutes per shop (except answering Sync Now) | `429 rate_limited` |
+| full snapshots (B) | 1 per 5 minutes per shop (except answering Sync Now) | `429 rate_limited`, `Retry-After: 300` |
+| confirm (B) | 4 per minute per device | `429 rate_limited`, `Retry-After: 60` |
 
 `GET /v1/status` has no separate limit; call it when the user opens the agent's window, not in a loop.
 
