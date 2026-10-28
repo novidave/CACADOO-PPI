@@ -1736,10 +1736,10 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
 
 1. **Database:** SQL Editor → paste the whole file `supabase/sql/52_connector_snapshots.sql` → Run → "Success". Safe to
    run again. It makes the private bucket `connector-staging`; every shop's stock source stays "Súbory".
-2. **Secrets** (Edge Functions → Secrets) for `connector`:
-   - `SITE_URL` (`https://<your website>`), `REVALIDATE_SECRET` and `INDEXNOW_KEY` — the same values stock-pull already
-     uses, so an applied snapshot refreshes the pages at once.
-   - `CONNECTOR_MAX_MB` — optional, the largest gzipped snapshot (default 20).
+2. **Secrets** (Edge Functions → Secrets): nothing new is needed. Supabase secrets are shared by every function, so
+   `connector` already reads `SITE_URL`, `REVALIDATE_SECRET` and `INDEXNOW_KEY` (set in Parts AG and AQ) and refreshes
+   the pages after an applied snapshot. Only if you want a different size limit: `CONNECTOR_MAX_MB` (the largest
+   gzipped snapshot, default 20).
 3. **Edge Functions** (paste the whole file → Deploy; Verify JWT stays as it was):
    - `connector` ← `supabase/functions/connector/index.ts`
    - `stock-pull` ← `supabase/functions/stock-pull/index.ts` (refuses files while the POS agent is the source)
