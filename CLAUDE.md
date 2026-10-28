@@ -734,7 +734,7 @@ activity log. Private fields (purchase price, supplier, margin, invoice, interna
 lets us choose fields and are dropped before storing otherwise. Only public https hosts, forwards checked, 20 MB.
 Texts `inventory_api`, `admin_inventory`. "Synchronizovať teraz" ≤ 4/hour.
 
-## Cacaduu Cloud Connection for the POS Sync Agent (Prompt 13; phase A = update 50, B = update 52)
+## Cacaduu Cloud Connection for the POS Sync Agent (Prompt 13; phase A = update 50, B = update 52, C = update 53)
 
 `supabase/sql/50_connector_pairing.sql` + `supabase/functions/connector` (one file, Verify JWT off) +
 `@/components/PosAgentPanel` + `sync/connectorActions.ts` + **the contract `docs/CONNECTOR_CLOUD_API.md`,
@@ -746,8 +746,7 @@ POS source is not the Cloud Connection. Device endpoints only in the `connector`
 8 characters without 0 O 1 I L, single use, 10 minutes, hash only; device token `cdt_` + 32 random bytes, returned once,
 SHA-256 only, one shop per token — **the shop always comes from the token, never from the request**; rotation (old token
 until the new one is used, ≤ 24 h); revoke at once. State only from heartbeat times (`connector_device_state()`), never
-a stored "connected" flag. Owners act only through `owner_connector_*`; hashes are never granted. Phase C (Sync Now commands)
-answers 501 until built.
+a stored "connected" flag. Owners act only through `owner_connector_*`; hashes are never granted.
 
 **Phase B (update 52, `supabase/sql/52_connector_snapshots.sql`, `connector/snapshots_test.ts`,
 `@/components/StockSourcePanel`):** **one active stock source** — only `stock_source_of()` decides: a connected inventory
@@ -762,6 +761,20 @@ the last applied count → `held`, never automatic** (`owner_connector_decide()`
 → 0) + a `stock_imports` report (`source = 'agent'`) + revalidate / IndexNow. `confirm` = same hash as the last
 applied → only the freshness time moves forward. 1 full snapshot / 5 min / shop. Never claim POS sync works end to end
 until tested with the real desktop agent.
+
+**Phase C (update 53, `supabase/sql/53_connector_commands.sql`, `connector/commands_test.ts`):** "Synchronizovať
+teraz" = `owner_connector_sync_now()` (only while `stock_source_of()` = agent; one open per shop, else the same one;
+≤ 4/hour/shop) → one row in `connector_commands` (types **only** `sync_inventory` | `ping`; never code, paths or POS
+settings). The agent gets pending ones in the heartbeat answer (`next_poll_seconds` 15 while one waits) or
+`GET /v1/commands`; claim = one atomic UPDATE (pending → claimed, 2-minute lease; `409 already_claimed` for anyone
+else); `running` renews; `connector_commands_tidy()` (run before every read/write, no cron) puts a lapsed lease back to
+pending (+10 min) or `failed`/`lease_expired` after 3 attempts, and an unclaimed one past 10 minutes to `expired`.
+`completed` for sync_inventory only with a snapshot of the shop applied/held after the command (its `command_id` or
+none) or after `confirm` with the `command_id` (`connector_command_confirmed()`); otherwise `409 snapshot_not_applied`;
+only the holder reports (`409 not_claimed`). The holder's announce skips the 5-minute snapshot limit
+(`connector_command_active()`). Device state `syncing` from a live lease (`connector_device_syncing()`). Dashboard: the
+"Synchronizovať teraz" box in `PosAgentPanel` (`syncNow` / `loadCommands`, 5 s refresh while open). Test stand-in:
+`connector-test-agent.mjs sync`.
 
 ## Stock upload
 

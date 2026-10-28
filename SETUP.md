@@ -1755,6 +1755,20 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - **Zdroj zásob → Súbory** → Uložiť to go back; then upload the real file (it replaces the test products).
    - A CSV of your own: `--csv stock.csv` with the header `source_code;name;ean;brand;price;currency;quantity`.
 
+## Part AV — POS Sync Agent, phase C: "Synchronizovať teraz" (29 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/53_connector_commands.sql` → Run → "Success". Safe to
+   run again. (Update 52 must be in first.)
+2. **Edge Function:** `connector` ← paste `supabase/functions/connector/index.ts` → Deploy (Verify JWT stays off). No new
+   secrets.
+3. **Try it** with the test stand-in (`agent.json` from Part AS; the shop's "Zdroj zásob" = POS agent, Part AU):
+   - Priečinok s exportom → "Prepojenie s pokladňou (POS agent)" → **Synchronizovať teraz** → "Čaká na agenta…".
+   - `node scripts/connector-test-agent.mjs sync --token-file agent.json --generate 25` → it picks the request up,
+     sends a snapshot and reports it; the page shows "Hotovo – nový stav skladu prijatý".
+   - Again with `--unchanged 1` → "Hotovo – sklad sa nezmenil"; with `--fail "POS nie je dostupný"` → "Nepodarilo sa: …".
+   - Press it and run nothing: after 10 minutes "Agent je offline – zapnite počítač s POS agentom".
+   - A 5th press within an hour → "Najviac 4 synchronizácie za hodinu".
+
 ## Part D — later, before launch
 
 **Remove the test data:**

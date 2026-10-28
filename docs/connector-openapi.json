@@ -3,7 +3,7 @@
   "info": {
     "title": "Cacaduu Cloud API for the POS Sync Agent",
     "version": "1.0.0",
-    "description": "See docs/CONNECTOR_CLOUD_API.md. Every request carries the header Cacaduu-Agent-Version. x-cacaduu-phase: A = live (update 50); B = live (update 52); C answers 501 not_available until its update is deployed."
+    "description": "See docs/CONNECTOR_CLOUD_API.md. Every request carries the header Cacaduu-Agent-Version. x-cacaduu-phase: A = live (update 50); B = live (update 52); C = live (update 53)."
   },
   "servers": [
     {
@@ -848,16 +848,6 @@
                 }
               }
             }
-          },
-          "501": {
-            "description": "Phase not switched on yet (not_available)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
           }
         },
         "parameters": [
@@ -884,7 +874,7 @@
             }
           },
           "409": {
-            "description": "already_claimed",
+            "description": "already_claimed (another agent has it, or it finished or expired)",
             "content": {
               "application/json": {
                 "schema": {
@@ -945,16 +935,6 @@
           },
           "429": {
             "description": "Rate limited",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Phase not switched on yet (not_available)",
             "content": {
               "application/json": {
                 "schema": {
@@ -997,7 +977,7 @@
             }
           },
           "409": {
-            "description": "snapshot_not_applied or not claimed",
+            "description": "not_claimed (this device does not hold the command) or snapshot_not_applied",
             "content": {
               "application/json": {
                 "schema": {
@@ -1017,7 +997,7 @@
             }
           },
           "400": {
-            "description": "Bad request or missing Cacaduu-Agent-Version",
+            "description": "Bad request (state, reason or snapshot_id) or missing Cacaduu-Agent-Version",
             "content": {
               "application/json": {
                 "schema": {
@@ -1058,16 +1038,6 @@
           },
           "429": {
             "description": "Rate limited",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Phase not switched on yet (not_available)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1739,7 +1709,8 @@
           },
           "snapshot_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "For a completed sync_inventory: a snapshot applied or held after the command was made. Leave it out after an unchanged confirm with this command_id."
           }
         }
       }

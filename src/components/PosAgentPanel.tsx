@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  type ConnectorCommand,
   type ConnectorDevice,
   type ConnectorSnapshot,
   type ConnectorState,
   createPairingCode,
   decideSnapshot,
+  loadCommands,
   loadDevices,
   loadSnapshots,
   renameDevice,
   revokeDevice,
+  syncNow,
 } from "@/app/[lang]/(account)/sync/connectorActions";
 import type { Locale } from "@/i18n/config";
 import type { Dictionary } from "@/i18n/dictionaries";
@@ -29,11 +32,15 @@ const REFRESH_MS = 30_000;
  * page is open), rename and "Odpojiť". The code is shown once; nothing secret is kept in the page afterwards.
  * Update 52: the last stock snapshots the agents sent (used / checked only / refused with the reason), and for a held
  * one — empty or far smaller than the last — "Áno, použiť tento stav" or "Zahodiť".
+ * Update 53: "Synchronizovať teraz" (only while the POS agent is the stock source) and what became of the last request;
+ * while one is open the panel reads again every 5 s.
  */
 export function PosAgentPanel({
   shopId,
   initial,
   initialSnapshots = [],
+  initialCommands = [],
+  agentActive = false,
   lang,
   timeZone,
   labels,
@@ -41,6 +48,9 @@ export function PosAgentPanel({
   shopId: string;
   initial: ConnectorState;
   initialSnapshots?: ConnectorSnapshot[];
+  initialCommands?: ConnectorCommand[];
+  /** "Zdroj zásob" is the POS agent: "Synchronizovať teraz" can be pressed. */
+  agentActive?: boolean;
   lang: Locale;
   timeZone: string | null;
   labels: Labels;
@@ -48,6 +58,9 @@ export function PosAgentPanel({
   const l = labels as Record<string, string>;
   const [state, setState] = useState<ConnectorState>(initial);
   const [snapshots, setSnapshots] = useState<ConnectorSnapshot[]>(initialSnapshots);
+  const [commands, setCommands] = useState<ConnectorCommand[]>(initialCommands);
+  // "sent" / "already waiting" only while that request waits; an error until the next press
+  const [syncMessage, setSyncMessage] = useState<{ text: string; whilePending: boolean } | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -56,21 +69,49 @@ export function PosAgentPanel({
   const when = (iso: string | null) => (iso ? formatDateTime(iso, lang, timeZone) : labels.never);
 
   const refresh = useCallback(async () => {
-    const [result, snaps] = await Promise.all([loadDevices(shopId), loadSnapshots(shopId)]);
+    const [result, snaps, cmds] = await Promise.all([loadDevices(shopId), loadSnapshots(shopId), loadCommands(shopId)]);
     if (snaps.ok) setSnapshots(snaps.value);
+    if (cmds.ok) setCommands(cmds.value);
     if (!result.ok) return;
     setState(result.value);
     // once a device paired after the code was made, the code has done its job
     setCode((c) => (c && result.value.devices.some((d) => Date.parse(d.paired_at) >= Date.parse(c.expires_at) - 10 * 60_000) ? null : c));
   }, [shopId]);
 
+  const latest = commands[0] ?? null;
+  const open = latest !== null && ["pending", "claimed", "running"].includes(latest.state);
+
   // states change with every heartbeat (and when the agent stops): read them again while the page is open
   useEffect(() => {
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
-    }, code ? 5_000 : REFRESH_MS);
+    }, code || open ? 5_000 : REFRESH_MS);
     return () => window.clearInterval(id);
-  }, [refresh, code]);
+  }, [refresh, code, open]);
+
+  async function requestSync() {
+    setBusy("sync");
+    setSyncMessage(null);
+    try {
+      const result = await syncNow(shopId);
+      await refresh();
+      setSyncMessage(result.ok
+        ? { text: result.value.status === "existing" ? labels.sync_existing : labels.sync_requested, whilePending: true }
+        : { text: l[`sync_error_${result.error}`] ?? labels.error_failed, whilePending: false });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** What became of a request, in words (the agent's own failure text is plain text, never HTML). */
+  function commandText(c: ConnectorCommand): string {
+    const device = c.device ?? labels.devices_title;
+    if (c.state === "pending") return fill(labels.cmd_pending, { time: when(c.created_at) });
+    if (c.state === "claimed" || c.state === "running") return fill(labels.cmd_running, { device });
+    if (c.state === "completed") return fill(c.unchanged ? labels.cmd_completed_unchanged : labels.cmd_completed, { time: when(c.finished_at) });
+    if (c.state === "expired") return labels.cmd_expired;
+    return c.error === "lease_expired" ? labels.cmd_failed_lease : fill(labels.cmd_failed, { reason: c.reason ?? "–" });
+  }
 
   async function addDevice() {
     setBusy("code");
@@ -159,6 +200,43 @@ export function PosAgentPanel({
         <p className="text-sm font-semibold" role="status" data-pos-message>
           {message}
         </p>
+      )}
+
+      {state.devices.length > 0 && (
+        <section className="flex flex-col gap-2 border border-line p-3" aria-labelledby="pos-sync-title" data-pos-sync>
+          <h3 id="pos-sync-title" className="font-semibold">
+            {labels.sync_title}
+          </h3>
+          {agentActive ? (
+            <>
+              <p className="text-sm">{labels.sync_hint}</p>
+              <button
+                type="button"
+                onClick={() => void requestSync()}
+                disabled={busy !== null || open}
+                className="self-start border border-foreground px-4 py-2 font-medium disabled:opacity-50"
+                data-sync-now
+              >
+                {busy === "sync" ? labels.working : labels.sync_now}
+              </button>
+            </>
+          ) : (
+            <p className="text-sm text-muted">{labels.sync_needs_agent}</p>
+          )}
+          {syncMessage && (!syncMessage.whilePending || latest?.state === "pending") && (
+            <p className="text-sm font-semibold" role="status" data-sync-message>
+              {syncMessage.text}
+            </p>
+          )}
+          {latest && (
+            <p className="text-sm" aria-live="polite" data-command-state={latest.state}>
+              <span className="text-muted">{labels.sync_last}: </span>
+              <span className={latest.state === "failed" || latest.state === "expired" ? "font-semibold break-words" : "break-words"}>
+                {commandText(latest)}
+              </span>
+            </p>
+          )}
+        </section>
       )}
 
       <section className="flex flex-col gap-2" aria-labelledby="pos-devices-title">
