@@ -396,7 +396,7 @@ in `npm run test:site`) + `@/components/ContactButtons` / `CheckLoop` + `.ppi-cb
 ("Bidetová sprška" — the column stays `has_douchette`), two columns (gap 12 px): Facebook · Rezervovať termín / Web ·
 e-mail / Navigovať · phone; an empty link or value hides its button. **Press and hold 1.2 s** (real `<button>`s,
 pointer or Space/Enter): a tap does nothing, early release / sliding off / blur cancels; done → the action (new tab,
-`mailto:`, `tel:`; a finger hold opens on `touchend` — phones allow it only in a gesture and send no click after a long press; touchstart is `preventDefault`ed, so no phone long-press menu), "Otvorené"-style label with the
+`mailto:`, `tel:`; **a finger hold loads the link in the same tab at completion** — a new tab is a pop-up that phones allow only inside a gesture, and a long press has none; touchstart is `preventDefault`ed, so no phone long-press menu; `pageshow` from the back-forward cache resets the button), "Otvorené"-style label with the
 check, back after 2.3 s, announced in an `aria-live` region; `prefers-reduced-motion` respected; `touch-action: none`,
 `-webkit-touch-callout: none`, no selection, no shadows; labels never cut or wrapped (12.5 px when too wide).
 Navigovať = Google Maps directions to the shop's lat,lng, else to its written address. Short / long per button: only

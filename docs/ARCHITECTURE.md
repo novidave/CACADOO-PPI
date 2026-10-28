@@ -2318,9 +2318,11 @@ to the written address), `gridPlaces()` (the grid's normal flow: a short button 
 column). `@/components/ContactButtons` (client): one `<button>` per contact (`aria-label` = the idle label); pointer down
 (primary only, capture released so sliding off = `pointerleave`) or Space/Enter starts 1200 ms; `pointerup` / leave /
 cancel / blur / keyup before that cancels; at completion the action runs with a mouse or keyboard (still inside the
-press's user activation). A finger hold opens on `touchend` instead (a phone lets a page open a tab or `tel:` only
-inside a gesture, and sends no `click` after a long press); a pen, or a mouse without activation left, on its
-`pointerup`. A non-passive `touchstart` listener calls `preventDefault()`: no phone long-press menu, callout or
+press's user activation; a mouse without activation left opens on its `pointerup`). A finger or pen hold loads the
+link in the **same tab** at completion (`location.assign`): a new tab is a pop-up, phones allow it only inside a
+gesture, a long press gives none (no activation on touchstart, no `click` afterwards) and whether a late `touchend`
+counts differs between phones; navigating the own tab is never blocked. `pageshow` (back-forward cache) resets the
+button to idle. A non-passive `touchstart` listener calls `preventDefault()`: no phone long-press menu, callout or
 cancelled pointer. Labels roll (two layers, 200 ms); fill, pop and ring are CSS (`.ppi-cb*` in globals.css, `--c` = the colour,
 `color-mix`); `prefers-reduced-motion` = no pop, ring or roll and an instant drain; a label too wide at 15 px →
 `data-fit="small"` (12.5 px), measured on hidden copies of all three texts. `@/components/CheckLoop` = the owner's
