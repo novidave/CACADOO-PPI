@@ -98,3 +98,59 @@ test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
   }
   console.check();
 });
+
+/**
+ * A finger, as on a real phone: no user activation from touchstart and no click after a long press. The link opens
+ * when the finger is lifted (touchend), never earlier; a short touch and a touch that slides off open nothing.
+ */
+test("contact buttons: a finger hold opens on release", async ({ page, context }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { opened: string[]; clicks: number };
+    w.opened = [];
+    w.clicks = 0;
+    window.open = ((url?: string | URL) => {
+      w.opened.push(String(url));
+      return null;
+    }) as typeof window.open;
+    window.addEventListener("click", () => w.clicks++, true);
+  });
+  await page.goto(`/sk/shops/${SHOP}`);
+  const group = page.locator("[data-contact-buttons]");
+  test.skip((await group.count()) === 0, "this shop has no contact links");
+  const tab = group.locator('[data-contact="facebook"], [data-contact="booking"], [data-contact="web"], [data-contact="navigate"]').first();
+  const box = (await tab.boundingBox())!;
+  const at = [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }];
+  const cdp = await context.newCDPSession(page);
+  const touch = (type: "touchStart" | "touchMove" | "touchEnd", points = at) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : points });
+  const state = () =>
+    page.evaluate(() => {
+      const w = window as unknown as { opened: string[]; clicks: number };
+      return { opened: [...w.opened], clicks: w.clicks };
+    });
+
+  // a short touch: nothing
+  await touch("touchStart");
+  await page.waitForTimeout(200);
+  await touch("touchEnd");
+  await page.waitForTimeout(1500);
+  expect((await state()).opened).toEqual([]);
+
+  // slide off: nothing
+  await touch("touchStart");
+  await page.waitForTimeout(300);
+  await touch("touchMove", [{ x: at[0].x, y: box.y + box.height + 60 }]);
+  await expect(tab).toHaveAttribute("data-phase", "idle");
+  await page.waitForTimeout(1300);
+  await touch("touchEnd");
+  expect((await state()).opened).toEqual([]);
+
+  // hold: done after 1.2 s, the link opens when the finger is lifted (no click needed)
+  await touch("touchStart");
+  await expect(tab).toHaveAttribute("data-phase", "done", { timeout: 2000 });
+  await page.waitForTimeout(300);
+  expect((await state()).opened).toEqual([]);
+  await touch("touchEnd");
+  await expect.poll(async () => (await state()).opened.length).toBe(1);
+  expect((await state()).clicks, "no click is needed (phones send none after a long press)").toBe(0);
+});

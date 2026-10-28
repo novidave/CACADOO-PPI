@@ -49,8 +49,10 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
   const nextId = useRef(1);
   const holdTimer = useRef<number | undefined>(undefined);
   const doneTimer = useRef<number | undefined>(undefined);
-  // The browser forbids opening a tab long after the press (no user activation left): then it opens on the release.
+  // Phones (and any browser without user activation left) allow opening a link only inside a gesture: a finger hold
+  // opens it when the finger is lifted (touchend), never from the timer. Phones send no click after a long press.
   const pending = useRef(false);
+  const byTouch = useRef(false);
   const ref = useRef<HTMLButtonElement>(null);
   const doneLabel = labels.done[button.key];
 
@@ -73,7 +75,7 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
     go("done");
     onDone(fill(labels.announce, { label: button.label, done: doneLabel }));
     const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
-    if (activation && !activation.isActive) pending.current = true;
+    if (byTouch.current || (activation && !activation.isActive)) pending.current = true;
     else act();
     doneTimer.current = window.setTimeout(() => go("idle"), DONE_MS);
   }, [act, button.label, doneLabel, go, labels.announce, onDone]);
@@ -99,6 +101,18 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
     },
     [],
   );
+
+  // No long-press gesture of the phone's own (context menu, callout, selection, a cancelled pointer): the touch belongs
+  // to the button. Pointer events still arrive; touchend still counts as a gesture for opening the link.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const stop = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    el.addEventListener("touchstart", stop, { passive: false });
+    return () => el.removeEventListener("touchstart", stop);
+  }, []);
 
   // A label that does not fit at 15 px is set at 12.5 px (never cut, never wrapped); checked again when the width or
   // the font changes. Written on the element, not in state: it never re-renders the button.
@@ -144,6 +158,7 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
       data-phase={phase}
       onPointerDown={(e) => {
         if (!e.isPrimary || e.button !== 0) return;
+        byTouch.current = e.pointerType !== "mouse";
         // without capture the pointer can slide off the button, which cancels
         try {
           e.currentTarget.releasePointerCapture(e.pointerId);
@@ -152,14 +167,25 @@ function HoldButton({ button, labels, onDone }: { button: ContactButtonData; lab
         }
         start();
       }}
-      onPointerUp={cancel}
+      onPointerUp={(e) => {
+        if (phaseRef.current === "holding") cancel();
+        // a mouse or pen release opens a link that was waiting; a finger waits for its touchend (iPhone Safari's gesture)
+        else if (pending.current && e.pointerType !== "touch") act();
+      }}
+      onTouchEnd={() => {
+        if (phaseRef.current === "holding") cancel();
+        else if (pending.current) act();
+      }}
       onPointerLeave={cancel}
       onPointerCancel={cancel}
       onBlur={cancel}
       onKeyDown={(e) => {
         if (e.key !== " " && e.key !== "Enter") return;
         e.preventDefault();
-        if (!e.repeat) start();
+        if (!e.repeat) {
+          byTouch.current = false;
+          start();
+        }
       }}
       onKeyUp={(e) => {
         if (e.key !== " " && e.key !== "Enter") return;
