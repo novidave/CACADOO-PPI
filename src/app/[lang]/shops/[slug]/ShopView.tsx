@@ -35,6 +35,7 @@ import { getShopTexts } from "@/lib/contentTranslations";
 import { TranslationNote } from "@/components/TranslationNote";
 import { freshnessText } from "@/lib/stock";
 import { ContactButtons } from "@/components/ContactButtons";
+import { ItemSearch } from "@/components/ItemSearch";
 import { JsonLd } from "@/components/JsonLd";
 import { ContentSlider } from "@/components/ContentSlider";
 import { SectionZoom } from "@/components/SectionZoom";
@@ -131,7 +132,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     { kinds: ["blog_title", "blog_body"], refs: postIds },
   ]);
   const shopPath = onSite ? sitePath(lang, defaultLang) : `/${lang}/shops/${shop.slug}`;
-  const pageUrl = (n: number) => `${shopPath}?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}`;
+  // The list's pages land on the list, not the top of the page.
+  const pageUrl = (n: number) => `${shopPath}?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}#items`;
 
   // "Budince 26, 040 01 Budince": the PSČ before the town (update 48).
   const address = addressLine(shop.address, [company?.zip, shop.city].filter(Boolean).join(" "));
@@ -265,7 +267,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
       )}
 
       {/* 6. The items. */}
-      <section className="flex flex-col gap-3" aria-labelledby="items-heading">
+      <section id="items" className="flex scroll-mt-4 flex-col gap-3" aria-labelledby="items-heading">
         <h2 id="items-heading" className="text-lg font-semibold">
           {dict.shop.items}
         </h2>
@@ -273,19 +275,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           <span className="text-muted">{dict.shop.stock}: </span>
           {freshnessText(dict, shop.freshness_state, shop.freshness_age_minutes, shop.latest_file_time, shop.timezone)}
         </p>
-        <form method="get" className="flex gap-2" role="search">
-          <input
-            type="search"
-            name="q"
-            defaultValue={q}
-            placeholder={dict.shop.search_items}
-            aria-label={dict.shop.search_items}
-            className="min-w-0 flex-1 rounded border border-line px-3 py-2 outline-none focus:border-foreground"
-          />
-          <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium">
-            {dict.search.button}
-          </button>
-        </form>
+        {/* Searching keeps the page where it is (the list changes in place). */}
+        <ItemSearch path={shopPath} q={q} labels={{ placeholder: dict.shop.search_items, button: dict.search.button }} />
 
         {items.length === 0 ? (
           <p data-stock-note={resetting ? "updating" : "none"}>{resetting ? dict.shop.stock_updating : dict.shop.no_items}</p>

@@ -2331,3 +2331,12 @@ domain) + `<noscript>` links; `ContactLinks` is gone. Môj obchod: `ShopForm` `W
 `saveShop` → `owner_set_contact_buttons(widthChoices(...))` (unknown function before update 51 ignored). Texts
 `contact_buttons`. The amenity reads "Bidetová sprška" (the column stays `has_douchette`, the API field
 `facilities.douchette`). e2e: `e2e/contacts.spec.ts` and the owner test "contact buttons".
+
+### Shop page item search keeps its place (28 October 2026)
+
+`@/components/ItemSearch` (client) replaces the plain GET form of "Tovar v obchode": with JavaScript it calls
+`router.replace(path?q=…, { scroll: false })` — the server component re-renders only with the new results — after
+giving `#items` a `min-height` of its current height (fewer results would shorten the page and pull the view up) and
+closing the phone's keyboard. Without JavaScript the form's action and the list's page links end in `#items`, so the
+reload lands on the list. e2e `e2e/shop-search.spec.ts` (the scroll position stays within 4 px).
+
