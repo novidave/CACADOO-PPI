@@ -8149,4 +8149,217 @@ do $$ begin assert public.shop_contact_buttons('farby-export') is null, 'a hidde
 reset role;
 update public.shops set is_active = true where slug = 'farby-export';
 
+-- ------------------------------------------------------------------ update 52: POS agent snapshots and "Zdroj zásob"
+\echo '--- POS agent snapshots: stock source, announce, apply, held, keep, confirm, stale, test_ok (update 52)'
+do $$
+declare
+  v_shop uuid;
+  v_r jsonb;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-pos', 'Farby POS', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.connector_pairing_codes (shop_id, code_hash, expires_at)
+  values (v_shop, encode(sha256(convert_to('POSCODE1', 'UTF8')), 'hex'), now() + interval '10 minutes');
+  v_r := public.connector_pair(encode(sha256(convert_to('POSCODE1', 'UTF8')), 'hex'), 'caller-hash-pos1', 'Pokladňa',
+    '1.0.0', 'Windows 11', encode(sha256(convert_to('device-token-POS', 'UTF8')), 'hex'));
+  assert v_r ->> 'status' = 'ok', v_r::text;
+  perform set_config('ppi.pos_dev', v_r ->> 'device_id', false);
+  -- without a choice the files stay the source; a device alone changes nothing
+  assert public.stock_source_of(v_shop) = 'file';
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_api uuid := (select shop_id from public.inventory_connections limit 1);
+  v_src jsonb;
+begin
+  v_src := public.owner_stock_source(v_shop);
+  assert v_src ->> 'active' = 'file' and (v_src ->> 'devices')::int = 1, v_src::text;
+  -- while an inventory program is connected the owner cannot choose (disconnect it first)
+  if v_api is not null then
+    begin perform public.owner_set_stock_source(v_api, 'agent'); raise exception 'chose agent next to the API';
+    exception when object_not_in_prerequisite_state then assert sqlerrm = 'api_connected'; end;
+  end if;
+  begin perform public.owner_set_stock_source(v_shop, 'pos'); raise exception 'unknown source';
+  exception when invalid_parameter_value then null; end;
+  perform public.owner_set_stock_source(v_shop, 'agent');
+  assert public.owner_stock_source(v_shop) ->> 'active' = 'agent';
+  -- one source at a time: no folder, no upload, no inventory program now
+  begin perform public.upload_check_in(v_shop); raise exception 'upload while agent';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'agent_connected'; end;
+  assert public.owner_inventory_can_connect(v_shop, 'woocommerce') = 'agent';
+  -- owners never write snapshots or the source row themselves
+  begin insert into public.connector_snapshots (shop_id, id, source_id, source_time, product_count, content_hash)
+    values (v_shop, gen_random_uuid(), 'x', now(), 0, repeat('a', 64)); raise exception 'owner inserted a snapshot';
+  exception when insufficient_privilege then null; end;
+  begin update public.shop_stock_source set source = 'file' where shop_id = v_shop; raise exception 'owner wrote the source';
+  exception when insufficient_privilege then null; end;
+  begin perform public.connector_snapshot_announce(gen_random_uuid(), gen_random_uuid(), 'x', now(), true, 1, repeat('a', 64), null);
+    raise exception 'announce callable'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_set_stock_source((select id from public.shops where slug = 'farby-pos'), 'file');
+    raise exception 'other owner changed the source'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_connector_snapshots((select id from public.shops where slug = 'farby-pos'));
+    raise exception 'other owner listed snapshots'; exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.connector_snapshots), 'RLS: another owner sees no snapshot';
+end $$;
+reset role;
+
+-- the function (service role): announce, begin, apply, held, keep, confirm, stale
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_dev uuid := current_setting('ppi.pos_dev')::uuid;
+  s1 uuid := gen_random_uuid();
+  s2 uuid := gen_random_uuid();
+  s3 uuid := gen_random_uuid();
+  v_t timestamptz := now() - interval '10 minutes';
+  v_r jsonb;
+  v_rows jsonb := '[{"source_code":"A1","name":"Farba biela","ean":"2000000000101","brand":"Primalex","price":10.5,"currency":"EUR","quantity":4},
+                    {"source_code":"A2","name":"Farba modrá","price":11,"currency":"eur","quantity":0},
+                    {"source_code":"A3","name":"Štetec","price":2.2,"currency":"EUR","quantity":12}]';
+begin
+  -- announce: new, again the same, incomplete, clock ahead
+  v_r := public.connector_snapshot_announce(v_dev, s1, 'pohoda-xml', v_t, true, 3, repeat('1', 64), null);
+  assert v_r ->> 'status' = 'new' and v_r -> 'snapshot' ->> 'state' = 'awaiting_upload', v_r::text;
+  assert public.connector_snapshot_announce(v_dev, s1, 'pohoda-xml', v_t, true, 3, repeat('1', 64), null) ->> 'status' = 'existing';
+  v_r := public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'pohoda-xml', v_t, false, 3, repeat('1', 64), null);
+  assert v_r -> 'snapshot' ->> 'state' = 'rejected' and v_r -> 'snapshot' ->> 'error' = 'incomplete', v_r::text;
+  assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'pohoda-xml', now() + interval '10 minutes', true, 3,
+    repeat('1', 64), null) ->> 'status' = 'clock_ahead';
+  -- one full snapshot per 5 minutes per shop
+  assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'pohoda-xml', v_t + interval '1 second', true, 3,
+    repeat('1', 64), null) ->> 'status' = 'rate_limited';
+  -- begin once (a second complete only sees "processing")
+  assert public.connector_snapshot_begin(v_dev, s1) ->> 'status' = 'begin';
+  assert public.connector_snapshot_begin(v_dev, s1) -> 'snapshot' ->> 'state' = 'processing';
+  assert public.connector_snapshot_begin(v_dev, gen_random_uuid()) ->> 'status' = 'not_found';
+  -- apply
+  v_r := public.connector_snapshot_apply(v_shop, s1, v_rows, '{}', '{"products":3,"skipped":0}', v_rows);
+  assert v_r ->> 'state' = 'applied' and (v_r -> 'result' ->> 'imported')::int = 3, v_r::text;
+  assert (select count(*) from public.shop_items si join public.inventory i on i.shop_item_id = si.id where si.shop_id = v_shop) = 3;
+  assert (select i.currency from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+          where si.shop_id = v_shop and si.source_code = 'A2') = 'EUR', 'currency upper case';
+  assert (select latest_file_time = v_t and last_file_name = 'POS agent · Pokladňa' from public.sync_sources where shop_id = v_shop);
+  assert (select last_sync_at is not null from public.connector_devices where id = v_dev);
+  assert (select agent_product_count = 3 and agent_content_hash = repeat('1', 64) from public.shop_stock_source where shop_id = v_shop);
+  assert exists (select 1 from public.stock_imports where shop_id = v_shop and source = 'agent' and imported = 3 and status = 'ok');
+  assert public.connector_snapshot_get(v_dev, s1) ->> 'state' = 'applied';
+  -- the same snapshot again only returns its state (nothing applied twice)
+  assert public.connector_snapshot_begin(v_dev, s1) -> 'snapshot' ->> 'state' = 'applied';
+  -- older than the last applied: stale
+  assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'pohoda-xml', v_t - interval '1 minute', true, 3,
+    repeat('1', 64), null) ->> 'status' = 'stale';
+  -- confirm unchanged: only the same hash; the freshness time moves forward, never back
+  assert public.connector_confirm(v_dev, repeat('2', 64), now()) ->> 'status' = 'send_full';
+  assert public.connector_confirm(v_dev, repeat('1', 64), v_t + interval '2 minutes') ->> 'status' = 'confirmed';
+  assert (select latest_file_time = v_t + interval '2 minutes' from public.sync_sources where shop_id = v_shop);
+  assert public.connector_confirm(v_dev, repeat('1', 64), v_t) ->> 'status' = 'confirmed';
+  assert (select latest_file_time = v_t + interval '2 minutes' from public.sync_sources where shop_id = v_shop), 'never back';
+
+  -- much fewer products: held for the owner (the old stock stays)
+  update public.connector_snapshots set created_at = now() - interval '6 minutes' where shop_id = v_shop;
+  assert public.connector_snapshot_announce(v_dev, s2, 'pohoda-xml', v_t + interval '3 minutes', true, 1, repeat('3', 64), null) ->> 'status' = 'new';
+  assert public.connector_snapshot_begin(v_dev, s2) ->> 'status' = 'begin';
+  v_r := public.connector_snapshot_apply(v_shop, s2, '[{"source_code":"A1","name":"Farba biela","price":10.5,"currency":"EUR","quantity":1}]',
+    '{}', '{"products":1,"skipped":0}', '[]');
+  assert v_r ->> 'state' = 'held' and v_r ->> 'reason' = 'shrinking', v_r::text;
+  assert (select count(*) from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+          where si.shop_id = v_shop and i.quantity > 0) = 2, 'held: nothing changed';
+  assert public.connector_snapshot_get(v_dev, s2) ->> 'reason' = 'shrinking';
+  perform set_config('ppi.pos_held', s2::text, false);
+
+  -- rows the function had to skip keep their stock (never set to 0)
+  update public.connector_snapshots set created_at = now() - interval '6 minutes' where shop_id = v_shop;
+  assert public.connector_snapshot_announce(v_dev, s3, 'pohoda-xml', v_t + interval '4 minutes', true, 3, repeat('4', 64), null) ->> 'status' = 'new';
+  assert public.connector_snapshot_begin(v_dev, s3) ->> 'status' = 'begin';
+  v_r := public.connector_snapshot_apply(v_shop, s3,
+    '[{"source_code":"A1","name":"Farba biela","price":9.9,"currency":"EUR","quantity":2},{"source_code":"A2","name":"Farba modrá","price":11,"currency":"EUR","quantity":5}]',
+    '{A3}', '{"products":3,"skipped":1,"skipped_text":"riadok 3: cena"}', '[]');
+  assert v_r ->> 'state' = 'applied' and (v_r -> 'result' ->> 'zeroed')::int = 0, v_r::text;
+  assert (select i.quantity = 12 from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+          where si.shop_id = v_shop and si.source_code = 'A3'), 'kept';
+  assert exists (select 1 from public.stock_imports where shop_id = v_shop and status = 'errors' and skipped = 1);
+  -- the held one is now older than the last applied: approving it would go back in time
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_held uuid := current_setting('ppi.pos_held')::uuid;
+  v_list jsonb;
+begin
+  v_list := public.owner_connector_snapshots(v_shop);
+  assert jsonb_array_length(v_list) >= 4, v_list::text;
+  assert not (v_list::text ~ 'held_rows'), 'no held rows in the list';
+  begin perform held_rows from public.connector_snapshots; raise exception 'held rows readable';
+  exception when insufficient_privilege then null; end;
+  assert (select previous_count = 3 from public.connector_snapshots where id = v_held);
+  assert public.owner_connector_decide(v_shop, v_held, true) ->> 'error' = 'stale', 'older than the last applied';
+  begin perform public.owner_connector_decide(v_shop, v_held, true); raise exception 'decided twice';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'not_held'; end;
+end $$;
+reset role;
+
+-- a newer held one approved by the owner; then "files" as the source: snapshots are only checked (test_ok)
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_dev uuid := current_setting('ppi.pos_dev')::uuid;
+  s4 uuid := gen_random_uuid();
+begin
+  update public.connector_snapshots set created_at = now() - interval '6 minutes' where shop_id = v_shop;
+  perform public.connector_snapshot_announce(v_dev, s4, 'pohoda-xml', now() - interval '1 minute', true, 0, repeat('5', 64), null);
+  perform public.connector_snapshot_begin(v_dev, s4);
+  assert public.connector_snapshot_apply(v_shop, s4, '[]', '{}', '{"products":0,"skipped":0}', '[]') ->> 'reason' = 'empty';
+  perform set_config('ppi.pos_held', s4::text, false);
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_r jsonb;
+begin
+  v_r := public.owner_connector_decide(v_shop, current_setting('ppi.pos_held')::uuid, true);
+  assert v_r ->> 'state' = 'applied' and (v_r -> 'result' ->> 'zeroed')::int = 3, 'the owner said yes: all sold out ' || v_r::text;
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'connector_snapshot_approved');
+  perform public.owner_set_stock_source(v_shop, 'file');
+  assert public.upload_check_in(v_shop) is not null, 'files allowed again';
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_dev uuid := current_setting('ppi.pos_dev')::uuid;
+  s5 uuid := gen_random_uuid();
+begin
+  update public.connector_snapshots set created_at = now() - interval '6 minutes' where shop_id = v_shop;
+  perform public.connector_snapshot_announce(v_dev, s5, 'pohoda-xml', now(), true, 1, repeat('6', 64), null);
+  perform public.connector_snapshot_begin(v_dev, s5);
+  assert public.connector_snapshot_apply(v_shop, s5, '[{"source_code":"A1","name":"Farba","price":1,"currency":"EUR","quantity":9}]',
+    '{}', '{"products":1,"skipped":0}', '[]') ->> 'state' = 'test_ok';
+  assert (select i.quantity = 0 from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+          where si.shop_id = v_shop and si.source_code = 'A1'), 'test_ok never changes the stock';
+  assert public.connector_confirm(v_dev, repeat('6', 64), now()) ->> 'status' = 'test_ok';
+  -- back to the agent, then the device is revoked: the files are the source again
+  update public.shop_stock_source set source = 'agent' where shop_id = v_shop;
+  assert public.stock_source_of(v_shop) = 'agent';
+  update public.connector_devices set revoked_at = now() where id = v_dev;
+  assert public.stock_source_of(v_shop) = 'file';
+  assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'x', now(), true, 1, repeat('7', 64), null) ->> 'status' = 'revoked';
+end $$;
+
 \echo 'ALL DATABASE CHECKS PASSED'

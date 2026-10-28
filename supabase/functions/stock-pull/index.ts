@@ -1258,8 +1258,8 @@ export async function receiveUpload(
 
   // Checks membership with the uploader's own login and records "PPI window seen".
   const { error: denied } = await asCaller.rpc("upload_check_in", { p_shop_id: shopId });
-  // one source at a time (update 49): while a stock program is connected, files are refused
-  if (denied?.message === "api_connected") return reply(409, { error: "api_connected" });
+  // one source at a time (updates 49 and 52): while a stock program or the POS agent is the source, files are refused
+  if (denied?.message === "api_connected" || denied?.message === "agent_connected") return reply(409, { error: denied.message });
   if (denied) return reply(403, { error: "Only this shop's owners or the admin may upload its stock" });
 
   const { data: src, error } = await db

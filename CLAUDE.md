@@ -734,7 +734,7 @@ activity log. Private fields (purchase price, supplier, margin, invoice, interna
 lets us choose fields and are dropped before storing otherwise. Only public https hosts, forwards checked, 20 MB.
 Texts `inventory_api`, `admin_inventory`. "Synchronizovať teraz" ≤ 4/hour.
 
-## Cacaduu Cloud Connection for the POS Sync Agent (Prompt 13; phase A = update 50)
+## Cacaduu Cloud Connection for the POS Sync Agent (Prompt 13; phase A = update 50, B = update 52)
 
 `supabase/sql/50_connector_pairing.sql` + `supabase/functions/connector` (one file, Verify JWT off) +
 `@/components/PosAgentPanel` + `sync/connectorActions.ts` + **the contract `docs/CONNECTOR_CLOUD_API.md`,
@@ -746,8 +746,22 @@ POS source is not the Cloud Connection. Device endpoints only in the `connector`
 8 characters without 0 O 1 I L, single use, 10 minutes, hash only; device token `cdt_` + 32 random bytes, returned once,
 SHA-256 only, one shop per token — **the shop always comes from the token, never from the request**; rotation (old token
 until the new one is used, ≤ 24 h); revoke at once. State only from heartbeat times (`connector_device_state()`), never
-a stored "connected" flag. Owners act only through `owner_connector_*`; hashes are never granted. Phases B (snapshots via
-the private `connector-staging` bucket, one active stock source) and C (Sync Now commands) answer 501 until built.
+a stored "connected" flag. Owners act only through `owner_connector_*`; hashes are never granted. Phase C (Sync Now commands)
+answers 501 until built.
+
+**Phase B (update 52, `supabase/sql/52_connector_snapshots.sql`, `connector/snapshots_test.ts`,
+`@/components/StockSourcePanel`):** **one active stock source** — only `stock_source_of()` decides: a connected inventory
+program (api) > POS agent (owner chose it in "Zdroj zásob", `owner_set_stock_source()`, and an unrevoked device) >
+files; while the agent is the source `upload_check_in()` raises `agent_connected` (stock-pull 409). Snapshot = announce
+(signed upload URL to the private `connector-staging` bucket, `max_bytes` = `CONNECTOR_MAX_MB`) → the agent PUTs the
+gzipped `cacaduu.inventory.v1` JSON → complete (count + SHA-256 of the uncompressed bytes must match; > 5 % bad rows →
+rejected, else bad rows skipped and **their products keep their stock** (`p_keep`); fields outside the contract never
+stored; the staged file deleted). Applied only through `connector_snapshot_settle()` under a per-shop lock: older
+`source_time` → rejected; source not the agent → `test_ok` (checked, never applied); **0 products or fewer than half
+the last applied count → `held`, never automatic** (`owner_connector_decide()`); else `connector_apply_rows()` (missing
+→ 0) + a `stock_imports` report (`source = 'agent'`) + revalidate / IndexNow. `confirm` = same hash as the last
+applied → only the freshness time moves forward. 1 full snapshot / 5 min / shop. Never claim POS sync works end to end
+until tested with the real desktop agent.
 
 ## Stock upload
 

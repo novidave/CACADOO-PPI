@@ -1081,7 +1081,8 @@ async function ownerAction(action: string, req: Request, deps: Deps, body: Json)
     const adapter = deps.adapters[provider];
     if (!adapter) return reply(400, { error: "provider" });
     const { data: allowed } = await caller.rpc("owner_inventory_can_connect", { p_shop_id: shopId, p_provider: provider });
-    if (allowed !== "ok") return reply(403, { error: allowed === "plan" ? "plan" : "provider" });
+    // update 52: while the POS agent is the shop's stock source, no inventory program
+    if (allowed !== "ok") return reply(403, { error: allowed === "plan" || allowed === "agent" ? allowed : "provider" });
     let parsed;
     try {
       parsed = adapter.parse({ credentials: body.credentials, settings: body.settings });

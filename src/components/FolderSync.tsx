@@ -155,7 +155,12 @@ export function FolderSync({
 
   // while a stock program is connected (update 49) PPI refuses files: say so in words
   const failText = useCallback(
-    (e: unknown) => (errorText(e) === "api_connected" ? labels.api_connected : fill(labels.send_failed, { error: errorText(e) })),
+    (e: unknown) =>
+      errorText(e) === "api_connected"
+        ? labels.api_connected
+        : errorText(e) === "agent_connected"
+          ? labels.agent_connected
+          : fill(labels.send_failed, { error: errorText(e) }),
     [labels],
   );
 

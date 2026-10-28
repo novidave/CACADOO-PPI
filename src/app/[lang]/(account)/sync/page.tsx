@@ -21,7 +21,8 @@ import { FolderSync } from "@/components/FolderSync";
 import { InstallApp } from "@/components/InstallApp";
 import { InventoryConnect, type InventoryApiState } from "@/components/InventoryConnect";
 import { PosAgentPanel } from "@/components/PosAgentPanel";
-import type { ConnectorState } from "./connectorActions";
+import { StockSourcePanel } from "@/components/StockSourcePanel";
+import type { ConnectorSnapshot, ConnectorState, StockSource } from "./connectorActions";
 import { BackupDownload, DeleteFilesButton, InventoryResetOptions } from "@/components/InventoryDangerZone";
 import { PendingButton } from "@/components/PendingButton";
 import { RecentImports } from "@/components/RecentImports";
@@ -85,7 +86,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   }
 
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
-  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData, apiData, posData] = await Promise.all([
+  const [hasPlan, itemCount, importData, stateData, previewData, reviewData, settingsData, apiData, posData, sourceData, snapData] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.from("shop_items").select("id", { count: "exact", head: true }).eq("shop_id", shop.id),
     // The last 10 stock files (none before update 21).
@@ -101,7 +102,13 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
     supabase.rpc("owner_inventory_api", { p_shop_id: shop.id }),
     // the paired POS agents (update 50; nothing before it)
     supabase.rpc("owner_connector_devices", { p_shop_id: shop.id }),
+    // "Zdroj zásob" and the POS agent's stock snapshots (update 52; nothing before it)
+    supabase.rpc("owner_stock_source", { p_shop_id: shop.id }),
+    supabase.rpc("owner_connector_snapshots", { p_shop_id: shop.id }),
   ]);
+  const source = sourceData.error ? null : (sourceData.data as StockSource | null);
+  const snapshots = snapData.error ? [] : ((snapData.data as ConnectorSnapshot[] | null) ?? []);
+  const sst = dict.stock_source;
   const pos = posData.error ? null : (posData.data as ConnectorState | null);
   const pa = dict.pos_agent;
   const posSummary = !pos || pos.devices.length === 0
@@ -150,13 +157,23 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
       : apiConn.last_error_code && apiConn.status !== "active"
         ? t(ia.summary_error, { program: programName })
         : t(ia.summary_connected, { program: programName, when: apiTimes?.last_success_at ? recentlyText(apiTimes.last_success_at, lang, shop.timezone, dict, now) : ia.never });
-  // While a program is connected, the folder and the uploads say so instead (one source at a time).
+  // While a program or the POS agent is the source, the folder and the uploads say so instead (one source at a time).
   const apiLock = apiConn ? (
     <div className="flex flex-col gap-1 border border-foreground p-3 text-sm" data-api-lock>
       <p className="font-semibold">{t(ia.lock_note, { program: programName })}</p>
       <p>{ia.lock_text}</p>
     </div>
+  ) : source?.active === "agent" ? (
+    <div className="flex flex-col gap-1 border border-foreground p-3 text-sm" data-agent-lock>
+      <p className="font-semibold">{sst.agent_lock_note}</p>
+      <p>{sst.agent_lock_text}</p>
+    </div>
   ) : null;
+  const sourceSummary = !source
+    ? ""
+    : source.active === "api"
+      ? t(sst.summary_api, { program: programName })
+      : source.active === "agent" ? sst.summary_agent : sst.summary_file;
   const summaries = {
     export: state?.files_cleared
       ? r.files_none
@@ -197,8 +214,20 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
       </header>
 
       <div className="flex flex-col border-t border-line">
-        {api && (
-          <DashboardSection {...m.section("api")} first title={ia.title} summary={apiSummary}>
+        {source && (
+          <DashboardSection {...m.section("source")} first title={sst.title} summary={sourceSummary}>
+            <StockSourcePanel shopId={shop.id} initial={source} programName={apiConn ? programName : null} labels={sst} />
+          </DashboardSection>
+        )}
+
+        {api && source?.active === "agent" && !apiConn ? (
+          <DashboardSection {...m.section("api")} title={ia.title} summary={ia.summary_none}>
+            <p className="text-sm" data-api-blocked>
+              {sst.api_blocked}
+            </p>
+          </DashboardSection>
+        ) : api && (
+          <DashboardSection {...m.section("api")} first={!source} title={ia.title} summary={apiSummary}>
             <InventoryConnect
               key={`${apiConn?.provider ?? ""}:${apiConn?.status ?? ""}:${(apiConn?.fields ?? []).join(",")}:${JSON.stringify(apiConn?.mapping ?? {})}`}
               shopId={shop.id}
@@ -213,11 +242,11 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
 
         {pos && (
           <DashboardSection {...m.section("pos")} title={pa.title} summary={posSummary}>
-            <PosAgentPanel shopId={shop.id} initial={pos} lang={lang} timeZone={shop.timezone} labels={pa} />
+            <PosAgentPanel shopId={shop.id} initial={pos} initialSnapshots={snapshots} lang={lang} timeZone={shop.timezone} labels={pa} />
           </DashboardSection>
         )}
 
-        <DashboardSection {...m.section("export")} first={!api} title={ex.stock_title} summary={summaries.export}>
+        <DashboardSection {...m.section("export")} first={!api && !source} title={ex.stock_title} summary={summaries.export}>
           <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
             <dt className="text-muted">{d.latest_file}</dt>
             <dd data-latest-file>{state?.files_cleared ? r.files_none : when(shop.latest_file_time)}</dd>

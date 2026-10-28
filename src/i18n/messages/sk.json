@@ -369,7 +369,8 @@
     "upload_file": "Nahrať súbor",
     "uploading_file": "Nahrávam súbor…",
     "files_cleared": "Žiadny nahraný súbor · nahrajte nový",
-    "api_connected": "Sklad sa aktualizuje cez pripojený skladový program – súbory sa teraz nenahrávajú."
+    "api_connected": "Sklad sa aktualizuje cez pripojený skladový program – súbory sa teraz nenahrávajú.",
+    "agent_connected": "Sklad sa aktualizuje cez POS agenta – súbory sa teraz nenahrávajú."
   },
   "owner": {
     "shop_name": "Názov obchodu",
@@ -2227,7 +2228,11 @@
     "activity_inventory_api_recovered": "Skladový program znova funguje",
     "activity_inventory_api_disconnected": "Odpojený skladový program",
     "activity_connector_paired": "Spárovaný POS agent",
-    "activity_connector_revoked": "Odpojený POS agent"
+    "activity_connector_revoked": "Odpojený POS agent",
+    "activity_stock_source_changed": "Zmenený zdroj zásob",
+    "activity_connector_snapshot_held": "Stav skladu z POS agenta čaká na rozhodnutie",
+    "activity_connector_snapshot_approved": "Použitý stav skladu z POS agenta",
+    "activity_connector_snapshot_discarded": "Zahodený stav skladu z POS agenta"
   },
   "export_review": {
     "title": "Nový súbor – skontrolujte",
@@ -2456,7 +2461,8 @@
     "error_mapping": "Priraďte aspoň kód, názov, cenu a množstvo.",
     "error_login": "Prihláste sa znova.",
     "error_config": "Pripojenie ešte nie je nastavené na serveri. Dajte vedieť správcovi Cacaduu.",
-    "error_failed": "Niečo sa nepodarilo. Skúste znova o chvíľu."
+    "error_failed": "Niečo sa nepodarilo. Skúste znova o chvíľu.",
+    "error_agent": "Kým sklad posiela POS agent, skladový program sa nedá pripojiť."
   },
   "admin_inventory": {
     "title": "Skladové programy (API)",
@@ -2489,7 +2495,7 @@
     "title": "Prepojenie s pokladňou (POS agent)",
     "summary_none": "Žiadny POS agent",
     "summary_devices": "{n} · {state}",
-    "intro": "Cacaduu POS agent je voliteľná aplikácia na počítači v obchode. Číta zásoby z vašej pokladne (POHODA, iKelp, súbory, databáza…) a posiela ich do Cacaduu. Priečinok so skladom a Nahrať súbor fungujú ďalej ako doteraz.",
+    "intro": "Cacaduu POS agent je voliteľná aplikácia na počítači v obchode. Číta zásoby z vašej pokladne (POHODA, iKelp, súbory, databáza…) a posiela ich do Cacaduu. Sklad na stránke mení, až keď v „Zdroji zásob“ vyberiete POS agenta; dovtedy jeho stavy len skontrolujeme a ukážeme tu.",
     "add": "Pridať POS agenta",
     "working": "Chvíľu…",
     "code_title": "Párovací kód",
@@ -2525,7 +2531,39 @@
     "error_too_many": "Najviac 10 kódov za hodinu – skúste neskôr.",
     "error_name": "Zadajte názov.",
     "error_login": "Prihláste sa znova.",
-    "error_failed": "Niečo sa nepodarilo. Skúste znova."
+    "error_failed": "Niečo sa nepodarilo. Skúste znova.",
+    "snapshots_title": "Posledné stavy skladu z POS agenta",
+    "snapshots_none": "Zatiaľ žiadny. Agent pošle stav skladu po spárovaní.",
+    "snap_applied": "Použité",
+    "snap_held": "Čaká na vaše rozhodnutie",
+    "snap_test_ok": "Skontrolované, nepoužité – zdroj zásob nie je POS agent",
+    "snap_rejected": "Zamietnuté",
+    "snap_discarded": "Zahodené",
+    "snap_awaiting_upload": "Čaká na súbor",
+    "snap_processing": "Spracúva sa",
+    "snap_products": "Produkty: {products}",
+    "snap_counts": "Produkty: {products} · zapísané: {imported} · vypredané: {zeroed} · preskočené: {skipped}",
+    "snap_time": "Stav z {time} · {device}",
+    "held_shrinking": "Nový stav má výrazne menej produktov ({products} namiesto {previous}). Môže ísť o chybu pri čítaní pokladne.",
+    "held_empty": "Nový stav neobsahuje žiadny produkt. Ak ho použijete, všetok tovar bude vypredaný.",
+    "held_use": "Áno, použiť tento stav",
+    "held_discard": "Zahodiť",
+    "held_used": "Stav skladu bol použitý.",
+    "held_discarded": "Stav bol zahodený, sklad sa nezmenil.",
+    "skipped_note": "Preskočené riadky (ich produkty ostali bez zmeny): {text}",
+    "reason_hash_mismatch": "Súbor sa nezhoduje s kontrolným súčtom.",
+    "reason_count_mismatch": "Počet produktov v súbore nesedí.",
+    "reason_bad_format": "Súbor nemá správny formát.",
+    "reason_bad_gzip": "Súbor nie je zbalený (gzip).",
+    "reason_invalid_rows": "Priveľa chybných riadkov (viac ako 5 %).",
+    "reason_too_large": "Súbor je príliš veľký.",
+    "reason_upload_expired": "Súbor neprišiel včas.",
+    "reason_incomplete": "Neúplný stav – nepoužije sa.",
+    "reason_stale": "Starší ako posledný použitý stav.",
+    "reason_rejected": "Zamietnuté.",
+    "error_stale": "Medzitým prišiel novší stav – tento sa už nepoužije.",
+    "error_not_agent": "Zdroj zásob nie je POS agent – najprv ho zmeňte v „Zdroji zásob“.",
+    "error_not_held": "Tento stav už nečaká na rozhodnutie."
   },
   "contact_buttons": {
     "hold": "Držte stlačené",
@@ -2540,5 +2578,27 @@
     "width_short": "Krátke",
     "width_long": "Dlhé",
     "width_hint": "Krátke tlačidlo zaberie jeden stĺpec, dlhé celý riadok. Návštevník ho podrží 1,2 s, kým sa otvorí."
+  },
+  "stock_source": {
+    "title": "Zdroj zásob",
+    "intro": "Odkiaľ sa berie sklad na vašej stránke. Naraz platí len jeden zdroj, aby sa navzájom neprepisovali.",
+    "summary_file": "Súbory (priečinok alebo nahratie)",
+    "summary_agent": "POS agent",
+    "summary_api": "Skladový program ({program})",
+    "file": "Súbory – priečinok so skladom alebo ručné nahratie",
+    "file_hint": "Okno PPI na počítači v obchode posiela súbor z priečinka, alebo ho nahráte ručne.",
+    "agent": "POS agent – aplikácia na počítači pri pokladni",
+    "agent_hint": "Sklad posiela spárovaný POS agent. Priečinok a nahrávanie súborov sa vtedy vypnú.",
+    "agent_no_device": "Najprv spárujte POS agenta v časti „Prepojenie s pokladňou (POS agent)“.",
+    "api_active": "Sklad sa teraz aktualizuje cez pripojený skladový program {program}. Ak chcete iný zdroj, najprv ho odpojte v časti „Pripojiť skladový program (API)“.",
+    "save": "Uložiť zdroj",
+    "saving": "Ukladám…",
+    "saved": "Zdroj zásob je uložený.",
+    "error_api_connected": "Najprv odpojte skladový program.",
+    "error_no_device": "Najprv spárujte POS agenta.",
+    "error_failed": "Nepodarilo sa uložiť. Skúste to znova.",
+    "agent_lock_note": "Sklad sa aktualizuje cez POS agenta.",
+    "agent_lock_text": "Súbory z priečinka a ručné nahratie sú vypnuté. Zmeniť to môžete v časti „Zdroj zásob“.",
+    "api_blocked": "Kým sklad posiela POS agent, skladový program sa nedá pripojiť. Najprv v „Zdroji zásob“ vyberte Súbory."
   }
 }
