@@ -78,7 +78,7 @@ from new_items ni
 join public.shops s on s.id = ni.shop_id
 join items i on i.slug = s.slug and i.code = ni.source_code;
 
--- Amenities (migration 9): Potraviny Centrum has a customer toilet with douchette
+-- Amenities (migration 9): Potraviny Centrum has a customer toilet with a bidet shower
 -- and takes cards; Kisbolt Budapest takes cards.
 update public.shops set has_toilet = true, has_douchette = true, has_card_terminal = true
 where slug = 'potraviny-centrum';

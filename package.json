@@ -12,7 +12,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test:db": "bash supabase/tests/run.sh",
     "test:status": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/hours_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/hours_test.ts",
-    "test:site": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/findable_test.ts src/lib/errorLog_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/findable_test.ts src/lib/errorLog_test.ts",
+    "test:site": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/findable_test.ts src/lib/errorLog_test.ts src/lib/contactButtons_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/findable_test.ts src/lib/errorLog_test.ts src/lib/contactButtons_test.ts",
     "test:chat": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/chat_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/chat_test.ts",
     "test:blog": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/blog_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/blog_test.ts",
     "test:strings": "deno test --no-check --no-lock --allow-read src/lib/strings_test.ts || npx -y deno test --no-check --no-lock --allow-read src/lib/strings_test.ts",

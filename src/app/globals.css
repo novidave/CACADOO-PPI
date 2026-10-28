@@ -314,3 +314,198 @@ dialog.ppi-sheet {
     font-size: clamp(13px, 12.7px + 0.1vw, 14px);
   }
 }
+
+/*
+ * The shop page's contact buttons (update 51, ContactButtons): press and hold 1.2 s. Each button's own colour (--c, the
+ * owner's exception to "no colours") at 8 % over white, its border at 28 %; no shadows anywhere. Holding: a fill
+ * sweeps from the left; done: the colour at 12 %, a pop, a ring, the badge. Touch: no context menu, no selection.
+ */
+.ppi-cb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 50px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--c) 28%, #fff);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c) 8%, #fff);
+  box-shadow: none;
+  color: #1a1a1a;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+.ppi-cb:active {
+  opacity: 1;
+}
+.ppi-cb[data-fit="small"] {
+  font-size: 12.5px;
+}
+@media (hover: hover) {
+  .ppi-cb:hover {
+    transform: translateY(-2px);
+    border-color: var(--c);
+  }
+}
+.ppi-cb:focus-visible {
+  outline: 2px solid var(--c);
+  outline-offset: 2px;
+}
+.ppi-cb[data-phase="holding"] {
+  transform: translateY(1px) scale(0.985);
+}
+.ppi-cb[data-phase="done"] {
+  border-color: var(--c);
+  background: color-mix(in srgb, var(--c) 12%, #fff);
+  animation: ppi-cb-pop 450ms ease-out;
+}
+.ppi-cb-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  pointer-events: none;
+}
+.ppi-cb-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--c);
+  opacity: 0.22;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 300ms ease-out;
+}
+.ppi-cb[data-phase="holding"] .ppi-cb-fill {
+  transform: scaleX(1);
+  transition: transform 1200ms linear;
+}
+.ppi-cb[data-phase="done"] .ppi-cb-fill {
+  opacity: 0;
+  transition: none;
+}
+.ppi-cb-ring {
+  position: absolute;
+  inset: -1px;
+  border: 2px solid var(--c);
+  border-radius: 11px;
+  opacity: 0;
+  pointer-events: none;
+  animation: ppi-cb-ring 700ms ease-out;
+}
+.ppi-cb-label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+.ppi-cb-layer {
+  display: inline-flex;
+  grid-area: 1 / 1;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.ppi-cb-layer[data-entering] {
+  animation: ppi-cb-in 200ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.ppi-cb-layer[data-leaving] {
+  animation: ppi-cb-out 200ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+.ppi-cb-badge {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: #fff;
+}
+.ppi-cb-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
+@keyframes ppi-cb-pop {
+  0% {
+    transform: scale(0.96);
+  }
+  55% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes ppi-cb-ring {
+  from {
+    inset: -1px;
+    opacity: 0.7;
+  }
+  to {
+    inset: -9px;
+    border-radius: 18px;
+    opacity: 0;
+  }
+}
+@keyframes ppi-cb-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+@keyframes ppi-cb-out {
+  from {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(-10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-cb,
+  .ppi-cb[data-phase="done"] {
+    animation: none;
+    transition: none;
+  }
+  .ppi-cb-ring,
+  .ppi-cb-layer[data-leaving] {
+    display: none;
+  }
+  .ppi-cb-layer[data-entering] {
+    animation: none;
+  }
+  .ppi-cb-fill {
+    transition: none;
+  }
+}

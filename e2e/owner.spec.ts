@@ -91,3 +91,31 @@ test("translations folder (update 45): files of their own, a downloaded file rea
   await expect(page.locator("[data-translation-hand-result]")).toContainText(sk.export_folder.file_no_changes.replace("{file}", name), { timeout: 30_000 });
   c.check();
 });
+
+test("contact buttons: short / long saved in Môj obchod shows on the shop page (update 51)", async ({ page }) => {
+  const c = watchConsole(page);
+  const toggle = async (key: string, width: "short" | "long") => {
+    await page.locator(`[data-width-toggle="cb_${key}"] label:has(input[value="${width}"])`).tap();
+    await expect(page.locator(`[data-width-toggle="cb_${key}"] input[value="${width}"]`)).toBeChecked();
+  };
+  const save = async () => {
+    await page.locator("#details form").first().locator('button[type="submit"]').first().tap();
+    await expect(page).toHaveURL(/ok=details|err=/, { timeout: 30_000 });
+    expect(page.url()).toContain("ok=details");
+  };
+  await page.goto(`/sk/dashboard?shop=${SHOP}&at=details`);
+  await toggle("phone", "long");
+  await toggle("email", "short");
+  await save();
+  await page.goto(`/sk/shops/${SHOP}`);
+  const phone = page.locator('button[data-contact="phone"]');
+  const email = page.locator('button[data-contact="email"]');
+  if (await phone.count()) await expect(phone).toHaveAttribute("data-width", "long");
+  if (await email.count()) await expect(email).toHaveAttribute("data-width", "short");
+  // back to the defaults
+  await page.goto(`/sk/dashboard?shop=${SHOP}&at=details`);
+  await toggle("phone", "short");
+  await toggle("email", "long");
+  await save();
+  c.check();
+});

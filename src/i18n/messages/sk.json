@@ -157,7 +157,7 @@
     "company_dic": "DIČ",
     "facilities": "Vybavenie",
     "toilet": "WC pre zákazníkov",
-    "douchette": "Bidetová sprška (douchette)",
+    "douchette": "Bidetová sprška",
     "card_terminal": "Platba kartou (platobný terminál)",
     "facebook": "Facebook",
     "booking": "Rezervovať termín",
@@ -2526,5 +2526,19 @@
     "error_name": "Zadajte názov.",
     "error_login": "Prihláste sa znova.",
     "error_failed": "Niečo sa nepodarilo. Skúste znova."
+  },
+  "contact_buttons": {
+    "hold": "Držte stlačené",
+    "announce": "{label}: {done}",
+    "done_facebook": "Otvorené",
+    "done_booking": "Rezervácie otvorené",
+    "done_web": "Otvorené",
+    "done_email": "Otvorené",
+    "done_navigate": "Navigujem",
+    "done_phone": "Volám",
+    "width_label": "Tlačidlo na stránke",
+    "width_short": "Krátke",
+    "width_long": "Dlhé",
+    "width_hint": "Krátke tlačidlo zaberie jeden stĺpec, dlhé celý riadok. Návštevník ho podrží 1,2 s, kým sa otvorí."
   }
 }

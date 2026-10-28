@@ -278,7 +278,7 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   happens in that app.
 - Opening hours for the week in the shop's time zone, with the live status (6.6): the browser recomputes it right after
   the page loads and every minute while it is open (no server polling).
-- Facilities: customer toilet, douchette (bidet shower), card payment.
+- Facilities: customer toilet, bidet shower ("Bidetová sprška"; the field is still called has_douchette), card payment.
 - Stock freshness line, then the shop's public items: searchable in all three languages, 50 per page, name +
   translation, price and availability.
 - JSON-LD `Store` (address, geo, opening hours, phone, `email`, `sameAs` = website and Facebook page, logo,
@@ -1779,3 +1779,18 @@ here from "Jazyky a inventár" (old addresses forwarded).
 - Each computer has its own token for this one shop, stored by Cacaduu only as a hash; Cacaduu never asks for POS
   passwords or settings. Wrong codes are limited (5 per 15 minutes per caller).
 - Not yet: stock from the agent (phase B) and Sync Now (phase C). Until then the agent can pair and report only.
+
+### 6.25 Contact buttons on the shop page (database update 51, 28 October 2026)
+
+- Under "Vybavenie" the shop's contacts are buttons in two columns, in this order: Facebook · Rezervovať termín / Web ·
+  e-mail / Navigovať · phone. A button whose link or value is empty is not shown; the rest move up.
+- **Press and hold** (1.2 s): a quick tap does nothing. While held: "Držte stlačené" and a bar filling from the left;
+  letting go early or sliding off empties it and nothing happens. When full: the link opens (Facebook, web, booking and
+  directions in a new tab, e-mail → mail app, phone → call), the button says Otvorené / Rezervácie otvorené / Navigujem /
+  Volám with an orange check, then goes back after ~2 s. Screen readers hear "<button>: <result>".
+- Navigovať leads to the shop's map position (exact); a shop without one is navigated to its written address.
+- Each button has its own colour (Facebook blue, booking orange, web purple, e-mail teal, navigation amber, phone
+  green), pale background and border, no shadows; the label is never cut or wrapped (a long one gets a smaller size).
+- Môj obchod → "Údaje obchodu": "Tlačidlo na stránke: Krátke / Dlhé" next to each contact field. Short = one column,
+  long = the whole row; defaults: e-mail long, the rest short. Saved with the shop's details; the page shows it at once.
+- Without JavaScript the page shows the same contacts as plain links.

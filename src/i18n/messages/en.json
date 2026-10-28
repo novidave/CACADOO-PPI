@@ -157,7 +157,7 @@
     "company_dic": "Tax ID (DIČ)",
     "facilities": "Facilities",
     "toilet": "Customer toilet",
-    "douchette": "Douchette (bidet shower)",
+    "douchette": "Bidet shower",
     "card_terminal": "Card payment (card terminal)",
     "facebook": "Facebook",
     "booking": "Book an appointment",
@@ -2526,5 +2526,19 @@
     "error_name": "Enter a name.",
     "error_login": "Please log in again.",
     "error_failed": "Something went wrong. Please try again."
+  },
+  "contact_buttons": {
+    "hold": "Keep holding",
+    "announce": "{label}: {done}",
+    "done_facebook": "Opened",
+    "done_booking": "Booking opened",
+    "done_web": "Opened",
+    "done_email": "Opened",
+    "done_navigate": "Navigating",
+    "done_phone": "Calling",
+    "width_label": "Button on the page",
+    "width_short": "Short",
+    "width_long": "Long",
+    "width_hint": "A short button takes one column, a long one the whole row. Visitors hold it for 1.2 s before it opens."
   }
 }

@@ -32,6 +32,7 @@ const CACHED_RPCS = new Set([
   "shop_stock",
   "shop_stock_resetting",
   "shop_company_details",
+  "shop_contact_buttons",
   "shop_has_plan",
   "shop_stands_alone",
   "shopper_pdf_allowed",

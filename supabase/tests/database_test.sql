@@ -8102,4 +8102,51 @@ begin
                  where s.slug = 'farby-api' and a.action = 'connector_revoked');
 end $$;
 
+-- ------------------------------------------------------------------ update 51: contact buttons short / long
+\echo '--- contact buttons: short / long per button (update 51)'
+do $$
+begin
+  assert (select bool_and(contact_buttons = '{}'::jsonb) from public.shops), 'existing shops keep the defaults';
+  begin update public.shops set contact_buttons = '{"twitter":"long"}' where slug = 'farby-export';
+    raise exception 'an unknown button was kept'; exception when check_violation then null; end;
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+begin
+  perform public.owner_set_contact_buttons(v_shop, '{"email":"short","phone":"long"}');
+  assert (select contact_buttons from public.my_shops() where id = v_shop) = '{"email":"short","phone":"long"}'::jsonb;
+  begin perform public.owner_set_contact_buttons(v_shop, '{"phone":"wide"}'); raise exception 'a bad width was kept';
+  exception when invalid_parameter_value then assert sqlerrm = 'contact_buttons'; end;
+  begin perform public.owner_set_contact_buttons(v_shop, '["long"]'); raise exception 'not an object';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.owner_set_contact_buttons(v_shop, '{"map":"long"}'); raise exception 'an unknown key';
+  exception when invalid_parameter_value then null; end;
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_set_contact_buttons((select id from public.shops where slug = 'farby-export'), '{}');
+    raise exception 'B changed A''s buttons';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  assert public.shop_contact_buttons('farby-export') = '{"email":"short","phone":"long"}'::jsonb;
+  assert public.shop_contact_buttons('no-such-shop') is null;
+  begin perform public.owner_set_contact_buttons((select id from public.public_shops where slug = 'farby-export'), '{}');
+    raise exception 'anon saved';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+update public.shops set is_active = false where slug = 'farby-export';
+set role anon;
+do $$ begin assert public.shop_contact_buttons('farby-export') is null, 'a hidden shop shows nothing'; end $$;
+reset role;
+update public.shops set is_active = true where slug = 'farby-export';
+
 \echo 'ALL DATABASE CHECKS PASSED'
