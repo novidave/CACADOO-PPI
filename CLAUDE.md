@@ -649,7 +649,9 @@ list (`LanguagePickerDialog`), the picture viewer (`SectionZoomViewer`), Vercel 
 sections open before the first paint (`DashboardSection`'s inline script); no `loading.tsx` there (it turns the pages'
 `redirect()` into a client redirect) — the tapped menu link shows `useLinkStatus`. Taps: `TapFeedback` (server-action
 forms: busy at once, never sent twice), pressed states and 44 px touch areas in `globals.css`. Lists that load on a
-filter keep only the newest answer. Errors: `src/instrumentation.ts` → `@/lib/errorLog` (route file path + cleaned
+filter keep only the newest answer. The shop page's "Tovar v obchode" search (`@/components/ItemSearch`) changes the list
+in place — `router.replace(…, { scroll: false })`, the list keeps at least its height, the keyboard closes — so the page
+never moves; without JavaScript the form and the list's page links land on `#items`. Errors: `src/instrumentation.ts` → `@/lib/errorLog` (route file path + cleaned
 message only, never the address, IP or personal data) → `log_server_error()` → admin "Chyby za posledných 7 dní";
 Sentry too when `SENTRY_DSN` is set. Budget: `.github/workflows/performance.yml` (Lighthouse CI `lighthouserc.cjs` +
 `scripts/first-load-js.mjs` + `npm run test:e2e` on every Vercel preview, throttling applied while loading); first-load JS
