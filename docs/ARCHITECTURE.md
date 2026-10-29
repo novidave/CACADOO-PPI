@@ -170,7 +170,7 @@ section 7).
 | `freshness_label(time)`, `freshness_age_minutes(time)`, `freshness_state(shop)` | current < 30 min, recent < 24 h, stale otherwise |
 | `availability_label(quantity, freshness)` | one rule for every shop: `in_stock_count` when the quantity is above 0 ("12 ks na sklade"), `out_of_stock` at 0 or less, NULL when stale. No setting can change it (migration 21 dropped `visibility_mode`, `low_stock_threshold`, `shop_items.is_public` and the functions that set them) |
 | view `public_stock` | the only public read path for stock: every item of an active shop, the quantity exactly as in the file and its label; neither for stale shops |
-| `search_stock(q, lat, lng, radius_km, only_available)` | text search: every word of `q` must appear (`matches_all_words()`, accents/case ignored via `search_text()` = `unaccent` + lower) in the item's names (original + sk/hu/en, `item_names_text()`), brand, EAN, or the shop's name, street, town; candidates come from the trigram indexes (longest word); optional radius for API/MCP callers; available first, fresher, nearer, name; 50 rows with the translations |
+| `search_stock(q, lat, lng, radius_km, only_available)` | without `q`: every item nearby (the update-42 rule, now `search_stock_exact()`, not callable by visitors); with `q` since update 54 the rows of `item_search()` — the forgiving search (see "Update 54"): exact hits first (EAN, every word in the names, brand, EAN or the shop's name, street, town), then close ones; optional radius for API/MCP callers; order by score, then available + current, fresher, nearer, name; 50 rows with the translations |
 | view `public_shops`, `shop_stock(slug, q, limit, offset)` | shop pages and their item lists (same word search, with translations) |
 | index `shop_items_names_search_idx` | trigram index over `item_names_text(name, name_i18n)`: original name and all three translations |
 | `items_to_translate(shop)`, `apply_item_translations(shop, items)` | translation queue and saving — service role only; never touch owner corrections |
@@ -2404,3 +2404,48 @@ reload lands on the list. e2e `e2e/shop-search.spec.ts` (the scroll position sta
   request in words, 5 s refresh while open), `connectorActions.ts` `syncNow` / `loadCommands`, `/sync` loads
   `owner_connector_commands`. Texts `pos_agent.sync_*`, `cmd_*`. Test stand-in: `connector-test-agent.mjs sync`
   (`--csv` / `--generate` / `--unchanged` / `--fail`; honours 429 Retry-After).
+
+## Update 54 — forgiving product search ("Tovar v obchode" dropdown, the main search)
+
+`supabase/sql/54_forgiving_search.sql` (one file; drops and re-adds its stored columns on every run):
+- Word rules (immutable SQL): `search_stem(word)` (the longest of ~45 Slovak/Czech/Hungarian/English endings cut, ≥ 4
+  letters kept, then ph→f, ck→k, c→k, y→i, q→k, w→v; numbers unchanged), `search_sizes(text)` (`ml:500` for l/dl/cl/ml,
+  `g:` kg/g, `mm:` m/cm/mm, `ks:`), `search_without_sizes`, `search_tokens` / `search_stems_text` (" a b c "),
+  `search_generic(stem)` (farba, paint, festék, náter, barva, Farbe, color, produkt, tovar …: weight 0.34),
+  `search_word_match(word, tokens)` (1 / 0.85 prefix / 0.8 / 0.6 edit distance ≤ 1, ≤ 2 from 7 letters / 0.5 typo in a
+  prefix), `search_query(q)` (≤ 8 longest stems, weights, typed words, sizes, `starts` = first 3 letters).
+- Stored: `shop_items.search_stems` (every name in every language + brand + category + code + EAN; GIN trigram index),
+  `shop_items.search_sizes` (GIN), `shops.search_words` (`search_text(name address city)`), `shops.search_stems`.
+- Fast pass (inlined, no SET): `search_quick_match(word, stems, typos)` (same 1, prefix 0.85, trigram ≥ 0.5 = 0.6 only
+  when the first two letters appear), `search_quick_hits(stems, words, weights)` (8 values; generic words without the
+  typo check), `search_quick_cov`, `search_quick_spec`, `search_quick_missing` / `search_quick_ok` (every specific word
+  hit; one may miss of 3+).
+- `shop_item_search(slug, q, limit 8, offset 0)` (security definer, anon): every item of the shop through the fast
+  pass (prefilter `like any(starts)`), the window offset + limit + 40 re-scored precisely, `public_stock` read last by
+  id (lateral `offset 0`); `kind` exact (code/EAN hit +100, every word +10) / match / similar (none matched:
+  `word_similarity` of the names > 0.15, top 50); `score` (+0.05 in stock), `matched` stems, `total_count`.
+  `shop_stock(slug, q, …)` keeps its output and returns these rows when `q` has words.
+- `item_search(q, lat, lng, radius 10, only_available, limit 50)` (security definer, anon): candidates = items with a
+  word beginning like a specific search word (trigram index, ≤ 3 000) ∪ trigram `<%` neighbours when those are < 300
+  (typos) ∪ the update-42 candidates (longest word in the names or the shop's words) ∪ items of a shop whose words
+  match a search word and that begin like another of its words ("farba v Budinciach") ∪ EAN (item or product);
+  materialized with their search texts; a cheap pass without typo checks over all, the full fast pass on the best 600
+  (+ every code/EAN/every-word hit), the top 100 re-scored precisely, `public_stock` last. Shops outside the radius
+  never reach the candidates' checks. Order: score, (available and current/recent), freshness, distance, name — never a
+  plan. `search_stock(q, …)` keeps its output: no words → `search_stock_exact(null, …)`, words → `item_search` rows.
+- DB tests (block "update 54"): stems, sizes, generic words; a Davide-like fixture shop in Budince ("akril paint 0.5l",
+  EN "glossy acrylic medium", HU "akril médium fényes", typos "akrylvé farby" / "mercedez 775", word order, "0,5 l" =
+  "500 ml", code AUTO-0035 and EAN exact first, nonsense → only similar, "v Budinciach" only that town, mixed SK/HU/EN,
+  "kava budapest"), anon only, same rows as `public_stock`, ranking unchanged by a subscription, inactive shop hidden.
+  Older checks changed with the rule: "kave" near Michalovce now finds "Káva" (never the Budapest shop); the update-42
+  "every word" checks count the `exact` rows.
+- Website: `@/lib/data` `searchShopItems()` (shop_item_search; when only similar rows and 4+ letters, Claude's words via
+  `expandQuery()` once; before update 54 `shop_stock`), `ShopView` (the list with words → "Výsledky pre „…“ (N)" +
+  "Zrušiť", similar → "Nenašli sme presnú zhodu – podobné produkty:"), `/api/shops/[slug]/search?q=&lang=` (anon,
+  `rateLimit(…, 120)`, 8 suggestions written on the server: names via `itemNames()`, `formatPrice`, availability text,
+  stock dot state, category, matched stems), `@/components/ItemSearch` (combobox + listbox, 2 characters, 200 ms
+  debounce, `AbortController` per request and a check that the answer is the newest, ↑ ↓ Enter Esc, `<mark>` via
+  `@/lib/searchWords` `highlightParts()`), `CACHED_RPCS` + `item_search`, `shop_item_search`. `shopChat` `search_items`
+  → `shop_item_search` (each item's `match`: exact / close / similar, a note when only similar). `searchAcrossLanguages`
+  asks Claude's words when fewer than `FEW_RESULTS` (3) rows. Tests: `npm run test:search`, e2e
+  `e2e/shop-search.spec.ts` (suggestions, keyboard, newest answer only with a slow stand-in, no-JS form).

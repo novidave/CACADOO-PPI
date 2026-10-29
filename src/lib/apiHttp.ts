@@ -41,19 +41,20 @@ export function callerHash(request: Request): string {
 }
 
 /**
- * Logs the call to api_usage and enforces 60 calls per minute per caller (callerHash).
- * If the database cannot be reached the call is allowed (it is read-only anyway).
+ * Logs the call to api_usage and enforces 60 calls per minute per caller (callerHash; another `limit` for one
+ * endpoint, e.g. the shop page's search-as-you-type). If the database cannot be reached the call is allowed (it is
+ * read-only anyway).
  */
-export async function rateLimit(request: Request, endpoint: string): Promise<Response | null> {
+export async function rateLimit(request: Request, endpoint: string, limit = LIMIT_PER_MINUTE): Promise<Response | null> {
   const supabase = createPublicClient();
   if (!supabase) return null;
   const { data, error } = await supabase.rpc("api_hit", {
     p_ip_hash: callerHash(request),
     p_endpoint: endpoint,
-    p_limit: LIMIT_PER_MINUTE,
+    p_limit: limit,
   });
   if (!error && data === false) {
-    return json({ error: `Too many requests: at most ${LIMIT_PER_MINUTE} per minute. Please wait a minute.` }, 429, {
+    return json({ error: `Too many requests: at most ${limit} per minute. Please wait a minute.` }, 429, {
       "Retry-After": "60",
     });
   }

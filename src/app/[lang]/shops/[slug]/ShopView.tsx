@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import type { Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getShop, getShopCalendars, getShopItems, shopHasPlan, shopCompany, shopContactButtons, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
+import { getShop, getShopCalendars, getShopItems, searchShopItems, shopHasPlan, shopCompany, shopContactButtons, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
 import { blogCount } from "@/lib/blog";
 import { blogPath } from "@/lib/blogFormat";
@@ -101,10 +101,13 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // Everything that needs only the shop, at once (no waterfall). The AI assistant is a paid feature: shown only when
   // the database says the shop has the plan.
-  const [host, langs, { items, total }, assistant, shopperPdf, calendars, content, posts, company, widths] = await Promise.all([
+  const [host, langs, { items, total, kind }, assistant, shopperPdf, calendars, content, posts, company, widths] = await Promise.all([
     shopSiteHost(shop.slug).catch(() => null),
     getShopLanguages(shop.slug, shop.country),
-    getShopItems(shop.slug, q, requestedPage, PAGE_SIZE),
+    // With words the forgiving search (update 54): exact hits first, then close ones, else the most similar names.
+    q
+      ? searchShopItems(shop.slug, q, PAGE_SIZE, (requestedPage - 1) * PAGE_SIZE)
+      : getShopItems(shop.slug, q, requestedPage, PAGE_SIZE).then((r) => ({ ...r, kind: null })),
     shopChatEnabled() ? shopHasPlan(shop.id) : Promise.resolve(false),
     // "Stiahnuť túto konverzáciu (PDF)" (database update 24): only with the archive on.
     archiveEnabled() ? shopperPdfAllowed(shop.slug).catch(() => false) : Promise.resolve(false),
@@ -276,7 +279,30 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           {freshnessText(dict, shop.freshness_state, shop.freshness_age_minutes, shop.latest_file_time, shop.timezone)}
         </p>
         {/* Searching keeps the page where it is (the list changes in place). */}
-        <ItemSearch path={shopPath} q={q} labels={{ placeholder: dict.shop.search_items, button: dict.search.button }} />
+        <ItemSearch
+          path={shopPath}
+          q={q}
+          slug={shop.slug}
+          lang={lang}
+          itemBase={`/${lang}/items/`}
+          labels={{
+            placeholder: dict.shop.search_items,
+            button: dict.search.button,
+            suggestions: dict.shop.search_suggestions,
+            all: dict.shop.search_all,
+            similar: dict.shop.search_similar,
+            count: dict.shop.search_count,
+          }}
+        />
+        {q && (
+          <p className="flex flex-wrap items-baseline gap-x-3 text-sm" data-search-results={kind ?? "none"}>
+            <span className="font-medium">{t(dict.shop.search_results, { q, n: total })}</span>
+            <a href={`${shopPath}#items`} className="underline underline-offset-4">
+              {dict.shop.search_clear}
+            </a>
+          </p>
+        )}
+        {q && kind === "similar" && items.length > 0 && <p className="text-sm text-muted">{dict.shop.search_similar}</p>}
 
         {items.length === 0 ? (
           <p data-stock-note={resetting ? "updating" : "none"}>{resetting ? dict.shop.stock_updating : dict.shop.no_items}</p>

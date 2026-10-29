@@ -18,7 +18,7 @@ import { createPublicClient } from "./supabase/public";
 /**
  * The AI assistant on a shop page (a paid feature: only when shop_has_plan is true).
  * Claude (AI_MODEL, default Haiku) answers about this one shop: its tools are bound to
- * the shop on the server (search_items → shop_stock for this slug, get_item →
+ * the shop on the server (search_items → shop_item_search for this slug, get_item →
  * public_stock for this slug, search_shop_docs → the shop's documents and pictures that
  * this shopper may see, search_shop_news → the shop's public blog posts, update 37), so it cannot see other shops. Item cards and the shopping list
  * are built only from what those tools returned; availability, quantities and freshness
@@ -637,15 +637,24 @@ export async function runShopChat(
     const input = call.input as { query?: unknown; ref?: unknown };
     if (call.name === "search_items") {
       const query = typeof input.query === "string" ? input.query.trim().slice(0, 100) : "";
-      const { data, error } = await db().rpc("shop_stock", {
-        p_slug: shop.slug,
-        q: query || null,
-        p_limit: RESULTS_PER_SEARCH,
-        p_offset: 0,
-      });
-      if (error) return fail(`Search failed: ${error.message}`);
-      const items = ((data ?? []) as Partial<StockRow>[]).map((row) => brief(toItem(row, shop, lang)));
-      return { type: "tool_result", tool_use_id: call.id, content: JSON.stringify({ query, items }) };
+      // The forgiving search of the shop page (update 54): typos, word order, every language, sizes; "match" says
+      // how each row was found. Before update 54 (or without words) the shop's list as before.
+      let result = query
+        ? await db().rpc("shop_item_search", { p_slug: shop.slug, p_q: query, p_limit: RESULTS_PER_SEARCH, p_offset: 0 })
+        : null;
+      if (!result || result.error?.code === "PGRST202" || result.error?.code === "42883") {
+        result = await db().rpc("shop_stock", { p_slug: shop.slug, q: query || null, p_limit: RESULTS_PER_SEARCH, p_offset: 0 });
+      }
+      if (result.error) return fail(`Search failed: ${result.error.message}`);
+      const rows = (result.data ?? []) as (Partial<StockRow> & { kind?: string })[];
+      const items = rows.map((row) => ({
+        ...brief(toItem(row, shop, lang)),
+        ...(row.kind ? { match: row.kind === "exact" ? "exact" : row.kind === "match" ? "close" : "similar" } : {}),
+      }));
+      const note = rows.some((r) => r.kind === "similar")
+        ? "Nothing matched the search: these are only the closest names, not what was asked for. Say so."
+        : undefined;
+      return { type: "tool_result", tool_use_id: call.id, content: JSON.stringify({ query, ...(note ? { note } : {}), items }) };
     }
     if (call.name === "search_shop_docs" && docs.length) {
       const query = typeof input.query === "string" ? input.query.trim().slice(0, 200) : "";

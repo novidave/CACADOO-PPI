@@ -145,7 +145,7 @@
     "phone": "Phone",
     "website": "Website",
     "items": "Items in this shop",
-    "search_items": "Search this shop",
+    "search_items": "Search this shop…",
     "no_items": "Nothing found.",
     "stock": "Stock",
     "page_of": "Page {page} of {pages}",
@@ -162,7 +162,13 @@
     "facebook": "Facebook",
     "booking": "Book an appointment",
     "news": "News",
-    "stock_updating": "The product range is being updated."
+    "stock_updating": "The product range is being updated.",
+    "search_results": "Results for “{q}” ({n})",
+    "search_clear": "Clear",
+    "search_all": "Show all results ({n})",
+    "search_similar": "No exact match – similar products:",
+    "search_suggestions": "Suggestions",
+    "search_count": "Suggestions: {n}"
   },
   "item": {
     "brand": "Brand",

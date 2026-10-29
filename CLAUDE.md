@@ -29,8 +29,9 @@ Setup steps for humans are in `SETUP.md`.
   Add a check to `supabase/tests/database_test.sql` for every rule you add.
 - **Europe-wide, no home town.** Never hard-code a city, country, currency or time zone.
   **No location services**: the website never asks for or guesses the visitor's location (no device location,
-  no IP lookup). Search is text only — item name (original or its sk/hu/en translation), brand, EAN, shop name, street
-  or town — across all shops; every word must match (`matches_all_words`, `item_names_text` + trigram index).
+  no IP lookup). Search is text only — item name (original or any translation), brand, category, code, EAN, shop name,
+  street or town — and **forgiving since update 54** (below): exact hits first (code/EAN, then every word), then close
+  ones (any order, typos, stems, sizes, generic words weighted less), never decided outside SQL.
 - Item names (at the owner's request, 2026-10-27): the name **in the page language first** (dark), the name as the shop
   wrote it **under it** (light) — `itemNames()` (`@/lib/names`) on the shop's list, the product page, the search results
   and the chat cards; without a translation only the shop's name. The shop's text itself is never changed.
@@ -85,6 +86,8 @@ button, the text only after a tap, 2026-10-27); always an extra — every page m
 - `npm run test:export` — unit tests (Deno) of the translations folder's files (`src/lib/exportFiles_test.ts`): the
   built-in .xlsx writer/reader (also files as Excel saves them), the files' columns, the owner's edits read back
   (empty cells, read-only columns, unknown rows, Kód then EAN)
+- `npm run test:search` — unit tests (Deno) of the forgiving search's word rules (`src/lib/searchWords_test.ts`): the
+  same stems as `search_stem()`, accents, typo and prefix marks for highlighting
 - `npm run test:connector` — the POS agent contract (`src/lib/connectorContract_test.ts`): the OpenAPI file has exactly
   the connector function's routes, the written contract names every path, the client calls every path
 - `npm run test:items` — unit tests (Deno) of Môj obchod's "Tovar" list (`src/lib/ownerItems_test.ts`): each state of
@@ -175,6 +178,30 @@ unpacked) into 4 MB parts in private `partner-feeds` (`imports/<import>/`), over
 real host only, forwards checked, never logged. Admin uploads go browser → storage (policy: admin + name pattern).
 Admin texts `admin_partners`.
 
+## Forgiving product search (update 54)
+
+`supabase/sql/54_forgiving_search.sql` + `@/lib/searchWords` (the stem rule mirrored for highlighting only;
+`searchWords_test.ts`, `npm run test:search`) + `@/components/ItemSearch` (the form) + `@/components/ItemSuggestions` (the dropdown, loaded on the first key — first-load JS budget) + `/api/shops/[slug]/search` + `@/lib/data`
+`searchShopItems()`. **One rule in SQL for every place that searches:** `shop_item_search(slug, q, limit, offset)` (one
+shop: "Tovar v obchode", its dropdown, the assistant's `search_items`; `shop_stock` with words returns its rows) and
+`item_search(q, lat, lng, radius, only_available, limit)` (all shops: `search_stock` with words returns its rows → page,
+API, MCP, the chat's tool and the plain fallback; `search_stock(null, …)` = the old nearby list, `search_stock_exact`
+not callable by visitors). Per word: same word 1, beginning 0.85, typo 0.6 (trigram finds, edit distance decides);
+`search_stem()` (endings cut, c/k y/i w/v ph/f alike), `search_sizes()` ("0,5 l" = "500 ml"; same size +, never
+excludes), `search_generic()` (farba/paint/festék… weigh ⅓, no typo check in the fast pass); every specific word must
+hit (one may miss of 3+): "white chocolate" never finds a white paint. `kind` exact (code/EAN +100, every word +10) /
+match / similar (nothing matched: closest names, "Nenašli sme presnú zhodu – podobné produkty:"). Across shops the
+shop's words (`shops.search_stems`) count, so "farba v Budinciach" = only Budince; a typed town is never a location.
+Order: score, then in stock + current, freshness, distance only with a point, name — **never a plan or payment**.
+Stored columns `shop_items.search_stems` / `search_sizes` (+ trigram/GIN index), `shops.search_words` / `search_stems`
+are dropped and made again on every run of the file. Speed: < 150 ms for a 5 000-item shop, < 300 ms for 100 000 items
+(cheap pass without typos over ≤ 3 000 candidates, full check on the best 600, precise re-score on the top 100,
+`public_stock` last by id). Claude's words (`query_expansion()`) only when fewer than 3 rows (`FEW_RESULTS`) or nothing
+matched in a shop (4+ letters). Dropdown: from 2 characters, 200 ms debounce, ≤ 8 suggestions written on the server,
+older requests aborted (only the newest answer), ↑ ↓ Enter Esc, "Zobraziť všetky výsledky (N)", `rateLimit` 120/min per
+caller; the list shows "Výsledky pre „…“ (N)" + "Zrušiť"; without JavaScript the plain GET form `?q=#items`. Marks
+are `<mark>` in bold (no colour). e2e `e2e/shop-search.spec.ts`.
+
 ## Paid plan (Stripe)
 
 One monthly subscription per shop; test mode first. `public.subscriptions` (one row per shop, owners read their own) is
@@ -193,7 +220,7 @@ plan still renews cannot be deleted (`owner_delete_shop`).
 Shop page only, only when `shop_has_plan(shop)` is true and `ANTHROPIC_API_KEY` is set: `@/components/ShopChat`
 (always open since update 27; the page stays server-rendered without it) → `POST /api/shops/[slug]/chat` → `@/lib/shopChat` (Claude
 `AI_MODEL`, default Haiku `claude-haiku-5-5`; strict tools bound to that shop on the server: `search_items` →
-`shop_stock`, `get_item` → `public_stock` filtered by the shop, and `search_shop_docs` when the shop has documents;
+`shop_item_search` (update 54; each row's match exact/close/similar), `get_item` → `public_stock` filtered by the shop, and `search_shop_docs` when the shop has documents;
 never other shops; structured answer: answer, item_refs, shopping_list, photo read/match, sources, pictures,
 document_prices, call_shop). Cards, the list, sources and pictures only from tool results; a document price only if
 the excerpt contains it; availability from the database. Every message passes

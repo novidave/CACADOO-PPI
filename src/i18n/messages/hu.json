@@ -145,7 +145,7 @@
     "phone": "Telefon",
     "website": "Weboldal",
     "items": "Termékek az üzletben",
-    "search_items": "Keresés ebben az üzletben",
+    "search_items": "Keresés ebben a boltban…",
     "no_items": "Nincs találat.",
     "stock": "Készlet",
     "page_of": "{page}. oldal / {pages}",
@@ -162,7 +162,13 @@
     "facebook": "Facebook",
     "booking": "Időpontfoglalás",
     "news": "Hírek",
-    "stock_updating": "A kínálat éppen frissül."
+    "stock_updating": "A kínálat éppen frissül.",
+    "search_results": "Találatok erre: „{q}” ({n})",
+    "search_clear": "Mégse",
+    "search_all": "Összes találat megjelenítése ({n})",
+    "search_similar": "Nincs pontos egyezés – hasonló termékek:",
+    "search_suggestions": "Javaslatok",
+    "search_count": "Javaslatok: {n}"
   },
   "item": {
     "brand": "Márka",
