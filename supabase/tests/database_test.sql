@@ -81,8 +81,11 @@ begin
   assert (select currency || ' ' || shop_timezone || ' ' || shop_country
           from public.search_stock('kave', 47.4979, 19.0402, 10, false)) = 'HUF Europe/Budapest HU';
   assert (select distance_km from public.search_stock('kave', 47.4979, 19.0402, 10, false)) between 1 and 3;
-  select count(*) into n from public.search_stock('kave', 48.755, 21.918, 10, false);
+  -- update 54: "kave" now also finds the Slovak "Káva" nearby (forgiving search), never the Budapest shop
+  select count(*) into n from public.search_stock('kave', 48.755, 21.918, 10, false) where shop_slug = 'kisbolt-budapest';
   assert n = 0, 'Budapest shop must not appear within 10 km of Michalovce';
+  assert (select bool_and(distance_km <= 10) from public.search_stock('kave', 48.755, 21.918, 10, false)),
+    'every row must be inside the radius';
 
   -- nonsense coordinates are ignored (treated as no location)
   select count(*) into n from public.search_stock('8714789012351', 999, 999, 10, false);
@@ -3305,7 +3308,9 @@ do $$
 declare
   v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
   v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
-  v_d date := current_date + 3;
+  -- three days on, but never a public holiday (that day or the next): the checks below expect plain days
+  v_d date := (select min(d)::date from generate_series(current_date + 3, current_date + 30, interval '1 day') d
+               where not exists (select 1 from public.public_holidays h where h.date in (d::date, d::date + 1)));
   v_r jsonb;
 begin
   assert public.owner_save_special_hours(v_a, v_d, v_d + 2, true, null, ' Inventúra  www.example.com ') = 3, 'a date range';
@@ -3375,7 +3380,9 @@ do $$
 declare
   v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
   v_h uuid := (select id from public.shops where slug = 'kisbolt-budapest');
-  v_d date := current_date + 3;
+  -- three days on, but never a public holiday (that day or the next): the checks below expect plain days
+  v_d date := (select min(d)::date from generate_series(current_date + 3, current_date + 30, interval '1 day') d
+               where not exists (select 1 from public.public_holidays h where h.date in (d::date, d::date + 1)));
 begin
   assert (select count(*) from public.shop_special_hours where shop_id = v_a) = 2, 'visitors read special days';
   assert (select holiday_kind || ' ' || holiday_closed_from from public.shop_calendar(array[v_a, v_h], '2026-12-20', '2027-01-10')
@@ -3394,7 +3401,9 @@ set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
 do $$
 declare
   v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
-  v_d date := current_date + 3;
+  -- three days on, but never a public holiday (that day or the next): the checks below expect plain days
+  v_d date := (select min(d)::date from generate_series(current_date + 3, current_date + 30, interval '1 day') d
+               where not exists (select 1 from public.public_holidays h where h.date in (d::date, d::date + 1)));
 begin
   assert public.owner_set_auto_holidays(v_a, false) = false;
   assert not exists (select 1 from public.shop_calendar(array[v_a], '2026-12-20', '2027-01-10') where holiday_kind is not null),
@@ -6897,16 +6906,17 @@ begin
   assert public.search_patterns('  ') = '{}'::text[], 'blank query → no patterns';
   assert cardinality(public.search_patterns('Káva  zrnková')) = 2, 'two words → two patterns';
   assert public.search_patterns('50%') = array['%50\%%'], '% is escaped';
-  -- Search gives what the rule says: every word matches, sold out still listed, EAN exact.
-  assert (select count(*) from public.search_stock('káva')) = 3, 'three coffees in the seed';
+  -- Search gives what the rule says: every word matches, sold out still listed, EAN exact. Since update 54 these are
+  -- the 'exact' rows; the forgiving ones ("Kávé") come after them.
+  assert (select count(*) from public.item_search('káva') where kind = 'exact') = 3, 'three coffees in the seed';
   assert (select count(*) from public.search_stock('kava zrnkova')) = 1, 'every word must match (no accents)';
   assert (select count(*) from public.search_stock('káva lavazza')) = 1, 'brand counts as a word';
   assert (select count(*) from public.search_stock('káva centrum')) = 2, 'shop name counts as a word';
   assert (select count(*) from public.search_stock('8000070012345')) = 1, 'EAN';
   assert (select count(*) from public.search_stock('káva neexistuje')) = 0, 'a missing word → nothing';
   assert not exists (
-    select 1 from public.search_stock('káva') r join public.shop_items si on si.id = r.item_id
-    where not public.matches_all_words(
+    select 1 from public.item_search('káva') r join public.shop_items si on si.id = r.item_id
+    where r.kind = 'exact' and not public.matches_all_words(
       public.item_names_text(si.name, si.name_i18n) || ' ' || coalesce(r.brand, '') || ' ' || coalesce(r.ean, '') || ' '
         || r.shop_name || ' ' || coalesce(r.shop_address, '') || ' ' || coalesce(r.shop_city, ''), 'káva')
   ), 'every row matches all words';
@@ -8541,5 +8551,112 @@ begin
 end $$;
 reset role;
 
+
+-- ------------------------------------------------------------------ update 54: forgiving product search
+\echo '--- forgiving search: stems, sizes, typos, languages, word order, codes, similar, cross-shop, no plan (update 54)'
+do $$
+begin
+  -- stems: one spelling for every language and ending; numbers stay
+  assert public.search_stem('akrylové') = 'akril' and public.search_stem('Acrylic') = 'akril'
+     and public.search_stem('akryl') = 'akril' and public.search_stem('akrylový') = 'akril', 'acrylic stems';
+  assert public.search_stem('Budinciach') = public.search_stem('Budince'), 'town endings';
+  assert public.search_stem('775') = '775';
+  -- sizes: 0.5l = 0,5 l = 500 ml = 5 dl
+  assert public.search_sizes('akril paint 0.5l') = '{ml:500}' and public.search_sizes('0,5 l') = '{ml:500}'
+     and public.search_sizes('500 ml') = '{ml:500}' and public.search_sizes('5 dl') = '{ml:500}', 'sizes';
+  assert public.search_sizes('2,5kg 10 ks') @> '{g:2500,ks:10}';
+  -- generic words weigh a third
+  assert (select weights from public.search_query('akril paint')) @> '{0.34}', 'paint is generic';
+  assert (select specific from public.search_query('farba paint')) = false;
+end $$;
+do $$
+declare v_shop uuid; v_item uuid; r record;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'davide-search', 'Davide Search', 'Hlavná 97', 'Budince', country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_shop;
+  insert into public.sync_sources (shop_id, latest_file_time) values (v_shop, now()) on conflict (shop_id) do update set latest_file_time = now();
+  for r in select * from (values
+    ('AUTO-0035', 'Autolak 2K akrylátový Mercedes-Benz 775 Iridium Silver, 1 l', '2001000000999', '{"en":"2K acrylic car paint Mercedes-Benz 775 Iridium Silver, 1 l","hu":"2K akril autófesték Mercedes-Benz 775 Iridium Silver, 1 l"}', 3, 42.9),
+    ('CP14', 'Akrylové médium lesklé, 250 ml', '2000000000145', '{"en":"Glossy acrylic medium, 250 ml","hu":"Fényes akril médium, 250 ml"}', 5, 6.9),
+    ('CP06', 'Akrylové farby, sada 12 × 12 ml', '2000000000060', '{"en":"Acrylic paints, set of 12 × 12 ml","hu":"Akril festékek, készlet 12 × 12 ml"}', 2, 9.9),
+    ('CP18', 'Akrylový sprej, matný, 400 ml', '2000000000183', '{"en":"Matt acrylic spray, 400 ml","hu":"Matt akril spray, 400 ml"}', 0, 6.4),
+    ('CP01', 'Interiérová farba biela, matná, 15 l', '2000000000015', '{"en":"White matt interior paint, 15 l","hu":"Fehér matt beltéri festék, 15 l"}', 7, 54.9),
+    ('CP02', 'Fasádna farba biela, 10 l', '2000000000022', '{"en":"White facade paint, 10 l","hu":"Fehér homlokzatfesték, 10 l"}', 4, 39.9),
+    ('CP03', 'Olejová farba čierna, 0,5 l', '2000000000039', '{"en":"Black oil paint, 0.5 l","hu":"Fekete olajfesték, 0,5 l"}', 6, 8.5),
+    ('AUTO-0010', 'Riedidlo akrylátové, 1 l', '2001000000647', '{"en":"Acrylic thinner, 1 l","hu":"Akril hígító, 1 l"}', 9, 9.9),
+    ('CP20', 'Štetec plochý 50 mm', '2000000000206', '{"en":"Flat brush 50 mm","hu":"Lapos ecset 50 mm"}', 12, 3.2)
+  ) as t(code, name, ean, i18n, qty, price) loop
+    insert into public.shop_items (shop_id, source_code, name, ean, name_lang, name_i18n)
+    values (v_shop, r.code, r.name, r.ean, 'sk', r.i18n::jsonb) returning id into v_item;
+    insert into public.inventory (shop_item_id, quantity, price, currency, source_updated_at) values (v_item, r.qty, r.price, 'EUR', now());
+  end loop;
+end $$;
+
+set role anon;
+do $$
+declare
+  v_ids text;
+begin
+  -- the example of the request: acrylic products first, every word not required
+  assert (select string_agg(item_name, '|' order by score desc, item_name) from (
+            select * from public.shop_item_search('davide-search', 'akril paint 0.5l', 5)) s) ~ '^Akryl|^Autolak',
+         'acrylic first: ' || (select string_agg(item_name, '|') from public.shop_item_search('davide-search', 'akril paint 0.5l', 5));
+  assert exists (select 1 from public.shop_item_search('davide-search', 'akril paint 0.5l', 8) where item_name like 'Akrylové médium lesklé%');
+  assert not exists (select 1 from public.shop_item_search('davide-search', 'akril paint 0.5l', 8) where item_name like 'Štetec%'),
+         'unrelated items stay out';
+  -- English and Hungarian names, any word order
+  assert (select item_name from public.shop_item_search('davide-search', 'glossy acrylic medium', 1)) = 'Akrylové médium lesklé, 250 ml';
+  assert (select item_name from public.shop_item_search('davide-search', 'akril médium fényes', 1)) = 'Akrylové médium lesklé, 250 ml';
+  assert (select item_name from public.shop_item_search('davide-search', 'lesklé médium akrylové', 1)) = 'Akrylové médium lesklé, 250 ml';
+  -- typos
+  assert (select item_name from public.shop_item_search('davide-search', 'akrylvé farby', 1)) like 'Akrylové farby%';
+  assert (select item_name from public.shop_item_search('davide-search', 'mercedez 775', 1)) like 'Autolak 2K akrylátový Mercedes-Benz 775%';
+  -- sizes: the same size ranks higher, a different size never excludes
+  assert (select item_name from public.shop_item_search('davide-search', '500 ml', 1)) like 'Olejová farba%', '500 ml = 0,5 l';
+  assert (select item_name from public.shop_item_search('davide-search', 'farba 0,5 l', 1)) like 'Olejová farba%';
+  assert (select count(*) from public.shop_item_search('davide-search', 'farba 0,5 l', 20)) >= 3;
+  -- code and EAN exact first
+  assert (select item_name || '|' || kind from public.shop_item_search('davide-search', 'AUTO-0035', 1)) like 'Autolak%775%|exact';
+  assert (select item_name from public.shop_item_search('davide-search', '2000000000145', 1)) like 'Akrylové médium%';
+  -- nonsense: the closest names, never an error
+  assert (select count(*) from public.shop_item_search('davide-search', 'xqzw blorf', 8)) >= 0;
+  assert not exists (select 1 from public.shop_item_search('davide-search', 'xqzw blorf', 8) where kind <> 'similar');
+  assert (select count(*) from public.shop_item_search('davide-search', '', 8)) = 0;
+  -- the shop's list (and the assistant, the API's items) the same order; without words by name as before
+  assert (select item_name from public.shop_stock('davide-search', 'glossy acrylic medium', 1, 0)) = 'Akrylové médium lesklé, 250 ml';
+  assert (select count(*) from public.shop_stock('davide-search', null, 50, 0)) = 9;
+  -- across shops: the same items; search_stock() keeps its output and its nearby list without words
+  assert exists (select 1 from public.item_search('glossy acrylic medium') where shop_slug = 'davide-search'
+                 and item_name like 'Akrylové médium%' and kind = 'exact');
+  assert exists (select 1 from public.search_stock('mercedez 775') where item_name like '%Mercedes-Benz 775%');
+  assert (select count(*) from public.search_stock(null)) > 0;
+  -- only public data: the columns are public_stock's (no quantity for stale shops), nothing private
+  assert not exists (select 1 from public.item_search('akril') s join public.public_stock p on p.item_id = s.item_id
+                     where s.quantity is distinct from p.quantity or s.availability is distinct from p.availability);
+  -- an inactive shop is never found
+  begin perform public.search_stock_exact('akril'); raise exception 'exact search callable by visitors';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- a paid plan never changes the ranking
+do $$
+declare
+  v_before text := (select string_agg(item_id::text, ',' order by score desc, item_id)
+                    from public.item_search('akril paint 0.5l'));
+  v_after text;
+begin
+  insert into public.subscriptions (shop_id, status, plan, current_period_end)
+  select id, 'active', 'pro', now() + interval '30 days' from public.shops where slug = 'cacadoo-paint-shop-budince'
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  v_after := (select string_agg(item_id::text, ',' order by score desc, item_id) from public.item_search('akril paint 0.5l'));
+  assert v_before = v_after, 'ranking changed with a plan';
+  delete from public.subscriptions where shop_id = (select id from public.shops where slug = 'cacadoo-paint-shop-budince');
+  update public.shops set is_active = false where slug = 'davide-search';
+  assert not exists (select 1 from public.shop_item_search('davide-search', 'akril', 8)), 'inactive shop';
+  assert not exists (select 1 from public.item_search('glossy acrylic medium') where shop_slug = 'davide-search');
+  update public.shops set is_active = true where slug = 'davide-search';
+end $$;
 
 \echo 'ALL DATABASE CHECKS PASSED'
