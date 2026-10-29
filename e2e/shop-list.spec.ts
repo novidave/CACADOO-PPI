@@ -218,3 +218,18 @@ test("switching tabs never moves the page, also to an empty list", async ({ page
   await tab.click();
   expect(Math.abs((await top()) - at)).toBeLessThan(2);
 });
+
+test("the list tab leaves one screen of room: scrolled to the end, the tabs touch the top of the screen", async ({ page }) => {
+  for (const size of [null, { width: 1440, height: 900 }, { width: 1920, height: 1080 }]) {
+    if (size) await page.setViewportSize(size);
+    await page.reload();
+    const tab = listTab(page);
+    await tab.scrollIntoViewIfNeeded();
+    await tab.click();
+    await expect(page.locator("[data-list-empty]")).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const top = await page.locator(".ppi-tabs").evaluate((el) => el.getBoundingClientRect().top);
+    // never endless (the tabs stop at the top) and always enough room (they get there)
+    expect(Math.abs(top), `tabs at the top of a ${size ? `${size.width}×${size.height}` : "phone"} screen`).toBeLessThan(2);
+  }
+});

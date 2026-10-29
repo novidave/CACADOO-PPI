@@ -257,12 +257,31 @@ export function ShopProducts({
     [labels.said.less, labels.said.removed, say],
   );
 
-  // Switching tabs never moves the page: the tabs' area keeps the tallest height it had (a short or empty list leaves
-  // empty space below), so the page never gets shorter under the visitor's finger.
+  // Switching tabs never moves the page, and a short or empty list never makes it endless: below the tabs there is
+  // exactly one screen of room — the page ends when the tabs reach the top of the screen (under the phone's notch /
+  // status bar), on a phone, a notebook or a PC alike. The screen is the large viewport (`lvh`: Safari's bars hidden),
+  // so the tabs always reach the top; what lies below the tabs' area (the page's end) counts too.
+  const tabsBox = useRef<HTMLDivElement>(null);
   const panels = useRef<HTMLDivElement>(null);
-  const pick = (next: "products" | "list") => {
+  const fitScreen = useCallback(() => {
     const box = panels.current;
-    if (box) box.style.minHeight = `${Math.max(box.offsetHeight, parseFloat(box.style.minHeight) || 0)}px`;
+    const tabs = tabsBox.current;
+    if (!box || !tabs) return;
+    const y = window.scrollY;
+    const below = document.documentElement.scrollHeight - (box.getBoundingClientRect().bottom + y);
+    const above = box.getBoundingClientRect().top - tabs.getBoundingClientRect().top;
+    const taken = Math.max(0, Math.round(above + below));
+    const screen = CSS.supports("height", "100lvh") ? "100lvh" : "100vh";
+    box.style.minHeight = `calc(${screen} - ${taken}px)`;
+  }, []);
+  useEffect(() => {
+    if (!tabMoved) return;
+    window.addEventListener("resize", fitScreen);
+    return () => window.removeEventListener("resize", fitScreen);
+  }, [tabMoved, fitScreen]);
+  const pick = (next: "products" | "list") => {
+    // measured before the switch, while the page is still as long as it was (a shorter page would pull the view up)
+    fitScreen();
     setTab(next);
     setTabMoved(true);
   };
@@ -279,7 +298,7 @@ export function ShopProducts({
       <noscript>
         <style>{".ppi-tabs{display:none}"}</style>
       </noscript>
-      <div className="ppi-tabs" role="radiogroup" aria-label={labels.tabs}>
+      <div ref={tabsBox} className="ppi-tabs" role="radiogroup" aria-label={labels.tabs}>
         <label className="ppi-tab" data-active={tab === "products" || undefined} data-moved={(tabMoved && tab === "products") || undefined}>
           <input type="radio" name={name} value="products" checked={tab === "products"} onChange={() => pick("products")} className="sr-only" />
           <span className="ppi-tab-icon">

@@ -218,8 +218,9 @@ page appears) + `@/lib/shoppingList` (rules + store, `shoppingList_test.ts`, `np
 Replaces "Tovar v obchode" (heading kept for screen readers; the "Zásoby: …" line about the whole file stays above).
 **Tabs** "Produkty" / "Zoznam" = real radio inputs, visually hidden (`sr-only`); #EEF1F5 box, active white, bold,
 #1D4ED8, soft shadow, scale 0.95 → 1.05 → 1 on change; the Zoznam counter (pieces, "99+") on the icon's corner, the
-icon keeps room for it (never over the label); switching tabs never moves the page (the tabs' area keeps the tallest
-height it had — a short or empty list leaves empty space below); without JavaScript the tabs are hidden (`<noscript>` style) and only
+icon keeps room for it (never over the label); switching tabs never moves the page and is never endless: below the tabs
+there is exactly one screen of room (`calc(100lvh - …)`, measured before the switch) — scrolled to the end, the tabs
+touch the top of the screen on a phone, a notebook or a PC; without JavaScript the tabs are hidden (`<noscript>` style) and only
 Produkty shows. **Produkty:** "Hľadať v tomto obchode" with one border (on the wrapper; the input reset, 16 px so
 iPhone does not zoom) filters live through `/api/shops/[slug]/search` (200 ms, only the newest answer, `replaceState`
 `?q=`, the rows keep their height while searching), marks #FEF3C7 (cut on the server), × and Esc clear, "Nájdené: N
