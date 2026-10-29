@@ -163,6 +163,10 @@ create index if not exists shop_items_search_sizes_idx on public.shop_items usin
 alter table public.shops drop column if exists search_words;
 alter table public.shops add column search_words text
   generated always as (public.search_text(name || ' ' || coalesce(address, '') || ' ' || coalesce(city, ''))) stored;
+-- … and as stems, for the forgiving step ("farba v Budinciach" = Budince).
+alter table public.shops drop column if exists search_stems;
+alter table public.shops add column search_stems text
+  generated always as (public.search_stems_text(name || ' ' || coalesce(address, '') || ' ' || coalesce(city, ''))) stored;
 
 -- The words of a search: its stems (sizes apart), each with its weight (a third for generic words) and the word as
 -- typed, plus its sizes. Used once per search.
@@ -217,7 +221,8 @@ $$;
 -- The fast check of one search stem against an item's stems text (no SET clause, so the planner inlines it): 1 the
 -- same word, 0.85 a word that starts with it, 0.6 a close word by trigram word similarity (typos). The precise rule
 -- above (search_word_match: the item's shorter words, edit distance) refines the best few hundred rows only.
-create or replace function public.search_quick_match(p_word text, p_stems text)
+drop function if exists public.search_quick_match(text, text);
+create or replace function public.search_quick_match(p_word text, p_stems text, p_typos boolean default true)
 returns real
 language sql
 immutable
@@ -228,28 +233,30 @@ as $$
     when length(p_word) >= 3 and p_stems like '% ' || p_word || '%' then 0.85
     when p_word ~ '^[0-9]' then 0.0
     -- a typo rarely changes the first two letters: only then the (slower) trigram similarity
-    when length(p_word) >= 4 and p_stems like '% ' || left(p_word, 2) || '%'
+    when p_typos and length(p_word) >= 4 and p_stems like '% ' || left(p_word, 2) || '%'
          and extensions.word_similarity(p_word, p_stems) >= 0.5 then 0.6
     else 0.0
   end::real
 $$;
 
 -- The fast check for a whole search (its first 8 words), one value per word, as one expression the planner inlines.
-create or replace function public.search_quick_hits(p_stems text, p_words text[])
+-- A generic word ("paint") is not checked for typos here (the slow part, on almost every row); the precise rule does.
+drop function if exists public.search_quick_hits(text, text[]);
+create or replace function public.search_quick_hits(p_stems text, p_words text[], p_weights real[])
 returns real[]
 language sql
 immutable
 parallel safe
 as $$
   select array[
-    case when p_words[1] is null then 0 else public.search_quick_match(p_words[1], p_stems) end,
-    case when p_words[2] is null then 0 else public.search_quick_match(p_words[2], p_stems) end,
-    case when p_words[3] is null then 0 else public.search_quick_match(p_words[3], p_stems) end,
-    case when p_words[4] is null then 0 else public.search_quick_match(p_words[4], p_stems) end,
-    case when p_words[5] is null then 0 else public.search_quick_match(p_words[5], p_stems) end,
-    case when p_words[6] is null then 0 else public.search_quick_match(p_words[6], p_stems) end,
-    case when p_words[7] is null then 0 else public.search_quick_match(p_words[7], p_stems) end,
-    case when p_words[8] is null then 0 else public.search_quick_match(p_words[8], p_stems) end]::real[]
+    case when p_words[1] is null then 0 else public.search_quick_match(p_words[1], p_stems, p_weights[1] >= 1) end,
+    case when p_words[2] is null then 0 else public.search_quick_match(p_words[2], p_stems, p_weights[2] >= 1) end,
+    case when p_words[3] is null then 0 else public.search_quick_match(p_words[3], p_stems, p_weights[3] >= 1) end,
+    case when p_words[4] is null then 0 else public.search_quick_match(p_words[4], p_stems, p_weights[4] >= 1) end,
+    case when p_words[5] is null then 0 else public.search_quick_match(p_words[5], p_stems, p_weights[5] >= 1) end,
+    case when p_words[6] is null then 0 else public.search_quick_match(p_words[6], p_stems, p_weights[6] >= 1) end,
+    case when p_words[7] is null then 0 else public.search_quick_match(p_words[7], p_stems, p_weights[7] >= 1) end,
+    case when p_words[8] is null then 0 else public.search_quick_match(p_words[8], p_stems, p_weights[8] >= 1) end]::real[]
 $$;
 
 -- From those values: the share of the search's weight matched, and whether a specific (not generic) word matched.
@@ -345,7 +352,7 @@ as $$
              coalesce(public.search_quick_spec(z.hits, q.weights), false)
                and coalesce(public.search_quick_ok(z.hits, q.weights), false) as spec
       from (select case when i.search_stems like any (q.starts)  -- a word that begins like one of the search's
-                        then public.search_quick_hits(i.search_stems, q.stems) end as hits) z) w
+                        then public.search_quick_hits(i.search_stems, q.stems, q.weights) end as hits) z) w
     where q.raw is not null
   ),
   hits as (
@@ -572,6 +579,7 @@ as $$
     select sq.*, nullif(trim(coalesce(p_q, '')), '') as raw, public.search_patterns(p_q) as patterns,
       case when p_lat between -90 and 90 and p_lng between -180 and 180
         then extensions.st_setsrid(extensions.st_makepoint(p_lng, p_lat), 4326)::extensions.geography end as here,
+      array_fill(0::real, array[8]) as no_typos,  -- the cheap pass: no word is checked for typos
       least(greatest(coalesce(p_radius_km, 10), 0.1), 500) * 1000 as radius_m
     from public.search_query(left(coalesce(p_q, ''), 200)) sq
   ),
@@ -586,12 +594,12 @@ as $$
     where w <> '' order by length(w) desc limit 1
   ),
   shop_t as materialized (
-    select sh.id, sh.search_words as words
+    select sh.id, sh.search_words as words, sh.search_stems as stems
     from public.shops sh, q
     where sh.is_active and (q.here is null or extensions.st_dwithin(sh.location, q.here, q.radius_m))
   ),
   -- forgiving candidates: items with a word that begins like a search word …
-  prefix_candidate as (
+  prefix_candidate as materialized (
     select x.id from (
       select si.id from public.shop_items si, pick
       where si.search_stems like '% ' || left(pick.stem, greatest(3, length(pick.stem) - 2)) || '%'
@@ -617,34 +625,56 @@ as $$
     select si.id from public.shop_items si join shop_t st on st.id = si.shop_id, longest
     where st.words like longest.pattern
     union
+    -- a shop whose name, street or town has a word of the search: its items that begin like another of its words
+    -- ("farba v Budinciach": the paints in Budince; a town alone is the exact step's, above)
+    select si.id from shop_t st join public.shop_items si on si.shop_id = st.id, pick, q
+    where length(pick.stem) >= 4 and st.stems like '% ' || left(pick.stem, length(pick.stem) - 1) || '%'
+      and si.search_stems like any (q.starts)
+    union
     select si.id from public.shop_items si, q where si.ean = q.raw
     union
     select si.id from public.products p join public.shop_items si on si.product_id = p.id, q where p.ean = q.raw
   ),
-  quick as (
-    select si.id, si.search_stems as stems, si.search_sizes, w.cov, w.spec,
-      coalesce(si.search_sizes && q.sizes, false) as size_hit,
-      (coalesce(si.ean, si.p_ean) = q.raw) as code_hit,
-      (si.names_search like all (q.patterns)
-       or (si.names_search || ' ' || lower(coalesce(si.brand, si.p_brand, '') || ' ' || coalesce(si.ean, si.p_ean, ''))
-           || ' ' || si.shop_words) like all (q.patterns)) as all_words
-    from candidate c
+  -- the candidates' own search texts, read once (materialized: the checks below run on these rows only)
+  cand as materialized (
+    select si.id, si.shop_id, si.search_stems, si.search_sizes, si.names_search, si.brand, si.ean, si.product_id
+    from (select distinct id from candidate) c
+    join public.shop_items si on si.id = c.id
+  ),
+  -- first a cheap pass over every candidate (whole words and beginnings, no typos) …
+  pre as (
+    select si.*, st.stems as shop_stems, st.words as shop_words,
+      coalesce(public.search_quick_cov(public.search_quick_hits(si.search_stems || st.stems, q.stems, q.no_typos),
+                                       q.weights), 0) as cov0
+    from cand si
+    join shop_t st on st.id = si.shop_id  -- active shops inside the radius
     cross join q
-    -- one item at a time by its id, with its shop's words (offset 0 keeps the planner from reading whole tables)
-    cross join lateral (
-      select x.*, sh.search_words as shop_words, p.brand as p_brand, p.ean as p_ean
-      from public.shop_items x
-      join public.shops sh on sh.id = x.shop_id and sh.is_active
-      left join public.products p on p.id = x.product_id
-      where x.id = c.id and (q.here is null or extensions.st_dwithin(sh.location, q.here, q.radius_m))
-      offset 0) si
+    where q.raw is not null
+    order by cov0 desc
+    limit 600
+  ),
+  -- … then the full fast check (with typos) on the best 600 and on every code, EAN or every-word hit
+  quick as (
+    select si.id, si.search_stems || si.shop_stems as stems, si.search_sizes, w.cov, w.spec,
+      coalesce(si.search_sizes && q.sizes, false) as size_hit,
+      (coalesce(si.ean, (select p.ean from public.products p where p.id = si.product_id)) = q.raw) as code_hit,
+      (si.names_search like all (q.patterns)
+       or (si.names_search || ' ' || lower(coalesce(si.brand, (select p.brand from public.products p where p.id = si.product_id), '')
+           || ' ' || coalesce(si.ean, (select p.ean from public.products p where p.id = si.product_id), ''))
+           || ' ' || si.shop_words) like all (q.patterns)) as all_words
+    from (select distinct on (u.id) u.* from (
+            select * from pre
+            union all
+            select si.*, st.stems, st.words, 0::real from cand si join shop_t st on st.id = si.shop_id, q
+            where si.ean = q.raw or si.names_search like all (q.patterns)) u
+          order by u.id) si
+    cross join q
     cross join lateral (
       select coalesce(public.search_quick_cov(z.hits, q.weights), 0)::real as cov,
              coalesce(public.search_quick_spec(z.hits, q.weights), false)
                and coalesce(public.search_quick_ok(z.hits, q.weights), false) as spec
-      from (select case when si.search_stems like any (q.starts)
-                        then public.search_quick_hits(si.search_stems, q.stems) end as hits) z) w
-    where q.raw is not null
+      from (select case when (si.search_stems || si.shop_stems) like any (q.starts)
+                        then public.search_quick_hits(si.search_stems || si.shop_stems, q.stems, q.weights) end as hits) z) w
   ),
   hits as (
     select h.* from quick h, q

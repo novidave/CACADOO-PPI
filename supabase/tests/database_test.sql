@@ -8630,6 +8630,15 @@ begin
   assert exists (select 1 from public.item_search('glossy acrylic medium') where shop_slug = 'davide-search'
                  and item_name like 'Akrylové médium%' and kind = 'exact');
   assert exists (select 1 from public.search_stock('mercedez 775') where item_name like '%Mercedes-Benz 775%');
+  -- the town as the shopper writes it ("v Budinciach" = Budince): only that town's items
+  assert exists (select 1 from public.item_search('akrylové médium v Budinciach') where shop_slug = 'davide-search');
+  assert (select bool_and(shop_city = 'Budince') from public.item_search('akrylové médium v Budinciach')),
+    'a town in the words: only that town';
+  assert (select bool_and(shop_city = 'Budince') from public.item_search('farba Budince')), 'farba Budince: only Budince';
+  -- Hungarian, English and Slovak words mixed
+  assert exists (select 1 from public.item_search('akril medium fényes glossy') where item_name like 'Akrylové médium lesklé%');
+  -- the HU shop's "Kávé" by the Slovak word and the town
+  assert exists (select 1 from public.item_search('kava budapest') where shop_slug = 'kisbolt-budapest');
   assert (select count(*) from public.search_stock(null)) > 0;
   -- only public data: the columns are public_stock's (no quantity for stale shops), nothing private
   assert not exists (select 1 from public.item_search('akril') s join public.public_stock p on p.item_id = s.item_id

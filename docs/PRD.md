@@ -42,6 +42,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Own domains easy to find: "Overiť v Google Search Console" (the TXT record written into DNS for domains Cacaduu runs, shown to add by hand otherwise) and "Odoslať sitemap"; llms.txt and robots.txt per own domain (with "Kategórie tovaru"); IndexNow after every stock upload (only changed pages); search results, map pins and AI cards link to the own domain; item pages carry Product/Offer + Store JSON-LD | Built and tested; live after database update 33, the updated domains and stock-pull functions and the merge (SETUP.md part AC) |
 | Own domains fully findable: "Overiť v Google Search Console" — a TXT record added to the DNS of a domain Cacaduu runs ("Odstrániť" removes only that record), or for a connected domain the **HTML značka** on its pages (recommended) or the TXT record to add by hand; **Bing Webmaster Tools** (the same meta tag, or the import from Search Console); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; **IndexNow on every host** (the main domain too) with only meaningful changes, once per upload and once an hour per host; the Offer keeps the price on stale pages (no availability); API/MCP `source_url` and PPI's llms.txt point to the own domain | Built and tested; live after database update 36, `INDEXNOW_KEY` (Vercel + Supabase) and `SITE_URL` (Supabase), the updated domains and stock-pull functions and the merge (SETUP.md part AG) |
 | Shop blog "Novinky" (every shop; free: the newest 10 posts shown, Pro: all): posts written in Môj obchod → "Novinky / Blog" with up to 10 photos, now or scheduled; the shop's Facebook Page connected once: all past posts imported, a daily sync, and "Zverejniť aj na Facebooku?" before each post; `/blog` pages, RSS, JSON-LD, sitemap, llms.txt and IndexNow, also on own domains; privacy and data deletion pages | Built and tested against Facebook, Brevo and IndexNow stand-ins; live after database update 37, the new shop-blog function, the Meta app and the merge (SETUP.md part AI) |
+| Forgiving product search: "Tovar v obchode" suggests up to 8 products while typing (from 2 letters; ↑ ↓ Enter Esc; "Zobraziť všetky výsledky") and finds them despite typos, word order, other languages, word endings and sizes ("akril paint 0.5l" → "Akrylové médium lesklé, 250 ml"); codes and EANs exact first; nothing exact → "podobné produkty"; the same rule in the main search, the API, MCP, the chat and the shop assistant ("farba v Budinciach" → only Budince) | Built and tested; live after database update 54 and the merge (SETUP.md part AW) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -80,7 +81,7 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 **Built**
 
-- Text search across all shops: item name, brand, EAN, shop name, street or town
+- Text search across all shops: item name, brand, EAN, shop name, street or town — forgiving since update 54 (6.28)
 - Shop pages and item pages with map, opening hours, "open now", facilities and freshness
 - Freshness and availability rules applied in the database for every output
 - Self-service accounts and the owner dashboard
@@ -1840,3 +1841,26 @@ here from "Jazyky a inventár" (old addresses forwarded).
   it may come sooner than the usual one snapshot per 5 minutes.
 - Only two kinds of request exist (read the stock, ping); the cloud never sends programs, file paths or POS settings.
 - Tested with the test stand-in (`scripts/connector-test-agent.mjs sync`), not yet with the real desktop agent.
+
+### 6.28 Forgiving product search and the "Tovar v obchode" dropdown (database update 54)
+
+- **Shop page, "Tovar v obchode":** the field "Hľadať v tomto obchode…". From 2 letters, a moment after the last key,
+  a list under the field (full width on a phone) shows up to 8 products: the name in the page language with the shop's
+  name under it, the price with the stock dot, the availability in bold and the category; the searched words are in
+  bold. ↑ ↓ choose, Enter opens the chosen product, Enter on the field (or "Zobraziť všetky výsledky (N)") filters the
+  whole list — "Výsledky pre „…“ (N)" with "Zrušiť". Esc closes the list. Only the newest answer is ever shown. Without
+  JavaScript the field is a plain form that reloads the page with the results.
+- **What it finds:** exact matches first (the shop's code or the EAN typed exactly, then every word), then close ones:
+  any word order; every language the item's name is known in (Slovak, Hungarian, English, …); accents and capitals
+  ignored; typos ("akrylvé farby", "mercedez 775"); word endings ("akrylové" = "akryl" = "acrylic"); sizes ("0,5 l" =
+  "500 ml" — the same size ranks higher, another size is still shown); general words such as "farba", "paint",
+  "festék" count less than the product's own words. Every product word must match (one may be missing from a long
+  search), so "white chocolate" never shows a white paint. Nothing close → "Nenašli sme presnú zhodu – podobné
+  produkty:" with the most similar names. A search that still finds little is tried once more in Claude's words
+  (cached 30 days).
+- **Main search, API, MCP, the chat and the shop assistant use the same rule.** A town written in the search ("farba
+  v Budinciach") limits the results to that town's shops; the visitor's location is never used. Order: how well the
+  product matches, then in stock with current data, then fresher, then nearer (only when a place was given) —
+  **a paid plan never changes the order.**
+- Speed: suggestions in under 150 ms for a shop with 5 000 products, the main search under 300 ms for 100 000.
+- At most 120 suggestions a minute per visitor (then a short pause).

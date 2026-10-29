@@ -3,6 +3,7 @@ import { cache } from "react";
 import { loadLiveSites } from "./customDomain";
 import type { CalendarDay } from "./hours";
 import { missingColumn } from "./missingColumn";
+import { expandQuery, hasCjk } from "./queryExpansion";
 import { loadCalendars } from "./shopCalendar";
 import { createCachedPublicClient } from "./supabase/public";
 import type { OpeningHours } from "./hours";
@@ -122,6 +123,68 @@ export async function getShopItems(
   if (error) throw new Error(error.message);
   const items = (data ?? []) as ShopItemRow[];
   return { items, total: Number(items[0]?.total_count ?? 0) };
+}
+
+/** One row of shop_item_search() (database update 54): the shop's row plus how it was found. */
+export interface ShopSearchRow extends ShopItemRow {
+  category: string | null;
+  score: number;
+  /** exact = every word (or the code / EAN), match = forgiving, similar = nothing matched: the closest names. */
+  kind: "exact" | "match" | "similar";
+  /** The search's word stems this row matched (for marking them; @/lib/searchWords). */
+  matched: string[];
+}
+
+/** Whether a call failed only because the function is not in the database yet. */
+const missingFunction = (error: { code?: string } | null) => error?.code === "PGRST202" || error?.code === "42883";
+
+async function runShopSearch(slug: string, q: string, limit: number, offset: number): Promise<ShopSearchRow[] | null> {
+  const { data, error } = await (await client()).rpc("shop_item_search", {
+    p_slug: slug,
+    p_q: q,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (missingFunction(error)) return null;
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as ShopSearchRow[]).map((r) => ({ ...r, matched: r.matched ?? [] }));
+}
+
+/**
+ * The forgiving search in one shop ("Tovar v obchode", its dropdown): shop_item_search() decides what matches and the
+ * order. When nothing matched (only 'similar' rows) and the search has 4+ letters (or is Chinese), Claude's words for
+ * it (query_expansion(), update 40; cached 30 days) are searched once too, and their matches replace the similar
+ * rows. Before update 54: the exact search of shop_stock(), every row 'exact'.
+ */
+export async function searchShopItems(
+  slug: string,
+  q: string,
+  limit: number,
+  offset = 0,
+): Promise<{ items: ShopSearchRow[]; total: number; kind: ShopSearchRow["kind"] | null }> {
+  const query = q.trim().slice(0, 200);
+  const direct = await runShopSearch(slug, query, limit, offset);
+  if (direct === null) {
+    const { items, total } = await getShopItems(slug, query, Math.floor(offset / limit) + 1, limit);
+    return { items: items.map((i) => ({ ...i, category: null, score: 0, kind: "exact", matched: [] })), total, kind: items.length ? "exact" : null };
+  }
+  const found = direct.filter((r) => r.kind !== "similar");
+  if (found.length || offset > 0 || (query.replace(/\s/g, "").length < 4 && !hasCjk(query))) {
+    return { items: direct, total: Number(direct[0]?.total_count ?? 0), kind: direct[0]?.kind ?? null };
+  }
+  const words = await expandQuery(query);
+  const seen = new Set<string>();
+  const expanded: ShopSearchRow[] = [];
+  for (const rows of await Promise.all(words.map((w) => runShopSearch(slug, w, limit, 0).catch(() => null)))) {
+    for (const row of rows ?? []) {
+      if (row.kind === "similar" || seen.has(row.item_id)) continue;
+      seen.add(row.item_id);
+      expanded.push(row);
+    }
+  }
+  if (!expanded.length) return { items: direct, total: Number(direct[0]?.total_count ?? 0), kind: direct[0]?.kind ?? null };
+  expanded.sort((a, b) => b.score - a.score);
+  return { items: expanded.slice(0, limit), total: expanded.length, kind: "match" };
 }
 
 /** Whether the shop has the paid plan — the database decides (false until the plan is set up). */

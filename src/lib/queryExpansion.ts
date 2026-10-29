@@ -30,13 +30,16 @@ export async function expandQuery(q: string): Promise<string[]> {
   return Array.isArray(data?.words) ? (data.words as unknown[]).filter((w): w is string => typeof w === "string" && w.trim() !== "").slice(0, 4) : [];
 }
 
+/** The forgiving search (update 54) finds most things itself: Claude's words only when it found fewer than this. */
+export const FEW_RESULTS = 3;
+
 /**
- * Runs a search, and — when it found nothing, or the search is Chinese — the same search with Claude's words too;
- * the rows of every run once each, the direct hits first.
+ * Runs a search, and — when it found fewer than 3 rows, or the search is Chinese — the same search with Claude's words
+ * too (once; cached 30 days); the rows of every run once each, the direct hits first.
  */
 export async function searchAcrossLanguages<T>(q: string, run: (q: string) => Promise<T[]>, key: (row: T) => string): Promise<T[]> {
   const direct = await run(q);
-  if (!q.trim() || (direct.length > 0 && !hasCjk(q))) return direct;
+  if (!q.trim() || (direct.length >= FEW_RESULTS && !hasCjk(q))) return direct;
   const words = await expandQuery(q);
   if (!words.length) return direct;
   const seen = new Set(direct.map(key));

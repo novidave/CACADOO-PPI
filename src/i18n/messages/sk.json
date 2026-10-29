@@ -145,7 +145,7 @@
     "phone": "Telefón",
     "website": "Web",
     "items": "Tovar v obchode",
-    "search_items": "Hľadať v tomto obchode",
+    "search_items": "Hľadať v tomto obchode…",
     "no_items": "Nič sa nenašlo.",
     "stock": "Zásoby",
     "page_of": "Strana {page} z {pages}",
@@ -162,7 +162,13 @@
     "facebook": "Facebook",
     "booking": "Rezervovať termín",
     "news": "Novinky",
-    "stock_updating": "Sortiment sa práve aktualizuje."
+    "stock_updating": "Sortiment sa práve aktualizuje.",
+    "search_results": "Výsledky pre „{q}“ ({n})",
+    "search_clear": "Zrušiť",
+    "search_all": "Zobraziť všetky výsledky ({n})",
+    "search_similar": "Nenašli sme presnú zhodu – podobné produkty:",
+    "search_suggestions": "Návrhy",
+    "search_count": "Návrhy: {n}"
   },
   "item": {
     "brand": "Značka",

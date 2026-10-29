@@ -1769,6 +1769,22 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - Press it and run nothing: after 10 minutes "Agent je offline – zapnite počítač s POS agentom".
    - A 5th press within an hour → "Najviac 4 synchronizácie za hodinu".
 
+## Part AW — forgiving product search and the "Tovar v obchode" dropdown (29 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/54_forgiving_search.sql` → Run → "Success". It adds
+   the `fuzzystrmatch` extension and rebuilds the search columns of every product (a few seconds for 100 000 products).
+   Safe to run again.
+2. **No Edge Function, no new secret, no Vercel setting.** The website change goes live with the merge.
+3. **Try it** on your shop page (e.g. davide.sk → "Tovar v obchode"):
+   - type `akril paint 0.5l` → the list under the field shows the acrylic products within a moment;
+   - ↓ ↓ Enter opens the second one; Esc closes the list;
+   - "Zobraziť všetky výsledky (N)" (or Enter in the field) → the whole list is filtered: "Výsledky pre „akril paint
+     0.5l“ (N)" with "Zrušiť";
+   - typos and other languages: `akrylvé farby`, `mercedez 775`, `glossy acrylic medium`, `akril médium fényes`,
+     `lesklé médium akrylové`; the code `AUTO-0035` or an EAN comes first;
+   - nonsense (`xqzw blorf`) → "Nenašli sme presnú zhodu – podobné produkty:".
+   - Main page (plain results): `farba v Budinciach` → only shops in Budince.
+
 ## Part D — later, before launch
 
 **Remove the test data:**
