@@ -794,7 +794,7 @@ function Card({ card, shop, statusLabels, lang }: { card: ChatCard; shop: ChatSh
           {card.translated && <p className="text-sm text-muted">{card.name}</p>}
         </div>
         <span className="flex items-center gap-2 whitespace-nowrap font-medium">
-          {card.stock && <StockDot state={card.stock} />}
+          {card.stock && <StockDot state={card.stock} label={card.stockLabel} />}
           {card.price}
         </span>
       </div>
@@ -807,10 +807,12 @@ function Card({ card, shop, statusLabels, lang }: { card: ChatCard; shop: ChatSh
         {card.distance && <span data-card-distance>{` · ${card.distance}`}</span>}
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        {card.availability && <span className="font-semibold">{card.availability}</span>}
-        <span className="rounded border border-line px-1.5 text-xs" data-freshness={card.freshnessState}>
-          {card.freshness}
-        </span>
+        {/* No stock sentence in listings (only the product page has it): the dot says it; stale data has no badge. */}
+        {card.freshnessState !== "stale" && (
+          <span className="rounded border border-line px-1.5 text-xs" data-freshness={card.freshnessState}>
+            {card.freshness}
+          </span>
+        )}
         {card.confidence && (
           <span className="text-xs text-muted" data-confidence>
             {card.confidence}

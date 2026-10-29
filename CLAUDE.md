@@ -54,8 +54,15 @@ Quicksand Bold 36–48 (`.ppi-blog-h1`) / Semibold 24–30 (`.ppi-blog-h2`), nav
 conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 **No colours** (only exceptions, at the owner's request: the Cacaduu PPI logo in the header, `public/brand/cacaduu-ppi.svg`
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
-the **stock dot before every price** (`@/components/StockDot`, `@/lib/stockDot`: green #1E9E5A in stock, red #D64545
-sold out, yellow #F2B705 no information/stale; always next to the availability in words; 2026-10-27), the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
+the **stock dot before every price** (`@/components/StockDot`, `@/lib/stockDot`: a solid fill with a darker ring of the
+same hue — green #22C55E / #15803D in stock, red #EF4444 / #B91C1C sold out, yellow #F5B70A / #B7860B no
+information/stale; 2026-10-27, colours 2026-10-29). **The stock sentence ("12 ks na sklade", "Vypredané", "Informácia o
+zásobe momentálne nie je dostupná") only on the product page** (at the owner's request, 2026-10-29): every listing —
+the shop page's products and its Zoznam, the main page's plain results and chat cards, the product page's other shops,
+the shop assistant's cards and its copied list — shows only the dot, whose `label` gives screen readers the status
+("na sklade" / "vypredané" / "zásoba neznáma", `stock.dot_*`; `STOCK_WORDS`); in listings `StockLine listing` shows
+only how fresh the data are and nothing for stale data. The API/MCP `availability_text` and the AI's tool data keep it.
+The **shop page's "Produkty / Zoznam"** colours (below), the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
 the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), the blue "GDPR" link of the shop assistant (`AssistantHeading`), the **contact buttons' colours** and their orange
 check (`CONTACT_COLORS` in `@/lib/contactButtons`, `@/components/CheckLoop`; pale backgrounds, no shadows; 2026-10-28),
 and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
@@ -86,6 +93,8 @@ button, the text only after a tap, 2026-10-27); always an extra — every page m
 - `npm run test:export` — unit tests (Deno) of the translations folder's files (`src/lib/exportFiles_test.ts`): the
   built-in .xlsx writer/reader (also files as Excel saves them), the files' columns, the owner's edits read back
   (empty cells, read-only columns, unknown rows, Kód then EAN)
+- `npm run test:list` — unit tests (Deno) of the shop page's Zoznam (`src/lib/shoppingList_test.ts`): add / set / remove,
+  "9+", totals in cents per currency, Slovak plurals, the copied text, broken stored lists, blocked storage
 - `npm run test:search` — unit tests (Deno) of the forgiving search's word rules (`src/lib/searchWords_test.ts`): the
   same stems as `search_stem()`, accents, typo and prefix marks for highlighting
 - `npm run test:connector` — the POS agent contract (`src/lib/connectorContract_test.ts`): the OpenAPI file has exactly
@@ -181,9 +190,9 @@ Admin texts `admin_partners`.
 ## Forgiving product search (update 54)
 
 `supabase/sql/54_forgiving_search.sql` + `@/lib/searchWords` (the stem rule mirrored for highlighting only;
-`searchWords_test.ts`, `npm run test:search`) + `@/components/ItemSearch` (the form) + `@/components/ItemSuggestions` (the dropdown, loaded on the first key — first-load JS budget) + `/api/shops/[slug]/search` + `@/lib/data`
+`searchWords_test.ts`, `npm run test:search`) + `@/components/ShopProducts` (the shop page's live search, below) + `/api/shops/[slug]/search` + `@/lib/data`
 `searchShopItems()`. **One rule in SQL for every place that searches:** `shop_item_search(slug, q, limit, offset)` (one
-shop: "Tovar v obchode", its dropdown, the assistant's `search_items`; `shop_stock` with words returns its rows) and
+shop: "Produkty" on the shop page, the assistant's `search_items`; `shop_stock` with words returns its rows) and
 `item_search(q, lat, lng, radius, only_available, limit)` (all shops: `search_stock` with words returns its rows → page,
 API, MCP, the chat's tool and the plain fallback; `search_stock(null, …)` = the old nearby list, `search_stock_exact`
 not callable by visitors). Per word: same word 1, beginning 0.85, typo 0.6 (trigram finds, edit distance decides);
@@ -197,10 +206,38 @@ Stored columns `shop_items.search_stems` / `search_sizes` (+ trigram/GIN index),
 are dropped and made again on every run of the file. Speed: < 150 ms for a 5 000-item shop, < 300 ms for 100 000 items
 (cheap pass without typos over ≤ 3 000 candidates, full check on the best 600, precise re-score on the top 100,
 `public_stock` last by id). Claude's words (`query_expansion()`) only when fewer than 3 rows (`FEW_RESULTS`) or nothing
-matched in a shop (4+ letters). Dropdown: from 2 characters, 200 ms debounce, ≤ 8 suggestions written on the server,
-older requests aborted (only the newest answer), ↑ ↓ Enter Esc, "Zobraziť všetky výsledky (N)", `rateLimit` 120/min per
-caller; the list shows "Výsledky pre „…“ (N)" + "Zrušiť"; without JavaScript the plain GET form `?q=#items`. Marks
-are `<mark>` in bold (no colour). e2e `e2e/shop-search.spec.ts`.
+matched in a shop (4+ letters). The shop page's search filters the rows live (below; `rateLimit` 120/min per caller);
+without JavaScript the plain GET form `?q=#items`. e2e `e2e/shop-search.spec.ts`.
+
+## Shop page "Produkty / Zoznam" (2026-10-29, at the owner's request)
+
+`@/components/ShopProducts` (first load) + `@/components/ShopList` (the Zoznam tab, loaded when opened or after the
+first add) + `@/lib/shopProductsEngine` (the list's store, the movements and the live search, loaded right after the
+page appears) + `@/lib/shoppingList` (rules + store, `shoppingList_test.ts`, `npm run test:list`) + `@/lib/listMotion` +
+`@/lib/shopRows` (rows written on the server: names, price, dot state, search marks) + `.ppi-list*` in globals.css.
+Replaces "Tovar v obchode" (heading kept for screen readers; the "Zásoby: …" line about the whole file stays above).
+**Tabs** "Produkty" / "Zoznam" = real radio inputs, visually hidden (`sr-only`); #EEF1F5 box, active white, bold,
+#1D4ED8, soft shadow, scale 0.95 → 1.05 → 1 on change; the Zoznam counter (pieces, "99+") on the icon's corner, the
+icon keeps room for it (never over the label); without JavaScript the tabs are hidden (`<noscript>` style) and only
+Produkty shows. **Produkty:** "Hľadať v tomto obchode" with one border (on the wrapper; the input reset, 16 px so
+iPhone does not zoom) filters live through `/api/shops/[slug]/search` (200 ms, only the newest answer, `replaceState`
+`?q=`, the rows keep their height while searching), marks #FEF3C7 (cut on the server), × and Esc clear, "Nájdené: N
+produktov" (Intl plurals: 1 produkt, 2–4 produkty, 5+ produktov), "Pre „…“ sme nič nenašli" (+ the similar note).
+Row: name 15 px / 500 (link to the product; the shop's own name under a translation), the dot as a **reset button**
+(32 × 32, 20 px circle, `aria-label` "Pridať do zoznamu: <name>, <status>"), the price as in the file; **no stock
+sentence**. A tap adds one piece: a 12 px #2563EB ball arcs to the Zoznam icon (~820 ms, one bounce), the icon wiggles,
+the counters pop (18 px #2563EB, white 10 px bold, 1.5 px white ring, "9+" on the dot). **Zoznam:** name, quantity ×
+price, stepper − / qty / + (minus #EA580C on #FFF1E6, a bin at 1); swipe left or right (pointer events, `touch-action:
+pan-y`, never from a button; past 35 % solid #F97316 with white bins, before #FFEDD5) → slides out and closes, shorter
+springs back; removal: a #F97316 ball from the icon to the row, the icon shakes, the counter dips with an orange flash,
+hidden at 0; "Spolu" per currency; "Zoznam je prázdny". **"Kopírovať zoznam"** (48 px, #EFF5FF / #BFD5FB / #1D4ED8):
+"Nákupný zoznam – <shop>", its address (never shown in this section), "2× <name> – 19,80 €" (the shop's own name in
+brackets after a translation), "Spolu: …"; `navigator.clipboard` → `execCommand` → the text selected in a read-only
+box; success = solid blue, drawn check, "Skopírované" 2.2 s. **State:** localStorage `ppi.list.<shop id>` (try/catch:
+blocked storage keeps the list for the visit), names and prices as shown when added; never sent anywhere; no shop data
+changed. `aria-live` announcements (`shop.said_*`); `prefers-reduced-motion`: no balls or bounces, instant counters.
+First-load JS: the shop page stays < 150 kB (its status line is `ShopStatusLine` → `LiveStatusLazy`: the hours rule
+loads after the page appears). e2e `e2e/shop-list.spec.ts` (Pixel 7 + an iPhone-sized project).
 
 ## Paid plan (Stripe)
 
@@ -676,8 +713,8 @@ list (`LanguagePickerDialog`), the picture viewer (`SectionZoomViewer`), Vercel 
 sections open before the first paint (`DashboardSection`'s inline script); no `loading.tsx` there (it turns the pages'
 `redirect()` into a client redirect) — the tapped menu link shows `useLinkStatus`. Taps: `TapFeedback` (server-action
 forms: busy at once, never sent twice), pressed states and 44 px touch areas in `globals.css`. Lists that load on a
-filter keep only the newest answer. The shop page's "Tovar v obchode" search (`@/components/ItemSearch`) changes the list
-in place — `router.replace(…, { scroll: false })`, the list keeps at least its height, the keyboard closes — so the page
+filter keep only the newest answer. The shop page's "Produkty" search (`@/components/ShopProducts`) changes the list
+in place — no navigation, `replaceState`, the list keeps at least its height, Enter closes the keyboard — so the page
 never moves; without JavaScript the form and the list's page links land on `#items`. Errors: `src/instrumentation.ts` → `@/lib/errorLog` (route file path + cleaned
 message only, never the address, IP or personal data) → `log_server_error()` → admin "Chyby za posledných 7 dní";
 Sentry too when `SENTRY_DSN` is set. Budget: `.github/workflows/performance.yml` (Lighthouse CI `lighthouserc.cjs` +

@@ -9,9 +9,9 @@ import { archiveEnabled } from "@/lib/assistantArchive";
 import { blogCount } from "@/lib/blog";
 import { blogPath } from "@/lib/blogFormat";
 import { docsKeysEnabled } from "@/lib/docsAccess";
-import { addressLine, formatPrice } from "@/lib/format";
+import { addressLine } from "@/lib/format";
 import { contactButtons, contactWidths, CONTACT_KEYS } from "@/lib/contactButtons";
-import { itemNames } from "@/lib/names";
+import { productRow } from "@/lib/shopRows";
 import {
   DAYS,
   dayName,
@@ -35,15 +35,13 @@ import { getShopTexts } from "@/lib/contentTranslations";
 import { TranslationNote } from "@/components/TranslationNote";
 import { freshnessText } from "@/lib/stock";
 import { ContactButtons } from "@/components/ContactButtons";
-import { ItemSearch } from "@/components/ItemSearch";
 import { JsonLd } from "@/components/JsonLd";
 import { ContentSlider } from "@/components/ContentSlider";
 import { SectionZoom } from "@/components/SectionZoom";
 import { ShopAssistant } from "@/components/ShopAssistant";
 import { ShopMap } from "@/components/ShopMap";
-import { LiveStatus } from "@/components/ShopStatus";
-import { StockDot } from "@/components/StockDot";
-import { StockLine } from "@/components/StockLine";
+import { ShopStatusLine } from "@/components/ShopStatusLine";
+import { ShopProducts, type ShopProductsLabels } from "@/components/ShopProducts";
 
 const PAGE_SIZE = 50;
 
@@ -135,8 +133,6 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     { kinds: ["blog_title", "blog_body"], refs: postIds },
   ]);
   const shopPath = onSite ? sitePath(lang, defaultLang) : `/${lang}/shops/${shop.slug}`;
-  // The list's pages land on the list, not the top of the page.
-  const pageUrl = (n: number) => `${shopPath}?${new URLSearchParams({ ...(q ? { q } : {}), page: String(n) })}#items`;
 
   // "Budince 26, 040 01 Budince": the PSČ before the town (update 48).
   const address = addressLine(shop.address, [company?.zip, shop.city].filter(Boolean).join(" "));
@@ -269,94 +265,71 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         />
       )}
 
-      {/* 6. The items. */}
+      {/* 6. The items: "Produkty" and the visitor's "Zoznam" (2026-10-29). */}
       <section id="items" className="flex scroll-mt-4 flex-col gap-3" aria-labelledby="items-heading">
-        <h2 id="items-heading" className="text-lg font-semibold">
+        <h2 id="items-heading" className="sr-only">
           {dict.shop.items}
         </h2>
         <p className="text-sm">
           <span className="text-muted">{dict.shop.stock}: </span>
           {freshnessText(dict, shop.freshness_state, shop.freshness_age_minutes, shop.latest_file_time, shop.timezone)}
         </p>
-        {/* Searching keeps the page where it is (the list changes in place). */}
-        <ItemSearch
-          path={shopPath}
-          q={q}
+        <ShopProducts
+          shopId={shop.id}
           slug={shop.slug}
           lang={lang}
+          path={shopPath}
           itemBase={`/${lang}/items/`}
-          labels={{
-            placeholder: dict.shop.search_items,
-            button: dict.search.button,
-            suggestions: dict.shop.search_suggestions,
-            all: dict.shop.search_all,
-            similar: dict.shop.search_similar,
-            count: dict.shop.search_count,
-          }}
+          shopName={shop.name}
+          address={address || null}
+          initial={{ q, kind, total, rows: items.map((item) => productRow(item, lang)) }}
+          page={page}
+          pageSize={PAGE_SIZE}
+          emptyNote={resetting ? { text: dict.shop.stock_updating, kind: "updating" } : { text: dict.shop.no_items, kind: "none" }}
+          labels={productLabels(dict)}
         />
-        {q && (
-          <p className="flex flex-wrap items-baseline gap-x-3 text-sm" data-search-results={kind ?? "none"}>
-            <span className="font-medium">{t(dict.shop.search_results, { q, n: total })}</span>
-            <a href={`${shopPath}#items`} className="underline underline-offset-4">
-              {dict.shop.search_clear}
-            </a>
-          </p>
-        )}
-        {q && kind === "similar" && items.length > 0 && <p className="text-sm text-muted">{dict.shop.search_similar}</p>}
-
-        {items.length === 0 ? (
-          <p data-stock-note={resetting ? "updating" : "none"}>{resetting ? dict.shop.stock_updating : dict.shop.no_items}</p>
-        ) : (
-          <ul className="divide-y divide-line border-y border-line">
-            {items.map((item) => {
-              const names = itemNames(item.item_name, item.item_name_i18n, lang);
-              return (
-                <li key={item.item_id} className="flex flex-col gap-1 py-3">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <div className="min-w-0">
-                      <Link href={`/${lang}/items/${item.item_id}`} className="font-medium hover:underline">
-                        {names.primary}
-                      </Link>
-                      {names.secondary && <p className="text-sm text-muted">{names.secondary}</p>}
-                    </div>
-                    <span className="flex items-center gap-2 whitespace-nowrap font-medium">
-                      <StockDot availability={item.availability} />
-                      {formatPrice(item.price, lang, item.currency)}
-                    </span>
-                  </div>
-                  <div className="text-sm">
-                    <StockLine row={item} timeZone={shop.timezone} dict={dict} lang={lang} />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        {pages > 1 && (
-          <nav className="flex items-center justify-between text-sm" aria-label={t(dict.shop.page_of, { page, pages })}>
-            {page > 1 ? (
-              <a href={pageUrl(page - 1)} className="underline underline-offset-4">
-                {dict.shop.prev}
-              </a>
-            ) : (
-              <span />
-            )}
-            <span className="text-muted">{t(dict.shop.page_of, { page, pages })}</span>
-            {page < pages ? (
-              <a href={pageUrl(page + 1)} className="underline underline-offset-4">
-                {dict.shop.next}
-              </a>
-            ) : (
-              <span />
-            )}
-          </nav>
-        )}
       </section>
 
       {slides.some((v) => v.kind !== "post") && <SectionZoom labels={dict.sections} />}
     </div>
   );
+}
+
+/** The texts of the products tabs (ShopProducts / ShopList), in the page language. */
+function productLabels(dict: Dictionary): ShopProductsLabels {
+  const s = dict.shop;
+  return {
+    tabs: s.tabs_label,
+    products: s.tab_products,
+    list: s.tab_list,
+    listCount: s.tab_list_count,
+    placeholder: s.search_items,
+    clear: s.search_clear,
+    button: dict.search.button,
+    found: { one: s.found_one, few: s.found_few, other: s.found_other },
+    none: s.search_none,
+    similar: s.search_similar,
+    add: s.list_add,
+    addMore: s.list_add_more,
+    status: { dot_available: dict.stock.dot_available, dot_sold_out: dict.stock.dot_sold_out, dot_no_info: dict.stock.dot_no_info },
+    prev: s.prev,
+    next: s.next,
+    pageOf: s.page_of,
+    said: { added: s.said_added, less: s.said_less, removed: s.said_removed, copied: s.said_copied, copyFailed: s.said_copy_failed },
+    shopList: {
+      title: s.list_title,
+      empty: s.list_empty,
+      total: s.list_total,
+      minus: s.list_minus,
+      plus: s.list_plus,
+      remove: s.list_remove,
+      qty: s.list_qty,
+      swipe: s.list_swipe,
+      copy: s.list_copy,
+      copied: s.list_copied,
+      copyManual: s.list_copy_manual,
+    },
+  };
 }
 
 /** "8:00–12:00, 12:30–17:00" (a range past midnight: "22:00–2:00"). */
@@ -389,7 +362,7 @@ function HoursSection({
         {dict.shop.hours}
       </h2>
       <p className="text-sm" data-status-line>
-        <LiveStatus input={input} labels={dict.status} lang={lang} renderedAt={renderedAt} />
+        <ShopStatusLine input={input} labels={dict.status} lang={lang} renderedAt={renderedAt} />
       </p>
       {hasHours(shop.opening_hours) && (
         <table className="w-full max-w-sm text-sm">

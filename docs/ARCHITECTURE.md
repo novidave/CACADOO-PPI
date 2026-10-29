@@ -2334,6 +2334,8 @@ domain) + `<noscript>` links; `ContactLinks` is gone. Môj obchod: `ShopForm` `W
 
 ### Shop page item search keeps its place (28 October 2026)
 
+(Replaced on 29 October 2026 by the live search of "Produkty" — see "Shop page Produkty / Zoznam" at the end.)
+
 `@/components/ItemSearch` (client) replaces the plain GET form of "Tovar v obchode": with JavaScript it calls
 `router.replace(path?q=…, { scroll: false })` — the server component re-renders only with the new results — after
 giving `#items` a `min-height` of its current height (fewer results would shorten the page and pull the view up) and
@@ -2449,3 +2451,39 @@ reload lands on the list. e2e `e2e/shop-search.spec.ts` (the scroll position sta
   → `shop_item_search` (each item's `match`: exact / close / similar, a note when only similar). `searchAcrossLanguages`
   asks Claude's words when fewer than `FEW_RESULTS` (3) rows. Tests: `npm run test:search`, e2e
   `e2e/shop-search.spec.ts` (suggestions, keyboard, newest answer only with a slow stand-in, no-JS form).
+
+## Shop page "Produkty / Zoznam" and stock text only on product pages (29 October 2026)
+
+No database change. **Stock sentence:** `StockLine` (product page) keeps "12 ks na sklade · …"; with `listing` it shows
+only the freshness (nothing when stale). Listings pass `label` to `StockDot` (role img, "na sklade" / "vypredané" /
+"zásoba neznáma" from `stock.dot_*` via `STOCK_WORDS`): main page plain results, `ItemView`'s other shops, chat cards
+(`ChatCard.stockLabel`, the freshness badge only when not stale; `availability` stays in the protocol, not shown), the
+shop assistant (`stockLabel`, freshness empty when stale; its copied list without availability). New dot colours
+(fill + darker ring) in `STOCK_COLORS` / `STOCK_BORDERS`.
+
+**Rows:** `@/lib/shopRows` `productRow()` writes a row on the server (names by `itemNames()`, `formatPrice`, stock
+state, search marks cut by `highlightParts()` into plain/marked pieces — the browser never loads the stem rule).
+`ShopView` passes the first page (or the search's page) as `initial`; `/api/shops/[slug]/search?q=&lang=` now returns
+`{q, kind, total, rows}` (50 rows, the forgiving search; without words the shop's first page; `rateLimit` 120/min).
+
+**Client:** `ShopProducts` (first load): tabs as radio inputs, the search form (GET `#items` without JavaScript), rows
+with the dot button and counters, pagination, the live region. `@/lib/shopProductsEngine` (loaded in an effect right
+after hydration, and on the first key or tap if earlier): `listStore()` (localStorage `ppi.list.<shop id>`, try/catch,
+`storage` event), `addOne`, the movements (`@/lib/listMotion`, Web Animations; nothing with reduced motion) and
+`searcher()` (200 ms debounce, `AbortController`, newest answer only, `replaceState`, keeps the rows' height).
+Counters lag behind a flying ball (`flying` per id) so they change when it lands. `ShopList` (next/dynamic, loaded on
+the tab's hover/focus, on open or after the first add): `useSyncExternalStore` on the same store, stepper, swipe
+(pointer events with capture after 8 px of horizontal movement, vertical first = scroll, `touch-action: pan-y`, never
+from a button; a swipe that started on the name drops its click), removal animation then `setQty(…, 0)`, "Spolu" per
+currency, copy (`navigator.clipboard` → hidden textarea + `execCommand` → visible read-only textarea, selected).
+
+**Budget:** the shop page's first-load JS was 151.4 kB with the new tabs; the status line on server pages is now
+`ShopStatusLine` (computes the first status on the server) → `LiveStatusLazy` (loads `@/lib/hours` after the page
+appears, then refreshes every minute); `StatusDot` and `STATUS_COLORS` (`@/lib/statusColors`) moved out of the hours
+module. Result: 149.1 kB locally. Client components keep `LiveStatus`.
+
+**Tests:** `npm run test:list` (`src/lib/shoppingList_test.ts`), e2e `e2e/shop-list.spec.ts` (Pixel 7 and an
+iPhone-sized project in `playwright.config.ts`: round 20 px dot in a reset 32 px button, one search border, Quicksand,
+no stock sentence in rows, counters after reload, "9+", stepper and bin, short / long swipe by touch, copy text and
+the manual fallback, reduced motion, blocked storage) and the rewritten `e2e/shop-search.spec.ts` (live filter keeps
+the page still, ×, Esc, nothing found, typo, newest answer only, no-JS form).

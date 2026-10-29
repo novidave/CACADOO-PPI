@@ -1,52 +1,37 @@
 import type { NextRequest } from "next/server";
 import { isLocale, type Locale } from "@/i18n/config";
-import { getDictionary } from "@/i18n/dictionaries";
 import { json, rateLimit } from "@/lib/apiHttp";
-import { getShop, searchShopItems } from "@/lib/data";
-import { formatPrice } from "@/lib/format";
-import { itemNames } from "@/lib/names";
-import { availabilityText } from "@/lib/stock";
-import { stockState } from "@/lib/stockDot";
+import { getShop, getShopItems, searchShopItems } from "@/lib/data";
+import { productRow, type ProductRows } from "@/lib/shopRows";
 
-/** Suggestions a visitor types quickly: more than the API's 60 a minute, still a limit per caller. */
-const SUGGEST_PER_MINUTE = 120;
+/** The live search sends a request a few keys apart: more than the API's 60 a minute, still a limit per caller. */
+const SEARCH_PER_MINUTE = 120;
+/** The shop page's list size (ShopView's PAGE_SIZE). */
+const ROWS = 50;
 
 /**
- * GET /api/shops/<slug>/search?q=&lang= — the "Tovar v obchode" dropdown (database update 54): up to 8 suggestions of
- * shop_item_search() (+ Claude's words when nothing matched, @/lib/data searchShopItems), written for the page
- * language on the server (names, price, availability). Anonymous, public_stock data only; every call through
- * rateLimit (api_hit, per caller).
+ * GET /api/shops/<slug>/search?q=&lang= — the rows of the shop page's "Produkty" tab while the visitor types (database
+ * update 54): the forgiving shop_item_search() (+ Claude's words when nothing matched, @/lib/data searchShopItems),
+ * without words the shop's first page; written for the page language on the server (@/lib/shopRows: names, price,
+ * the stock dot's state — no stock sentence). Anonymous, public_stock data only; every call through rateLimit
+ * (api_hit, per caller).
  */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/shops/[slug]/search">) {
   const { slug } = await ctx.params;
   const sp = request.nextUrl.searchParams;
-  const q = (sp.get("q") ?? "").trim().slice(0, 200);
+  const raw = (sp.get("q") ?? "").trim().slice(0, 200);
+  const q = raw.length >= 2 ? raw : "";
   const lang: Locale = isLocale(sp.get("lang")) ? (sp.get("lang") as Locale) : "sk";
-  if (q.length < 2) return json({ q, kind: null, total: 0, items: [] });
-  const limited = await rateLimit(request, "/api/shops/search", SUGGEST_PER_MINUTE);
+  const limited = await rateLimit(request, "/api/shops/search", SEARCH_PER_MINUTE);
   if (limited) return limited;
   try {
-    const [shop, dict] = await Promise.all([getShop(slug), getDictionary(lang)]);
+    const shop = await getShop(slug);
     if (!shop) return json({ error: "Not found" }, 404);
-    const { items, total, kind } = await searchShopItems(shop.slug, q, 8);
-    return json({
-      q,
-      kind,
-      total,
-      items: items.map((item) => {
-        const names = itemNames(item.item_name, item.item_name_i18n, lang);
-        return {
-          id: item.item_id,
-          name: names.primary,
-          original: names.secondary,
-          price: item.price === null ? null : formatPrice(item.price, lang, item.currency),
-          stock: stockState(item.availability),
-          availability: availabilityText(dict, item.availability, item.quantity, lang) ?? dict.stock.stale,
-          category: item.category,
-          matched: item.matched,
-        };
-      }),
-    });
+    const { items, total, kind } = q
+      ? await searchShopItems(shop.slug, q, ROWS)
+      : await getShopItems(shop.slug, "", 1, ROWS).then((r) => ({ ...r, kind: null }));
+    const body: ProductRows = { q, kind, total, rows: items.map((item) => productRow(item, lang)) };
+    return json(body);
   } catch (e) {
     console.error("shop-search", e instanceof Error ? e.message : e);
     return json({ error: "Internal error" }, 500);

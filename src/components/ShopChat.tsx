@@ -1005,14 +1005,12 @@ function ItemLine({ item, quantity, labels }: { item: ChatCard; quantity?: numbe
           {item.translated && <p className="text-sm text-muted">{item.name}</p>}
         </div>
         <span className="flex items-center gap-2 whitespace-nowrap font-medium">
-          {item.stock && <StockDot state={item.stock} />}
+          {item.stock && <StockDot state={item.stock} label={item.stockLabel} />}
           {item.price}
         </span>
       </div>
-      <p className="text-sm">
-        {item.availability && <strong>{item.availability} · </strong>}
-        <span className="text-muted">{item.freshness}</span>
-      </p>
+      {/* No stock sentence in listings (only the product page has it): the dot says it. */}
+      {item.freshness && <p className="text-sm text-muted">{item.freshness}</p>}
       {(item.docPrices ?? []).map((p, i) => (
         <p key={i} className="text-sm">
           <DocPrice price={p} labels={labels} />
@@ -1022,7 +1020,7 @@ function ItemLine({ item, quantity, labels }: { item: ChatCard; quantity?: numbe
   );
 }
 
-/** The shopping list with each item's availability; copy as text or print only the list. */
+/** The shopping list (the stock dot on each line); copy as text or print only the list. */
 function ShoppingList({ list, labels, shopName }: { list: ChatListItem[]; labels: Labels; shopName: string }) {
   const box = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState<boolean | null>(null);
@@ -1032,8 +1030,7 @@ function ShoppingList({ list, labels, shopName }: { list: ChatListItem[]; labels
       `${labels.list_title} – ${shopName}`,
       ...list.map(
         (item) =>
-          `${item.quantity}× ${item.name}${item.translated ? ` (${item.translated})` : ""} – ${item.price} – ` +
-          `${item.availability ?? item.freshness}${item.note ? ` – ${item.note}` : ""}`,
+          `${item.quantity}× ${item.name}${item.translated ? ` (${item.translated})` : ""} – ${item.price}${item.note ? ` – ${item.note}` : ""}`,
       ),
       window.location.href.split("#")[0],
     ].join("\n");
