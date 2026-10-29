@@ -257,7 +257,12 @@ export function ShopProducts({
     [labels.said.less, labels.said.removed, say],
   );
 
+  // Switching tabs never moves the page: the tabs' area keeps the tallest height it had (a short or empty list leaves
+  // empty space below), so the page never gets shorter under the visitor's finger.
+  const panels = useRef<HTMLDivElement>(null);
   const pick = (next: "products" | "list") => {
+    const box = panels.current;
+    if (box) box.style.minHeight = `${Math.max(box.offsetHeight, parseFloat(box.style.minHeight) || 0)}px`;
     setTab(next);
     setTabMoved(true);
   };
@@ -308,137 +313,139 @@ export function ShopProducts({
         {said}
       </p>
 
-      <div hidden={tab !== "products"} className="flex flex-col gap-3" data-panel="products">
-        <form
-          method="get"
-          action={`${path}#items`}
-          role="search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(value);
-            // the phone's keyboard closes, so the rows are not hidden under it
-            inputRef.current?.blur();
-          }}
-        >
-          <div className="ppi-search">
-            <SearchIcon />
-            <input
-              ref={inputRef}
-              type="search"
-              name="q"
-              value={value}
-              onChange={(e) => typed(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape" && value) {
-                  e.preventDefault();
-                  clear();
-                }
-              }}
-              placeholder={labels.placeholder}
-              aria-label={labels.placeholder}
-              autoComplete="off"
-              enterKeyHint="search"
-            />
-            {value && (
-              <button type="button" className="ppi-search-clear" onClick={clear} aria-label={labels.clear} data-search-clear>
-                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
-              </button>
-            )}
-            <noscript>
-              <button type="submit" className="ppi-search-go">
-                {labels.button}
-              </button>
-            </noscript>
-          </div>
-        </form>
+      <div ref={panels} data-panels>
+        <div hidden={tab !== "products"} className="flex flex-col gap-3" data-panel="products">
+          <form
+            method="get"
+            action={`${path}#items`}
+            role="search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              run(value);
+              // the phone's keyboard closes, so the rows are not hidden under it
+              inputRef.current?.blur();
+            }}
+          >
+            <div className="ppi-search">
+              <SearchIcon />
+              <input
+                ref={inputRef}
+                type="search"
+                name="q"
+                value={value}
+                onChange={(e) => typed(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && value) {
+                    e.preventDefault();
+                    clear();
+                  }
+                }}
+                placeholder={labels.placeholder}
+                aria-label={labels.placeholder}
+                autoComplete="off"
+                enterKeyHint="search"
+              />
+              {value && (
+                <button type="button" className="ppi-search-clear" onClick={clear} aria-label={labels.clear} data-search-clear>
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
+                </button>
+              )}
+              <noscript>
+                <button type="submit" className="ppi-search-go">
+                  {labels.button}
+                </button>
+              </noscript>
+            </div>
+          </form>
 
-        {data.q && (
-          <p className="text-sm" data-search-results={data.kind ?? "none"}>
-            {rows.length === 0 || data.kind === "similar" ? (
-              <span className="font-medium">{fill(labels.none, { q: data.q })}</span>
+          {data.q && (
+            <p className="text-sm" data-search-results={data.kind ?? "none"}>
+              {rows.length === 0 || data.kind === "similar" ? (
+                <span className="font-medium">{fill(labels.none, { q: data.q })}</span>
+              ) : (
+                <span className="font-medium">{fill(labels.found[form], { n: data.total })}</span>
+              )}
+              {data.kind === "similar" && rows.length > 0 && <span className="block text-muted">{labels.similar}</span>}
+              <noscript>
+                {" · "}
+                <a href={`${path}#items`} className="underline underline-offset-4">
+                  {labels.clear}
+                </a>
+              </noscript>
+            </p>
+          )}
+
+          <div ref={rowsBox}>
+            {rows.length === 0 && !data.q ? (
+              <p data-stock-note={emptyNote.kind}>{emptyNote.text}</p>
             ) : (
-              <span className="font-medium">{fill(labels.found[form], { n: data.total })}</span>
+              <ul className="ppi-rows" data-product-rows>
+                {rows.map((row) => {
+                  const inList = qtyOf(list, row.id) - (flying[row.id] ?? 0);
+                  const status = statusOf(row);
+                  return (
+                    <li key={row.id} className="ppi-row" data-product={row.id}>
+                      <div className="min-w-0 flex-1">
+                        <Link href={`${itemBase}${row.id}`} className="ppi-row-name">
+                          <Marked text={row.name} marks={row.nameMarks} />
+                        </Link>
+                        {row.original && (
+                          <p className="ppi-row-original">
+                            <Marked text={row.original} marks={row.originalMarks} />
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="ppi-add"
+                        aria-label={inList > 0 ? fill(labels.addMore, { name: row.name, status, n: inList }) : fill(labels.add, { name: row.name, status })}
+                        onClick={(e) => add(row, e.currentTarget)}
+                        data-add-to-list
+                      >
+                        <StockDot state={row.stock} size={20} />
+                        {inList > 0 && (
+                          <span className="ppi-badge" aria-hidden="true" data-list-badge>
+                            {badgeText(inList)}
+                          </span>
+                        )}
+                      </button>
+                      <span className="ppi-row-price">{row.priceText}</span>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-            {data.kind === "similar" && rows.length > 0 && <span className="block text-muted">{labels.similar}</span>}
-            <noscript>
-              {" · "}
-              <a href={`${path}#items`} className="underline underline-offset-4">
-                {labels.clear}
-              </a>
-            </noscript>
-          </p>
-        )}
+          </div>
 
-        <div ref={rowsBox}>
-          {rows.length === 0 && !data.q ? (
-            <p data-stock-note={emptyNote.kind}>{emptyNote.text}</p>
-          ) : (
-            <ul className="ppi-rows" data-product-rows>
-              {rows.map((row) => {
-                const inList = qtyOf(list, row.id) - (flying[row.id] ?? 0);
-                const status = statusOf(row);
-                return (
-                  <li key={row.id} className="ppi-row" data-product={row.id}>
-                    <div className="min-w-0 flex-1">
-                      <Link href={`${itemBase}${row.id}`} className="ppi-row-name">
-                        <Marked text={row.name} marks={row.nameMarks} />
-                      </Link>
-                      {row.original && (
-                        <p className="ppi-row-original">
-                          <Marked text={row.original} marks={row.originalMarks} />
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="ppi-add"
-                      aria-label={inList > 0 ? fill(labels.addMore, { name: row.name, status, n: inList }) : fill(labels.add, { name: row.name, status })}
-                      onClick={(e) => add(row, e.currentTarget)}
-                      data-add-to-list
-                    >
-                      <StockDot state={row.stock} size={20} />
-                      {inList > 0 && (
-                        <span className="ppi-badge" aria-hidden="true" data-list-badge>
-                          {badgeText(inList)}
-                        </span>
-                      )}
-                    </button>
-                    <span className="ppi-row-price">{row.priceText}</span>
-                  </li>
-                );
-              })}
-            </ul>
+          {pages > 1 && (
+            <nav className="flex items-center justify-between text-sm" aria-label={fill(labels.pageOf, { page: shownPage, pages })}>
+              {shownPage > 1 ? (
+                <a href={pageUrl(shownPage - 1)} className="underline underline-offset-4">
+                  {labels.prev}
+                </a>
+              ) : (
+                <span />
+              )}
+              <span className="text-muted">{fill(labels.pageOf, { page: shownPage, pages })}</span>
+              {shownPage < pages ? (
+                <a href={pageUrl(shownPage + 1)} className="underline underline-offset-4">
+                  {labels.next}
+                </a>
+              ) : (
+                <span />
+              )}
+            </nav>
           )}
         </div>
 
-        {pages > 1 && (
-          <nav className="flex items-center justify-between text-sm" aria-label={fill(labels.pageOf, { page: shownPage, pages })}>
-            {shownPage > 1 ? (
-              <a href={pageUrl(shownPage - 1)} className="underline underline-offset-4">
-                {labels.prev}
-              </a>
-            ) : (
-              <span />
-            )}
-            <span className="text-muted">{fill(labels.pageOf, { page: shownPage, pages })}</span>
-            {shownPage < pages ? (
-              <a href={pageUrl(shownPage + 1)} className="underline underline-offset-4">
-                {labels.next}
-              </a>
-            ) : (
-              <span />
-            )}
-          </nav>
+        {tab === "list" && (
+          <div data-panel="list">
+            <ShopList shopId={shopId} lang={lang} shopName={shopName} address={address} itemBase={itemBase} labels={labels.shopList} said={labels.said} say={say} changed={changed} />
+          </div>
         )}
       </div>
-
-      {tab === "list" && (
-        <div data-panel="list">
-          <ShopList shopId={shopId} lang={lang} shopName={shopName} address={address} itemBase={itemBase} labels={labels.shopList} said={labels.said} say={say} changed={changed} />
-        </div>
-      )}
     </div>
   );
 }
