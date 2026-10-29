@@ -201,3 +201,20 @@ test("the list keeps working when storage is blocked", async ({ page }) => {
   await expect(tabCount(page)).toHaveText("1");
   expect(errors).toEqual([]);
 });
+
+test("switching tabs never moves the page, also to an empty list", async ({ page }) => {
+  const tab = listTab(page);
+  // the tabs in the middle of the screen, the page well below its top
+  await tab.evaluate((el) => window.scrollBy(0, el.getBoundingClientRect().top - window.innerHeight / 2));
+  const before = await page.evaluate(() => window.scrollY);
+  expect(before).toBeGreaterThan(100);
+  const top = async () => (await tab.boundingBox())!.y;
+  const at = await top();
+  await tab.click();
+  await expect(page.locator("[data-list-empty]")).toBeVisible();
+  expect(Math.abs((await top()) - at), "the tabs stay where they were").toBeLessThan(2);
+  expect(Math.abs((await page.evaluate(() => window.scrollY)) - before)).toBeLessThan(2);
+  await page.locator(".ppi-tab").first().click();
+  await tab.click();
+  expect(Math.abs((await top()) - at)).toBeLessThan(2);
+});
