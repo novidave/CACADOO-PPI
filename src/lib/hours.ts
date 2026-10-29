@@ -410,10 +410,4 @@ export function specialOpeningHoursSpecification(input: StatusInput, now: Date =
 }
 
 /** Colours of the status dots (the one colour exception besides the logo; always with the text). */
-export const STATUS_COLORS: Record<StatusState, string> = {
-  open: "#1E9E5A",
-  break: "#2F6FED",
-  closed: "#D64545",
-  holiday: "#F2B705",
-  no_hours: "#9AA5B1",
-};
+export { STATUS_COLORS } from "./statusColors";

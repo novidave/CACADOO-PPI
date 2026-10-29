@@ -12,7 +12,7 @@ import { missingColumn } from "./missingColumn";
 import { translatedName } from "./names";
 import { apiItem } from "./publicApi";
 import { availabilityText, freshnessText, type StockRow } from "./stock";
-import { stockState, type StockState } from "./stockDot";
+import { STOCK_WORDS, stockState, type StockState } from "./stockDot";
 import { createPublicClient } from "./supabase/public";
 
 /**
@@ -98,9 +98,13 @@ export interface ChatCard {
   translated: string | null;
   brand: string | null;
   price: string;
+  /** "12 ks na sklade" — for the product page only; the cards show the stock dot instead (2026-10-29). */
   availability: string | null;
   /** The stock dot before the price (available / sold_out / no_info). */
   stock?: StockState;
+  /** The dot's status in words for screen readers ("na sklade", "zásoba neznáma"). */
+  stockLabel?: string;
+  /** "Aktualizované pred 8 min"; empty for stale data (the yellow dot says it). */
   freshness: string;
   /** Prices of this item in the shop's documents, shown next to the shop's own price. */
   docPrices: ChatDocPrice[];
@@ -853,7 +857,9 @@ async function toReply(
       price: formatPrice(item.price, lang, item.currency),
       availability: availabilityText(dict, item.availability, item.quantity, lang),
       stock: stockState(item.availability),
-      freshness: freshnessText(dict, item.freshness.state, item.freshness.age_minutes, item.freshness.updated_at, shop.timezone),
+      stockLabel: dict.stock[STOCK_WORDS[stockState(item.availability)]],
+      freshness:
+        item.freshness.state === "stale" ? "" : freshnessText(dict, item.freshness.state, item.freshness.age_minutes, item.freshness.updated_at, shop.timezone),
       docPrices: docPrices.get(item.id)?.slice(0, 3) ?? [],
     };
   };

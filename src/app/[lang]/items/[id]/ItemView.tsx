@@ -15,8 +15,9 @@ import { getShopLanguages } from "@/lib/shopLanguages";
 import { getItemTexts, getShopTexts } from "@/lib/contentTranslations";
 import { JsonLd } from "@/components/JsonLd";
 import { ShopMap } from "@/components/ShopMap";
-import { LiveStatus } from "@/components/ShopStatus";
+import { ShopStatusLine } from "@/components/ShopStatusLine";
 import { StockDot } from "@/components/StockDot";
+import { STOCK_WORDS, stockState } from "@/lib/stockDot";
 import { StockLine } from "@/components/StockLine";
 
 export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> {
@@ -147,7 +148,7 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
           {item.shop_name}
         </Link>
         <p>{addressLine(item.shop_address, item.shop_city)}</p>
-        {shop && <LiveStatus input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} className="text-sm" />}
+        {shop && <ShopStatusLine input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} className="text-sm" />}
         <p className="flex flex-wrap gap-x-4 text-sm">
           {hasLocation && (
             <a
@@ -217,7 +218,7 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
                         {o.shop_name}
                       </Link>
                       <span className="flex items-center gap-2 whitespace-nowrap font-medium">
-                        <StockDot availability={o.availability} />
+                        <StockDot availability={o.availability} label={dict.stock[STOCK_WORDS[stockState(o.availability)]]} />
                         {formatPrice(o.price, lang, o.currency)}
                       </span>
                     </div>
@@ -227,9 +228,9 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
                         .join(" · ")}
                     </div>
                     <div className="flex flex-wrap gap-x-3 text-sm">
-                      <StockLine row={o} timeZone={o.shop_timezone} dict={dict} lang={lang} />
+                      <StockLine row={o} timeZone={o.shop_timezone} dict={dict} lang={lang} listing />
                       {otherShop && (
-                        <LiveStatus input={statusInput(otherShop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />
+                        <ShopStatusLine input={statusInput(otherShop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />
                       )}
                     </div>
                   </li>

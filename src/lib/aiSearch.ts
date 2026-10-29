@@ -33,7 +33,7 @@ import { type GoogleShop, nearbyShops, type OsmShop, outsideSearchEnabled, type 
 import { searchStock } from "./publicApi";
 import { GOOD_ENOUGH, isGoodResult, SHOP_CATEGORIES, type ShopCategory, townInWords } from "./sources";
 import { availabilityText, freshnessText } from "./stock";
-import { stockState } from "./stockDot";
+import { STOCK_WORDS, stockState } from "./stockDot";
 import { supabaseEnv } from "./supabase/env";
 import { createPublicClient } from "./supabase/public";
 
@@ -715,6 +715,7 @@ async function toResults(items: FoundItem[], lang: Locale, searched: string[]): 
       place: [shop.address, shop.city].filter(Boolean).join(", "),
       availability: availabilityText(dict, item.availability, item.quantity, lang),
       stock: stockState(item.availability),
+      stockLabel: dict.stock[STOCK_WORDS[stockState(item.availability)]],
       freshness: freshnessText(dict, state, item.freshness.age_minutes, item.freshness.updated_at, shop.timezone),
       freshnessState: state,
       distance:

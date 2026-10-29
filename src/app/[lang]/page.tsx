@@ -11,11 +11,12 @@ import { formatPrice } from "@/lib/format";
 import { itemNames } from "@/lib/names";
 import type { StockRow } from "@/lib/stock";
 import { ChatSearch, type ChatLabels } from "@/components/ChatSearch";
-import { LiveStatus } from "@/components/ShopStatus";
+import { ShopStatusLine } from "@/components/ShopStatusLine";
 import type { CalendarDay } from "@/lib/hours";
 import { requestTime } from "@/lib/requestTime";
 import { statusInput } from "@/lib/shopCalendar";
 import { StockDot } from "@/components/StockDot";
+import { STOCK_WORDS, stockState } from "@/lib/stockDot";
 import { StockLine } from "@/components/StockLine";
 
 // The chat input sits above the phone's home bar (env(safe-area-inset-bottom)).
@@ -181,7 +182,7 @@ function ResultRow({
           {names.secondary && <p className="text-sm text-muted">{names.secondary}</p>}
         </div>
         <span className="flex items-center gap-2 whitespace-nowrap font-medium">
-                      <StockDot availability={row.availability} />
+                      <StockDot availability={row.availability} label={dict.stock[STOCK_WORDS[stockState(row.availability)]]} />
                       {formatPrice(row.price, lang, row.currency)}
                     </span>
       </div>
@@ -192,8 +193,8 @@ function ResultRow({
         {[row.shop_address, row.shop_city].filter(Boolean).map((part) => ` · ${part}`)}
       </div>
       <div className="flex flex-wrap gap-x-3 text-sm">
-        <StockLine row={row} timeZone={row.shop_timezone} dict={dict} lang={lang} />
-        {shop && <LiveStatus input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />}
+        <StockLine row={row} timeZone={row.shop_timezone} dict={dict} lang={lang} listing />
+        {shop && <ShopStatusLine input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />}
       </div>
     </li>
   );

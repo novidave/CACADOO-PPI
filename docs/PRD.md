@@ -1844,6 +1844,9 @@ here from "Jazyky a inventár" (old addresses forwarded).
 
 ### 6.28 Forgiving product search and the "Tovar v obchode" dropdown (database update 54)
 
+(Since 29 October 2026 the shop page's dropdown is replaced by the live search of "Produkty", 6.29; the search rule
+below is unchanged.)
+
 - **Shop page, "Tovar v obchode":** the field "Hľadať v tomto obchode…". From 2 letters, a moment after the last key,
   a list under the field (full width on a phone) shows up to 8 products: the name in the page language with the shop's
   name under it, the price with the stock dot, the availability in bold and the category; the searched words are in
@@ -1864,3 +1867,27 @@ here from "Jazyky a inventár" (old addresses forwarded).
   **a paid plan never changes the order.**
 - Speed: suggestions in under 150 ms for a shop with 5 000 products, the main search under 300 ms for 100 000.
 - At most 120 suggestions a minute per visitor (then a short pause).
+
+### 6.29 Shop page "Produkty / Zoznam" and the stock sentence only on product pages (29 October 2026)
+
+- **The stock sentence** ("12 ks na sklade", "Vypredané", "Informácia o zásobe momentálne nie je dostupná") is shown
+  only on a product's own page. Every list of products — the shop page, the main page's results and chat cards, the
+  product page's other shops, the shop assistant's cards and its copied list — shows only the stock dot (green in
+  stock, red sold out, yellow no information or old data; a solid fill with a darker ring); screen readers hear the
+  status from the dot ("na sklade", "vypredané", "zásoba neznáma"). The line about how fresh the shop's whole file is
+  stays above the shop's products.
+- **Two tabs** replace "Tovar v obchode": "Produkty" and "Zoznam" (the visitor's shopping list; its counter shows the
+  pieces on the list). Keyboard: they are a radio group. Without JavaScript only Produkty shows, with the plain form.
+- **Produkty:** "Hľadať v tomto obchode" filters the list while typing (the forgiving search of 6.28: accents, case,
+  word order, several words, typos), the found words highlighted, × or Esc clears, "Nájdené: N produktov" or "Pre „…“
+  sme nič nenašli". Each row: the name (a link to the product), the stock dot and the price as in the shop's file.
+  Tapping the dot puts one piece on the list (a small blue ball jumps to the Zoznam tab; a counter on the dot, "9+"
+  above nine).
+- **Zoznam:** each product with quantity × price and − / quantity / + (a bin at one); swiping a row left or right
+  removes it; "Spolu"; "Zoznam je prázdny". **"Kopírovať zoznam"** copies plain text with the shop's name and
+  address (the address is not shown on the page), one line per product and the total; if the browser does not allow
+  copying, the text is shown selected to copy by hand.
+- The list is kept only in this browser, per shop (it survives a reload); nothing is sent to Cacaduu or the shop, and
+  no shop data are changed. Changes are announced to screen readers in Slovak; with "reduce motion" nothing moves.
+- Colours of this section (blue, orange, the yellow highlight) are an exception to "no colours", at the owner's
+  request.

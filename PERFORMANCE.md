@@ -72,6 +72,10 @@ under test: the Vercel toolbar exists only on previews and is not part of the si
 
 Shop and product pages on the own domain behave like the Cacaduu ones (TTFB 412 → 62 ms on the shop page). The map's code (≈ 280 kB gzip) loads after the page and is not counted as first-load JS.
 
+The shop page's "Produkty / Zoznam" (2026-10-29) keeps the page under 150 kB: the Zoznam tab, the list's store, the
+movements and the live search load after the page appears, and the status line's hours rule too (`LiveStatusLazy`);
+149.1 kB locally (151.4 kB before those were split off).
+
 ### Môj obchod and admin (Lighthouse, warm browser cache, 1 run each)
 
 | Page | Phone score | Phone LCP (s) | Desktop score | Desktop CLS |

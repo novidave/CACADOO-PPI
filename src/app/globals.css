@@ -509,3 +509,351 @@ dialog.ppi-sheet {
     transition: none;
   }
 }
+
+/*
+ * The shop page's "Produkty / Zoznam" (ShopProducts, ShopList; 2026-10-29, at the owner's request — its blues, oranges
+ * and the search highlight are the owner's exceptions to "no colours"). Every button here is reset (no browser border,
+ * padding, background or rounding: Safari otherwise draws a grey square around the stock dot) and inherits Quicksand.
+ */
+.ppi-list button,
+.ppi-list input,
+.ppi-list textarea {
+  font: inherit;
+  color: inherit;
+}
+.ppi-list button {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border-radius: 0;
+  cursor: pointer;
+}
+.ppi-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #eef1f5;
+}
+.ppi-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 9px;
+  color: #475569;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ppi-tab[data-active] {
+  background: #fff;
+  color: #1d4ed8;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12), 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.ppi-tab[data-moved] {
+  animation: ppi-tab-select 0.3s ease-out;
+}
+.ppi-tab:has(input:focus-visible) {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+/* The icon's own box: the counter sits on its corner and never covers the label. */
+.ppi-tab-icon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.ppi-tab-badge,
+.ppi-badge {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 1.5px #fff;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+/* The tab's counter starts on the icon's right half and the icon keeps room for it: the label never moves under it. */
+.ppi-tab-badge {
+  top: -9px;
+  left: 11px;
+}
+.ppi-tab-icon[data-counted] {
+  margin-right: 16px;
+}
+/* On the circle's top-right corner (the circle is 20 px in the middle of the 32 px button). */
+.ppi-badge {
+  top: -4px;
+  left: 17px;
+}
+.ppi-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 6px 0 12px;
+  border: 1px solid #d4d4d8;
+  border-radius: 12px;
+  background: #fff;
+  color: #64748b;
+}
+.ppi-search:focus-within {
+  border-color: var(--foreground);
+}
+.ppi-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--foreground);
+  font-size: 16px; /* 16 px: iPhone Safari does not zoom in */
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ppi-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  display: none;
+}
+.ppi-list .ppi-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  color: #64748b;
+}
+.ppi-list .ppi-search-go {
+  padding: 6px 12px;
+  border: 1px solid var(--foreground);
+  border-radius: 8px;
+  color: var(--foreground);
+  font-weight: 500;
+}
+.ppi-mark {
+  background: #fef3c7;
+  color: inherit;
+  border-radius: 2px;
+}
+.ppi-rows {
+  border-top: 1px solid #eaeaea;
+}
+.ppi-row,
+.ppi-list-row {
+  border-bottom: 1px solid #eaeaea;
+}
+.ppi-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 0;
+}
+.ppi-row-name {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+@media (hover: hover) {
+  .ppi-row-name:hover {
+    text-decoration: underline;
+  }
+}
+.ppi-row-original {
+  font-size: 13px;
+  color: var(--muted);
+}
+.ppi-row-price {
+  flex-shrink: 0;
+  min-width: 4.5em;
+  text-align: right;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* The stock dot as a button: 32 × 32 to tap, the 20 px circle in its middle, the blue counter on its corner. */
+.ppi-list .ppi-add {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+}
+.ppi-add [data-stock-dot] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+.ppi-list .ppi-add:active {
+  opacity: 1;
+  transform: scale(0.9);
+}
+.ppi-list .ppi-add:focus-visible,
+.ppi-list .ppi-step:focus-visible,
+.ppi-list .ppi-copy:focus-visible,
+.ppi-list .ppi-search-clear:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+.ppi-list-row {
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.ppi-swipe-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 0;
+  background: #fff;
+}
+.ppi-list-row[data-swiping] .ppi-swipe-content {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.ppi-swipe-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  background: #ffedd5;
+  color: #ea580c;
+  transition: background-color 0.12s, color 0.12s;
+}
+.ppi-list-row[data-armed] .ppi-swipe-bg {
+  background: #f97316;
+  color: #fff;
+}
+.ppi-line-price {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ppi-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ppi-list .ppi-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: var(--foreground);
+}
+.ppi-list .ppi-step-minus {
+  background: #fff1e6;
+  color: #ea580c;
+}
+.ppi-step-qty {
+  min-width: 2ch;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ppi-list-total {
+  display: flex;
+  justify-content: space-between;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ppi-list-empty {
+  padding: 28px 0;
+  text-align: center;
+  color: var(--muted);
+}
+.ppi-list .ppi-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  border: 1px solid #bfd5fb;
+  border-radius: 12px;
+  background: #eff5ff;
+  color: #1d4ed8;
+  font-weight: 600;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+.ppi-list .ppi-copy[data-copied] {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.ppi-check {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: ppi-check-draw 0.35s ease-out forwards;
+}
+.ppi-copy-manual {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
+  font-size: 14px;
+}
+@keyframes ppi-tab-select {
+  0% {
+    transform: scale(0.95);
+  }
+  60% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes ppi-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-tab[data-moved],
+  .ppi-check {
+    animation: none;
+  }
+  .ppi-check {
+    stroke-dashoffset: 0;
+  }
+  .ppi-swipe-bg,
+  .ppi-list .ppi-copy {
+    transition: none;
+  }
+}
