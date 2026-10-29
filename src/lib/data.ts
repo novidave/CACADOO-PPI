@@ -4,6 +4,7 @@ import { loadLiveSites } from "./customDomain";
 import type { CalendarDay } from "./hours";
 import { missingColumn } from "./missingColumn";
 import { expandQuery, hasCjk } from "./queryExpansion";
+import { searchStem } from "./searchWords";
 import { loadCalendars } from "./shopCalendar";
 import { createCachedPublicClient } from "./supabase/public";
 import type { OpeningHours } from "./hours";
@@ -166,7 +167,9 @@ export async function searchShopItems(
   const direct = await runShopSearch(slug, query, limit, offset);
   if (direct === null) {
     const { items, total } = await getShopItems(slug, query, Math.floor(offset / limit) + 1, limit);
-    return { items: items.map((i) => ({ ...i, category: null, score: 0, kind: "exact", matched: [] })), total, kind: items.length ? "exact" : null };
+    // every word matched in the exact search: all of them are marked
+    const matched = [...new Set(query.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1).map(searchStem))];
+    return { items: items.map((i) => ({ ...i, category: null, score: 0, kind: "exact", matched })), total, kind: items.length ? "exact" : null };
   }
   const found = direct.filter((r) => r.kind !== "similar");
   if (found.length || offset > 0 || (query.replace(/\s/g, "").length < 4 && !hasCjk(query))) {

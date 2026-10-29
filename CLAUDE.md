@@ -181,7 +181,7 @@ Admin texts `admin_partners`.
 ## Forgiving product search (update 54)
 
 `supabase/sql/54_forgiving_search.sql` + `@/lib/searchWords` (the stem rule mirrored for highlighting only;
-`searchWords_test.ts`, `npm run test:search`) + `@/components/ItemSearch` + `/api/shops/[slug]/search` + `@/lib/data`
+`searchWords_test.ts`, `npm run test:search`) + `@/components/ItemSearch` (the form) + `@/components/ItemSuggestions` (the dropdown, loaded on the first key — first-load JS budget) + `/api/shops/[slug]/search` + `@/lib/data`
 `searchShopItems()`. **One rule in SQL for every place that searches:** `shop_item_search(slug, q, limit, offset)` (one
 shop: "Tovar v obchode", its dropdown, the assistant's `search_items`; `shop_stock` with words returns its rows) and
 `item_search(q, lat, lng, radius, only_available, limit)` (all shops: `search_stock` with words returns its rows → page,
