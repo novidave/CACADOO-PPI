@@ -2569,3 +2569,50 @@ the page still, ×, Esc, nothing found, typo, newest answer only, no-JS form).
   activity; "overené" kept for the same number and lost for a new one; owner B and visitors refused; without the plan
   reading stays, sending and saving refused, deleting keeps the log line.
 
+## Update 57 — "Rezervácie" for Pro shops (CRM phase 3, 30 October 2026)
+
+`supabase/sql/57_bookings.sql` (one file, safe to run again; needs updates 55 and 56):
+- `btree_gist`; `shop_booking_settings` (enabled false, service_name, duration 5–480 = 30, step 5–240 = 30, buffer
+  0–120, lead_minutes 120, horizon_days 1–180 = 30, reminder false); `booking_google_connections` (tokens AES-GCM
+  encrypted by the function; owners get only status, last_error, connected_at) + `booking_oauth_states` (SHA-256,
+  single use, 10 minutes); `shop_bookings` (pending|confirmed|cancelled|no_show|expired, end_reason, name, phone E.164,
+  email, address, note, lang, consent_at + consent_version, token_hash, code_hash, code_expires_at, code_attempts,
+  code_sends, caller_hash, verified_at, conversation_id, contact_id, google_event_id, google_status none|created|failed,
+  reminder_sent_at) with **`exclude using gist (shop_id with =, tstzrange(starts_at, ends_at) with &&) where status in
+  (pending, confirmed)`**; owners get column grants without the hashes. `shop_outgoing_messages.kind`
+  owner|booking_code|booking_reminder + `booking_id`. Five new `shop_activity` actions.
+- Free times: `booking_day_ranges(shop, day)` (special day > holiday shops_closed (cut at closed_from) / day_off (none)
+  > `opening_hours`, past midnight kept), `booking_free_slots(shop, from, to)` (≤ 300; lead, horizon, step, buffer;
+  confirmed + pending with a live code block), `booking_shop(slug)` (active + `shop_has_plan` + enabled),
+  `shop_takes_bookings(slug)` (anon: service name + duration), `booking_slots(slug, from, days ≤ 14)` (service role).
+- Flow (service role only): `booking_start(…)` (errors not_available / consent / name / phone / email / too_many — 3 per
+  phone and 5 per caller an hour, 100 per shop a day — / slot_taken; returns id, token, code once), `booking_resend`
+  (≤ 3 sends, attempts reset), `booking_verify` (wrong_code + attempts_left; the 5th → too_many_attempts and expired;
+  expired; not_pending), `booking_confirm(id, event, google_status)` (contact by `crm_phone` found or made — source
+  booking —, `phone_verified_at`, empty fields filled, conversation's `shopper_phone` + contact, activity),
+  `booking_release`, `booking_log_sms` (6-digit numbers masked "••••••"), `booking_reminders_due` (tomorrow in the
+  shop's time zone, after 09:00 there), the Google helpers (`booking_oauth_begin/take`, `booking_google_save/token/
+  refreshed/failed/remove`).
+- Owners: `owner_save_booking_settings()` (`crm_owner_check`), `owner_bookings(shop, from, to, status, limit, offset)`,
+  `owner_set_booking_status(id, confirmed|cancelled|no_show)`. Job `ppi-bookings-tick` (`'11 * * * *'`, Vault
+  `ppi_project_url` + `ppi_bookings_cron`, `bookings_cron_ok()`).
+- `supabase/functions/bookings` (Verify JWT off): website actions with `x-ppi-website` = `ASSISTANT_ARCHIVE_SECRET`
+  (`slots` = database slots minus Google freeBusy, `start` (Google busy check again) → SMS code via `SmsProvider`,
+  `resend`, `verify` → Google event `primary/events?sendUpdates=none`, no attendees → `booking_confirm`); owner JWT
+  `google_connect` (PKCE S256, `access_type=offline`, `prompt=consent`, scopes `calendar.freebusy` +
+  `calendar.events.owned`; return URL https only, path `/dashboard/bookings`) and `google_disconnect` (revoke at Google);
+  `GET /oauth` (both scopes must be granted); cron `tick` (reminders). Tokens bound to `<shop>:google:access|refresh`
+  (`BOOKING_TOKEN_ENCRYPTION_KEY`, else `EXPORT_TOKEN_ENCRYPTION_KEY`); `invalid_grant` → connection expired, bookings
+  go on without Google. `BOOKING_TEST_CODES=on` returns the code only while the SMS provider is the test one. Never
+  logs phones, codes, names or tokens. Tests `bookings/index_test.ts`.
+- Website: `@/lib/bookings` (`bookingsCall`, `findSlots`, `CONSENT_VERSION`), `/api/shops/[slug]/booking` (start /
+  verify / resend; `rateLimit` 20/min; caller hash, archive conversation, consent version added on the server),
+  `@/lib/shopChat` (tool `find_slots` {from, days} only when `shop_takes_bookings`; prompt: terms from the documents
+  first, never personal data in the chat, never claims a booking; answer field `booking_slots` → `reply.booking` from
+  the tool's own slots only, ≤ 8), `@/components/BookingPanel` (pick → form → code → done; in `ShopChat`'s answer),
+  `dashboard/bookings` (`?view=list|calendar|settings`, `?week=`; `actions.ts`), the contact card's Rezervácie tab,
+  the menu link, the assistant privacy page `#rezervacie`. Texts `chat.booking_*`, `bookings`.
+- DB tests (block "update 57"): settings rules; slots inside the hours only, lead time, special day, holidays both
+  kinds, buffer; no overlap (exclusion constraint); consent / phone / name refused; rate limits; wrong code with tries
+  left, the 5th ends it; expired code; resend limit; confirm makes or finds the contact (verified), links the
+  conversation, logs; owner status changes; reminders due; owner B and visitors refused; no plan → nothing new.

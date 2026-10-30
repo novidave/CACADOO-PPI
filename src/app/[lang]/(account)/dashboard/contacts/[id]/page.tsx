@@ -72,7 +72,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       </div>
     );
   }
-  const [shopsRes, plan, conversations, messages, templates, config] = await Promise.all([
+  const [shopsRes, plan, conversations, messages, templates, config, bookingsRes] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase.rpc("shop_has_plan", { p_shop_id: contact.shop_id }),
     supabase
@@ -88,6 +88,14 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
     tab === "messages"
       ? supabase.functions.invoke<{ email?: boolean; sms_live?: boolean }>("crm-messages", { body: { action: "config" } })
       : Promise.resolve({ data: null, error: null }),
+    // Its bookings (database update 57; none before it).
+    supabase
+      .from("shop_bookings")
+      .select("id, starts_at, ends_at, status, service_name")
+      .eq("contact_id", id)
+      .in("status", ["confirmed", "cancelled", "no_show"])
+      .order("starts_at", { ascending: false })
+      .limit(100),
   ]);
   const shop = ((shopsRes.data ?? []) as MyShop[]).find((s) => s.id === contact.shop_id);
   if (!shop) notFound();
@@ -96,7 +104,8 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
   const hidden = hiddenFields(lang, shop);
   const convRows = (conversations.data ?? []) as { id: string; started_at: string; shopper_lang: string | null; page_lang: string; message_count: number; first_question: string | null }[];
   const sent = (messages.data ?? []) as Sent[];
-  const counts: Record<Tab, number | null> = { overview: null, conversations: convRows.length, bookings: null, messages: sent.length };
+  const bookingRows = (bookingsRes.error ? [] : bookingsRes.data ?? []) as { id: string; starts_at: string; ends_at: string; status: string; service_name: string | null }[];
+  const counts: Record<Tab, number | null> = { overview: null, conversations: convRows.length, bookings: bookingRows.length, messages: sent.length };
   const labels: Record<Tab, string> = { overview: c.tab_overview, conversations: c.tab_conversations, bookings: c.tab_bookings, messages: c.tab_messages };
   const title = contact.name || contact.phone || contact.email || c.no_name;
   const statusText: Record<Sent["status"], string> = { sent: c.status_sent, failed: c.status_failed, test: c.status_test, queued: c.status_queued };
@@ -186,8 +195,27 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       )}
 
       {tab === "bookings" && (
-        <section data-tab-panel="bookings">
-          <p className="text-sm text-muted">{c.bookings_none}</p>
+        <section className="flex flex-col gap-3" data-tab-panel="bookings">
+          {bookingsRes.error ? (
+            <p className="text-sm text-muted">{c.bookings_none}</p>
+          ) : bookingRows.length === 0 ? (
+            <p className="text-sm text-muted">{dict.bookings.contact_none}</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-line border-y border-line">
+              {bookingRows.map((row) => (
+                <li key={row.id} className="flex flex-wrap gap-x-3 py-3 text-sm" data-contact-booking={row.status}>
+                  <span className="font-semibold">{formatDateTime(row.starts_at, lang as Locale, tz)}</span>
+                  <span className={row.status === "confirmed" ? "" : "text-muted"}>
+                    {(dict.bookings as Record<string, string>)[`status_${row.status}`] ?? row.status}
+                  </span>
+                  {row.service_name && <span className="text-muted">{row.service_name}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link href={`/${lang}/dashboard/bookings?shop=${shop.slug}`} className="self-start text-sm underline underline-offset-4">
+            {dict.bookings.title}
+          </Link>
         </section>
       )}
 

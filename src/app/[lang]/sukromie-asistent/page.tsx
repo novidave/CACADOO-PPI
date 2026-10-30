@@ -27,6 +27,7 @@ export default async function AssistantPrivacyPage({ params }: PageProps<"/[lang
     [p.who_title, p.who],
     [p.time_title, p.time],
     [p.delete_title, p.delete],
+    [p.booking_title, p.booking],
   ];
   return (
     <article className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -34,7 +35,7 @@ export default async function AssistantPrivacyPage({ params }: PageProps<"/[lang
       <MachineTranslationNote lang={lang} prefixes={["privacy_assistant."]} text={(await getDictionary(lang)).translation.legal_machine} slovakHref="/sk/sukromie-asistent" />
       <p className="text-sm text-muted">{p.draft}</p>
       {parts.map(([heading, text]) => (
-        <section key={heading} className="flex flex-col gap-1">
+        <section key={heading} id={heading === p.booking_title ? "rezervacie" : undefined} className="flex scroll-mt-4 flex-col gap-1">
           <h2 className="font-semibold">{heading}</h2>
           <p>{text}</p>
         </section>

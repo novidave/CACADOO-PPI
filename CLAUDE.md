@@ -353,6 +353,27 @@ Owners read contacts, templates and the log (RLS); every write only through `own
 `contact_deleted`, `contact_linked`, `email_template_saved`, `email_template_deleted`, `message_sent`). Without the plan
 reading stays, changes and messages are refused (`no_plan`). Never log numbers, addresses or texts.
 
+## "Rezervácie" (paid, update 57, CRM phase 3)
+
+`supabase/sql/57_bookings.sql` + `supabase/functions/bookings` (one file, Verify JWT off) + `@/lib/bookings` +
+`/api/shops/[slug]/booking` + `@/components/BookingPanel` (in `ShopChat`) + `dashboard/bookings` (`page.tsx` Zoznam ·
+Kalendár · Nastavenia, `actions.ts`). Booking happens **in the shop assistant**: tool `find_slots` only when
+`shop_takes_bookings(slug)` (active, `shop_has_plan`, "Prijímať rezervácie" on — default off); the AI reads the terms
+from the shop's documents first, offers times (`booking_slots` → `reply.booking`, only the tool's own slots, ≤ 8) and
+**never asks for or receives personal data** — the page's own form does (name, mobile, optional e-mail / address /
+note, consent + `CONSENT_VERSION`). **Free times only in SQL** (`booking_day_ranges` / `booking_free_slots`: special day
+> holiday > `opening_hours`, lead, horizon, step, buffer, live bookings) minus the shop's Google freeBusy; **no overlap**
+= the `exclude using gist` constraint on pending + confirmed. SMS code: 6 digits, hash only, 10 minutes, 5 tries, ≤ 3
+sends, 3/phone + 5/caller per hour, 100/shop per day; the SMS log masks it "••••••"; `BOOKING_TEST_CODES=on` shows it in
+the chat only while `SMS_PROVIDER` is test. Right code → `booking_confirm()` at once (**no confirmation SMS**): contact
+by `crm_phone` found or made, `phone_verified_at` (the only place it is set), conversation linked, Google event
+(`calendar.events.owned`, `sendUpdates=none`, no attendees). Google: OAuth PKCE, scopes **only** `calendar.freebusy` +
+`calendar.events.owned`, tokens AES-GCM (`BOOKING_TOKEN_ENCRYPTION_KEY`), owners see only the status; expired →
+bookings go on without it. Reminder the day before (off by default, after 09:00 shop time, no cancel link;
+`ppi-bookings-tick`). Owners: `owner_save_booking_settings`, `owner_bookings`, `owner_set_booking_status` (Potvrdená /
+Zrušená / Neprišiel), activity log. The website reaches the function with `ASSISTANT_ARCHIVE_SECRET` (`x-ppi-website`).
+Never log phones, codes, names or tokens. Texts `chat.booking_*`, `bookings`.
+
 ## Cloud folder (paid, update 23)
 
 `supabase/sql/23_cloud_export.sql` + `supabase/functions/cloud-export` (one file, Verify JWT off) + dashboard

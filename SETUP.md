@@ -1822,6 +1822,39 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - A conversation (Asistent → Konverzácie → open one) → "Kontakt" → assign it → the contact's "Konverzácie" tab
      lists it.
 
+## Part AX3 — "Rezervácie" for Pro shops (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/57_bookings.sql` → Run → "Success". Safe to run again.
+   (Updates 55 and 56 must be in first.) It also makes the hourly job `ppi-bookings-tick` (reminders); it needs the
+   Vault secret `ppi_project_url` that is already there for the other jobs.
+2. **Edge Function:** Edge Functions → Deploy a new function → Via Editor → name **`bookings`** → paste
+   `supabase/functions/bookings/index.ts` → Deploy → switch **OFF "Verify JWT"**. It uses `ASSISTANT_ARCHIVE_SECRET`
+   (already set in Vercel and Supabase) to trust the website.
+3. **Google Calendar (optional — bookings work without it):**
+   - console.cloud.google.com → your project → APIs & Services → Library → enable **Google Calendar API**.
+   - OAuth consent screen: External, app name "Cacaduu", your support e-mail, the privacy page
+     `https://cacaduu.com/sk/sukromie-asistent`; scopes **`.../auth/calendar.freebusy`** and
+     **`.../auth/calendar.events.owned`** (nothing else). While the app is in "Testing", add your own Google account as
+     a test user; before shops use it, send the app for Google's verification (these are sensitive scopes).
+   - Credentials → Create credentials → OAuth client ID → Web application → Authorized redirect URI
+     **`https://<your project>.supabase.co/functions/v1/bookings/oauth`** → Create.
+   - Supabase → Edge Functions → Secrets: **`GOOGLE_CALENDAR_CLIENT_ID`**, **`GOOGLE_CALENDAR_CLIENT_SECRET`** (from that
+     client) and **`BOOKING_TOKEN_ENCRYPTION_KEY`** (a new long random text, e.g. `openssl rand -base64 32`; never change
+     it later, or shops must connect again). Without the key the function uses `EXPORT_TOKEN_ENCRYPTION_KEY`.
+4. **Testing before phase 4 (no real SMS yet):** leave `SMS_PROVIDER` unset and add the secret
+   **`BOOKING_TEST_CODES` = `on`** — the code then shows in the chat instead of arriving by SMS. Remove it (or it stops
+   by itself) as soon as a real SMS provider is set in phase 4.
+5. **Try it** (a shop with Pro):
+   - Môj obchod → **Rezervácie** → Nastavenia → tick "Prijímať rezervácie cez asistenta", service `Konzultácia`, 30 min → Uložiť.
+     Optional: "Pripojiť Google Kalendár" → allow both permissions → back with "Google Kalendár je pripojený".
+   - Optional: Asistent → Súkromné priečinky → a PDF in the public folder with your booking terms.
+   - The shop page → the assistant → "Chcem sa objednať na zajtra" → it says the terms and offers times as buttons
+     (only inside the opening hours; busy times in your Google Calendar are missing).
+   - Tap a time → name, your mobile, tick the consent → "Poslať kód" → the code (shown in test mode) → "Potvrdiť rezerváciu" →
+     "Rezervácia je potvrdená". The event is in your Google Calendar; Kontakty has the contact with "overené".
+   - Môj obchod → Rezervácie → Zoznam and Kalendár show it; "Neprišiel" / "Zrušiť" change the status.
+   - Try the same time again in another browser: it is no longer offered.
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1874,3 +1907,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 34. Every language: a language picker (all EU languages and more, Chinese and Vietnamese), interface texts per language, the shops' pages translated (original always kept, "Preložené automaticky"), product descriptions from the shop's own data, translations per product, the shop's languages, two-language stock files with encoding preview | ✅ built — set up Part AL |
 | 35. "Konverzácie" for Pro shops: the Asistent page in three tabs; every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" / "Prístupový kľúč"; filters, search and bulk actions; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action logged | ✅ built — set up Part AX |
 | 36. "Kontakty" for Pro shops: contacts with an international phone (one per number, "overené" after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; SMS and e-mail from the contact card with a preview first; e-mail templates; every outgoing message written down (SMS only as "test" until phase 4) | ✅ built — set up Part AX2 |
+| 37. "Rezervácie" for Pro shops: free times in the shop assistant (opening hours, holidays, special days, no overlap, optional Google Calendar), the page's own form with the consent, a 6-digit SMS code that confirms at once, the contact found or made by the phone ("overené"), optional reminder the day before; Môj obchod → Rezervácie with a list, a week calendar and statuses | ✅ built — set up Part AX3 (SMS code only as "test" until phase 4) |
