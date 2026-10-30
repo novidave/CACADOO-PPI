@@ -9173,4 +9173,286 @@ end $$;
 reset role;
 drop table crm_test;
 
+\echo '--- update 57: Rezervácie — settings, free times within hours, no overlap, SMS code, confirm, contact, log, owners only'
+create temporary table bk_test (k text primary key, v text);
+grant all on bk_test to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb;
+begin
+  insert into bk_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('day', (current_date + 10)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_bk')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_bk');
+  update public.shops set auto_holidays = true where id = v_a;
+  -- a controlled day: 09:00–11:00; the next one closed
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, current_date + 10, false, '[["09:00","11:00"]]'), (v_a, current_date + 11, true, '[]')
+  on conflict (shop_id, date) do update set closed = excluded.closed, ranges = excluded.ranges;
+  v_open := public.assistant_open(v_a, 'sk', repeat('m', 32));
+  insert into bk_test values ('conv', v_open ->> 'id'), ('conv_token', v_open ->> 'token');
+end $$;
+reset role;
+
+-- the owner switches bookings on
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin
+    perform public.owner_save_booking_settings(v_a, true, 'Strih', 3, 30, 0, 120, 30, false);
+    raise exception '3 minutes accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  perform public.owner_save_booking_settings(v_a, true, 'Strih', 30, 30, 0, 120, 30, false);
+  assert (select enabled and duration_minutes = 30 and service_name = 'Strih' from public.shop_booking_settings where shop_id = v_a);
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'booking_settings_saved');
+  begin
+    insert into public.shop_bookings (shop_id, starts_at, ends_at, name, phone, consent_at, consent_version, token_hash)
+    values (v_a, now(), now() + interval '1 hour', 'x', '+421905000000', now(), 'v', 'x');
+    raise exception 'an owner wrote a booking directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_day date := (select v::date from bk_test where k = 'day');
+  v_nine timestamptz := (v_day + time '09:00') at time zone 'Europe/Bratislava';
+  vb jsonb;
+  v2 jsonb;
+  v_conv uuid := (select v::uuid from bk_test where k = 'conv');
+  v_dow_ranges integer;
+begin
+  -- free times only inside that day's hours, in the shop's time zone
+  assert (select count(*) from public.booking_day_ranges(v_a, v_day)) = 1;
+  assert (select range_start = v_nine and range_end = v_nine + interval '2 hours' from public.booking_day_ranges(v_a, v_day));
+  assert (select count(*) from public.booking_slots('potraviny-centrum', v_day, 1)) = 4, '09:00, 09:30, 10:00, 10:30';
+  assert (select min(starts_at) from public.booking_slots('potraviny-centrum', v_day, 1)) = v_nine;
+  assert not exists (select 1 from public.booking_slots('potraviny-centrum', v_day + 1, 1)), 'a closed special day';
+  assert not exists (select 1 from public.booking_slots('potraviny-centrum', current_date - 3, 3)), 'never in the past or within the notice';
+  -- holidays: closed by law cuts the day at "closed from"; a day off has no times
+  insert into public.public_holidays (country, date, kind, closed_from, source)
+  values ('SK', v_day + 12, 'shops_closed', '12:00', 'admin'), ('SK', v_day + 13, 'day_off', null, 'admin')
+  on conflict (country, date, source) do update set kind = excluded.kind, closed_from = excluded.closed_from;
+  assert not exists (select 1 from public.booking_day_ranges(v_a, v_day + 12)
+                     where range_end > ((v_day + 12) + time '12:00') at time zone 'Europe/Bratislava'), 'cut at 12:00';
+  assert not exists (select 1 from public.booking_day_ranges(v_a, v_day + 13)), 'a day off: no times';
+  -- the regular hours on an ordinary day
+  v_dow_ranges := jsonb_array_length(coalesce((select opening_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[extract(dow from v_day + 14)::int + 1]
+                                              from public.shops where id = v_a), '[]'));
+  assert (select count(*) from public.booking_day_ranges(v_a, v_day + 14)) = v_dow_ranges, 'the regular hours';
+
+  -- refusals of a start
+  begin perform public.booking_start('potraviny-centrum', v_nine, 'Jana', '0905 111 222', null, null, null, false, 'v1', 'sk', repeat('c', 32));
+    raise exception 'without consent'; exception when invalid_parameter_value then if sqlerrm <> 'consent' then raise; end if; end;
+  begin perform public.booking_start('potraviny-centrum', v_nine, 'Jana', '12', null, null, null, true, 'v1', 'sk', repeat('c', 32));
+    raise exception 'a bad phone'; exception when invalid_parameter_value then if sqlerrm <> 'phone' then raise; end if; end;
+  begin perform public.booking_start('potraviny-centrum', v_nine + interval '15 minutes', 'Jana', '0905 111 222', null, null, null, true, 'v1', 'sk', repeat('c', 32));
+    raise exception 'a time between the steps'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  begin perform public.booking_start('potraviny-centrum', v_nine - interval '1 hour', 'Jana', '0905 111 222', null, null, null, true, 'v1', 'sk', repeat('c', 32));
+    raise exception 'outside the hours'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+
+  -- a start holds the time, the code is 6 digits and only its hash is kept; the conversation is remembered
+  vb := public.booking_start('potraviny-centrum', v_nine, '  Jana Nová ', '0905 111 222', 'Jana@Example.invalid', 'Hlavná 1',
+                            'Prvýkrát', true, 'booking-2026-10-30', 'sk', repeat('c', 32),
+                            v_conv, (select v from bk_test where k = 'conv_token'));
+  assert vb ->> 'code' ~ '^\d{6}$' and vb ->> 'phone' = '+421905111222';
+  assert (select code_hash <> (vb ->> 'code') and status = 'pending' and conversation_id = v_conv and name = 'Jana Nová'
+                 and email = 'jana@example.invalid' and ends_at = v_nine + interval '30 minutes'
+          from public.shop_bookings where id = (vb ->> 'id')::uuid);
+  assert (select count(*) from public.booking_slots('potraviny-centrum', v_day, 1)) = 3, 'the waiting booking holds its time';
+  begin perform public.booking_start('potraviny-centrum', v_nine, 'Iný', '0905 333 444', null, null, null, true, 'v1', 'sk', repeat('d', 32));
+    raise exception 'the same time twice'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  -- wrong codes count, the right one verifies once
+  v2 := public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', '000000');
+  assert (v2 ->> 'ok')::boolean is false and v2 ->> 'reason' in ('wrong_code') and (v2 ->> 'attempts_left')::int = 4
+      or (vb ->> 'code') = '000000';
+  assert (public.booking_verify((vb ->> 'id')::uuid, 'wrong-token', vb ->> 'code') ->> 'reason') = 'not_pending', 'the token decides';
+  v2 := public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code');
+  assert (v2 ->> 'ok')::boolean and v2 ->> 'timezone' = 'Europe/Bratislava' and (v2 ->> 'google')::boolean is false;
+  assert (public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code') ->> 'ok')::boolean is false, 'only once';
+  -- confirmed: a new contact from the booking, "overené", the conversation linked through the number
+  v2 := public.booking_confirm((vb ->> 'id')::uuid, 'evt_1', 'created');
+  assert (select status = 'confirmed' and google_status = 'created' and google_event_id = 'evt_1' and contact_id is not null
+          from public.shop_bookings where id = (vb ->> 'id')::uuid);
+  assert (select source = 'booking' and phone = '+421905111222' and phone_verified_at is not null and email = 'jana@example.invalid'
+          from public.shop_contacts where id = (v2 ->> 'contact_id')::uuid);
+  assert (select shopper_phone = '+421905111222' and contact_id = (v2 ->> 'contact_id')::uuid
+          from public.assistant_conversations where id = v_conv);
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'booking_confirmed');
+  begin perform public.booking_confirm((vb ->> 'id')::uuid, null, null); raise exception 'confirmed twice';
+  exception when raise_exception then null; end;
+  -- never two bookings at the same time, not even directly
+  begin
+    insert into public.shop_bookings (shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash)
+    values (v_a, v_nine + interval '10 minutes', v_nine + interval '40 minutes', 'confirmed', 'x', '+421905999999', now(), 'v', 'x');
+    raise exception 'an overlapping booking was stored';
+  exception when exclusion_violation then null;
+  end;
+  insert into bk_test values ('b1', vb ->> 'id'), ('contact1', v2 ->> 'contact_id');
+
+  -- a second booking of the same number joins the same contact
+  vb := public.booking_start('potraviny-centrum', v_nine + interval '30 minutes', 'Jana', '+421905111222', null, null, null,
+                            true, 'booking-2026-10-30', 'sk', repeat('c', 32));
+  perform public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code');
+  v2 := public.booking_confirm((vb ->> 'id')::uuid, null, 'none');
+  assert (v2 ->> 'contact_id') = (select v from bk_test where k = 'contact1'), 'the same contact by the number';
+  assert (select count(*) from public.shop_contacts where shop_id = v_a and phone = '+421905111222') = 1;
+
+  -- five wrong codes end a booking and free its time; a new code replaces the old one
+  vb := public.booking_start('potraviny-centrum', v_nine + interval '60 minutes', 'Peter', '0905 555 666', null, null, null,
+                            true, 'booking-2026-10-30', 'sk', repeat('e', 32));
+  v2 := public.booking_resend((vb ->> 'id')::uuid, vb ->> 'token');
+  assert (v2 ->> 'ok')::boolean and v2 ->> 'code' ~ '^\d{6}$';
+  -- the old code stops working (one try either way)
+  if v2 ->> 'code' <> vb ->> 'code' then
+    assert (public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code') ->> 'reason') = 'wrong_code', 'the old code stops';
+  else
+    perform public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', 'abcdef');
+  end if;
+  perform public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', 'abcdef') from generate_series(1, 3);
+  assert (public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', 'abcdef') ->> 'reason') = 'too_many_attempts';
+  assert (select status = 'expired' and end_reason = 'too_many_attempts' from public.shop_bookings where id = (vb ->> 'id')::uuid);
+  assert exists (select 1 from public.booking_slots('potraviny-centrum', v_day, 1) where starts_at = v_nine + interval '60 minutes'), 'freed';
+  -- a code that ran out
+  vb := public.booking_start('potraviny-centrum', v_nine + interval '60 minutes', 'Eva', '0905 777 888', null, null, null,
+                            true, 'booking-2026-10-30', 'sk', repeat('f', 32));
+  update public.shop_bookings set code_expires_at = now() - interval '1 second' where id = (vb ->> 'id')::uuid;
+  assert (public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code') ->> 'reason') = 'expired';
+  -- at most 3 codes per booking
+  vb := public.booking_start('potraviny-centrum', v_nine + interval '90 minutes', 'Eva', '0905 777 888', null, null, null,
+                            true, 'booking-2026-10-30', 'sk', repeat('f', 32));
+  perform public.booking_resend((vb ->> 'id')::uuid, vb ->> 'token');
+  perform public.booking_resend((vb ->> 'id')::uuid, vb ->> 'token');
+  assert (public.booking_resend((vb ->> 'id')::uuid, vb ->> 'token') ->> 'reason') = 'too_many';
+  -- Google says busy meanwhile: released
+  assert public.booking_release((vb ->> 'id')::uuid, 'slot_taken');
+  -- at most 3 starts an hour per number (Eva's 3rd is still fine, the 4th is refused)
+  perform public.booking_start('potraviny-centrum', v_nine + interval '90 minutes', 'Eva', '0905 777 888', null, null, null,
+                               true, 'booking-2026-10-30', 'sk', repeat('g', 32));
+  begin
+    perform public.booking_start('potraviny-centrum', v_nine + interval '60 minutes', 'Eva', '0905 777 888', null, null, null,
+                                 true, 'booking-2026-10-30', 'sk', repeat('g', 32));
+    raise exception 'a 4th start within the hour';
+  exception when sqlstate '54000' then null;
+  end;
+
+  -- the SMS log: the code is never readable there
+  perform public.booking_log_sms((select v::uuid from bk_test where k = 'b1'), 'booking_code', 'Váš kód je 123456.', 'test', 'test', null, null);
+  assert (select body from public.shop_outgoing_messages where kind = 'booking_code' order by created_at desc limit 1) = 'Váš kód je ••••••.';
+  assert (select count(*) from public.shop_outgoing_messages where kind = 'owner' and booking_id is not null) = 0;
+
+  -- day-before reminders: only with the reminder on, tomorrow in the shop's time, from 09:00 there
+  update public.shop_booking_settings set reminder = true where shop_id = v_a;
+  insert into public.shop_bookings (shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash, confirmed_at)
+  values (v_a, ((now() at time zone 'Europe/Bratislava')::date + 1 + time '06:00') at time zone 'Europe/Bratislava',
+          ((now() at time zone 'Europe/Bratislava')::date + 1 + time '06:30') at time zone 'Europe/Bratislava',
+          'confirmed', 'Zajtra', '+421905121212', now(), 'v', 'x', now());
+  assert (select count(*) from public.booking_reminders_due() where name = 'Zajtra')
+       = case when (now() at time zone 'Europe/Bratislava')::time >= time '09:00' then 1 else 0 end, 'tomorrow, from 09:00';
+  update public.shop_booking_settings set reminder = false where shop_id = v_a;
+  assert not exists (select 1 from public.booking_reminders_due() where name = 'Zajtra'), 'reminders off by default';
+end $$;
+reset role;
+
+-- the owner's list and statuses
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b1 uuid := (select v::uuid from bk_test where k = 'b1');
+  v_day date := (select v::date from bk_test where k = 'day');
+begin
+  assert (select count(*) from public.owner_bookings(v_a, v_day, v_day)) = 2, 'only confirmed / cancelled / no-show';
+  assert not exists (select 1 from public.owner_bookings(v_a, v_day, v_day) where status in ('pending', 'expired'));
+  assert (select count(*) from public.owner_bookings(v_a, v_day, v_day, 'expired')) >= 2;
+  assert (select name from public.owner_bookings(v_a, v_day, v_day) order by starts_at limit 1) = 'Jana Nová';
+  assert public.owner_set_booking_status(v_b1, 'cancelled');
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'booking_status_changed');
+  assert public.owner_set_booking_status(v_b1, 'no_show');
+  assert public.owner_set_booking_status(v_b1, 'confirmed');
+  assert not public.owner_set_booking_status(v_b1, 'confirmed'), 'no change';
+  begin perform public.owner_set_booking_status(v_b1, 'pending'); raise exception 'pending set by hand';
+  exception when invalid_parameter_value then null; end;
+  -- owners read their bookings but never the token or the code
+  assert (select count(*) from public.shop_bookings where shop_id = v_a) >= 4;
+  begin perform token_hash from public.shop_bookings; raise exception 'an owner read a token hash';
+  exception when insufficient_privilege then null; end;
+  begin perform public.booking_start('potraviny-centrum', now(), 'x', '0905000000', null, null, null, true, 'v', 'sk', repeat('h', 32));
+    raise exception 'an owner called booking_start'; exception when insufficient_privilege then null; end;
+  begin perform access_token_enc from public.booking_google_connections; raise exception 'an owner read a Google token';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert not exists (select 1 from public.shop_bookings) and not exists (select 1 from public.owner_bookings(v_a, null, null, 'confirmed'));
+  begin perform public.owner_set_booking_status((select v::uuid from bk_test where k = 'b1'), 'cancelled'); raise exception 'B changed A''s booking';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_booking_settings(v_a, false, null, 30, 30, 0, 0, 30, false); raise exception 'B saved A''s settings';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  assert (select duration_minutes from public.shop_takes_bookings('potraviny-centrum')) = 30, 'the assistant may know it';
+  assert not exists (select 1 from public.shop_takes_bookings('drogeria-kostolne')), 'a shop without bookings';
+  begin perform public.booking_slots('potraviny-centrum', current_date, 7); raise exception 'a visitor read slots directly';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.shop_bookings; raise exception 'a visitor read bookings';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- without the plan or with bookings off: nothing to book
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  update public.shop_booking_settings set enabled = false where shop_id = v_a;
+  assert not exists (select 1 from public.booking_shop('potraviny-centrum'));
+  begin perform public.booking_start('potraviny-centrum', now() + interval '1 day', 'x', '0905 101 010', null, null, null, true, 'v', 'sk', repeat('i', 32));
+    raise exception 'booked while off'; exception when raise_exception then if sqlerrm <> 'not_available' then raise; end if; end;
+  -- tidy up: the subscription exactly as before
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.shop_bookings where shop_id = v_a;
+  delete from public.shop_booking_settings where shop_id = v_a;
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date in ((select v::date from bk_test where k = 'day'),
+                                                                          (select v::date from bk_test where k = 'day') + 1);
+  delete from public.public_holidays where source = 'admin' and country = 'SK'
+    and date in ((select v::date from bk_test where k = 'day') + 12, (select v::date from bk_test where k = 'day') + 13);
+  perform public.assistant_forget((select v::uuid from bk_test where k = 'conv'));
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from bk_test where k = 'sub'))
+  where (select v from bk_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from bk_test where k = 'had_plan');
+end $$;
+reset role;
+drop table bk_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'

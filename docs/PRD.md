@@ -45,6 +45,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Forgiving product search: "Tovar v obchode" suggests up to 8 products while typing (from 2 letters; ↑ ↓ Enter Esc; "Zobraziť všetky výsledky") and finds them despite typos, word order, other languages, word endings and sizes ("akril paint 0.5l" → "Akrylové médium lesklé, 250 ml"); codes and EANs exact first; nothing exact → "podobné produkty"; the same rule in the main search, the API, MCP, the chat and the shop assistant ("farba v Budinciach" → only Budince) | Built and tested; live after database update 54 and the merge (SETUP.md part AW) |
 | "Konverzácie" (Pro, phase 1 of the CRM work): the Asistent page in three tabs (Nastavenia · Konverzácie with the number of new ones · Súkromné priečinky); every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" and "Prístupový kľúč"; filters (days, status, star, no answer, files, language) and search; ticks with bulk actions (prečítané, nové, hviezdička, archivovať, vymazať with a confirmation); suggested products linked; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action in the activity log | Built and tested (database checks, unit tests); live after database update 55 and the merge (SETUP.md part AX) |
 | "Kontakty" (Pro, phase 2 of the CRM work): contacts with phone (international form, one contact per number, "overené" only after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; a contact card with Prehľad · Konverzácie · Rezervácie · Správy; SMS and e-mail from the card with a preview first; e-mail templates with variables; every outgoing message written down | Built and tested (database checks, function and unit tests); e-mail live after database update 56, the crm-messages function and the merge (SETUP.md part AX2); SMS only written down ("test") until the SMS provider of phase 4 |
+| "Rezervácie" (Pro, phase 3 of the CRM work): the shop assistant offers free times (from the opening hours, special days, holidays, other bookings and — when connected — the shop's Google Calendar; never overlapping, never outside the hours) after reading the booking terms in the shop's documents; the page's own form takes name, mobile, optional e-mail / address / note and the consent; a 6-digit SMS code (10 minutes, 5 tries) confirms at once, with no confirmation SMS; the contact is found or made by the phone and marked "overené"; the booking joins the chat; optional reminder the day before (off by default, no cancel link); Môj obchod → Rezervácie with a list, a week calendar and Potvrdená / Zrušená / Neprišiel | Built and tested (database checks, function tests); live after database update 57, the bookings function, the Google OAuth client and the merge (SETUP.md part AX3); the SMS code is only written down ("test") until the SMS provider of phase 4 — with `BOOKING_TEST_CODES=on` the code shows in the chat for testing |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -1949,3 +1950,34 @@ below is unchanged.)
   under "Odoslané správy". Saving, deleting, assigning and sending also go into the shop's activity log.
 - Only the shop's owners see or change anything (RLS, owner functions); without the Pro plan the contacts stay readable,
   changes and messages are refused.
+
+### 6.32 "Rezervácie" for Pro shops (database update 57, phase 3 of the CRM work, 30 October 2026)
+
+- **Môj obchod → Rezervácie → Nastavenia:** "Prijímať rezervácie" (off by default), the service's name, its length
+  (5–480 min), the step between start times, a pause after each booking, how long ahead at the earliest (hours) and at
+  the latest (days), "Pripomienka deň vopred (SMS)" (off by default). **Google Calendar** (optional): "Pripojiť Google
+  Kalendár" — Cacaduu asks only to read when the calendar is busy and to add its own events (no other calendar data);
+  busy times there are never offered, a confirmed booking is added as an event (no guests, no invitations).
+  "Odpojiť" removes the connection at Google and in Cacaduu.
+- **In the shop assistant** (Pro, bookings switched on): the shopper asks for an appointment; the assistant first looks
+  in the shop's documents for the booking terms (what to bring, prices, cancelling) and says them as written, then
+  offers free times as buttons. **The personal data never go through the AI:** a tap on a time opens the page's own
+  form — name, mobile, e-mail / address / note (optional), the consent with a link to the privacy page.
+- **Free times** are decided only in the database: the opening hours of that day (a special day wins over a holiday;
+  closed by law → none or until "closed from"; a "day off" holiday → none), the lead time and the horizon, the pause,
+  other bookings (confirmed ones and those whose code is still valid), and the shop's Google Calendar. Two bookings can
+  never overlap (the database refuses it even if two people tap the same time at once).
+- **SMS code:** 6 digits, valid 10 minutes, 5 wrong tries end the booking, "Poslať znova" at most 3 times; at most 3
+  bookings per phone and 5 per shopper per hour, 100 per shop per day. The right code **confirms at once** ("Rezervácia
+  je potvrdená") — no confirmation SMS. Until the SMS provider of phase 4 the code is only written down ("test"); for
+  testing, `BOOKING_TEST_CODES=on` shows it in the chat (never while a real provider is set).
+- **On confirming:** the shop's contact with that phone is found or made (source "booking"), its number marked
+  "overené", empty e-mail / address filled in; the booking and the chat join the contact; the event in Google Calendar;
+  the activity log. The code itself is never stored or logged (only its hash; the SMS log shows "••••••").
+- **Reminder** (when switched on): one SMS the day before, after 9:00 in the shop's time zone, with the shop, the day
+  and the time; no cancel link.
+- **Rezervácie page:** "Zoznam" (filter by status; name with the contact's card, phone, the conversation, Google
+  status, reminder sent; buttons Potvrdená / Zrušená / Neprišiel) and "Kalendár" (one week, ‹ ›). The contact card's
+  "Rezervácie" tab lists that contact's bookings. Only the shop's owners see or change anything; without the Pro plan
+  nothing new is booked and the list stays readable.
+

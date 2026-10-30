@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { AssistantHeading } from "./AssistantHeading";
+import { BookingPanel } from "./BookingPanel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { looksLikeKey } from "@/lib/accessKey";
@@ -721,7 +722,13 @@ export function ShopChat({
                     </>
                   )}
                   {entry.role === "assistant" && (
-                    <Answer reply={entry.reply} labels={labels} shopName={shopName} onView={folders ? setViewing : null} />
+                    <Answer
+                      reply={entry.reply}
+                      labels={labels}
+                      shopName={shopName}
+                      onView={folders ? setViewing : null}
+                      booking={{ base, lang, conversation: () => (archive ? conv.current : null) }}
+                    />
                   )}
                   {entry.role === "error" && <p className="border border-line p-2 text-sm">{entry.text}</p>}
                   {entry.role === "notice" && (
@@ -881,12 +888,15 @@ function Answer({
   labels,
   shopName,
   onView,
+  booking,
 }: {
   reply: ChatReply;
   labels: Labels;
   shopName: string;
   /** Opens a private folder's document in the viewer (only while folders are open). */
   onView: ((target: ViewTarget) => void) | null;
+  /** What the booking form needs (database update 57). */
+  booking: { base: string; lang: string; conversation: () => Conversation | null };
 }) {
   const match = reply.photo
     ? { found: labels.match_found, not_found: labels.match_not_found, unsure: labels.match_unsure }[reply.photo.match]
@@ -959,6 +969,19 @@ function Answer({
             </li>
           ))}
         </ul>
+      )}
+      {reply.booking && reply.booking.slots.length > 0 && (
+        <BookingPanel
+          base={booking.base}
+          lang={booking.lang}
+          shopName={shopName}
+          timeZone={reply.booking.timezone}
+          service={reply.booking.service}
+          slots={reply.booking.slots}
+          conversation={booking.conversation}
+          privacyHref={`/${booking.lang}/sukromie-asistent#rezervacie`}
+          labels={labels}
+        />
       )}
       {reply.callShop && (
         <p className="text-sm">
