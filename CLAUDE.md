@@ -95,6 +95,8 @@ button, the text only after a tap, 2026-10-27); always an extra — every page m
   (empty cells, read-only columns, unknown rows, Kód then EAN)
 - `npm run test:conversations` — unit tests (Deno) of the owner's conversation exports (`src/lib/conversationExport_test.ts`):
   times in the shop's time zone, CSV cells (quotes, ";", new lines, formulas written as text), BOM + CRLF, TXT lines
+- `npm run test:crm` — unit tests (Deno) of "Kontakty" (`src/lib/crm_test.ts`): SMS parts (GSM-7 160/153, Unicode
+  70/67), tags from one field, refusals as texts
 - `npm run test:list` — unit tests (Deno) of the shop page's Zoznam (`src/lib/shoppingList_test.ts`): add / set / remove,
   "9+", totals in cents per currency, Slovak plurals, the copied text, broken stored lists, blocked storage
 - `npm run test:search` — unit tests (Deno) of the forgiving search's word rules (`src/lib/searchWords_test.ts`): the
@@ -331,6 +333,26 @@ goes to `shop_activity` (`conversation_retention`, `conversations_marked`, `conv
 `conversations_exported`). Exports: PDF (as before), TXT per conversation, CSV per date range (BOM, ";", formula
 guard, ≤ 50 000 rows, shop's time zone). Before update 55 the list falls back to `owner_assistant_conversations`.
 
+## "Kontakty" (paid, update 56, CRM phase 2)
+
+`supabase/sql/56_contacts.sql` + `supabase/functions/crm-messages` (one file, Verify JWT off) + `dashboard/contacts`
+(`page.tsx` list + "E-mailové šablóny", `[id]/page.tsx` tabs Prehľad · Konverzácie · Rezervácie · Správy, `actions.ts`,
+`parts.tsx`) + `@/components/MessageComposer` + `@/lib/crm` (`crm_test.ts`). `shop_contacts` (name, `phone` **E.164 only,
+one per shop and number** — `crm_phone(raw, shops.country)`: "00"/"+" international, trunk 0 (HU "06"; IT/SM/VA keep the
+0) + `crm_calling_code()`; `phone_verified_at` **set only by the system** (the booking's SMS code, phase 3), a changed
+number loses it; email, address, tags ≤ 20, note, source owner|chat|booking). Conversations join a contact **by the
+phone** (`assistant_conversations.shopper_phone` + `contact_id`, both triggers) or by hand (`owner_link_conversation`).
+`shop_email_templates` (≤ 50 per shop) with `{{name}} {{first_name}} {{shop}} {{shop_phone}} {{shop_email}}
+{{shop_address}} {{shop_web}}` filled only by `crm_render()`. **Every outgoing message is written down first**
+(`shop_outgoing_messages`: recipient, text as sent, status queued|sent|failed|test, who): the page's "Náhľad" =
+`owner_message_preview()` (nothing written), "Odoslať" → crm-messages `send` → `owner_message_queue()` with the owner's
+login (members + `shop_has_plan`, ≤ 100 per channel and shop in 24 h, SMS ≤ 480) → Brevo (sender name = the shop,
+`replyTo` = the shop's e-mail, from `ALERT_EMAIL_FROM`) or the `SmsProvider` (`SMS_PROVIDER` unset/"test" = written down
+as `test`, never sent — the real provider and the monthly quotas are phase 4) → `crm_message_result()` once (service role).
+Owners read contacts, templates and the log (RLS); every write only through `owner_*` (activity log: `contact_saved`,
+`contact_deleted`, `contact_linked`, `email_template_saved`, `email_template_deleted`, `message_sent`). Without the plan
+reading stays, changes and messages are refused (`no_plan`). Never log numbers, addresses or texts.
+
 ## Cloud folder (paid, update 23)
 
 `supabase/sql/23_cloud_export.sql` + `supabase/functions/cloud-export` (one file, Verify JWT off) + dashboard
@@ -456,7 +478,7 @@ PPI's sitemap leaves those pages out.
   never the table) → `shopCompany()`; the address line "Ulica, PSČ Mesto" and under it "Firma · IČO … · DIČ …"
   (`data-shop-company`, Cacaduu address and own domain); JSON-LD `postalCode`, `legalName`, `taxID` (DIČ). Not in the
   API/MCP or the assistant.
-- Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
+- Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Kontakty (update 56) · Priečinok s exportom ·
   Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (details, logo, header logo, plan,
   delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`
   "Asistent" (update 38: **three sections, each once, in this order** — since update 55 **three tabs** — "Nastavenia

@@ -1803,6 +1803,25 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - Export: Od / Do → **Stiahnuť CSV** → opens in Excel with Slovak letters.
    - "Uchovávať konverzácie": **Neobmedzene** is selected by default; 30 / 90 / 365 days are still there.
 
+## Part AX2 — "Kontakty" for Pro shops (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/56_contacts.sql` → Run → "Success". Safe to run again.
+   (Update 55 must be in first.)
+2. **Edge Function:** Edge Functions → Deploy a new function → Via Editor → name **`crm-messages`** → paste
+   `supabase/functions/crm-messages/index.ts` → Deploy → switch **OFF "Verify JWT"**. No new secret: it uses
+   `BREVO_API_KEY` and `ALERT_EMAIL_FROM` (already set for the other functions). Leave `SMS_PROVIDER` unset: SMS are only
+   written down as "test" until phase 4.
+3. **Try it** (a shop with Pro):
+   - Môj obchod → **Kontakty** → "Nový kontakt": name, phone `0905 123 456`, your own e-mail, tags `VIP, test` → Uložiť
+     → the card shows `+421905123456 · neoverené`.
+   - Tab **Správy** → E-mail → text `Dobrý deň {{first_name}}, {{shop}}` → **Náhľad** (your name and the shop's name
+     filled in) → **Odoslať** → "Odoslané." and the e-mail arrives with the shop's name; replying goes to the shop's
+     e-mail. The message is listed under "Odoslané správy".
+   - SMS → Náhľad → Odoslať → "Zapísané v testovacom režime" (nothing is sent).
+   - Tab "E-mailové šablóny" → a template with `{{name}}` → use it from the card.
+   - A conversation (Asistent → Konverzácie → open one) → "Kontakt" → assign it → the contact's "Konverzácie" tab
+     lists it.
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1854,3 +1873,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 33. Shop blog "Novinky": posts with photos written in Môj obchod (now or scheduled), the shop's Facebook Page connected once (all past posts imported, a daily sync, "Zverejniť aj na Facebooku?" before each post), `/blog` pages with RSS, sitemap, llms.txt, IndexNow and JSON-LD on Cacaduu and own domains; free shops show the 10 newest; privacy and data deletion pages | ✅ built — set up Part AI |
 | 34. Every language: a language picker (all EU languages and more, Chinese and Vietnamese), interface texts per language, the shops' pages translated (original always kept, "Preložené automaticky"), product descriptions from the shop's own data, translations per product, the shop's languages, two-language stock files with encoding preview | ✅ built — set up Part AL |
 | 35. "Konverzácie" for Pro shops: the Asistent page in three tabs; every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" / "Prístupový kľúč"; filters, search and bulk actions; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action logged | ✅ built — set up Part AX |
+| 36. "Kontakty" for Pro shops: contacts with an international phone (one per number, "overené" after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; SMS and e-mail from the contact card with a preview first; e-mail templates; every outgoing message written down (SMS only as "test" until phase 4) | ✅ built — set up Part AX2 |

@@ -44,6 +44,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Shop blog "Novinky" (every shop; free: the newest 10 posts shown, Pro: all): posts written in Môj obchod → "Novinky / Blog" with up to 10 photos, now or scheduled; the shop's Facebook Page connected once: all past posts imported, a daily sync, and "Zverejniť aj na Facebooku?" before each post; `/blog` pages, RSS, JSON-LD, sitemap, llms.txt and IndexNow, also on own domains; privacy and data deletion pages | Built and tested against Facebook, Brevo and IndexNow stand-ins; live after database update 37, the new shop-blog function, the Meta app and the merge (SETUP.md part AI) |
 | Forgiving product search: "Tovar v obchode" suggests up to 8 products while typing (from 2 letters; ↑ ↓ Enter Esc; "Zobraziť všetky výsledky") and finds them despite typos, word order, other languages, word endings and sizes ("akril paint 0.5l" → "Akrylové médium lesklé, 250 ml"); codes and EANs exact first; nothing exact → "podobné produkty"; the same rule in the main search, the API, MCP, the chat and the shop assistant ("farba v Budinciach" → only Budince) | Built and tested; live after database update 54 and the merge (SETUP.md part AW) |
 | "Konverzácie" (Pro, phase 1 of the CRM work): the Asistent page in three tabs (Nastavenia · Konverzácie with the number of new ones · Súkromné priečinky); every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" and "Prístupový kľúč"; filters (days, status, star, no answer, files, language) and search; ticks with bulk actions (prečítané, nové, hviezdička, archivovať, vymazať with a confirmation); suggested products linked; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action in the activity log | Built and tested (database checks, unit tests); live after database update 55 and the merge (SETUP.md part AX) |
+| "Kontakty" (Pro, phase 2 of the CRM work): contacts with phone (international form, one contact per number, "overené" only after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; a contact card with Prehľad · Konverzácie · Rezervácie · Správy; SMS and e-mail from the card with a preview first; e-mail templates with variables; every outgoing message written down | Built and tested (database checks, function and unit tests); e-mail live after database update 56, the crm-messages function and the merge (SETUP.md part AX2); SMS only written down ("test") until the SMS provider of phase 4 |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -1923,3 +1924,28 @@ below is unchanged.)
 - **Log:** keep time, marks (not the automatic "read" when opening), notes, deletions and exports go into the shop's
   activity log (`shop_activity`). Only the shop's members see or change anything (RLS and the owner functions);
   visitors never.
+
+### 6.31 "Kontakty" for Pro shops (database update 56, phase 2 of the CRM work, 30 October 2026)
+
+- **Môj obchod → Kontakty** (a new menu page): the shop's contacts, last changed first, with a search (name, phone,
+  e-mail, address, tags, note; a number also as typed with spaces), a tag filter, "Nový kontakt", and a second tab
+  **"E-mailové šablóny"**.
+- **A contact:** name, **phone** (typed in any common way, kept in international form with the shop's country code —
+  "0905 123 456" in a Slovak shop is "+421905123456"; one contact per number), e-mail, address, tags (comma separated),
+  a private note. **"overené"** only when the customer confirmed the number with an SMS code (the booking, phase 3); a
+  changed number is no longer "overené". At least a name, a phone or an e-mail.
+- **Conversations and bookings join a contact by the phone** (a conversation with the customer's number — from a booking
+  or a number left in the chat, phases 3 and 5 — joins the contact with that number), or the owner assigns one on the
+  conversation's page ("Priradiť ku kontaktu", "Nový kontakt z tejto konverzácie").
+- **Contact card tabs:** Prehľad (the details to edit, delete with a confirmation — conversations and the log stay),
+  Konverzácie, Rezervácie (filled in phase 3), Správy.
+- **Správy:** SMS or e-mail; an e-mail template copies its subject and text in to edit; the variables {{name}},
+  {{first_name}}, {{shop}}, {{shop_phone}}, {{shop_email}}, {{shop_address}}, {{shop_web}}; the SMS length in parts
+  (accents make an SMS shorter: 70 characters instead of 160). **"Náhľad" shows the message exactly as it will go**
+  (variables filled in); only then "Odoslať". E-mails go out with the shop's name and replies come to the shop's e-mail.
+  **SMS are only written down ("test – neodoslané") until the SMS provider and the monthly quotas of phase 4.** At most
+  100 messages of each kind per shop and day.
+- **Every outgoing message is written down** (to whom, the text as sent, sent / not sent / test, who sent it) and shown
+  under "Odoslané správy". Saving, deleting, assigning and sending also go into the shop's activity log.
+- Only the shop's owners see or change anything (RLS, owner functions); without the Pro plan the contacts stay readable,
+  changes and messages are refused.

@@ -2528,3 +2528,44 @@ the page still, ×, Esc, nothing found, typo, newest answer only, no-JS form).
   (no log on opening), archive hidden from the default list, export rows and range, log actions, owner B and anon
   refused, a refused turn changes nothing, Neobmedzene keeps 400-day-old conversations, 365 days deletes them.
 
+## Update 56 — "Kontakty" for Pro shops (CRM phase 2, 30 October 2026)
+
+`supabase/sql/56_contacts.sql` (one file, safe to run again):
+- `crm_calling_code(country)` (European countries) and `crm_phone(raw, country)` (immutable): drop spaces . - / ( ),
+  "00…" → "+…", a national number → the country code after dropping the trunk 0 (HU "06"; IT, SM, VA keep the 0);
+  E.164 `^\+[1-9][0-9]{6,14}$` or null.
+- `shop_contacts` (RLS: members read; written only by the functions): name ≤ 120, phone E.164 (unique per shop),
+  `phone_verified_at` (system only), email (lower case), address ≤ 300, tags ≤ 20 (`crm_tags()`: trimmed, ≤ 40, once,
+  case ignored), note ≤ 4000, source owner|chat|booking, `created_by`.
+- `assistant_conversations.contact_id` (set null on delete) + `shopper_phone` (E.164); triggers
+  `crm_contact_phone_link` (a contact's new number takes the shop's conversations with that number and no contact) and
+  `crm_conversation_phone_link` (a conversation getting a number joins that contact). Column grants for owners.
+- `shop_email_templates` (≤ 50 per shop, name unique per shop case-insensitively) and `shop_outgoing_messages`
+  (channel sms|email, recipient, subject, body as sent, template_id, status queued|sent|failed|test, provider,
+  provider_ref, error, sent_by, sent_at). Owners read both (RLS); only the functions write.
+- Owner functions: `crm_owner_check(shop)` (member + `shop_has_plan`, else `no_plan`), `owner_contacts(shop, q, tag,
+  limit, offset)` (counts of conversations and messages, last message; search = `matches_all_words(search_text(…))` or
+  the digits of a number), `owner_contact_tags()`, `owner_save_contact(…, conversation_id)` (errors phone / phone_taken
+  / email / empty), `owner_delete_contact()`, `owner_link_conversation(conversation, contact|null)`,
+  `owner_save_email_template()` / `owner_delete_email_template()`, `owner_message_preview()` and `owner_message_queue()`
+  (both through `crm_message_draft()`: the contact's own number / address, template or own text, `crm_render()`
+  variables, SMS ≤ 480, e-mail ≤ 10 000 / subject ≤ 200; queue: ≤ 100 per channel and shop in 24 h, returns the shop's
+  name and e-mail), `crm_message_result(id, status, provider, ref, error)` (service role, once, logs `message_sent`).
+  `shop_activity` gets six actions.
+- `supabase/functions/crm-messages` (Verify JWT off; owner JWT): `config` → {email, sms, sms_live}; `send` →
+  `owner_message_queue` as the caller → Brevo `smtp/email` (sender name = shop, `replyTo` = shop e-mail) or
+  `SmsProvider.send` (`smsProvider(SMS_PROVIDER)`: unset/"test" = `testSms`, `live` false → status `test`; an unknown
+  name fails) → `crm_message_result`. Never logs numbers, addresses or texts. Tests `crm-messages/index_test.ts`.
+- Website: `dashboard/contacts/page.tsx` (list, search, tag filter, new contact — `?conversation=` links it —, the
+  templates tab), `contacts/[id]/page.tsx` (tabs `?tab=overview|conversations|bookings|messages`), `contacts/actions.ts`
+  (`saveContact`, `deleteContact`, `saveTemplate`, `deleteTemplate`, `linkConversation`, `previewMessage`,
+  `sendMessage` → `functions.invoke("crm-messages")`), `contacts/parts.tsx`, `@/components/MessageComposer` (edit →
+  preview → send in one `useActionState`), the conversation page's "Kontakt" box, the menu link. `@/lib/crm`:
+  `smsParts()`, `splitTags()`, `TEMPLATE_VARIABLES`, error keys (`npm run test:crm`).
+- DB tests (block "update 56"): phones of SK/HU/IT/DE, international, too short, no country; tags; link by phone both
+  ways and by hand; one contact per number; bad phone / e-mail / empty; search with accents, the number as typed, tags;
+  templates (unique name); preview fills variables and writes nothing; no SMS without a phone; SMS length; queue
+  written down with the sender; owners never write the log or contacts directly nor report a result; result once +
+  activity; "overené" kept for the same number and lost for a new one; owner B and visitors refused; without the plan
+  reading stays, sending and saving refused, deleting keeps the log line.
+

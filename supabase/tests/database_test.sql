@@ -8906,4 +8906,271 @@ end $$;
 reset role;
 drop table conv_test;
 
+\echo '--- update 56: Kontakty — phones (E.164), contacts, tags, links by phone, templates, messages, log, owners only'
+create temporary table crm_test (k text primary key, v text);
+grant all on crm_test to public;
+
+do $$ begin
+  assert public.crm_phone('0905 123 456', 'SK') = '+421905123456', 'SK national';
+  assert public.crm_phone('+421 905/123-456', 'HU') = '+421905123456', 'international stays';
+  assert public.crm_phone('00421905123456', null) = '+421905123456', '00 prefix';
+  assert public.crm_phone('06 30 123 4567', 'HU') = '+36301234567', 'HU 06';
+  assert public.crm_phone('06 123 4567', 'IT') = '+39061234567', 'IT keeps its 0';
+  assert public.crm_phone('0170 1234567', 'DE') = '+491701234567', 'DE';
+  assert public.crm_phone('0905123456', null) is null, 'national without a country';
+  assert public.crm_phone('abc', 'SK') is null and public.crm_phone('12', 'SK') is null and public.crm_phone('', 'SK') is null;
+  assert public.crm_tags(array[' VIP ', 'vip', '', 'Stály zákazník']) = array['VIP', 'Stály zákazník'], 'tags once, trimmed';
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb;
+begin
+  insert into crm_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_crm')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_crm');
+  -- a conversation that already has the shopper's phone (phase 3 / 5 fill it)
+  v_open := public.assistant_open(v_a, 'sk', repeat('k', 32));
+  update public.assistant_conversations set shopper_phone = '+421905123456' where id = (v_open ->> 'id')::uuid;
+  insert into crm_test values ('conv', v_open ->> 'id');
+  v_open := public.assistant_open(v_a, 'sk', repeat('l', 32));
+  insert into crm_test values ('conv2', v_open ->> 'id');
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_conv uuid := (select v::uuid from crm_test where k = 'conv');
+  v_conv2 uuid := (select v::uuid from crm_test where k = 'conv2');
+  v_c uuid;
+  v_d uuid;
+  v_t uuid;
+  v jsonb;
+begin
+  -- a new contact: the phone as E.164, the conversation with that phone joins it
+  v_c := public.owner_save_contact(v_a, null, 'Jana Nová', '0905 123 456', 'Jana@Example.invalid', 'Hlavná 1, Michalovce',
+                                   array['VIP', 'vip', 'Stály zákazník'], 'Chce rezervovať');
+  assert (select phone = '+421905123456' and email = 'jana@example.invalid' and tags = array['VIP', 'Stály zákazník']
+                 and phone_verified_at is null and source = 'owner'
+          from public.shop_contacts where id = v_c);
+  assert (select contact_id from public.assistant_conversations where id = v_conv) = v_c, 'linked by phone';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'contact_saved');
+  -- one contact per number
+  begin
+    perform public.owner_save_contact(v_a, null, 'Iná', '+421 905 123 456', null, null, null, null);
+    raise exception 'the same phone twice';
+  exception when unique_violation then null;
+  end;
+  begin
+    perform public.owner_save_contact(v_a, null, 'Zlé', '12', null, null, null, null);
+    raise exception 'a bad phone was stored';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'phone' then raise; end if;
+  end;
+  begin
+    perform public.owner_save_contact(v_a, null, null, null, 'nie-email', null, null, null);
+    raise exception 'a bad e-mail was stored';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_save_contact(v_a, null, ' ', '', '', null, null, null);
+    raise exception 'an empty contact was stored';
+  exception when invalid_parameter_value then null;
+  end;
+  -- a second contact made from a conversation; search, tags, phone written another way
+  v_d := public.owner_save_contact(v_a, null, 'Peter Starý', null, 'peter@example.invalid', null, array['VIP'], null, v_conv2);
+  assert (select contact_id from public.assistant_conversations where id = v_conv2) = v_d, 'linked from the conversation';
+  assert (select count(*) from public.owner_contacts(v_a)) = 2;
+  assert (select id from public.owner_contacts(v_a, 'jana NOVA')) = v_c, 'accents and case ignored';
+  assert (select id from public.owner_contacts(v_a, '0905 123 456')) = v_c, 'the phone as typed';
+  assert (select count(*) from public.owner_contacts(v_a, null, 'vip')) = 2, 'a tag, case ignored';
+  assert (select count(*) from public.owner_contacts(v_a, null, 'Stály zákazník')) = 1;
+  assert (select contacts from public.owner_contact_tags(v_a) where tag = 'VIP') = 2;
+  assert (select conversation_count from public.owner_contacts(v_a) where id = v_c) = 1;
+  -- a changed number is not "overené" any more (the system sets it; here by hand as the service would)
+  -- relinking and unlinking by hand
+  assert public.owner_link_conversation(v_conv2, v_c);
+  assert (select contact_id from public.assistant_conversations where id = v_conv2) = v_c;
+  assert public.owner_link_conversation(v_conv2, null);
+  assert (select contact_id from public.assistant_conversations where id = v_conv2) is null;
+  -- templates
+  v_t := public.owner_save_email_template(v_a, null, 'Pripomienka', 'Dobrý deň, {{ first_name }}',
+                                          'Dobrý deň {{name}},\nčakáme vás v {{shop}} ({{shop_phone}}). {{neznáme}}');
+  begin
+    perform public.owner_save_email_template(v_a, null, 'pripomienka', 'x', 'y');
+    raise exception 'a template name twice';
+  exception when unique_violation then null;
+  end;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'email_template_saved');
+  -- preview: variables filled, nothing written
+  v := public.owner_message_preview(v_c, 'email', v_t);
+  assert v ->> 'subject' = 'Dobrý deň, Jana', 'first name';
+  assert v ->> 'body' like 'Dobrý deň Jana Nová,%Potraviny Centrum (+421 56 000 0001). {{neznáme}}', 'variables, unknown kept';
+  assert v ->> 'recipient' = 'jana@example.invalid';
+  assert not exists (select 1 from public.shop_outgoing_messages where shop_id = v_a), 'a preview writes nothing';
+  v := public.owner_message_preview(v_c, 'sms', null, null, 'Ahoj {{first_name}}');
+  assert v ->> 'recipient' = '+421905123456' and v ->> 'body' = 'Ahoj Jana' and v ->> 'subject' is null;
+  begin
+    perform public.owner_message_preview(v_d, 'sms', null, null, 'x');
+    raise exception 'an SMS to a contact without a phone';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'no_recipient' then raise; end if;
+  end;
+  begin
+    perform public.owner_message_preview(v_c, 'sms', null, null, repeat('a', 481));
+    raise exception 'a too long SMS';
+  exception when invalid_parameter_value then null;
+  end;
+  -- queue: written down as queued, the shop's e-mail for "reply to"
+  v := public.owner_message_queue(v_c, 'email', v_t);
+  insert into crm_test values ('msg', v ->> 'id'), ('c', v_c), ('d', v_d), ('t', v_t);
+  assert (select status = 'queued' and recipient = 'jana@example.invalid' and channel = 'email' and template_id = v_t
+                 and sent_by = '00000000-0000-0000-0000-00000000000a'
+          from public.shop_outgoing_messages where id = (v ->> 'id')::uuid);
+  assert v ->> 'shop_name' = 'Potraviny Centrum';
+  -- owners never write the log or a contact directly, never report a result
+  begin
+    update public.shop_outgoing_messages set status = 'sent';
+    raise exception 'an owner changed the message log';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.shop_contacts (shop_id, name) values (v_a, 'x');
+    raise exception 'an owner wrote a contact directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.crm_message_result((v ->> 'id')::uuid, 'sent', 'x', null, null);
+    raise exception 'an owner reported a result';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the function reports the result once; the activity log gets the line
+set role service_role;
+do $$
+declare
+  v_msg uuid := (select v::uuid from crm_test where k = 'msg');
+begin
+  assert public.crm_message_result(v_msg, 'sent', 'brevo', 'ref-1', null);
+  assert not public.crm_message_result(v_msg, 'failed', 'brevo', null, 'late'), 'only once';
+  assert (select status = 'sent' and sent_at is not null and provider_ref = 'ref-1' from public.shop_outgoing_messages where id = v_msg);
+  assert exists (select 1 from public.shop_activity where action = 'message_sent' and details ->> 'message_id' = v_msg::text);
+  -- the system checks the number (phase 3): a changed number loses it
+  update public.shop_contacts set phone_verified_at = now() where id = (select v::uuid from crm_test where k = 'c');
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from crm_test where k = 'c');
+begin
+  assert (select phone_verified from public.owner_contacts(v_a) where id = v_c), 'overené';
+  perform public.owner_save_contact(v_a, v_c, 'Jana Nová', '+421905123456', 'jana@example.invalid', null, array['VIP'], null);
+  assert (select phone_verified_at is not null from public.shop_contacts where id = v_c), 'the same number stays overené';
+  perform public.owner_save_contact(v_a, v_c, 'Jana Nová', '0905 999 888', 'jana@example.invalid', null, array['VIP'], null);
+  assert (select phone_verified_at is null from public.shop_contacts where id = v_c), 'a changed number is not overené';
+  assert (select message_count from public.owner_contacts(v_a) where id = v_c) = 1;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- owner B and visitors: nothing of shop A
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from crm_test where k = 'c');
+  v_t uuid := (select v::uuid from crm_test where k = 't');
+begin
+  assert not exists (select 1 from public.shop_contacts) and not exists (select 1 from public.shop_outgoing_messages)
+     and not exists (select 1 from public.shop_email_templates), 'B reads none of A''s rows';
+  assert not exists (select 1 from public.owner_contacts(v_a)) and not exists (select 1 from public.owner_contact_tags(v_a));
+  begin perform public.owner_save_contact(v_a, null, 'x', null, null, null, null, null); raise exception 'B saved a contact in A';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_contact((select id from public.shops where slug = 'drogeria-kostolne'), v_c, 'x', null, null, null, null, null);
+    raise exception 'B changed A''s contact through its own shop';
+  exception when insufficient_privilege or raise_exception then null; end;
+  begin perform public.owner_delete_contact(v_c); raise exception 'B deleted A''s contact';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_message_preview(v_c, 'sms', null, null, 'x'); raise exception 'B previewed to A''s contact';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_message_queue(v_c, 'sms', null, null, 'x'); raise exception 'B sent to A''s contact';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_delete_email_template(v_t); raise exception 'B deleted A''s template';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  begin perform count(*) from public.shop_contacts; raise exception 'a visitor read contacts';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_contacts((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'a visitor listed contacts';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- without the plan: reading stays, changes and messages are refused; deleting the contact keeps the log line
+set role service_role;
+do $$ begin
+  update public.subscriptions set status = 'canceled', current_period_end = now() - interval '1 day'
+  where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from crm_test where k = 'c');
+begin
+  assert (select count(*) from public.owner_contacts(v_a)) = 2, 'a free shop still reads its contacts';
+  begin perform public.owner_message_queue(v_c, 'email', null, 'x', 'y'); raise exception 'sent without the plan';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+  begin perform public.owner_save_contact(v_a, null, 'x', null, null, null, null, null); raise exception 'saved without the plan';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+  assert public.owner_delete_contact(v_c), 'deleting stays possible';
+  assert (select contact_id is null and recipient = 'jana@example.invalid' from public.shop_outgoing_messages
+          where id = (select v::uuid from crm_test where k = 'msg')), 'the log keeps the line';
+  assert (select contact_id from public.assistant_conversations where id = (select v::uuid from crm_test where k = 'conv')) is null;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  perform public.assistant_forget((select v::uuid from crm_test where k = 'conv'));
+  perform public.assistant_forget((select v::uuid from crm_test where k = 'conv2'));
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.shop_email_templates where shop_id = v_a;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  -- the subscription exactly as before
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from crm_test where k = 'sub'))
+  where (select v from crm_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from crm_test where k = 'had_plan');
+end $$;
+reset role;
+drop table crm_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'
