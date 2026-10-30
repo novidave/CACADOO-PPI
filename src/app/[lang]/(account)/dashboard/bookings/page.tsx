@@ -6,6 +6,9 @@ import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
+import { SmsUsage } from "@/components/SmsUsage";
+import { formatDate } from "@/lib/format";
+import { loadSmsUsage, quotaLeft } from "@/lib/smsUsage";
 import { hiddenFields, inputClass, ProOnly, ShopSwitcher } from "../shared";
 import { chooseShop } from "../contacts/parts";
 import { connectGoogle, disconnectGoogle, saveBookingSettings, setBookingStatus } from "./actions";
@@ -86,7 +89,7 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
   const week = monday(DAY.test(first(sp.week) ?? "") ? first(sp.week)! : today);
   const status = STATUSES.includes(first(sp.status) as (typeof STATUSES)[number]) ? first(sp.status)! : "";
 
-  const [plan, settingsRes, googleRes, list] = await Promise.all([
+  const [plan, settingsRes, googleRes, list, sms] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.from("shop_booking_settings").select("*").eq("shop_id", shop.id).maybeSingle<Settings>(),
     supabase.from("booking_google_connections").select("status, last_error, connected_at").eq("shop_id", shop.id).maybeSingle(),
@@ -100,6 +103,8 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
           p_limit: 300,
           p_offset: 0,
         }),
+    // The booking's SMS this month (database update 58): at the limit the assistant offers no times.
+    loadSmsUsage(supabase, shop.id),
   ]);
   const hasPlan = !plan.error && plan.data === true;
   const unavailable = Boolean(settingsRes.error || list.error);
@@ -134,7 +139,13 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
             </Link>
           </p>
         )}
+        {hasPlan && settings?.enabled && sms && quotaLeft(sms.booking) === 0 && (
+          <p role="alert" className="border border-foreground p-3 text-sm font-semibold" data-booking-paused>
+            {t(b.sms_paused, { date: formatDate(sms.resets_at, lang, tz) })}
+          </p>
+        )}
         {notice}
+        {hasPlan && sms && view === "settings" && <SmsUsage usage={sms} lang={lang} timeZone={tz} dict={dict} only="booking" />}
       </header>
 
       <nav aria-label={b.tabs} className="flex flex-wrap gap-1 border-b border-line" data-booking-tabs>

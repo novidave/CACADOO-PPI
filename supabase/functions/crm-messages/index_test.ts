@@ -106,6 +106,10 @@ Deno.test("bad requests and the database's refusals", async () => {
   const other = setup({ queueError: { message: "Not your shop", code: "42501" } });
   eq((await handle(post({ action: "send", contact_id: CONTACT, channel: "sms" }), other.deps)).status, 403, "another shop");
   eq(reason({ message: "boom" }), "failed", "unknown reason");
+  const quota = setup({ queueError: { message: "sms_quota", code: "54000" } });
+  const q = await handle(post({ action: "send", contact_id: CONTACT, channel: "sms", body: "Ahoj" }), quota.deps);
+  eq([q.status, await q.json()], [400, { error: "sms_quota" }], "the month's SMS used up");
+  eq(quota.log.some((l) => l.startsWith("fetch") || l.startsWith("db ")), false, "nothing sent at the quota limit");
 });
 
 Deno.test("the sender's name never breaks the header", () => {

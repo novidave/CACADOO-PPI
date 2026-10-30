@@ -44,8 +44,9 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Shop blog "Novinky" (every shop; free: the newest 10 posts shown, Pro: all): posts written in Môj obchod → "Novinky / Blog" with up to 10 photos, now or scheduled; the shop's Facebook Page connected once: all past posts imported, a daily sync, and "Zverejniť aj na Facebooku?" before each post; `/blog` pages, RSS, JSON-LD, sitemap, llms.txt and IndexNow, also on own domains; privacy and data deletion pages | Built and tested against Facebook, Brevo and IndexNow stand-ins; live after database update 37, the new shop-blog function, the Meta app and the merge (SETUP.md part AI) |
 | Forgiving product search: "Tovar v obchode" suggests up to 8 products while typing (from 2 letters; ↑ ↓ Enter Esc; "Zobraziť všetky výsledky") and finds them despite typos, word order, other languages, word endings and sizes ("akril paint 0.5l" → "Akrylové médium lesklé, 250 ml"); codes and EANs exact first; nothing exact → "podobné produkty"; the same rule in the main search, the API, MCP, the chat and the shop assistant ("farba v Budinciach" → only Budince) | Built and tested; live after database update 54 and the merge (SETUP.md part AW) |
 | "Konverzácie" (Pro, phase 1 of the CRM work): the Asistent page in three tabs (Nastavenia · Konverzácie with the number of new ones · Súkromné priečinky); every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" and "Prístupový kľúč"; filters (days, status, star, no answer, files, language) and search; ticks with bulk actions (prečítané, nové, hviezdička, archivovať, vymazať with a confirmation); suggested products linked; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action in the activity log | Built and tested (database checks, unit tests); live after database update 55 and the merge (SETUP.md part AX) |
-| "Kontakty" (Pro, phase 2 of the CRM work): contacts with phone (international form, one contact per number, "overené" only after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; a contact card with Prehľad · Konverzácie · Rezervácie · Správy; SMS and e-mail from the card with a preview first; e-mail templates with variables; every outgoing message written down | Built and tested (database checks, function and unit tests); e-mail live after database update 56, the crm-messages function and the merge (SETUP.md part AX2); SMS only written down ("test") until the SMS provider of phase 4 |
-| "Rezervácie" (Pro, phase 3 of the CRM work): the shop assistant offers free times (from the opening hours, special days, holidays, other bookings and — when connected — the shop's Google Calendar; never overlapping, never outside the hours) after reading the booking terms in the shop's documents; the page's own form takes name, mobile, optional e-mail / address / note and the consent; a 6-digit SMS code (10 minutes, 5 tries) confirms at once, with no confirmation SMS; the contact is found or made by the phone and marked "overené"; the booking joins the chat; optional reminder the day before (off by default, no cancel link); Môj obchod → Rezervácie with a list, a week calendar and Potvrdená / Zrušená / Neprišiel | Built and tested (database checks, function tests); live after database update 57, the bookings function, the Google OAuth client and the merge (SETUP.md part AX3); the SMS code is only written down ("test") until the SMS provider of phase 4 — with `BOOKING_TEST_CODES=on` the code shows in the chat for testing |
+| "Kontakty" (Pro, phase 2 of the CRM work): contacts with phone (international form, one contact per number, "overené" only after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; a contact card with Prehľad · Konverzácie · Rezervácie · Správy; SMS and e-mail from the card with a preview first; e-mail templates with variables; every outgoing message written down | Built and tested (database checks, function and unit tests); e-mail live after database update 56, the crm-messages function and the merge (SETUP.md part AX2); SMS real since update 58 (phase 4, SETUP.md part AX4) |
+| "Rezervácie" (Pro, phase 3 of the CRM work): the shop assistant offers free times (from the opening hours, special days, holidays, other bookings and — when connected — the shop's Google Calendar; never overlapping, never outside the hours) after reading the booking terms in the shop's documents; the page's own form takes name, mobile, optional e-mail / address / note and the consent; a 6-digit SMS code (10 minutes, 5 tries) confirms at once, with no confirmation SMS; the contact is found or made by the phone and marked "overené"; the booking joins the chat; optional reminder the day before (off by default, no cancel link); Môj obchod → Rezervácie with a list, a week calendar and Potvrdená / Zrušená / Neprišiel | Built and tested (database checks, function tests); live after database update 57, the bookings function, the Google OAuth client and the merge (SETUP.md part AX3); real SMS since update 58 (phase 4, SETUP.md part AX4); without a provider the code is only written down — with `BOOKING_TEST_CODES=on` it shows in the chat for testing |
+| SMS quotas and the real SMS provider (Pro, phase 4 of the CRM work): two monthly quotas per shop kept apart — 100 SMS for bookings (codes and reminders) and 100 for the owner's own SMS (the admin may change both); counted as billed SMS parts in the shop's calendar month; at a limit nothing is sent (the owner is told, the assistant stops offering times, reminders wait); "SMS tento mesiac" with both quotas on Kontakty, the contact card and Rezervácie; SMS sent through Brevo (works in Slovakia and across Europe, the same key as the e-mails) or Twilio, chosen by one secret | Built and tested (database checks, function tests with mocked Brevo and Twilio); live after database update 58, the updated crm-messages and bookings functions, `SMS_PROVIDER` and the merge (SETUP.md part AX4); not yet tried with real SMS |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -1944,7 +1945,7 @@ below is unchanged.)
   {{first_name}}, {{shop}}, {{shop_phone}}, {{shop_email}}, {{shop_address}}, {{shop_web}}; the SMS length in parts
   (accents make an SMS shorter: 70 characters instead of 160). **"Náhľad" shows the message exactly as it will go**
   (variables filled in); only then "Odoslať". E-mails go out with the shop's name and replies come to the shop's e-mail.
-  **SMS are only written down ("test – neodoslané") until the SMS provider and the monthly quotas of phase 4.** At most
+  **SMS are only written down ("test – neodoslané") until an SMS provider is set (phase 4, 6.33).** At most
   100 messages of each kind per shop and day.
 - **Every outgoing message is written down** (to whom, the text as sent, sent / not sent / test, who sent it) and shown
   under "Odoslané správy". Saving, deleting, assigning and sending also go into the shop's activity log.
@@ -1969,7 +1970,7 @@ below is unchanged.)
   never overlap (the database refuses it even if two people tap the same time at once).
 - **SMS code:** 6 digits, valid 10 minutes, 5 wrong tries end the booking, "Poslať znova" at most 3 times; at most 3
   bookings per phone and 5 per shopper per hour, 100 per shop per day. The right code **confirms at once** ("Rezervácia
-  je potvrdená") — no confirmation SMS. Until the SMS provider of phase 4 the code is only written down ("test"); for
+  je potvrdená") — no confirmation SMS. Without an SMS provider (6.33) the code is only written down ("test"); for
   testing, `BOOKING_TEST_CODES=on` shows it in the chat (never while a real provider is set).
 - **On confirming:** the shop's contact with that phone is found or made (source "booking"), its number marked
   "overené", empty e-mail / address filled in; the booking and the chat join the contact; the event in Google Calendar;
@@ -1981,3 +1982,21 @@ below is unchanged.)
   "Rezervácie" tab lists that contact's bookings. Only the shop's owners see or change anything; without the Pro plan
   nothing new is booked and the list stays readable.
 
+### 6.33 SMS quotas and the SMS provider (database update 58, phase 4 of the CRM work, 30 October 2026)
+
+- **Two quotas per shop and month, kept apart:** **Rezervácie** (the booking's SMS codes and day-before reminders) and
+  **Vaše SMS** (what the owner sends from a contact card). 100 each by default; the admin changes both in "SMS" on the
+  admin page (for every shop at once).
+- **What counts:** the SMS parts each message is billed as — 160 characters without accents in one SMS (153 per part
+  when longer), 70 with accents (67 per part); every SMS written down this month (sent, and "test" while no provider is
+  connected), not the ones that failed. The month is the shop's own calendar month (its time zone).
+- **At the limit nothing is sent:** the owner's SMS is refused with "Tento mesiac ste už poslali všetky SMS svojej kvóty"
+  (e-mails still go); the assistant stops offering booking times (a shopper already in the form is told to call the
+  shop), "Poslať kód znova" is refused, and reminders wait. Two SMS at the same moment can never pass a limit together.
+- **Usage shown:** "SMS tento mesiac" with both quotas (written out, "23 zo 100 SMS", and a thin bar) on Kontakty, the
+  owner quota on a contact's Správy tab, the booking quota on Rezervácie → Nastavenia, and a banner on Rezervácie when
+  bookings pause ("Znova od 1. 12. 2026").
+- **The SMS provider** is one secret (`SMS_PROVIDER`): **Brevo** (recommended — it sends to Slovakia and the rest of
+  Europe and uses the API key the e-mails already have; the account needs SMS credits) or **Twilio**; without it SMS
+  are only written down as "test". The sender's name on the phone is `SMS_SENDER` (≤ 11 letters/digits, default
+  "Cacaduu"). Numbers and texts never appear in any log.

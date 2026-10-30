@@ -64,6 +64,7 @@ export function messageError(reason: string | undefined): string {
     too_long: "err_too_long",
     too_many: "err_too_many",
     forbidden: "err_forbidden",
+    sms_quota: "err_sms_quota",
   };
   return map[reason ?? ""] ?? "err_send_failed";
 }

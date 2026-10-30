@@ -2616,3 +2616,35 @@ the page still, ×, Esc, nothing found, typo, newest answer only, no-JS form).
   kinds, buffer; no overlap (exclusion constraint); consent / phone / name refused; rate limits; wrong code with tries
   left, the 5th ends it; expired code; resend limit; confirm makes or finds the contact (verified), links the
   conversation, logs; owner status changes; reminders due; owner B and visitors refused; no plan → nothing new.
+
+## Update 58 — SMS quotas and the SMS provider (CRM phase 4, 30 October 2026)
+
+`supabase/sql/58_sms_quotas.sql` (one file, safe to run again; needs 56 and 57 — run it again after re-running 57,
+which replaces three of its functions):
+- `sms_quota_limits` (quota booking|owner, monthly 0–100 000, default 100; service role only; admin through
+  `admin_sms_quotas()` (limits, this month's parts of all shops, shops at a limit) and `admin_save_sms_quotas()`).
+- `shop_outgoing_messages.parts` (+ partial index `(shop_id, created_at) where channel = 'sms'`; old rows filled once).
+  `crm_sms_parts(text)` (immutable: GSM 03.38 basic + extension ×2 → 160/153, else Unicode 70/67, astral ×2).
+- Counting: `sms_quota_of(kind)`, `sms_month(shop)` (shop's time zone), `sms_quota_used/limit/left`, `sms_quota_take(shop,
+  quota, parts)` (`pg_advisory_xact_lock` per shop + quota, raises `sms_quota` / 54000), `sms_quota_state(shop)` →
+  `owner_sms_usage(shop)` (members; also without the plan).
+- `owner_message_queue()` (as 56 + the owner quota and `parts`); `booking_sms_claim(booking, kind, body)` (queued, code
+  masked, the booking quota) and `booking_sms_settle(id, status, provider, ref, error)` (once; a reminder marks
+  `reminder_sent_at`); `shop_takes_bookings()`, `booking_resend()` (reason `sms_quota`) and `booking_reminders_due()`
+  as 57 plus the booking quota. `booking_log_sms()` stays for an older bookings function.
+- The SMS providers block (crm-messages and bookings, kept identical by `sms_providers_test.ts`): `SmsProvider`
+  {name, live, send}, `smsProvider(name, env, fetch)` → `testSms` | Brevo (`/v3/transactionalSMS/send`, `api-key`,
+  `{sender, recipient (no +), content, type: "transactional", tag: "cacaduu", unicodeEnabled: !isGsm}`, ref =
+  `messageId`) | Twilio (`/2010-04-01/Accounts/<sid>/Messages.json`, Basic auth, form To/Body/From or
+  MessagingServiceSid, ref = `sid`) | failing (missing secrets or unknown name); `smsSender()` (accents dropped,
+  letters/digits ≤ 11, or a number ≤ 15 digits, default "Cacaduu"). Errors: status + provider code only.
+- bookings: `sendSms(deps, booking, kind, phone, text)` = claim → send → settle; `quota` → start releases the time and
+  answers 429 `sms_quota`, resend 429, the tick skips. crm-messages: `sms_quota` passed on (400), nothing sent.
+- Website: `@/lib/smsUsage` (`loadSmsUsage`, `quotaLeft`), `@/components/SmsUsage` (server; both quotas or `only`),
+  Kontakty header, contact Správy tab (owner), Rezervácie settings (booking) + `data-booking-paused` banner,
+  `messageError("sms_quota")` → `contacts.err_sms_quota`, `chat.booking_err_sms_quota`, admin `SmsAdmin` (+ the
+  provider from crm-messages `config`), action `saveSmsQuotas`. Texts `sms_usage`, `admin_sms`.
+- DB tests (block "update 58"): parts (GSM, extension, new line, Unicode, boundaries); last month never counts; owner
+  parts, refusal at the limit writes nothing, e-mail free, a failed SMS gives its parts back; booking claim/settle
+  once, codes masked, quotas apart, reminder marked, refusal at the limit, nothing offered, resend refused, reminders
+  wait, wrong kind/status; owner B, owners and anon refused; admin limits and totals.

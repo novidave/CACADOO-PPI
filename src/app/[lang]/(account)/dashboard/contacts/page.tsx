@@ -7,6 +7,8 @@ import { requireUser } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
+import { SmsUsage } from "@/components/SmsUsage";
+import { loadSmsUsage } from "@/lib/smsUsage";
 import { countText } from "../Conversations";
 import { hiddenFields, inputClass, ProOnly, ShopSwitcher } from "../shared";
 import { deleteTemplate, saveContact, saveTemplate } from "./actions";
@@ -51,7 +53,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   const conversation = first(sp.conversation) ?? "";
 
-  const [plan, list, tags, templates] = await Promise.all([
+  const [plan, list, tags, templates, sms] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     view === "contacts"
       ? supabase.rpc("owner_contacts", { p_shop_id: shop.id, p_q: q || null, p_tag: tag || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE })
@@ -60,6 +62,8 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
     view === "templates"
       ? supabase.from("shop_email_templates").select("id, name, subject, body, updated_at").eq("shop_id", shop.id).order("name")
       : Promise.resolve({ data: [], error: null }),
+    // "SMS tento mesiac" (database update 58; none before it).
+    loadSmsUsage(supabase, shop.id),
   ]);
   const hasPlan = !plan.error && plan.data === true;
   const unavailable = Boolean(list.error || templates.error);
@@ -81,6 +85,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
         <p className="text-sm">{c.intro}</p>
         {!hasPlan && <ProOnly dict={dict} href={planUrl} />}
         <Notice sp={sp} dict={dict} />
+        {hasPlan && sms && <SmsUsage usage={sms} lang={lang} timeZone={shop.timezone} dict={dict} />}
       </header>
 
       <nav aria-label={c.tabs} className="flex flex-wrap gap-1 border-b border-line" data-contact-tabs>
