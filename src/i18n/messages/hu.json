@@ -630,7 +630,8 @@
     "booking_err_not_pending": "Ez a foglalás már nem vár kódra. Válasszon időpontot újra.",
     "booking_err_sms_failed": "Az SMS-t nem sikerült elküldeni. Próbálja újra.",
     "booking_err_not_available": "A foglalás most ki van kapcsolva.",
-    "booking_err_failed": "A foglalás nem sikerült. Próbálja újra."
+    "booking_err_failed": "A foglalás nem sikerült. Próbálja újra.",
+    "booking_err_sms_quota": "Az asszisztensen keresztüli foglalás ebben a hónapban nem érhető el. Kérjük, hívja közvetlenül az üzletet."
   },
   "docs": {
     "title": "Dokumentumok az asszisztensnek",
@@ -834,7 +835,7 @@
     "external_partners": "A „Partnerek” ajánlatai a partnerüzletek termékfeedjeiből származnak, amelyeket a Cacaduu a saját szerverén olvas be. Kereséskor semmit sem küldünk Önről a partnereknek; a partner hivatkozását csak Ön nyitja meg. A partneri (affiliate) hivatkozások „partneri hivatkozás” jelölést kapnak, és soha nem változtatnak a találatok sorrendjén.",
     "external_todo": "TODO (jogi szöveg): a szolgáltatások, amelyeknek a fő kereső a terméket és a várost elküldi – OpenStreetMap Foundation (Nominatim, Overpass API), Google (Places API, ha be van kapcsolva), Anthropic (Claude és a webes keresés).",
     "booking_title": "Foglalások",
-    "booking": "Ha az asszisztensen keresztül időpontot foglal, az üzlet megkapja a nevét, mobilszámát, adott esetben e-mailjét, címét és megjegyzését, valamint a hozzájárulás idejét. A mobilra SMS-kódot küldünk (10 percig érvényes); a kódot nem tároljuk. A foglalás kapcsolatként kerül az üzlethez, és – ha az üzlet csatlakoztatta a Google Naptárt – eseményként a naptárába. Ha az üzlet bekapcsolja, egy nappal előtte emlékeztető SMS-t kap. Az adatait csak az üzlet tulajdonosai látják."
+    "booking": "Ha az asszisztensen keresztül időpontot foglal, az üzlet megkapja a nevét, mobilszámát, adott esetben e-mailjét, címét és megjegyzését, valamint a hozzájárulás idejét. A mobilra SMS-kódot küldünk (10 percig érvényes); a kódot nem tároljuk. A foglalás kapcsolatként kerül az üzlethez, és – ha az üzlet csatlakoztatta a Google Naptárt – eseményként a naptárába. Ha az üzlet bekapcsolja, egy nappal előtte emlékeztető SMS-t kap. Az adatait csak az üzlet tulajdonosai látják. Az SMS-t SMS-szolgáltatón keresztül küldjük (Brevo vagy Twilio), amely csak a számot és az üzenet szövegét kapja meg."
   },
   "conversations": {
     "title": "Az asszisztens beszélgetései",
@@ -2882,7 +2883,8 @@
     "link_button": "Hozzárendelés",
     "unlink": "Hozzárendelés megszüntetése",
     "create_from": "Új kapcsolat ebből a beszélgetésből",
-    "ok_linked": "Mentve."
+    "ok_linked": "Mentve.",
+    "err_sms_quota": "Ebben a hónapban már elküldte a keretében lévő összes SMS-t. Továbbiakat az új hónap elejétől küldhet – e-mailt most is küldhet."
   },
   "bookings": {
     "nav": "Foglalások",
@@ -2940,6 +2942,31 @@
     "err_no_plan": "A foglalás a Pro csomag része.",
     "err_slot_taken": "Ezt az időt már egy másik foglalás elfoglalta.",
     "err_failed": "Nem sikerült. Próbálja újra.",
-    "contact_none": "Ennek a kapcsolatnak még nincs foglalása."
+    "contact_none": "Ennek a kapcsolatnak még nincs foglalása.",
+    "sms_paused": "A foglalási SMS-ek erre a hónapra elfogytak – az asszisztens most nem kínál időpontot. Újra: {date}."
+  },
+  "sms_usage": {
+    "title": "SMS ebben a hónapban",
+    "booking": "Foglalások (kódok és emlékeztetők)",
+    "owner": "Az Ön SMS-ei az ügyfeleknek",
+    "used": "{used} / {limit} SMS",
+    "full_booking": "Elfogyott – az asszisztens nem kínál időpontot, az emlékeztetők a következő hónap elejéig várnak.",
+    "full_owner": "Elfogyott – további SMS-t a következő hónap elejétől küldhet. E-mailt továbbra is küldhet.",
+    "resets": "Újra: {date}.",
+    "parts_hint": "A hosszú vagy ékezetes SMS több SMS-nek számít (160 karakter ékezet nélkül, 70 ékezettel)."
+  },
+  "admin_sms": {
+    "title": "SMS",
+    "intro": "Két havi keret minden Pro üzletnek: a foglalások kódjai és emlékeztetői, valamint a tulajdonos által küldött SMS-ek. Az üzlet naptári hónapjában küldött SMS-részek számítanak; a sikertelenek nem.",
+    "provider_unknown": "Az SMS-szolgáltatót nem sikerült megállapítani (crm-messages függvény).",
+    "provider_live": "Az SMS-eket küldi: {name}.",
+    "provider_test": "Nincs SMS-szolgáltató csatlakoztatva – az SMS-ek csak feljegyzésre kerülnek (teszt mód).",
+    "unavailable": "Az SMS-keretek az 58. adatbázis-frissítés után jelennek meg.",
+    "booking": "Foglalások havonta",
+    "owner": "Tulajdonosi SMS havonta",
+    "save": "Keretek mentése",
+    "month": "{quota}: ebben a hónapban összesen {used} SMS, kereten lévő üzletek: {shops}",
+    "saved": "Az SMS-keretek mentve.",
+    "error": "Az SMS-kereteket nem sikerült menteni (0 és 100 000 között)."
   }
 }

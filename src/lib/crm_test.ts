@@ -30,6 +30,7 @@ Deno.test("refusals as texts", () => {
   eq(contactError("phone_taken"), "err_phone_taken", "known");
   eq(contactError("boom"), "err_failed", "unknown");
   eq(messageError("too_many"), "err_too_many", "message");
+  eq(messageError("sms_quota"), "err_sms_quota", "the month's SMS used up");
   eq(messageError(undefined), "err_send_failed", "unknown message");
   eq(variableToken("first_name"), "{{first_name}}", "token");
 });

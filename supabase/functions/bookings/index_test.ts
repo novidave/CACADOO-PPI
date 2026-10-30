@@ -48,6 +48,8 @@ async function setup(o: Setup = {}) {
     booking_verify: { data: { ok: true, shop_id: SHOP, google: Boolean(o.connected), shop_name: "Kaderníctvo Eva", timezone: "Europe/Bratislava",
       starts_at: "2026-11-10T08:00:00Z", ends_at: "2026-11-10T08:30:00Z", name: "Jana", phone: "+421905111222", email: null, address: null, note: null, service_name: "Strih" } },
     bookings_cron_ok: { data: true },
+    booking_sms_claim: { data: "msg-1" },
+    booking_sms_settle: { data: true },
     booking_reminders_due: { data: [{ id: BOOKING, shop_name: "Kaderníctvo Eva", timezone: "Europe/Bratislava", phone: "+421905111222", starts_at: "2026-11-10T08:00:00Z", lang: "sk", service_name: "Strih" }] },
   };
   const answer = (name: string) => ({ data: null, error: null, ...(defaults[name] ?? {}), ...(o.rpc?.[name] ?? {}) });
@@ -107,8 +109,11 @@ Deno.test("start: the code goes by SMS (test mode: written down, shown only with
   const body = { action: "start", slug: "eva", starts_at: "2026-11-10T08:00:00Z", name: "Jana", phone: "0905111222", consent: true, consent_version: "v1", lang: "sk", caller: "c".repeat(32) };
   const res = await (await handle(website(body), deps)).json();
   eq([res.id, res.sms, res.phone, "test_code" in res], [BOOKING, "test", "+421 ••• ••• 222", false], "held, no code returned");
-  const logged = log.find((l) => l.startsWith("db booking_log_sms"))!;
-  eq(logged.includes('"p_kind":"booking_code"') && logged.includes('"p_status":"test"'), true, "logged as a test code SMS");
+  const claimed = log.find((l) => l.startsWith("db booking_sms_claim"))!;
+  eq(claimed.includes('"p_kind":"booking_code"'), true, "written down first (the quota)");
+  const settled = log.find((l) => l.startsWith("db booking_sms_settle"))!;
+  eq(settled.includes('"p_id":"msg-1"') && settled.includes('"p_status":"test"'), true, "settled as a test code SMS");
+  eq(log.findIndex((l) => l.startsWith("db booking_sms_claim")) < log.findIndex((l) => l.startsWith("db booking_sms_settle")), true, "claim before settle");
   const shown = await setup({ showTestCodes: true });
   eq((await (await handle(website(body), shown.deps)).json()).test_code, "123456", "shown in test mode when switched on");
   const refused = await setup({ rpc: { booking_start: { error: { message: "slot_taken", code: "P0001" } } } });
@@ -117,6 +122,30 @@ Deno.test("start: the code goes by SMS (test mode: written down, shown only with
   const r = await handle(website(body), failing.deps);
   eq(r.status, 502, "SMS failed");
   eq(failing.log.some((l) => l.startsWith("db booking_release")), true, "the time is let go");
+  // the month's booking SMS used up: nothing sent, the time let go, the shopper told why
+  let sentAtLimit = false;
+  const full = await setup({
+    rpc: { booking_sms_claim: { error: { message: "sms_quota", code: "54000" } } },
+    sms: { name: "brevo", live: true, send: () => { sentAtLimit = true; return Promise.resolve({ ok: true }); } },
+  });
+  const atLimit = await handle(website(body), full.deps);
+  eq([atLimit.status, (await atLimit.json()).error, sentAtLimit], [429, "sms_quota", false], "quota: nothing sent");
+  eq(full.log.some((l) => l.startsWith("db booking_release")), true, "quota: the time is let go");
+  eq(full.log.some((l) => l.startsWith("db booking_sms_settle")), false, "quota: nothing to settle");
+});
+
+Deno.test("resend at the quota limit sends nothing", async () => {
+  const { deps } = await setup({ rpc: { booking_resend: { data: { ok: false, reason: "sms_quota" } } } });
+  const res = await handle(website({ action: "resend", id: BOOKING, token: "tok" }), deps);
+  eq([res.status, (await res.json()).error], [400, "sms_quota"], "the database refused");
+  const claimFull = await setup({
+    rpc: {
+      booking_resend: { data: { ok: true, code: "654321", phone: "+421905111222", shop_name: "Eva", lang: "sk" } },
+      booking_sms_claim: { error: { message: "sms_quota", code: "54000" } },
+    },
+  });
+  const r2 = await handle(website({ action: "resend", id: BOOKING, token: "tok" }), claimFull.deps);
+  eq([r2.status, (await r2.json()).error], [429, "sms_quota"], "the claim refused");
 });
 
 Deno.test("start refuses a time Google already has busy, before anything is held", async () => {
@@ -168,8 +197,12 @@ Deno.test("the day-before reminder goes by SMS and is logged", async () => {
   const { deps, log } = await setup();
   const res = await handle(new Request("https://x/functions/v1/bookings", { method: "POST", headers: { "x-ppi-cron": "c".repeat(40) }, body: JSON.stringify({ action: "tick" }) }), deps);
   eq(await res.json(), { reminders: 1 }, "one");
-  const logged = log.find((l) => l.startsWith("db booking_log_sms"))!;
+  const logged = log.find((l) => l.startsWith("db booking_sms_claim"))!;
   eq(logged.includes('"p_kind":"booking_reminder"') && logged.includes("zajtra o 09:00"), true, "the shop's local time");
+  eq(log.some((l) => l.startsWith("db booking_sms_settle")), true, "settled");
+  const full = await setup({ rpc: { booking_sms_claim: { error: { message: "sms_quota" } } } });
+  const r2 = await handle(new Request("https://x/functions/v1/bookings", { method: "POST", headers: { "x-ppi-cron": "c".repeat(40) }, body: JSON.stringify({ action: "tick" }) }), full.deps);
+  eq(await r2.json(), { reminders: 0 }, "quota used up: none sent");
 });
 
 Deno.test("small rules", async () => {

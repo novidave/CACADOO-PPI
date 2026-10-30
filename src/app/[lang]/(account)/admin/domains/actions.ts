@@ -144,6 +144,17 @@ export async function saveBlogLimits(formData: FormData) {
   back({ ok: "blog_limits" }, "blog");
 }
 
+/** "SMS" (database update 58): the two monthly quotas of every shop; admin_save_sms_quotas checks is_admin() itself. */
+export async function saveSmsQuotas(formData: FormData) {
+  const { session, back } = await start(formData);
+  const booking = Number(formData.get("booking"));
+  const owner = Number(formData.get("owner"));
+  if (![booking, owner].every((n) => Number.isInteger(n) && n >= 0 && n <= 100_000)) back({ err: "sms" }, "sms");
+  const { error } = await session.supabase.rpc("admin_save_sms_quotas", { p_booking: booking, p_owner: owner });
+  if (error) back({ err: "sms" }, "sms");
+  back({ ok: "sms" }, "sms");
+}
+
 /** "Skladové programy (API)" (database update 49): the intervals per plan and whether Free may connect. */
 export async function saveInventorySettings(formData: FormData) {
   const { session, back } = await start(formData);

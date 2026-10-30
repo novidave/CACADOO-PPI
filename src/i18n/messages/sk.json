@@ -630,7 +630,8 @@
     "booking_err_not_pending": "Táto rezervácia už nečaká na kód. Vyberte si čas znova.",
     "booking_err_sms_failed": "SMS sa nepodarilo poslať. Skúste to znova.",
     "booking_err_not_available": "Rezervácie sú teraz vypnuté.",
-    "booking_err_failed": "Rezervácia sa nepodarila. Skúste to znova."
+    "booking_err_failed": "Rezervácia sa nepodarila. Skúste to znova.",
+    "booking_err_sms_quota": "Rezervácie cez asistenta sú tento mesiac vyčerpané. Zavolajte, prosím, priamo do obchodu."
   },
   "docs": {
     "title": "Dokumenty pre asistenta",
@@ -834,7 +835,7 @@
     "external_partners": "Ponuky „Partneri“ pochádzajú z produktových feedov partnerských obchodov, ktoré Cacaduu načíta na svojom serveri. Partnerom pri hľadaní nič o vás neposielame; odkaz na partnera otvoríte len vy. Partnerské (affiliate) odkazy sú označené „partnerský odkaz“ a nikdy nemenia poradie výsledkov.",
     "external_todo": "TODO (právny text): služby, ktorým hlavné vyhľadávanie posiela výrobok a mesto – OpenStreetMap Foundation (Nominatim, Overpass API), Google (Places API, ak je zapnuté), Anthropic (Claude a vyhľadávanie na webe).",
     "booking_title": "Rezervácie",
-    "booking": "Keď si cez asistenta rezervujete čas, obchod dostane vaše meno, mobil, prípadne e-mail, adresu a poznámku a čas, keď ste súhlasili. Na mobil pošleme SMS s kódom (platí 10 minút); kód neuchovávame. Rezervácia sa uloží k obchodu ako kontakt a – ak má obchod pripojený Google Kalendár – ako udalosť v jeho kalendári. Ak si to obchod zapne, deň vopred dostanete pripomienku SMS. Vaše údaje vidia len majitelia obchodu."
+    "booking": "Keď si cez asistenta rezervujete čas, obchod dostane vaše meno, mobil, prípadne e-mail, adresu a poznámku a čas, keď ste súhlasili. Na mobil pošleme SMS s kódom (platí 10 minút); kód neuchovávame. Rezervácia sa uloží k obchodu ako kontakt a – ak má obchod pripojený Google Kalendár – ako udalosť v jeho kalendári. Ak si to obchod zapne, deň vopred dostanete pripomienku SMS. Vaše údaje vidia len majitelia obchodu. SMS posielame cez poskytovateľa SMS (Brevo, prípadne Twilio), ktorý dostane len číslo a text správy."
   },
   "conversations": {
     "title": "Konverzácie asistenta",
@@ -2882,7 +2883,8 @@
     "link_button": "Priradiť",
     "unlink": "Zrušiť priradenie",
     "create_from": "Nový kontakt z tejto konverzácie",
-    "ok_linked": "Uložené."
+    "ok_linked": "Uložené.",
+    "err_sms_quota": "Tento mesiac ste už poslali všetky SMS svojej kvóty. Ďalšie pošlete od začiatku nového mesiaca – e-mail môžete poslať aj teraz."
   },
   "bookings": {
     "nav": "Rezervácie",
@@ -2940,6 +2942,31 @@
     "err_no_plan": "Rezervácie sú súčasťou plánu Pro.",
     "err_slot_taken": "Tento čas je už obsadený inou rezerváciou.",
     "err_failed": "Nepodarilo sa. Skúste to znova.",
-    "contact_none": "Tento kontakt zatiaľ nemá žiadnu rezerváciu."
+    "contact_none": "Tento kontakt zatiaľ nemá žiadnu rezerváciu.",
+    "sms_paused": "SMS pre rezervácie sú na tento mesiac vyčerpané – asistent teraz neponúka termíny. Znova od {date}."
+  },
+  "sms_usage": {
+    "title": "SMS tento mesiac",
+    "booking": "Rezervácie (kódy a pripomienky)",
+    "owner": "Vaše SMS zákazníkom",
+    "used": "{used} zo {limit} SMS",
+    "full_booking": "Vyčerpané – asistent neponúka termíny a pripomienky čakajú do začiatku ďalšieho mesiaca.",
+    "full_owner": "Vyčerpané – ďalšie SMS pošlete od začiatku ďalšieho mesiaca. E-maily môžete posielať ďalej.",
+    "resets": "Znova od {date}.",
+    "parts_hint": "Dlhá SMS alebo SMS s diakritikou sa počíta ako viac SMS (160 znakov bez diakritiky, 70 s diakritikou)."
+  },
+  "admin_sms": {
+    "title": "SMS",
+    "intro": "Dve mesačné kvóty pre každý obchod s Pro: kódy a pripomienky rezervácií a SMS, ktoré posiela majiteľ. Počítajú sa časti SMS v kalendárnom mesiaci obchodu; neodoslané (chyba) sa nepočítajú.",
+    "provider_unknown": "Poskytovateľa SMS sa nepodarilo zistiť (funkcia crm-messages).",
+    "provider_live": "SMS posiela: {name}.",
+    "provider_test": "Poskytovateľ SMS nie je pripojený – SMS sa len zapisujú (testovací režim).",
+    "unavailable": "Kvóty SMS sa zobrazia po databázovej aktualizácii 58.",
+    "booking": "Rezervácie za mesiac",
+    "owner": "SMS majiteľa za mesiac",
+    "save": "Uložiť kvóty",
+    "month": "{quota}: tento mesiac {used} SMS spolu, obchodov na limite: {shops}",
+    "saved": "Kvóty SMS sú uložené.",
+    "error": "Kvóty SMS sa nepodarilo uložiť (0 až 100 000)."
   }
 }

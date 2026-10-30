@@ -9,6 +9,8 @@ import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { MessageComposer, type ComposerTemplate } from "@/components/MessageComposer";
 import { PendingButton } from "@/components/PendingButton";
+import { SmsUsage } from "@/components/SmsUsage";
+import { loadSmsUsage } from "@/lib/smsUsage";
 import { countText, languageName } from "../../Conversations";
 import { hiddenFields } from "../../shared";
 import { deleteContact, saveContact } from "../actions";
@@ -72,7 +74,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       </div>
     );
   }
-  const [shopsRes, plan, conversations, messages, templates, config, bookingsRes] = await Promise.all([
+  const [shopsRes, plan, conversations, messages, templates, config, bookingsRes, sms] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase.rpc("shop_has_plan", { p_shop_id: contact.shop_id }),
     supabase
@@ -96,6 +98,8 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       .in("status", ["confirmed", "cancelled", "no_show"])
       .order("starts_at", { ascending: false })
       .limit(100),
+    // The owner's SMS this month (database update 58).
+    tab === "messages" ? loadSmsUsage(supabase, contact.shop_id) : Promise.resolve(null),
   ]);
   const shop = ((shopsRes.data ?? []) as MyShop[]).find((s) => s.id === contact.shop_id);
   if (!shop) notFound();
@@ -221,6 +225,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
 
       {tab === "messages" && (
         <section className="flex flex-col gap-4" data-tab-panel="messages">
+          {hasPlan && sms && <SmsUsage usage={sms} lang={lang} timeZone={tz} dict={dict} only="owner" />}
           {hasPlan ? (
             <MessageComposer
               lang={lang}

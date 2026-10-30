@@ -1810,7 +1810,7 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
 2. **Edge Function:** Edge Functions → Deploy a new function → Via Editor → name **`crm-messages`** → paste
    `supabase/functions/crm-messages/index.ts` → Deploy → switch **OFF "Verify JWT"**. No new secret: it uses
    `BREVO_API_KEY` and `ALERT_EMAIL_FROM` (already set for the other functions). Leave `SMS_PROVIDER` unset: SMS are only
-   written down as "test" until phase 4.
+   written down as "test" until Part AX4.
 3. **Try it** (a shop with Pro):
    - Môj obchod → **Kontakty** → "Nový kontakt": name, phone `0905 123 456`, your own e-mail, tags `VIP, test` → Uložiť
      → the card shows `+421905123456 · neoverené`.
@@ -1841,9 +1841,9 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - Supabase → Edge Functions → Secrets: **`GOOGLE_CALENDAR_CLIENT_ID`**, **`GOOGLE_CALENDAR_CLIENT_SECRET`** (from that
      client) and **`BOOKING_TOKEN_ENCRYPTION_KEY`** (a new long random text, e.g. `openssl rand -base64 32`; never change
      it later, or shops must connect again). Without the key the function uses `EXPORT_TOKEN_ENCRYPTION_KEY`.
-4. **Testing before phase 4 (no real SMS yet):** leave `SMS_PROVIDER` unset and add the secret
+4. **Testing without real SMS:** leave `SMS_PROVIDER` unset and add the secret
    **`BOOKING_TEST_CODES` = `on`** — the code then shows in the chat instead of arriving by SMS. Remove it (or it stops
-   by itself) as soon as a real SMS provider is set in phase 4.
+   by itself) as soon as a real SMS provider is set (Part AX4).
 5. **Try it** (a shop with Pro):
    - Môj obchod → **Rezervácie** → Nastavenia → tick "Prijímať rezervácie cez asistenta", service `Konzultácia`, 30 min → Uložiť.
      Optional: "Pripojiť Google Kalendár" → allow both permissions → back with "Google Kalendár je pripojený".
@@ -1854,6 +1854,33 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
      "Rezervácia je potvrdená". The event is in your Google Calendar; Kontakty has the contact with "overené".
    - Môj obchod → Rezervácie → Zoznam and Kalendár show it; "Neprišiel" / "Zrušiť" change the status.
    - Try the same time again in another browser: it is no longer offered.
+
+## Part AX4 — SMS quotas and real SMS (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/58_sms_quotas.sql` → Run → "Success". Safe to run
+   again. (Updates 56 and 57 must be in first; if you ever paste 57 again, paste 58 again after it.)
+2. **Edge Functions:** paste the updated `supabase/functions/crm-messages/index.ts` into the function **`crm-messages`**
+   and `supabase/functions/bookings/index.ts` into **`bookings`** → Deploy (both keep "Verify JWT" OFF).
+3. **SMS provider — Brevo (recommended; the same account as the e-mails):**
+   - app.brevo.com → **SMS** → buy SMS credits for Slovakia (and the other countries your shops are in). Brevo sends
+     only while the account has credits.
+   - In Brevo's SMS settings check that sending to Slovakia is enabled and an alphanumeric sender is allowed (Brevo
+     may ask to approve the sender name first).
+   - Supabase → Edge Functions → Secrets: **`SMS_PROVIDER` = `brevo`** and **`SMS_SENDER` = `Cacaduu`** (letters and
+     digits, at most 11; accents are dropped). `BREVO_API_KEY` is already there.
+   - Remove **`BOOKING_TEST_CODES`** (it is ignored now anyway).
+   *Twilio instead:* `SMS_PROVIDER` = `twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` (a Twilio
+   number or an alphanumeric sender allowed for Slovakia) or `TWILIO_MESSAGING_SERVICE_SID`.
+4. **Quotas:** Predplatné a domény (admin) → **SMS** shows the provider ("SMS posiela: brevo") and both limits (100 /
+   100). Change them there if needed.
+5. **Try it** (a shop with Pro, your own mobile):
+   - Kontakty → a contact with your number → Správy → SMS → Náhľad → Odoslať → "Odoslané" and the SMS arrives from
+     "Cacaduu". "SMS tento mesiac" shows "Vaše SMS zákazníkom: 1 zo 100 SMS" (a text with accents over 70 characters
+     counts 2).
+   - The shop page → the assistant → book a time with your number → the code arrives by SMS → confirm.
+     Rezervácie → Nastavenia shows "Rezervácie (kódy a pripomienky): 1 zo 100 SMS".
+   - Optional: admin → SMS → set the booking quota to 1 → the assistant offers no times and Rezervácie shows the
+     banner; set it back to 100.
 
 ## Part D — later, before launch
 
@@ -1906,5 +1933,6 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 33. Shop blog "Novinky": posts with photos written in Môj obchod (now or scheduled), the shop's Facebook Page connected once (all past posts imported, a daily sync, "Zverejniť aj na Facebooku?" before each post), `/blog` pages with RSS, sitemap, llms.txt, IndexNow and JSON-LD on Cacaduu and own domains; free shops show the 10 newest; privacy and data deletion pages | ✅ built — set up Part AI |
 | 34. Every language: a language picker (all EU languages and more, Chinese and Vietnamese), interface texts per language, the shops' pages translated (original always kept, "Preložené automaticky"), product descriptions from the shop's own data, translations per product, the shop's languages, two-language stock files with encoding preview | ✅ built — set up Part AL |
 | 35. "Konverzácie" for Pro shops: the Asistent page in three tabs; every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" / "Prístupový kľúč"; filters, search and bulk actions; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action logged | ✅ built — set up Part AX |
-| 36. "Kontakty" for Pro shops: contacts with an international phone (one per number, "overené" after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; SMS and e-mail from the contact card with a preview first; e-mail templates; every outgoing message written down (SMS only as "test" until phase 4) | ✅ built — set up Part AX2 |
-| 37. "Rezervácie" for Pro shops: free times in the shop assistant (opening hours, holidays, special days, no overlap, optional Google Calendar), the page's own form with the consent, a 6-digit SMS code that confirms at once, the contact found or made by the phone ("overené"), optional reminder the day before; Môj obchod → Rezervácie with a list, a week calendar and statuses | ✅ built — set up Part AX3 (SMS code only as "test" until phase 4) |
+| 36. "Kontakty" for Pro shops: contacts with an international phone (one per number, "overené" after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; SMS and e-mail from the contact card with a preview first; e-mail templates; every outgoing message written down (real SMS since Part AX4) | ✅ built — set up Part AX2 |
+| 37. "Rezervácie" for Pro shops: free times in the shop assistant (opening hours, holidays, special days, no overlap, optional Google Calendar), the page's own form with the consent, a 6-digit SMS code that confirms at once, the contact found or made by the phone ("overené"), optional reminder the day before; Môj obchod → Rezervácie with a list, a week calendar and statuses | ✅ built — set up Part AX3 (real SMS: Part AX4) |
+| 38. SMS quotas and real SMS: two monthly quotas per shop (100 booking SMS, 100 owner SMS, counted in SMS parts; the admin may change them), nothing sent over a limit, "SMS tento mesiac" on Kontakty and Rezervácie, SMS through Brevo (or Twilio) | ✅ built — set up Part AX4 |

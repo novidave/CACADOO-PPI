@@ -16,14 +16,15 @@
 //   - GET /bookings/oauth: Google's answer (code + PKCE, state SHA-256, single use, 10 minutes)
 //   - the hourly job (x-ppi-cron = Vault ppi_bookings_cron): tick → the day-before reminder SMS (only when the shop
 //     switched it on; never a cancel link)
-// SMS go through the SmsProvider interface (SMS_PROVIDER; unset = "test": written down, never sent — phase 4 adds the
-// real provider and the quotas). Only for testing before then, BOOKING_TEST_CODES=on returns the code to the chat
-// while SMS are in test mode; never switch it on with a real provider (it is ignored then).
+// SMS go through the SmsProvider interface (SMS_PROVIDER: brevo, twilio; unset = "test": written down, never sent).
+// Every SMS is written down first and takes its parts of the shop's monthly "booking" quota (database update 58:
+// booking_sms_claim → send → booking_sms_settle; at the limit nothing is sent: sms_quota). For testing without a
+// provider, BOOKING_TEST_CODES=on returns the code to the chat; it is ignored while a real provider is set.
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor → name "bookings" → paste this file → Deploy,
 // then switch OFF "Verify JWT". Secrets: GOOGLE_CALENDAR_CLIENT_ID, GOOGLE_CALENDAR_CLIENT_SECRET (optional: without
 // them bookings work without Google), BOOKING_TOKEN_ENCRYPTION_KEY (32+ characters; else EXPORT_TOKEN_ENCRYPTION_KEY),
-// ASSISTANT_ARCHIVE_SECRET (already set), SMS_PROVIDER (phase 4).
+// ASSISTANT_ARCHIVE_SECRET (already set), SMS_PROVIDER + its secrets and SMS_SENDER (below).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -89,24 +90,136 @@ export async function decryptToken(key: CryptoKey, text: string, bind: string): 
   return new TextDecoder().decode(plain);
 }
 
-// ---------------------------------------------------------------- SMS (the same interface as crm-messages)
+// ---------------------------------------------------------------- SMS providers (the same block in crm-messages and bookings)
+//
+// One SMS gateway behind one interface, chosen by the secret SMS_PROVIDER (database update 58, CRM phase 4):
+//   - unset or "test": nothing leaves; every SMS is written down as "test" (it still counts in the monthly quota);
+//   - "brevo": Brevo transactional SMS (POST https://api.brevo.com/v3/transactionalSMS/send) with BREVO_API_KEY — the
+//     key the e-mails already use; sends to Slovakia and the rest of Europe; the account needs SMS credits;
+//   - "twilio": Twilio Programmable Messaging (POST /2010-04-01/Accounts/<sid>/Messages.json) with TWILIO_ACCOUNT_SID,
+//     TWILIO_AUTH_TOKEN and TWILIO_FROM (a number or an alphanumeric sender) or TWILIO_MESSAGING_SERVICE_SID.
+// SMS_SENDER = the sender's name shown on the phone (letters and digits, ≤ 11; default "Cacaduu"). A provider without
+// its secrets fails every SMS ("failed", which never counts in the quota) instead of pretending to send. Errors carry
+// only the provider's status and code — never the number or the text.
 
 export interface SmsResult {
   ok: boolean;
   ref?: string;
   error?: string;
 }
+
+/** One SMS gateway. `live` false = nothing leaves (the message is written down as "test"). */
 export interface SmsProvider {
   name: string;
   live: boolean;
   send(to: string, text: string): Promise<SmsResult>;
 }
+
+/** No gateway connected: every SMS is written down as "test" and not sent. */
 export const testSms: SmsProvider = { name: "test", live: false, send: () => Promise.resolve({ ok: true }) };
-export function smsProvider(name: string | undefined): SmsProvider {
+
+// The GSM 03.38 alphabet (as smsParts() in src/lib/crm.ts and crm_sms_parts() in SQL); anything else is Unicode.
+const SMS_GSM =
+  "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà" +
+  "^{}\\[~]|€\f";
+
+/** True when the text fits the GSM alphabet (no Unicode SMS needed). */
+export const isGsm = (text: string) => [...text].every((c) => SMS_GSM.includes(c));
+
+/** The sender's name as a phone shows it: letters and digits only, ≤ 11 (or a number of up to 15 digits). */
+export function smsSender(value: string | undefined): string {
+  const raw = (value ?? "").trim();
+  if (/^\+?\d{3,15}$/.test(raw)) return raw.replace(/^\+/, "");
+  const name = raw.normalize("NFD").replace(/[^A-Za-z0-9]/g, "").slice(0, 11);
+  return name || "Cacaduu";
+}
+
+type SmsEnv = (name: string) => string | undefined;
+
+const failing = (name: string, error: string): SmsProvider => ({
+  name,
+  live: true,
+  send: () => Promise.resolve({ ok: false, error }),
+});
+
+/** Brevo: the request for one transactional SMS. */
+export function brevoSmsBody(to: string, text: string, sender: string) {
+  return {
+    sender,
+    recipient: to.replace(/^\+/, ""),
+    content: text,
+    type: "transactional",
+    tag: "cacaduu",
+    unicodeEnabled: !isGsm(text),
+  };
+}
+
+/** Twilio: the form of one message. */
+export function twilioSmsForm(to: string, text: string, from: { from?: string; service?: string }) {
+  const form = new URLSearchParams({ To: to, Body: text });
+  if (from.service) form.set("MessagingServiceSid", from.service);
+  else if (from.from) form.set("From", from.from);
+  return form;
+}
+
+/** The provider named by SMS_PROVIDER, with its secrets read through `env`. */
+export function smsProvider(name: string | undefined, env: SmsEnv = () => undefined, fetchImpl: typeof fetch = fetch): SmsProvider {
   const key = (name ?? "").trim().toLowerCase();
   if (key === "" || key === "test") return testSms;
-  return { name: key, live: true, send: () => Promise.resolve({ ok: false, error: `unknown SMS_PROVIDER "${key.slice(0, 20)}"` }) };
+  const timeout = () => AbortSignal.timeout(15_000);
+  if (key === "brevo") {
+    const apiKey = env("BREVO_API_KEY")?.trim();
+    if (!apiKey) return failing("brevo", "brevo is not set up (BREVO_API_KEY)");
+    const sender = smsSender(env("SMS_SENDER"));
+    return {
+      name: "brevo",
+      live: true,
+      async send(to, text) {
+        const res = await fetchImpl("https://api.brevo.com/v3/transactionalSMS/send", {
+          method: "POST",
+          headers: { "api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(brevoSmsBody(to, text, sender)),
+          signal: timeout(),
+        }).catch(() => null);
+        if (!res) return { ok: false, error: "brevo network" };
+        const answer = (await res.json().catch(() => ({}))) as { messageId?: number | string; reference?: string; code?: string };
+        if (!res.ok) {
+          const why = res.status === 402 ? "no SMS credits" : String(answer.code ?? "").slice(0, 40);
+          return { ok: false, error: `brevo ${res.status} ${why}`.trim() };
+        }
+        const ref = answer.messageId ?? answer.reference;
+        return { ok: true, ref: ref === undefined ? undefined : String(ref).slice(0, 100) };
+      },
+    };
+  }
+  if (key === "twilio") {
+    const sid = env("TWILIO_ACCOUNT_SID")?.trim();
+    const token = env("TWILIO_AUTH_TOKEN")?.trim();
+    const from = env("TWILIO_FROM")?.trim();
+    const service = env("TWILIO_MESSAGING_SERVICE_SID")?.trim();
+    if (!sid || !/^AC[0-9a-f]{32}$/i.test(sid) || !token || (!from && !service)) {
+      return failing("twilio", "twilio is not set up (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)");
+    }
+    return {
+      name: "twilio",
+      live: true,
+      async send(to, text) {
+        const res = await fetchImpl(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+          method: "POST",
+          headers: { Authorization: `Basic ${btoa(`${sid}:${token}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
+          body: twilioSmsForm(to, text, { from, service }),
+          signal: timeout(),
+        }).catch(() => null);
+        if (!res) return { ok: false, error: "twilio network" };
+        const answer = (await res.json().catch(() => ({}))) as { sid?: string; code?: number | string };
+        if (!res.ok) return { ok: false, error: `twilio ${res.status} ${String(answer.code ?? "").slice(0, 20)}`.trim() };
+        return { ok: true, ref: answer.sid?.slice(0, 100) };
+      },
+    };
+  }
+  return failing(key.slice(0, 20), `unknown SMS_PROVIDER "${key.slice(0, 20)}"`);
 }
+// ---------------------------------------------------------------- end of the SMS providers
 
 /** The texts the shopper gets by SMS, in the booking's language (Slovak, Hungarian, else English). */
 export function smsText(kind: "code" | "reminder", lang: string | null, v: { shop: string; code?: string; time?: string; service?: string | null }) {
@@ -312,18 +425,29 @@ async function slots(body: Record<string, unknown>, deps: Deps) {
   });
 }
 
-async function sendCode(deps: Deps, booking: string, phone: string, text: string) {
+/**
+ * One SMS of a booking: written down first (its parts of the "booking" quota taken — "quota" when the month's SMS are
+ * used up, nothing sent), then sent, then its result stored once.
+ */
+async function sendSms(
+  deps: Deps,
+  booking: string,
+  kind: "booking_code" | "booking_reminder",
+  phone: string,
+  text: string,
+): Promise<"sent" | "test" | "failed" | "quota"> {
+  const claimed = await deps.db.rpc("booking_sms_claim", { p_booking_id: booking, p_kind: kind, p_body: text });
+  if (claimed.error) return claimed.error.message === "sms_quota" ? "quota" : "failed";
   const result = await deps.sms.send(phone, text).catch((e) => ({ ok: false, error: String(e).slice(0, 200) }) as SmsResult);
   const status = !result.ok ? "failed" : deps.sms.live ? "sent" : "test";
-  await deps.db.rpc("booking_log_sms", {
-    p_booking_id: booking,
-    p_kind: "booking_code",
-    p_body: text,
+  await deps.db.rpc("booking_sms_settle", {
+    p_id: claimed.data as string,
     p_status: status,
     p_provider: deps.sms.name,
     p_ref: result.ref ?? null,
     p_error: result.error ?? null,
   });
+  if (status === "failed") console.error("bookings: SMS not sent", booking, deps.sms.name, (result.error ?? "").slice(0, 80));
   return status;
 }
 
@@ -361,10 +485,10 @@ async function start(body: Record<string, unknown>, deps: Deps) {
   });
   if (error) return reply(400, { error: reasonOf(error) });
   const held = data as { id: string; token: string; code: string; phone: string; shop_name: string; expires_at: string; lang: string | null };
-  const sms = await sendCode(deps, held.id, held.phone, smsText("code", held.lang, { shop: held.shop_name, code: held.code }));
-  if (sms === "failed") {
+  const sms = await sendSms(deps, held.id, "booking_code", held.phone, smsText("code", held.lang, { shop: held.shop_name, code: held.code }));
+  if (sms === "failed" || sms === "quota") {
     await deps.db.rpc("booking_release", { p_id: held.id, p_reason: "code_expired" });
-    return reply(502, { error: "sms_failed" });
+    return sms === "quota" ? reply(429, { error: "sms_quota" }) : reply(502, { error: "sms_failed" });
   }
   return reply(200, {
     id: held.id,
@@ -383,7 +507,8 @@ async function resend(body: Record<string, unknown>, deps: Deps) {
   if (error) return reply(500, { error: "failed" });
   const r = data as { ok: boolean; reason?: string; code?: string; phone?: string; shop_name?: string; lang?: string | null; expires_at?: string };
   if (!r.ok) return reply(400, { error: r.reason ?? "failed" });
-  const sms = await sendCode(deps, id, r.phone!, smsText("code", r.lang ?? null, { shop: r.shop_name ?? "", code: r.code }));
+  const sms = await sendSms(deps, id, "booking_code", r.phone!, smsText("code", r.lang ?? null, { shop: r.shop_name ?? "", code: r.code }));
+  if (sms === "quota") return reply(429, { error: "sms_quota" });
   if (sms === "failed") return reply(502, { error: "sms_failed" });
   return reply(200, { ok: true, expires_at: r.expires_at, sms, ...(sms === "test" && deps.showTestCodes ? { test_code: r.code } : {}) });
 }
@@ -558,17 +683,8 @@ async function tick(deps: Deps) {
   let sent = 0;
   for (const b of (data ?? []) as { id: string; shop_name: string; timezone: string; phone: string; starts_at: string; lang: string | null; service_name: string | null }[]) {
     const text = smsText("reminder", b.lang, { shop: b.shop_name, time: localTime(b.starts_at, b.timezone), service: b.service_name });
-    const result = await deps.sms.send(b.phone, text).catch((e) => ({ ok: false, error: String(e).slice(0, 200) }) as SmsResult);
-    await deps.db.rpc("booking_log_sms", {
-      p_booking_id: b.id,
-      p_kind: "booking_reminder",
-      p_body: text,
-      p_status: !result.ok ? "failed" : deps.sms.live ? "sent" : "test",
-      p_provider: deps.sms.name,
-      p_ref: result.ref ?? null,
-      p_error: result.error ?? null,
-    });
-    if (result.ok) sent++;
+    const status = await sendSms(deps, b.id, "booking_reminder", b.phone, text);
+    if (status === "sent" || status === "test") sent++;
   }
   return reply(200, { reminders: sent });
 }
@@ -615,7 +731,7 @@ export async function handler(req: Request): Promise<Response> {
   const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID")?.trim();
   const clientSecret = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET")?.trim();
   const secret = (Deno.env.get("BOOKING_TOKEN_ENCRYPTION_KEY") ?? Deno.env.get("EXPORT_TOKEN_ENCRYPTION_KEY") ?? "").trim();
-  const sms = smsProvider(Deno.env.get("SMS_PROVIDER"));
+  const sms = smsProvider(Deno.env.get("SMS_PROVIDER"), (name) => Deno.env.get(name), fetch);
   return await handle(req, {
     db: createClient(url, serviceKey, options),
     asCaller: (authorization) =>

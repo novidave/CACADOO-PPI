@@ -348,7 +348,7 @@ phone** (`assistant_conversations.shopper_phone` + `contact_id`, both triggers) 
 `owner_message_preview()` (nothing written), "Odoslať" → crm-messages `send` → `owner_message_queue()` with the owner's
 login (members + `shop_has_plan`, ≤ 100 per channel and shop in 24 h, SMS ≤ 480) → Brevo (sender name = the shop,
 `replyTo` = the shop's e-mail, from `ALERT_EMAIL_FROM`) or the `SmsProvider` (`SMS_PROVIDER` unset/"test" = written down
-as `test`, never sent — the real provider and the monthly quotas are phase 4) → `crm_message_result()` once (service role).
+as `test`, never sent; `brevo` / `twilio` since update 58, below) → `crm_message_result()` once (service role).
 Owners read contacts, templates and the log (RLS); every write only through `owner_*` (activity log: `contact_saved`,
 `contact_deleted`, `contact_linked`, `email_template_saved`, `email_template_deleted`, `message_sent`). Without the plan
 reading stays, changes and messages are refused (`no_plan`). Never log numbers, addresses or texts.
@@ -373,6 +373,28 @@ bookings go on without it. Reminder the day before (off by default, after 09:00 
 `ppi-bookings-tick`). Owners: `owner_save_booking_settings`, `owner_bookings`, `owner_set_booking_status` (Potvrdená /
 Zrušená / Neprišiel), activity log. The website reaches the function with `ASSISTANT_ARCHIVE_SECRET` (`x-ppi-website`).
 Never log phones, codes, names or tokens. Texts `chat.booking_*`, `bookings`.
+
+## SMS quotas and the SMS provider (paid, update 58, CRM phase 4)
+
+`supabase/sql/58_sms_quotas.sql` + the **SMS providers block** (identical in `crm-messages/index.ts` and
+`bookings/index.ts`, between "SMS providers (the same block…" and "end of the SMS providers"; `sms_providers_test.ts`
+fails when the copies differ — edit both) + `@/lib/smsUsage` + `@/components/SmsUsage` + `admin/domains/SmsAdmin.tsx`.
+**Two monthly quotas per shop, kept apart:** `booking` (kinds booking_code + booking_reminder) and `owner` (kind owner),
+limits only in `sms_quota_limits` (default 100 each; only `admin_save_sms_quotas()`, admin "SMS"). A quota counts **SMS
+parts** (`crm_sms_parts()` = `smsParts()` in `@/lib/crm` = `isGsm()` in the providers: GSM-7 160/153, Unicode 70/67) of
+every SMS in the log except `failed` (queued, sent and test count), in the **shop's calendar month** (`sms_month()`).
+**Nothing is sent over a limit, and every SMS is written down before it leaves:** owner → `owner_message_queue()`
+(`sms_quota_take()`: one advisory lock per shop and quota, raises `sms_quota`, keeps `parts`); booking → the function's
+`booking_sms_claim()` (queued, code masked "••••••", `sms_quota` → the time is released, 429) → send →
+`booking_sms_settle()` once. At the booking limit `shop_takes_bookings()` offers nothing, `booking_resend()` refuses
+(old code kept) and `booking_reminders_due()` waits. Owners see "SMS tento mesiac" (`owner_sms_usage()`, members) on
+Kontakty, the contact's Správy (owner quota) and Rezervácie → Nastavenia (booking quota) + a banner when bookings
+pause. Providers by `SMS_PROVIDER`: unset/`test` (written down, never sent), `brevo` (POST
+`https://api.brevo.com/v3/transactionalSMS/send`, `BREVO_API_KEY`, `type: transactional`, `unicodeEnabled` only for
+non-GSM text, 402 = no credits), `twilio` (`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` or
+`TWILIO_MESSAGING_SERVICE_SID`); `SMS_SENDER` letters/digits ≤ 11 (default "Cacaduu"); a provider without its secrets
+fails every SMS (never pretends). Errors keep only the provider's status/code — **never a number or text in a log**.
+`BOOKING_TEST_CODES` is ignored while a real provider is set. Texts `sms_usage`, `admin_sms`.
 
 ## Cloud folder (paid, update 23)
 

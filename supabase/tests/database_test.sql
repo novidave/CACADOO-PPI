@@ -9455,4 +9455,227 @@ end $$;
 reset role;
 drop table bk_test;
 
+\echo '--- update 58: SMS quotas — parts, two monthly quotas (booking / owner), blocked at the limit, usage, admin'
+create temporary table sq_test (k text primary key, v text);
+grant all on sq_test to public;
+
+do $$ begin
+  assert public.crm_sms_parts('') = 0 and public.crm_sms_parts(null) = 0;
+  assert public.crm_sms_parts('Hello') = 1;
+  assert public.crm_sms_parts(repeat('a', 160)) = 1 and public.crm_sms_parts(repeat('a', 161)) = 2, 'GSM 160 / 153';
+  assert public.crm_sms_parts(repeat('a', 306)) = 2 and public.crm_sms_parts(repeat('a', 307)) = 3;
+  assert public.crm_sms_parts(repeat('€', 80)) = 1 and public.crm_sms_parts(repeat('€', 81)) = 2, 'extension counts twice';
+  assert public.crm_sms_parts('a' || chr(10) || 'b') = 1, 'a new line is GSM';
+  assert public.crm_sms_parts('Dobrý deň') = 1;
+  assert public.crm_sms_parts(repeat('č', 70)) = 1 and public.crm_sms_parts(repeat('č', 71)) = 2, 'Unicode 70 / 67';
+  assert public.crm_sms_parts(repeat('ő', 134)) = 2 and public.crm_sms_parts(repeat('ő', 135)) = 3;
+  assert public.sms_quota_of('owner') = 'owner' and public.sms_quota_of('booking_code') = 'booking'
+    and public.sms_quota_of('booking_reminder') = 'booking';
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  insert into sq_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('day', (current_date + 20)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_sq')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_sq');
+  update public.sms_quota_limits set monthly = 3 where quota = 'booking';
+  update public.sms_quota_limits set monthly = 4 where quota = 'owner';
+  insert into public.shop_booking_settings (shop_id, enabled, service_name, duration_minutes, step_minutes, buffer_minutes,
+                                            lead_minutes, horizon_days, reminder)
+  values (v_a, true, 'Strih', 30, 30, 0, 120, 30, true)
+  on conflict (shop_id) do update set enabled = true, reminder = true;
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, current_date + 20, false, '[["09:00","11:00"]]')
+  on conflict (shop_id, date) do update set closed = excluded.closed, ranges = excluded.ranges;
+  -- an SMS of last month never counts
+  insert into public.shop_outgoing_messages (shop_id, channel, recipient, body, status, kind, parts, created_at)
+  values (v_a, 'sms', '+421905000001', 'old', 'sent', 'owner', 5, (select starts_at from public.sms_month(v_a)) - interval '1 day');
+  assert public.sms_quota_used(v_a, 'owner') = 0, 'last month';
+end $$;
+reset role;
+
+-- the owner's quota: parts counted, refused at the limit, e-mail never counted
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid;
+  v jsonb;
+begin
+  v_c := public.owner_save_contact(v_a, null, 'Eva Kvóta', '0905 777 888', 'eva@example.invalid', null, null, null);
+  insert into sq_test values ('c', v_c::text);
+  v := public.owner_message_queue(v_c, 'sms', null, null, repeat('č', 71));
+  assert (v ->> 'parts')::integer = 2, v::text;
+  insert into sq_test values ('m1', v ->> 'id');
+  assert (select parts from public.shop_outgoing_messages where id = (v ->> 'id')::uuid) = 2;
+  perform public.owner_message_queue(v_c, 'sms', null, null, 'Dobry den');
+  perform public.owner_message_queue(v_c, 'sms', null, null, 'Dakujeme');
+  v := public.owner_sms_usage(v_a);
+  assert (v -> 'owner' ->> 'used')::integer = 4 and (v -> 'owner' ->> 'limit')::integer = 4, v::text;
+  assert (v -> 'booking' ->> 'used')::integer = 0 and (v -> 'booking' ->> 'limit')::integer = 3, v::text;
+  assert (v ->> 'resets_at')::timestamptz > now() and (v ->> 'month_start')::timestamptz <= now();
+  begin
+    perform public.owner_message_queue(v_c, 'sms', null, null, 'x');
+    raise exception 'sent over the owner quota';
+  exception when program_limit_exceeded then if sqlerrm <> 'sms_quota' then raise; end if;
+  end;
+  assert (select count(*) from public.shop_outgoing_messages where shop_id = v_a and channel = 'sms' and kind = 'owner'
+          and created_at > now() - interval '1 hour') = 3, 'the refused SMS was not written down';
+  perform public.owner_message_queue(v_c, 'email', null, 'Ahoj', 'E-mail nemá kvótu');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- a failed SMS gives its parts back
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.crm_message_result((select v::uuid from sq_test where k = 'm1'), 'failed', 'brevo', null, 'down');
+  assert public.sms_quota_used(v_a, 'owner') = 2;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_message_queue((select v::uuid from sq_test where k = 'c'), 'sms', null, null, 'Znova');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the booking quota: claim → settle, codes masked, refused at the limit, nothing offered, resend and reminders wait
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_day date := (select v::date from sq_test where k = 'day');
+  v_nine timestamptz := (v_day + time '09:00') at time zone 'Europe/Bratislava';
+  vb jsonb;
+  v_m uuid;
+  v_r uuid;
+begin
+  assert exists (select 1 from public.shop_takes_bookings('potraviny-centrum'));
+  vb := public.booking_start('potraviny-centrum', v_nine, 'Eva', '0905 777 999', null, null, null, true, 'v1', 'sk', repeat('q', 32));
+  insert into sq_test values ('b', vb ->> 'id'), ('bt', vb ->> 'token');
+  v_m := public.booking_sms_claim((vb ->> 'id')::uuid, 'booking_code', 'Kod ' || (vb ->> 'code') || ' pre Potraviny');
+  assert (select status = 'queued' and body = 'Kod •••••• pre Potraviny' and parts = 1 and kind = 'booking_code'
+          from public.shop_outgoing_messages where id = v_m), 'claimed, masked';
+  assert public.booking_sms_settle(v_m, 'test', 'test', null, null);
+  assert not public.booking_sms_settle(v_m, 'sent', 'test', null, null), 'settled once';
+  assert public.sms_quota_used(v_a, 'booking') = 1 and public.sms_quota_used(v_a, 'owner') = 3, 'two quotas apart';
+  vb := public.booking_resend((select v::uuid from sq_test where k = 'b'), (select v from sq_test where k = 'bt'));
+  assert (vb ->> 'ok')::boolean, vb::text;
+  v_m := public.booking_sms_claim((select v::uuid from sq_test where k = 'b'), 'booking_code', 'Kod ' || (vb ->> 'code'));
+  perform public.booking_sms_settle(v_m, 'sent', 'brevo', 'ref-1', null);
+  -- a confirmed booking tomorrow with a reminder due
+  insert into public.shop_bookings (shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash)
+  values (v_a, ((current_date + 1) + time '15:00') at time zone 'Europe/Bratislava',
+          ((current_date + 1) + time '15:30') at time zone 'Europe/Bratislava', 'confirmed', 'Pripomienka', '+421905777990',
+          now(), 'v1', 'sq-token')
+  returning id into v_r;
+  if (now() at time zone 'Europe/Bratislava')::time >= time '09:00' then
+    assert exists (select 1 from public.booking_reminders_due() where id = v_r), 'due while the quota has room';
+  end if;
+  v_m := public.booking_sms_claim(v_r, 'booking_reminder', 'Zajtra 15:00 Potraviny');
+  assert public.booking_sms_settle(v_m, 'sent', 'brevo', null, null);
+  assert (select reminder_sent_at is not null from public.shop_bookings where id = v_r), 'the reminder is marked';
+  assert public.sms_quota_used(v_a, 'booking') = 3 and public.sms_quota_left(v_a, 'booking') = 0;
+  -- at the limit
+  begin
+    perform public.booking_sms_claim((select v::uuid from sq_test where k = 'b'), 'booking_code', 'Kod 111111');
+    raise exception 'claimed over the booking quota';
+  exception when program_limit_exceeded then if sqlerrm <> 'sms_quota' then raise; end if;
+  end;
+  assert not exists (select 1 from public.shop_takes_bookings('potraviny-centrum')), 'nothing offered at the limit';
+  vb := public.booking_resend((select v::uuid from sq_test where k = 'b'), (select v from sq_test where k = 'bt'));
+  assert vb ->> 'reason' = 'sms_quota', vb::text;
+  update public.shop_bookings set reminder_sent_at = null where id = v_r;
+  assert not exists (select 1 from public.booking_reminders_due() where id = v_r), 'reminders wait at the limit';
+  -- a failed booking SMS gives its part back; the owner quota is untouched by it
+  update public.shop_outgoing_messages set status = 'failed' where id = v_m;
+  assert public.sms_quota_left(v_a, 'booking') = 1 and public.sms_quota_used(v_a, 'owner') = 3;
+  assert exists (select 1 from public.shop_takes_bookings('potraviny-centrum'));
+  begin perform public.booking_sms_claim(v_r, 'owner', 'x'); raise exception 'wrong kind accepted';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.booking_sms_settle(v_m, 'queued', null, null, null); raise exception 'bad status accepted';
+  exception when invalid_parameter_value then null; end;
+end $$;
+reset role;
+
+-- owner B, visitors and owners never write or read A's quota
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_sms_usage(v_a); raise exception 'B read A''s SMS use';
+  exception when insufficient_privilege then null; end;
+  begin perform public.booking_sms_claim((select v::uuid from sq_test where k = 'b'), 'booking_code', 'x'); raise exception 'an owner claimed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sms_quota_take(v_a, 'owner', 1); raise exception 'an owner took quota';
+  exception when insufficient_privilege then null; end;
+  begin update public.sms_quota_limits set monthly = 1000; raise exception 'an owner changed the limits';
+  exception when insufficient_privilege then null; end;
+  begin perform public.admin_save_sms_quotas(1000, 1000); raise exception 'an owner saved the limits';
+  exception when insufficient_privilege then null; end;
+  begin perform public.admin_sms_quotas(); raise exception 'an owner read the totals';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$
+begin
+  begin perform public.owner_sms_usage((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'anon read SMS use';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the admin: limits and this month's totals
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+set role authenticated;
+do $$
+begin
+  assert (select monthly = 3 and used_this_month >= 2 and shops_at_limit >= 0 from public.admin_sms_quotas() where quota = 'booking');
+  assert (select used_this_month >= 3 from public.admin_sms_quotas() where quota = 'owner');
+  begin perform public.admin_save_sms_quotas(-1, 100); raise exception 'a negative limit accepted';
+  exception when invalid_parameter_value then null; end;
+  perform public.admin_save_sms_quotas(100, 100);
+  assert (select bool_and(monthly = 100) from public.admin_sms_quotas());
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- tidy up: the subscription exactly as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.sms_quota_limit('booking') = 100 and public.sms_quota_limit('owner') = 100;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.shop_bookings where shop_id = v_a;
+  delete from public.shop_booking_settings where shop_id = v_a;
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from sq_test where k = 'day');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from sq_test where k = 'sub'))
+  where (select v from sq_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from sq_test where k = 'had_plan');
+end $$;
+reset role;
+drop table sq_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'
