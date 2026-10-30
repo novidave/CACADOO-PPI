@@ -119,3 +119,41 @@ test("contact buttons: short / long saved in Môj obchod shows on the shop page 
   await save();
   c.check();
 });
+
+test("Asistent tabs and Konverzácie (update 55): filters, bulk actions, CSV export, old addresses", async ({ page }) => {
+  await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=conversations`);
+  // Three tabs as plain links; the open one is marked.
+  await expect(page.locator("[data-assistant-tabs] [data-tab]")).toHaveCount(3);
+  await expect(page.locator('[data-tab="conversations"]')).toHaveAttribute("aria-current", "page");
+  await expect(page.locator('[data-tab-panel="conversations"]')).toBeVisible();
+  // An old address still lands on its tab.
+  await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=cloud`);
+  await expect(page.locator('[data-tab="conversations"]')).toHaveAttribute("aria-current", "page");
+  await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=private`);
+  await expect(page).toHaveURL(/at=docs/);
+  await expect(page.locator('[data-tab="docs"]')).toHaveAttribute("aria-current", "page");
+
+  await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=conversations`);
+  test.skip((await page.locator("[data-filter-status]").count()) === 0, "database update 55 is not applied or the shop has no conversations");
+  // "Neobmedzene" is offered and the filters keep their values in the address.
+  await expect(page.locator('[data-retention] option[value=""]')).toHaveText(sk.conversations.retention_unlimited);
+  await page.selectOption("[data-filter-status]", "all");
+  await page.check("[data-filter-unanswered]");
+  await page.locator("[data-conversation-filter] button[type=submit]").click();
+  await expect(page).toHaveURL(/cstatus=all/);
+  await expect(page).toHaveURL(/cna=1/);
+  await expect(page.locator("[data-filter-status]")).toHaveValue("all");
+  // Bulk actions without a tick say so instead of changing anything.
+  if ((await page.locator("[data-bulk]").count()) > 0) {
+    await page.locator('[data-bulk] button[value="read"]').click();
+    await expect(page.getByText(sk.conversations.bulk_none)).toBeVisible();
+  }
+  // CSV of today: a file with the header row.
+  const today = new Date().toISOString().slice(0, 10);
+  await page.fill('[data-conversation-export] input[name="from"]', today);
+  await page.fill('[data-conversation-export] input[name="to"]', today);
+  const download = page.waitForEvent("download");
+  await page.click("[data-export-csv]");
+  const file = await download;
+  expect(file.suggestedFilename()).toBe(`konverzacie_${today}_${today}.csv`);
+});

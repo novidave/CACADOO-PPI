@@ -43,6 +43,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Own domains fully findable: "Overiť v Google Search Console" — a TXT record added to the DNS of a domain Cacaduu runs ("Odstrániť" removes only that record), or for a connected domain the **HTML značka** on its pages (recommended) or the TXT record to add by hand; **Bing Webmaster Tools** (the same meta tag, or the import from Search Console); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; **IndexNow on every host** (the main domain too) with only meaningful changes, once per upload and once an hour per host; the Offer keeps the price on stale pages (no availability); API/MCP `source_url` and PPI's llms.txt point to the own domain | Built and tested; live after database update 36, `INDEXNOW_KEY` (Vercel + Supabase) and `SITE_URL` (Supabase), the updated domains and stock-pull functions and the merge (SETUP.md part AG) |
 | Shop blog "Novinky" (every shop; free: the newest 10 posts shown, Pro: all): posts written in Môj obchod → "Novinky / Blog" with up to 10 photos, now or scheduled; the shop's Facebook Page connected once: all past posts imported, a daily sync, and "Zverejniť aj na Facebooku?" before each post; `/blog` pages, RSS, JSON-LD, sitemap, llms.txt and IndexNow, also on own domains; privacy and data deletion pages | Built and tested against Facebook, Brevo and IndexNow stand-ins; live after database update 37, the new shop-blog function, the Meta app and the merge (SETUP.md part AI) |
 | Forgiving product search: "Tovar v obchode" suggests up to 8 products while typing (from 2 letters; ↑ ↓ Enter Esc; "Zobraziť všetky výsledky") and finds them despite typos, word order, other languages, word endings and sizes ("akril paint 0.5l" → "Akrylové médium lesklé, 250 ml"); codes and EANs exact first; nothing exact → "podobné produkty"; the same rule in the main search, the API, MCP, the chat and the shop assistant ("farba v Budinciach" → only Budince) | Built and tested; live after database update 54 and the merge (SETUP.md part AW) |
+| "Konverzácie" (Pro, phase 1 of the CRM work): the Asistent page in three tabs (Nastavenia · Konverzácie with the number of new ones · Súkromné priečinky); every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" and "Prístupový kľúč"; filters (days, status, star, no answer, files, language) and search; ticks with bulk actions (prečítané, nové, hviezdička, archivovať, vymazať with a confirmation); suggested products linked; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action in the activity log | Built and tested (database checks, unit tests); live after database update 55 and the merge (SETUP.md part AX) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -428,8 +429,8 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
 - **Shop assistant** (page AI Assistant; paid plan): the button label (up to 40 characters) and the welcome message shown when the
   assistant opens (up to 300). Plain text only: HTML, links and e-mail addresses are removed (the owner is told);
   empty = the default texts in the page language. Without the plan the section only says it is part of the plan.
-- **Konverzácie asistenta** (page AI Assistant; paid plan; owners only; see 6.10): how long conversations are kept (30, 90 or
-  365 days, default 90); search words (any message or its Slovak version) and a date range (in the shop's time zone);
+- **Konverzácie asistenta** (page AI Assistant, tab "Konverzácie" since update 55, 6.30; paid plan; owners only; see
+  6.10): how long conversations are kept ("Neobmedzene" — the default since update 55 — or 30, 90 or 365 days); search words (any message or its Slovak version) and a date range (in the shop's time zone);
   the list, newest first: date and time, the shopper's language, number of messages, a paperclip with the number of
   files, the first question; 20 per page. **Open** shows the whole conversation: every message with its time and
   "Zákazník"/"Asistent", the Slovak version in grey under a foreign message, the item cards as the shopper saw them
@@ -764,7 +765,8 @@ all as days off (shops-closed rules there depend on the shop's size and type; th
   the same private folder; the owner takes it home with "Stiahnuť PDF" or through the cloud folder (6.11).
 - **Who sees it:** only the shop's owners (RLS), in "Konverzácie asistenta"; never shoppers, other shops, pages, the
   API, MCP or the AI search. Conversation tokens are kept as hashes; access keys never reach a conversation.
-- **Keep time:** 30, 90 or 365 days after the last message (the owner chooses; default 90); a daily job deletes older
+- **Keep time:** "Neobmedzene" (kept until the owner deletes them; the default since update 55) or 30, 90 or 365 days
+  after the last message (the owner chooses); only for a shop that chose a limit, a nightly job deletes older
   conversations with their files and PDF. The owner can delete one at any time. Copies already in the shop's cloud
   folder (6.11) stay there: PPI never deletes anything in it.
 - **The shopper's right to delete:** "Vymazať moju konverzáciu" while the box is open deletes the conversation, its
@@ -1178,7 +1180,7 @@ page language).
 
 ### 6.16 "Obsah stránky": one slider of posts, PDFs and pictures (database update 38)
 
-**Môj obchod → Asistent** (Part A) has four sections, each exactly once and in this order: **Nastavenia asistenta**
+**Môj obchod → Asistent** (Part A; since update 55 three tabs, 6.30) has four sections, each exactly once and in this order: **Nastavenia asistenta**
 (button text, welcome), **Konverzácie asistenta** (list, search, and the cloud folder they are copied to with its
 settings and statuses), **Súkromné priečinky** (documents, folders, access keys, "Len zobraziť" / "Zobraziť a
 stiahnuť"), **Posledné nahrané súbory** (the last 10 stock files). Nothing of these is on another page any more; old
@@ -1891,3 +1893,33 @@ below is unchanged.)
   no shop data are changed. Changes are announced to screen readers in Slovak; with "reduce motion" nothing moves.
 - Colours of this section (blue, orange, the yellow highlight) are an exception to "no colours", at the owner's
   request.
+
+### 6.30 "Konverzácie" for Pro shops (database update 55, phase 1 of the CRM work, 30 October 2026)
+
+- **Môj obchod → Asistent** has three tabs (plain links, they work without JavaScript; old addresses still open the
+  right one): **Nastavenia** (button text, welcome), **Konverzácie** (with the number of new conversations on the tab)
+  and **Súkromné priečinky**. Only the open tab's data are loaded.
+- **Every conversation is kept** (messages with their times, the shopper's language, the products the assistant
+  suggested, the shopper's files) with: a status **Nové / Prečítané / Archivované** (a new message makes it "Nové"
+  again; opening it marks it read), a **star**, the owner's **private note** (≤ 2000 characters, never shown to the
+  shopper) and two marks: **"Bez odpovede"** (the assistant could not answer and pointed to the shop) and
+  **"Prístupový kľúč"** (the shopper had folders open with an access key). Conversations from before the update count
+  as read and their marks are "unknown".
+- **List:** newest first, 20 per page; search words (any message, its Slovak version, the note; accents ignored), days
+  Od / Do (the shop's time zone), status (default "Nové a prečítané"; also Archivované or Všetky), "Len s
+  hviezdičkou", "Len bez odpovede", "Len so súbormi", language. Each row: date, status in words (new ones in bold),
+  language, messages, files, the marks, "Navrhnuté produkty: N", ☆/★, "Stiahnuť PDF".
+- **Bulk actions** on the ticked rows: Označiť ako prečítané / nové, hviezdička on / off, Archivovať (Vrátiť z
+  archívu in the archive), **Vymazať vybrané** only after "Áno, vymazať vybrané konverzácie aj so súbormi a PDF" (at
+  most 100 at once). "Stiahnuť vybrané" downloads the ticked ones as PDFs.
+- **Detail:** read-only transcript with times, the Slovak version, the shopper's pictures inline (files through
+  10-minute links), the product cards (a link to the product while it is still offered, "už nie je v ponuke"
+  otherwise), "Asistent nevedel odpovedať" under such an answer; status, marks, Označiť ako nové / hviezdička /
+  archivovať, the private note, **Stiahnuť PDF** (once finished) and **Stiahnuť TXT**; delete with a confirmation.
+- **Export:** one conversation as PDF or TXT; a date range as **CSV** for Excel (UTF-8, ";", one row per message: the
+  conversation, start, status, star, marks, language, time, who, text, Slovak version, files, products; at most
+  50 000 rows; a cell that a spreadsheet would run as a formula is written as text).
+- **Keep time:** "Neobmedzene" (default; shops still on the old default of 90 days get it) or 30 / 90 / 365 days.
+- **Log:** keep time, marks (not the automatic "read" when opening), notes, deletions and exports go into the shop's
+  activity log (`shop_activity`). Only the shop's members see or change anything (RLS and the owner functions);
+  visitors never.
