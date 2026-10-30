@@ -683,7 +683,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   languages, times, end reason, counts, first question, PDF state with up to 3 tries 10/20 minutes apart),
   `assistant_messages` (role, body, `body_owner` = Slovak version, `lang`, `cards`, `attachment_ids`),
   `assistant_attachments` (name, real kind, bytes, storage and preview paths — owners get name, kind and size only),
-  `shop_assistant_settings` (`retention_days` 30/90/365). Database functions for the service role only:
+  `shop_assistant_settings` (`retention_days` 30/90/365; since update 55 null = "Neobmedzene", the default). Database functions for the service role only:
   `assistant_open` (paid plan, active shop, 30 new conversations an hour per caller hash and shop in `api_usage`,
   returns `{id, token}`; the token is 64 hex characters, kept as SHA-256), `assistant_conversation`,
   `assistant_add_attachment` (open conversation, ≤ 10, the five kinds, ≤ 10 MB, path `<shop>/<conv>/files/<id>.<ext>`,
@@ -2487,3 +2487,44 @@ iPhone-sized project in `playwright.config.ts`: round 20 px dot in a reset 32 px
 no stock sentence in rows, counters after reload, "9+", stepper and bin, short / long swipe by touch, copy text and
 the manual fallback, reduced motion, blocked storage) and the rewritten `e2e/shop-search.spec.ts` (live filter keeps
 the page still, ×, Esc, nothing found, typo, newest answer only, no-JS form).
+
+## Update 55 — "Konverzácie" for Pro shops (CRM phase 1, 30 October 2026)
+
+`supabase/sql/55_conversations.sql` (one file, safe to run again):
+- Keep time: `shop_assistant_settings.retention_days` nullable without a default (null = "Neobmedzene"), check
+  `null or in (30, 90, 365)`, `retention_chosen_at`; rows still on the old default 90 (never chosen) become null, 30 and
+  365 keep their value. `assistant_expired()` only joins shops with a limit. `owner_set_assistant_retention(shop, days)`
+  takes null and logs `conversation_retention`.
+- `assistant_conversations`: `status` new|read|archived (existing rows `read`, new ones `new`), `starred`,
+  `owner_note` (≤ 2000), `unanswered` / `access_key_used` (null = before the update), `item_ids uuid[]` (suggested
+  products of this shop, once each, in order), `search_doc` (`search_text` of every message and its Slovak version;
+  GIN trigram index; owners have no grant on it), `read_at`; index `(shop_id, status, started_at desc)`.
+  `assistant_messages.unanswered`. Owners read the new columns (column grants); only the functions write.
+- `assistant_card()` keeps `item_id`; `assistant_add_turn()` (same signature) reads `p_assistant.unanswered` and
+  `p_shopper.access_key`, ORs the flags, adds the item ids (only `shop_items` of that shop), appends `search_doc` and
+  sets the conversation `new` again.
+- Owner functions (security definer, `is_shop_member`, revoked from anon): `owner_conversations(shop, q, from, to,
+  status, starred, unanswered, attachments, lang, limit, offset)` (the old columns + status, starred, unanswered,
+  access_key_used, has_note, item_count, total_count; `matches_all_words` over `search_doc` + the note; status null =
+  not archived), `owner_conversation_languages()`, `owner_conversations_new()` (the tab's badge),
+  `owner_conversations_mark(shop, ids ≤ 500, read|new|archive|unarchive|star|unstar, log)` (other shops' ids ignored;
+  `log = false` for opening), `owner_conversation_note(id, note)`, `owner_conversations_log(shop,
+  conversations_deleted|conversations_exported, details)`, `owner_conversations_export(shop, from, to)` (one row per
+  message, ≤ 50 000, range checked, logs `conversations_exported`). `shop_activity` gets the five new actions.
+- Website: `shopChat` `ArchiveCard.item_id`, `ChatArchive.unanswered` (= `call_shop`) and `.accessKey` (a non-public
+  document was in the exchange), passed by `/api/shops/[slug]/chat` → assistant-archive `record` (unchanged: it passes
+  the objects through). Asistent page (`dashboard/assistant/page.tsx`): three tabs from `?at=` (assistant /
+  conversations + cloud / docs), only the open tab loads its data; `Conversations.tsx` (filters `cstatus cstar cna
+  cfiles clang` + `cq cfrom cto cpage`, `filterQuery()`, `loadConversations()` falls back to
+  `owner_assistant_conversations` on PGRST202/42883, one tick form `conversation-ticks` shared by
+  `ConversationDownloadBar` and the bulk form), `conversationActions.ts` (`bulkConversations`, `starConversation`,
+  `saveConversationNote`, `markConversation`, deletions through assistant-archive `owner_delete` then
+  `owner_conversations_log`), the detail page (marks read with `p_log = false`, note, marks, item links via
+  `public_stock`, TXT link). Exports: `@/lib/conversationExport` (`localStamp`, `csvCell` with formula guard, `toCsv`
+  BOM + ";" + CRLF, `exportCsv`, `conversationTxt`, `exportName`; `npm run test:conversations`),
+  `/api/owner/conversations/[id]/txt`, `/api/owner/conversations/export?shop=&from=&to=&lang=`.
+- DB tests (block "update 55"; the update-22 block now checks "kept forever when nothing is set"): no default keep
+  time, flags and item ids from turns (other shops' ids and broken ids dropped), filters, accents, note search, marks
+  (no log on opening), archive hidden from the default list, export rows and range, log actions, owner B and anon
+  refused, a refused turn changes nothing, Neobmedzene keeps 400-day-old conversations, 365 days deletes them.
+

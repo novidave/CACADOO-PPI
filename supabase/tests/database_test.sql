@@ -2175,9 +2175,14 @@ begin
   assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], 'deleted after 30 days';
   update public.shop_assistant_settings set retention_days = 90;
   assert not exists (select 1 from public.assistant_expired(10)), 'a longer keep time keeps it';
-  delete from public.shop_assistant_settings;
   update public.assistant_conversations set last_message_at = now() - interval '91 days' where id = v_id;
-  assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], '90 days when nothing is set';
+  assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], 'deleted after 90 days';
+  -- update 55: nothing set (or "Neobmedzene") = kept until the owner deletes it
+  delete from public.shop_assistant_settings;
+  update public.assistant_conversations set last_message_at = now() - interval '3000 days' where id = v_id;
+  assert not exists (select 1 from public.assistant_expired(10)), 'kept forever when nothing is set';
+  insert into public.shop_assistant_settings (shop_id, retention_days) select shop_id, null from public.assistant_conversations where id = v_id;
+  assert not exists (select 1 from public.assistant_expired(10)), 'kept forever with Neobmedzene';
   -- forgetting removes the messages and files with it
   assert public.assistant_forget(v_id);
   assert not exists (select 1 from public.assistant_messages where conversation_id = v_id)
@@ -8667,5 +8672,238 @@ begin
   assert not exists (select 1 from public.item_search('glossy acrylic medium') where shop_slug = 'davide-search');
   update public.shops set is_active = true where slug = 'davide-search';
 end $$;
+
+\echo '--- update 55: Konverzácie — status, star, note, flags, products, filters, export, log, owners only'
+create temporary table conv_test (k text primary key, v text);
+grant all on conv_test to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_item uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'potraviny-centrum') order by id limit 1);
+  v_foreign uuid := (select id from public.shop_items where shop_id <> (select id from public.shops where slug = 'potraviny-centrum') order by id limit 1);
+  v_open jsonb;
+  v_two jsonb;
+  v_had_plan boolean := public.shop_has_plan((select id from public.shops where slug = 'potraviny-centrum'));
+begin
+  insert into conv_test values ('had_plan', v_had_plan::text);
+  if not v_had_plan then
+    insert into public.subscriptions (shop_id, status, plan, current_period_end)
+    values (v_a, 'active', 'pro', now() + interval '30 days')
+    on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  end if;
+  -- keep time: the column takes null (Neobmedzene), 30 / 90 / 365; nothing else
+  begin
+    insert into public.shop_assistant_settings (shop_id, retention_days) values (v_a, 45)
+    on conflict (shop_id) do update set retention_days = 45;
+    raise exception '45 days stored';
+  exception when check_violation then null;
+  end;
+  assert (select column_default from information_schema.columns
+          where table_schema = 'public' and table_name = 'shop_assistant_settings' and column_name = 'retention_days') is null,
+    'no default keep time';
+
+  v_open := public.assistant_open(v_a, 'sk', repeat('g', 32));
+  assert (select status = 'new' and not starred and unanswered = false and access_key_used = false and item_ids = '{}'
+          from public.assistant_conversations where id = (v_open ->> 'id')::uuid), 'a new conversation starts new, flags false';
+  perform public.assistant_add_turn((v_open ->> 'id')::uuid, v_open ->> 'token', v_a,
+    jsonb_build_object('body', 'Máte kakao Granko?', 'lang', 'sk', 'access_key', true),
+    jsonb_build_object('body', 'Áno, máme.', 'lang', 'sk', 'cards', jsonb_build_array(
+      jsonb_build_object('item_id', v_item, 'name', 'Kakao', 'price', '1,99 €'),
+      jsonb_build_object('item_id', v_item, 'name', 'Kakao znova'),
+      jsonb_build_object('item_id', v_foreign, 'name', 'Iný obchod'),
+      jsonb_build_object('item_id', 'not-a-uuid', 'name', 'Zlé id'))));
+  perform public.assistant_add_turn((v_open ->> 'id')::uuid, v_open ->> 'token', v_a,
+    jsonb_build_object('body', 'A čokoládu Studentskú?', 'lang', 'sk'),
+    jsonb_build_object('body', 'To neviem, zavolajte do obchodu.', 'lang', 'sk', 'unanswered', true,
+                       'cards', jsonb_build_array(jsonb_build_object('item_id', v_item, 'name', 'Kakao'))));
+  assert (select unanswered and access_key_used and item_ids = array[v_item] and status = 'new'
+          from public.assistant_conversations where id = (v_open ->> 'id')::uuid),
+    'flags kept (or), only this shop''s products, each once';
+  assert (select count(*) from public.assistant_messages where conversation_id = (v_open ->> 'id')::uuid and unanswered) = 1,
+    'the answer that could not help is marked';
+  assert (select cards -> 0 ->> 'item_id' from public.assistant_messages
+          where conversation_id = (v_open ->> 'id')::uuid and role = 'assistant' order by id limit 1) = v_item::text,
+    'cards keep the product id';
+  assert (select cards -> 3 ? 'item_id' from public.assistant_messages
+          where conversation_id = (v_open ->> 'id')::uuid and role = 'assistant' order by id limit 1) = false,
+    'a broken id is dropped';
+  assert (select search_doc like '%granko%' from public.assistant_conversations where id = (v_open ->> 'id')::uuid);
+
+  v_two := public.assistant_open(v_a, 'hu', repeat('h', 32));
+  perform public.assistant_add_turn((v_two ->> 'id')::uuid, v_two ->> 'token', v_a,
+    jsonb_build_object('body', 'Van tej?', 'lang', 'hu', 'body_owner', 'Máte mlieko?'),
+    jsonb_build_object('body', 'Igen.', 'lang', 'hu'));
+  insert into conv_test values ('one', v_open ->> 'id'), ('two', v_two ->> 'id');
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_one uuid := (select v::uuid from conv_test where k = 'one');
+  v_two uuid := (select v::uuid from conv_test where k = 'two');
+  v_log bigint := (select count(*) from public.shop_activity where shop_id = (select id from public.shops where slug = 'potraviny-centrum'));
+begin
+  -- keep time: Neobmedzene (null) and the three limits; logged
+  assert public.owner_set_assistant_retention(v_a, null) is null;
+  assert (select retention_days is null and retention_chosen_at is not null from public.shop_assistant_settings where shop_id = v_a);
+  assert public.owner_set_assistant_retention(v_a, 365) = 365;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversation_retention'
+                 and details ->> 'days' = '365');
+  perform public.owner_set_assistant_retention(v_a, null);
+
+  -- the list: new first in the badge, filters
+  assert public.owner_conversations_new(v_a) >= 2, 'the badge counts new conversations';
+  assert exists (select 1 from public.owner_conversations(v_a) where id = v_one and status = 'new' and unanswered
+                 and access_key_used and item_count = 1 and not has_note);
+  assert (select count(*) from public.owner_conversations(v_a, p_unanswered => true) where id in (v_one, v_two)) = 1;
+  assert (select count(*) from public.owner_conversations(v_a, p_lang => 'hu') where id in (v_one, v_two)) = 1;
+  assert exists (select 1 from public.owner_conversations(v_a, 'MLIEKO') where id = v_two), 'the Slovak version is searched';
+  assert exists (select 1 from public.owner_conversations(v_a, 'studentsku cokoladu') where id = v_one), 'accents ignored';
+  assert not exists (select 1 from public.owner_conversations(v_a, 'granko mlieko')), 'every word must appear';
+  assert exists (select 1 from public.owner_conversation_languages(v_a) where lang = 'hu');
+  assert (select count(*) from public.owner_conversations(v_a, p_attachments => true) where id in (v_one, v_two)) = 0;
+
+  -- marking: read, star, archive (hidden from the default list), back
+  assert public.owner_conversations_mark(v_a, array[v_one], 'read', false) = 1;
+  assert public.owner_conversations_mark(v_a, array[v_one], 'read') = 0, 'already read: nothing changes';
+  assert (select read_at is not null from public.assistant_conversations where id = v_one), 'owners read the new columns';
+  assert not exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversations_marked'),
+    'opening a conversation is not written in the log';
+  assert public.owner_conversations_mark(v_a, array[v_one, v_two], 'star') = 2;
+  assert (select count(*) from public.owner_conversations(v_a, p_starred => true) where id in (v_one, v_two)) = 2;
+  assert public.owner_conversations_mark(v_a, array[v_two], 'archive') = 1;
+  assert not exists (select 1 from public.owner_conversations(v_a) where id = v_two), 'archived: not in the default list';
+  assert exists (select 1 from public.owner_conversations(v_a, p_status => 'archived') where id = v_two);
+  assert exists (select 1 from public.owner_conversations(v_a, p_status => 'all') where id = v_two);
+  assert (select count(*) from public.owner_conversations(v_a, p_status => 'read') where id in (v_one, v_two)) = 1;
+  assert public.owner_conversations_mark(v_a, array[v_two], 'unarchive') = 1;
+  assert (select status from public.assistant_conversations where id = v_two) = 'read';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversations_marked'
+                 and details ->> 'action' = 'star' and details ->> 'count' = '2');
+  begin
+    perform public.owner_conversations_mark(v_a, array[v_one], 'delete');
+    raise exception 'an unknown action was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- the private note
+  assert public.owner_conversation_note(v_one, '  Zavolať späť zajtra  ') = 'Zavolať späť zajtra';
+  assert exists (select 1 from public.owner_conversations(v_a, 'zavolat zajtra') where id = v_one and has_note),
+    'the note is searched too';
+  assert public.owner_conversation_note(v_one, '') is null;
+  begin
+    perform public.owner_conversation_note(v_one, repeat('x', 2001));
+    raise exception 'a 2001-character note was stored';
+  exception when invalid_parameter_value then null;
+  end;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversation_note');
+
+  -- export (CSV): every message of the range, logged; a bad range refused
+  assert (select count(*) from public.owner_conversations_export(v_a, (now() at time zone 'Europe/Bratislava')::date,
+            (now() at time zone 'Europe/Bratislava')::date) where conversation_id = v_one) = 4;
+  assert (select products from public.owner_conversations_export(v_a, current_date - 1, current_date + 1)
+          where conversation_id = v_one and role = 'assistant' order by message_at limit 1) like 'Kakao%';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversations_exported');
+  begin
+    perform public.owner_conversations_export(v_a, current_date, current_date - 1);
+    raise exception 'a backwards range was exported';
+  exception when invalid_parameter_value then null;
+  end;
+  perform public.owner_conversations_log(v_a, 'conversations_deleted', jsonb_build_object('count', 1));
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversations_deleted');
+  begin
+    perform public.owner_conversations_log(v_a, 'stock_files_deleted', '{}');
+    raise exception 'the log took another action';
+  exception when invalid_parameter_value then null;
+  end;
+  -- owners never read the search text, never write a conversation directly
+  begin
+    perform search_doc from public.assistant_conversations;
+    raise exception 'an owner read the search text';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.assistant_conversations set status = 'read' where id = v_two;
+    raise exception 'an owner wrote a conversation directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- owner B: nothing of shop A
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_one uuid := (select v::uuid from conv_test where k = 'one');
+begin
+  assert not exists (select 1 from public.owner_conversations(v_a, p_status => 'all'));
+  assert public.owner_conversations_new(v_a) = 0;
+  assert not exists (select 1 from public.owner_conversation_languages(v_a));
+  begin perform public.owner_conversations_mark(v_a, array[v_one], 'archive'); raise exception 'B marked A''s conversation';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_conversation_note(v_one, 'x'); raise exception 'B wrote a note on A''s conversation';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_conversations_export(v_a, current_date, current_date); raise exception 'B exported A''s conversations';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_set_assistant_retention(v_a, 30); raise exception 'B set A''s keep time';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_conversations_log(v_a, 'conversations_deleted', '{}'); raise exception 'B wrote A''s log';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  begin perform public.owner_conversations((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'a visitor listed conversations';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- a new message makes an archived conversation new again; a shop with a keep time loses it, Neobmedzene never
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_one uuid := (select v::uuid from conv_test where k = 'one');
+  v_two uuid := (select v::uuid from conv_test where k = 'two');
+begin
+  update public.assistant_conversations set status = 'archived' where id = v_one;
+  begin
+    perform public.assistant_add_turn(v_one, repeat('x', 1), v_a, '{"body":"x"}', '{"body":"y"}');
+    raise exception 'a wrong token added a message';
+  exception when no_data_found then null;
+  end;
+end $$;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_one uuid := (select v::uuid from conv_test where k = 'one');
+  v_two uuid := (select v::uuid from conv_test where k = 'two');
+begin
+  assert (select status from public.assistant_conversations where id = v_one) = 'archived', 'a refused message changes nothing';
+  update public.assistant_conversations set ended_at = now(), last_message_at = now() - interval '400 days'
+  where id in (v_one, v_two);
+  assert not exists (select 1 from public.assistant_expired(1000) x where x in (v_one, v_two)), 'Neobmedzene keeps them';
+  update public.shop_assistant_settings set retention_days = 365 where shop_id = v_a;
+  assert (select count(*) from public.assistant_expired(1000) x where x in (v_one, v_two)) = 2, '365 days: deleted';
+  perform public.assistant_forget(v_one);
+  perform public.assistant_forget(v_two);
+  delete from public.shop_assistant_settings where shop_id = v_a;
+  if not (select v::boolean from conv_test where k = 'had_plan') then
+    delete from public.subscriptions where shop_id = v_a;
+  end if;
+end $$;
+reset role;
+drop table conv_test;
 
 \echo 'ALL DATABASE CHECKS PASSED'

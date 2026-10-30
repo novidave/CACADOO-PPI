@@ -103,12 +103,14 @@ async function archive(
     lang: result.archive.language,
     at: sent.receivedAt,
     attachments: sent.attachments.flatMap((a) => (a.id ? [a.id] : [])),
+    access_key: result.archive.accessKey,
   };
   const assistant = {
     body: result.reply.answer || "–",
     body_owner: result.archive.answerOwner,
     lang: result.archive.language,
     cards: result.archive.cards,
+    unanswered: result.archive.unanswered,
   };
   const saved = await recordTurn(conversation, shopId, shopper, assistant);
   if (saved.error !== "ended" && saved.error !== "not_found") return conversation;

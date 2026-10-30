@@ -18,6 +18,8 @@ export interface Conversation {
 
 /** An item card as the shopper saw it: kept as it was at that moment. */
 export interface ArchiveCard {
+  /** The product (shop_items id): the owner's "Konverzácie" links the card to it (update 55). */
+  item_id?: string;
   name: string;
   price: string;
   availability: string;
@@ -98,8 +100,8 @@ export async function openConversation(shopId: string, pageLang: string, caller:
 export async function recordTurn(
   conversation: Conversation,
   shopId: string,
-  shopper: ArchiveMessage & { at: string; attachments: string[] },
-  assistant: ArchiveMessage & { cards: ArchiveCard[] },
+  shopper: ArchiveMessage & { at: string; attachments: string[]; access_key?: boolean },
+  assistant: ArchiveMessage & { cards: ArchiveCard[]; unanswered?: boolean },
 ) {
   return call<{ ok: true }>({ action: "record", ...conversation, shop_id: shopId, shopper, assistant });
 }

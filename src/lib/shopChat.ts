@@ -172,6 +172,10 @@ export interface ChatArchive {
   messageOwner: string | null;
   answerOwner: string | null;
   cards: ArchiveCard[];
+  /** The assistant could not answer and pointed to the shop (call_shop): "Bez odpovede" for the owner. */
+  unanswered: boolean;
+  /** The shopper had folders open with an access key while asking. */
+  accessKey: boolean;
 }
 
 export interface ChatResult {
@@ -769,7 +773,10 @@ export async function runShopChat(
 
     const text = response.content.find((block) => block.type === "text");
     if (!text || text.type !== "text") throw new Error("the assistant gave no answer");
-    return toReply(JSON.parse(text.text) as Answer, found, excerpts, photo, shop, lang, docsToken, newsPosts);
+    const result = await toReply(JSON.parse(text.text) as Answer, found, excerpts, photo, shop, lang, docsToken, newsPosts);
+    // Folders opened with an access key were in this exchange (the owner sees "Prístupový kľúč").
+    result.archive.accessKey = docs.some((d) => !d.is_public);
+    return result;
   }
 }
 
@@ -839,6 +846,7 @@ async function toReply(
   const archiveCards: ArchiveCard[] = [];
   const keep = (item: FoundItem, quantity?: number, note?: string) => {
     archiveCards.push({
+      item_id: item.id,
       name: item.name,
       price: formatPrice(item.price, OWNER_LANG, item.currency),
       availability: availabilityText(ownerDict, item.availability, item.quantity, OWNER_LANG) ?? ownerDict.stock.stale,
@@ -966,6 +974,8 @@ async function toReply(
       messageOwner: language === OWNER_LANG ? null : inOwnerLang(answer.message_sk, ""),
       answerOwner: language === OWNER_LANG ? null : inOwnerLang(answer.answer_sk, text),
       cards: archiveCards,
+      unanswered: Boolean(answer.call_shop),
+      accessKey: false,
     },
   };
 }

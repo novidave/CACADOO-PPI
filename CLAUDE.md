@@ -93,6 +93,8 @@ button, the text only after a tap, 2026-10-27); always an extra — every page m
 - `npm run test:export` — unit tests (Deno) of the translations folder's files (`src/lib/exportFiles_test.ts`): the
   built-in .xlsx writer/reader (also files as Excel saves them), the files' columns, the owner's edits read back
   (empty cells, read-only columns, unknown rows, Kód then EAN)
+- `npm run test:conversations` — unit tests (Deno) of the owner's conversation exports (`src/lib/conversationExport_test.ts`):
+  times in the shop's time zone, CSV cells (quotes, ";", new lines, formulas written as text), BOM + CRLF, TXT lines
 - `npm run test:list` — unit tests (Deno) of the shop page's Zoznam (`src/lib/shoppingList_test.ts`): add / set / remove,
   "9+", totals in cents per currency, Slovak plurals, the copied text, broken stored lists, blocked storage
 - `npm run test:search` — unit tests (Deno) of the forgiving search's word rules (`src/lib/searchWords_test.ts`): the
@@ -301,7 +303,8 @@ conversation's token (kept as SHA-256): real type by content (JPEG/PNG/WebP/HEIC
 (their JWT + RLS) get 10-minute links and delete. Ends after 30 minutes idle (pg_cron tick every 5 minutes, Vault
 `ppi_project_url` + `ppi_assistant_cron`) or when the shopper closes the box / starts a new one / leaves the page;
 then one PDF (pdf-lib + DejaVu Sans subset in the file: `<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`, footer "Vytvorené
-Cacaduu PPI · konverzácia <id> · strana X/Y"). Keep time 30/90/365 days (default 90), daily job. "Konverzácie asistenta"
+Cacaduu PPI · konverzácia <id> · strana X/Y"). Keep time "Neobmedzene" (null, the default since update 55) or
+30/90/365 days; the nightly job deletes only for shops that chose a limit. "Konverzácie asistenta"
 (dashboard `Conversations.tsx`, page `dashboard/conversations/[id]`): read, delete and, since 2026-10-14, **"Stiahnuť
 PDF"** (finished conversations only; `owner_pdfs` in the function, RLS decides; `/api/owner/conversations/[id]/pdf`) and
 ticks + "Stiahnuť vybrané" (`ConversationDownloadBar`, each conversation its own PDF, no ZIP); the PDF shows the
@@ -311,6 +314,22 @@ other shops' data into conversations, PDFs or exports. "Konverzácie do počíta
 request): the shop PC's `/sync` window saves each finished conversation's PDF into a folder it picked
 (`@/components/ConversationFolderSync`, File System Access `readwrite`, every 5 min, `<YYYY-MM>/<pdf_name>`, never
 replaces or deletes a file, state only in that browser); the cloud folder (below) stays a push from our server.
+
+## "Konverzácie" (paid, update 55, CRM phase 1)
+
+`supabase/sql/55_conversations.sql` + `dashboard/Conversations.tsx` / `conversationActions.ts` / `conversations/[id]` +
+`@/lib/conversationExport` + `/api/owner/conversations/[id]/txt` and `/export`. The Asistent page is **three tabs**
+(plain links from `?at=`: assistant · conversations (+ cloud) · docs; the "Konverzácie" tab shows the number of new
+ones, `owner_conversations_new()`); only the open tab loads its data; old addresses keep working (`dashboardPages`).
+Every conversation: `status` new|read|archived (a new message → new; opening → read via
+`owner_conversations_mark(…, 'read', p_log => false)`), `starred`, `owner_note` (private, ≤ 2000), `unanswered`
+(the assistant's `call_shop`), `access_key_used` (a non-public document in the exchange), `item_ids` (cards' `item_id`,
+only this shop's items), `search_doc` (never granted to owners). **Only the owner_* functions read the list and write**
+(`owner_conversations` with filters q/days/status/star/no answer/files/language, `_mark`, `_note`, `_log`, `_export`);
+deletions stay in assistant-archive `owner_delete` and are logged with `owner_conversations_log`. Every owner action
+goes to `shop_activity` (`conversation_retention`, `conversations_marked`, `conversation_note`, `conversations_deleted`,
+`conversations_exported`). Exports: PDF (as before), TXT per conversation, CSV per date range (BOM, ";", formula
+guard, ≤ 50 000 rows, shop's time zone). Before update 55 the list falls back to `owner_assistant_conversations`.
 
 ## Cloud folder (paid, update 23)
 
@@ -440,8 +459,8 @@ PPI's sitemap leaves those pages out.
 - Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
   Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (details, logo, header logo, plan,
   delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`
-  "Asistent" (update 38: **three sections, each once, in this order** — "Nastavenia asistenta", "Konverzácie asistenta"
-  with the cloud folder as its part `#cloud`, "Súkromné priečinky" = `ShopDocuments` (documents, folders, access keys,
+  "Asistent" (update 38: **three sections, each once, in this order** — since update 55 **three tabs** — "Nastavenia
+  asistenta", "Konverzácie asistenta" with the cloud folder as its part `#cloud`, "Súkromné priečinky" = `ShopDocuments` (documents, folders, access keys,
   "Len zobraziť" / "Zobraziť a stiahnuť"); "Posledné nahrané súbory" = `@/components/RecentImports` moved to `/sync` in
   update 43; a free shop sees
   `ProOnly` "Dostupné v Pro" where it has nothing yet, what it has stays reachable) and `/sync` "Priečinok s exportom"

@@ -8,7 +8,7 @@ import { formatDateTime, formatTime, localDay } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { deleteConversation } from "../../conversationActions";
+import { deleteConversation, markConversation, saveConversationNote } from "../../conversationActions";
 import { conversationPdfUrl, countText, ExportState, languageName, type ExportStatus } from "../../Conversations";
 
 export const metadata: Metadata = { robots: { index: false } };
@@ -16,6 +16,8 @@ export const metadata: Metadata = { robots: { index: false } };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface Card {
+  /** The product (update 55; older cards have none). */
+  item_id?: string;
   name?: string;
   price?: string;
   availability?: string;
@@ -33,6 +35,18 @@ interface Message {
   cards: Card[];
   attachment_ids: string[];
   created_at: string;
+  /** Update 55: the answer pointed to the shop (the assistant could not help). */
+  unanswered?: boolean;
+}
+
+/** Database update 55's columns of a conversation (owners read them; left out before the update). */
+interface Marks {
+  status: "new" | "read" | "archived";
+  starred: boolean;
+  owner_note: string | null;
+  unanswered: boolean | null;
+  access_key_used: boolean | null;
+  item_ids: string[];
 }
 
 interface Attachment {
@@ -84,11 +98,11 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     );
   }
 
-  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes] = await Promise.all([
+  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes, marksRes] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase
       .from("assistant_messages")
-      .select("id, role, body, body_owner, lang, cards, attachment_ids, created_at")
+      .select("*")
       .eq("conversation_id", id)
       .order("created_at")
       .order("id"),
@@ -100,6 +114,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     // The copy in the shop's cloud folder (database update 23; left out before it).
     supabase.from("assistant_conversations").select("export_status, export_error, export_path").eq("id", id).maybeSingle(),
     supabase.from("cloud_connections").select("provider").eq("shop_id", conv.shop_id).maybeSingle(),
+    supabase.from("assistant_conversations").select("status, starred, owner_note, unanswered, access_key_used, item_ids").eq("id", id).maybeSingle(),
   ]);
   if (messagesRes.error) return <DbError message={messagesRes.error.message} dict={dict} />;
   const shop = ((shopsRes.data ?? []) as MyShop[]).find((s) => s.id === conv.shop_id);
@@ -124,6 +139,41 @@ export default async function ConversationPage({ params, searchParams }: PagePro
   const cloudConnected = !cloudRes.error && Boolean(cloudRes.data);
   const { data: hasPlan } = cloudConnected ? await supabase.rpc("shop_has_plan", { p_shop_id: shop.id }) : { data: false };
   const cloudErr = err?.startsWith("cloud_") ? err.slice("cloud_".length) : null;
+  const marks = marksRes.error ? null : (marksRes.data as Marks | null);
+  // Opening a new conversation marks it read (not written in the activity log: only the owner's own changes are).
+  if (marks?.status === "new") {
+    const { error: markError } = await supabase.rpc("owner_conversations_mark", {
+      p_shop_id: shop.id,
+      p_ids: [conv.id],
+      p_action: "read",
+      p_log: false,
+    });
+    if (!markError) marks.status = "read";
+  }
+  // The suggested products that are still offered (a deleted one keeps its card, without the link).
+  const cardIds = [...new Set([...(marks?.item_ids ?? []), ...messages.flatMap((msg) => (msg.cards ?? []).flatMap((card) => (card.item_id ? [card.item_id] : [])))])]
+    .filter((itemId) => UUID.test(itemId))
+    .slice(0, 200);
+  const { data: liveRows } = cardIds.length
+    ? await supabase.from("public_stock").select("item_id").eq("shop_id", shop.id).in("item_id", cardIds)
+    : { data: [] as { item_id: string }[] };
+  const live = new Set(((liveRows ?? []) as { item_id: string }[]).map((r) => r.item_id));
+  const itemHref = (itemId: string | undefined) => (itemId && live.has(itemId) ? `/${lang}/items/${itemId}` : null);
+  const hiddenShop = (
+    <>
+      <input type="hidden" name="lang" value={lang} />
+      <input type="hidden" name="shop_id" value={shop.id} />
+      <input type="hidden" name="shop_slug" value={shop.slug} />
+      <input type="hidden" name="conversation_id" value={conv.id} />
+    </>
+  );
+  const flagWords = marks
+    ? marks.unanswered === null && marks.access_key_used === null
+      ? [c.flags_unknown]
+      : [marks.unanswered ? c.flag_unanswered : null, marks.access_key_used ? c.flag_access_key : null, marks.starred ? c.flag_starred : null].filter(
+          (w): w is string => Boolean(w),
+        )
+    : [];
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -142,6 +192,22 @@ export default async function ConversationPage({ params, searchParams }: PagePro
           <dd>{languageName(conv.shopper_lang, lang, c.unknown)}</dd>
           <dt className="text-muted">{c.page_language}</dt>
           <dd>{languageName(conv.page_lang, lang, c.unknown)}</dd>
+          {marks && (
+            <>
+              <dt className="text-muted">{c.status_label}</dt>
+              <dd data-detail-status={marks.status}>
+                {marks.status === "archived" ? c.status_archived : marks.status === "new" ? c.status_new : c.status_read}
+              </dd>
+              {flagWords.length > 0 && (
+                <>
+                  <dt className="text-muted">{c.flags}</dt>
+                  <dd className={marks.unanswered ? "font-semibold" : ""} data-detail-flags>
+                    {flagWords.join(" · ")}
+                  </dd>
+                </>
+              )}
+            </>
+          )}
           <dt className="text-muted">{dict.conversations.pdf}</dt>
           <dd className="flex flex-wrap gap-x-3">
             <span>{pdfText}</span>
@@ -150,6 +216,9 @@ export default async function ConversationPage({ params, searchParams }: PagePro
                 {c.download_pdf}
               </a>
             )}
+            <a href={`/api/owner/conversations/${conv.id}/txt?lang=${lang}`} download className="underline underline-offset-4" data-conversation-txt>
+              {c.download_txt}
+            </a>
           </dd>
           {exported && exported.export_status !== "none" && (
             <>
@@ -179,6 +248,25 @@ export default async function ConversationPage({ params, searchParams }: PagePro
           {countText(c, "messages", conv.message_count, lang)}
           {conv.attachment_count > 0 && ` · ${t(c.files, { n: conv.attachment_count })}`}
         </p>
+        {marks && (
+          <div className="flex flex-wrap gap-2" data-detail-actions>
+            {(
+              [
+                ["new", c.mark_new],
+                [marks.starred ? "unstar" : "star", marks.starred ? c.unstar : c.star],
+                [marks.status === "archived" ? "unarchive" : "archive", marks.status === "archived" ? c.unarchive : c.archive],
+              ] as const
+            ).map(([op, label]) => (
+              <form key={op} action={markConversation}>
+                {hiddenShop}
+                <input type="hidden" name="op" value={op} />
+                <button type="submit" className="min-h-11 rounded border border-line px-3 text-sm font-medium" data-mark={op}>
+                  {label}
+                </button>
+              </form>
+            ))}
+          </div>
+        )}
       </header>
 
       {ok === "cloud_retry" && (
@@ -191,9 +279,28 @@ export default async function ConversationPage({ params, searchParams }: PagePro
           {(dict.cloud as Record<string, string>)[`error_${cloudErr}`] ?? t(dict.cloud.error_other, { message: cloudErr.replace(/^other:/, "") })}
         </p>
       ) : (
-        err && <p className="border border-line p-3">{err === "delete" ? c.delete_failed : c.delete_confirm}</p>
+        err &&
+        err !== "note" && <p className="border border-line p-3">{err === "delete" ? c.delete_failed : err === "mark" ? t(dict.account.error, { message: "–" }) : c.delete_confirm}</p>
       )}
       {conv.attachment_count > 0 && !links && <p className="border border-line p-3 text-sm">{c.links_failed}</p>}
+
+      {marks && (
+        <form id="note" action={saveConversationNote} className="flex scroll-mt-4 flex-col gap-2 border border-line p-3" data-note>
+          {hiddenShop}
+          <label className="flex flex-col gap-1">
+            <span className="font-semibold">{c.note_title}</span>
+            <textarea name="note" rows={3} maxLength={2000} defaultValue={marks.owner_note ?? ""} className="rounded border border-line px-3 py-2 outline-none focus:border-foreground" />
+          </label>
+          <p className="text-xs text-muted">{c.note_hint}</p>
+          {ok === "note" && (
+            <p role="status" className="text-sm font-medium">
+              {c.ok_note}
+            </p>
+          )}
+          {err === "note" && <p className="text-sm">{c.note_failed}</p>}
+          <PendingButton pending={dict.owner.saving}>{c.note_save}</PendingButton>
+        </form>
+      )}
 
       <ol className="flex flex-col border-t border-line" data-messages>
         {messages.map((m) => (
@@ -215,7 +322,12 @@ export default async function ConversationPage({ params, searchParams }: PagePro
                 dict={dict}
               />
             )}
-            {m.role === "assistant" && (m.cards ?? []).length > 0 && <Cards cards={m.cards} when={when} dict={dict} />}
+            {m.role === "assistant" && m.unanswered && (
+              <p className="text-sm font-semibold" data-unanswered>
+                {c.unanswered_message}
+              </p>
+            )}
+            {m.role === "assistant" && (m.cards ?? []).length > 0 && <Cards cards={m.cards} when={when} dict={dict} href={itemHref} />}
           </li>
         ))}
       </ol>
@@ -285,7 +397,18 @@ function Files({ files, links, lang, dict }: { files: Attachment[]; links: Links
 }
 
 /** The item cards as the shopper saw them: name, price, availability and the time of the shop's data. */
-function Cards({ cards, when, dict }: { cards: Card[]; when: (iso: string) => string; dict: Dictionary }) {
+function Cards({
+  cards,
+  when,
+  dict,
+  href,
+}: {
+  cards: Card[];
+  when: (iso: string) => string;
+  dict: Dictionary;
+  /** The product's page while it is still offered, else null. */
+  href: (itemId: string | undefined) => string | null;
+}) {
   const c = dict.conversations;
   return (
     <div className="overflow-x-auto">
@@ -302,7 +425,14 @@ function Cards({ cards, when, dict }: { cards: Card[]; when: (iso: string) => st
           {cards.map((card, i) => (
             <tr key={i} className="border-b border-line align-top">
               <td className="py-1 pr-2">
-                {card.name}
+                {href(card.item_id) ? (
+                  <Link href={href(card.item_id)!} className="underline underline-offset-4" data-card-item={card.item_id}>
+                    {card.name}
+                  </Link>
+                ) : (
+                  card.name
+                )}
+                {card.item_id && !href(card.item_id) && <span className="text-xs text-muted"> · {c.item_gone}</span>}
                 {card.quantity ? <span className="text-muted"> · {t(c.quantity, { n: card.quantity })}</span> : null}
                 {card.note && <span className="block text-xs text-muted">{card.note}</span>}
               </td>

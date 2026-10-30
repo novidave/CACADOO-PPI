@@ -1785,6 +1785,24 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - nonsense (`xqzw blorf`) → "Nenašli sme presnú zhodu – podobné produkty:".
    - Main page (plain results): `farba v Budinciach` → only shops in Budince.
 
+## Part AX — "Konverzácie" for Pro shops (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/55_conversations.sql` → Run → "Success". Safe to run
+   again. Shops that never chose a keep time (the old default of 90 days) become **Neobmedzene**: nothing is deleted
+   automatically for them any more; shops that chose 30 or 365 days keep it.
+2. **No Edge Function, no new secret, no Vercel setting.** The website change goes live with the merge.
+3. **Try it** (a shop with Pro):
+   - Môj obchod → Asistent: three tabs **Nastavenia · Konverzácie · Súkromné priečinky**; old links (`?at=cloud`,
+     `?at=private`) open the right tab.
+   - Write to the shop's assistant on its page; ask something it cannot answer (e.g. "Kedy dostanete nový tovar?").
+     Konverzácie shows the conversation as **Nové** with "Bez odpovede"; the tab shows "1".
+   - Open it: it becomes Prečítané; write a private note → "Poznámka uložená"; the suggested products link to their
+     pages; **Stiahnuť TXT**.
+   - In the list tick two conversations → Archivovať → they leave the list (Stav: Archivované shows them) → Vrátiť z
+     archívu. Vymazať vybrané asks for the confirmation tick.
+   - Export: Od / Do → **Stiahnuť CSV** → opens in Excel with Slovak letters.
+   - "Uchovávať konverzácie": **Neobmedzene** is selected by default; 30 / 90 / 365 days are still there.
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1835,3 +1853,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 32. Quicksand font; the Cacaduu PPI logo and icons; the name Cacaduu everywhere; cacaduu.com as the main domain | ✅ built — set up Part AH |
 | 33. Shop blog "Novinky": posts with photos written in Môj obchod (now or scheduled), the shop's Facebook Page connected once (all past posts imported, a daily sync, "Zverejniť aj na Facebooku?" before each post), `/blog` pages with RSS, sitemap, llms.txt, IndexNow and JSON-LD on Cacaduu and own domains; free shops show the 10 newest; privacy and data deletion pages | ✅ built — set up Part AI |
 | 34. Every language: a language picker (all EU languages and more, Chinese and Vietnamese), interface texts per language, the shops' pages translated (original always kept, "Preložené automaticky"), product descriptions from the shop's own data, translations per product, the shop's languages, two-language stock files with encoding preview | ✅ built — set up Part AL |
+| 35. "Konverzácie" for Pro shops: the Asistent page in three tabs; every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" / "Prístupový kľúč"; filters, search and bulk actions; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action logged | ✅ built — set up Part AX |
