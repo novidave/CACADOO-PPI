@@ -9892,4 +9892,188 @@ end $$;
 reset role;
 drop table cb_test;
 
+\echo '--- update 60: opening hours by SMS — owner phones + code, received SMS, apply only named days, reply quota, Google Business'
+create temporary table hs_test (k text primary key, v text);
+grant all on hs_test to public;
+
+do $$ begin
+  assert public.valid_week_hours('{"mon": [["08:00","17:00"]], "sun": []}');
+  assert public.valid_week_hours('{"fri": [["18:00","02:00"]]}'), 'past midnight is fine';
+  assert not public.valid_week_hours('{"mon": [["08:00","17:00"], ["x","y"]]}') and not public.valid_week_hours('{"monday": []}');
+  assert not public.valid_week_hours('[]') and public.valid_week_hours('{}');
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  insert into hs_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('hours', (select opening_hours::text from public.shops where id = v_a));
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_hs')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_hs');
+  -- only a member gets a code; the number in international form
+  begin perform public.hours_phone_start('00000000-0000-0000-0000-00000000000b', v_a, '0905 600 700'); raise exception 'B got a code';
+  exception when insufficient_privilege then null; end;
+  begin perform public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '12'); raise exception 'bad phone';
+  exception when invalid_parameter_value then if sqlerrm <> 'phone' then raise; end if; end;
+  vj := public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '0905 600 700');
+  assert vj ->> 'phone' = '+421905600700' and vj ->> 'code' ~ '^\d{6}$', vj::text;
+  perform public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '0905 600 700');
+  vj := public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '0905 600 700');
+  insert into hs_test values ('phone', vj ->> 'id'), ('code', vj ->> 'code');
+  begin perform public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '0905 600 700'); raise exception 'a 4th code';
+  exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+  -- an unverified number is nobody's yet
+  vj := public.hours_sms_receive('+421905600700', 'Po-Pi 8-17', 'twilio', 'SM-0');
+  assert vj ->> 'status' = 'unknown_phone' and jsonb_array_length(vj -> 'shops') = 0, vj::text;
+  assert (select body is null and phone is null and shop_id is null from public.hours_sms_messages where id = (vj ->> 'id')::uuid),
+    'an unknown number keeps no text';
+end $$;
+reset role;
+
+-- the owner types the code
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_id uuid := (select v::uuid from hs_test where k = 'phone');
+  v_code text := (select v from hs_test where k = 'code');
+  vr jsonb;
+begin
+  vr := public.owner_phone_verify(v_id, case when v_code = '000000' then '111111' else '000000' end);
+  assert vr ->> 'reason' = 'wrong_code' and (vr ->> 'attempts_left')::integer = 4, vr::text;
+  vr := public.owner_phone_verify(v_id, ' ' || substr(v_code, 1, 3) || ' ' || substr(v_code, 4));
+  assert (vr ->> 'ok')::boolean, vr::text;
+  assert (select verified_at is not null from public.shop_owner_phones where id = v_id), 'verified';
+  begin perform code_hash from public.shop_owner_phones; raise exception 'an owner read the code hash';
+  exception when insufficient_privilege then null; end;
+  assert exists (select 1 from public.shop_activity where action = 'hours_phone_verified' and details ->> 'phone_id' = v_id::text);
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  assert not exists (select 1 from public.shop_owner_phones), 'B sees no phones of A';
+  begin perform public.owner_phone_verify((select v::uuid from hs_test where k = 'phone'), '123456'); raise exception 'B verified';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_phone_remove((select v::uuid from hs_test where k = 'phone')); raise exception 'B removed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.hours_sms_apply((select id from public.shops where slug = 'potraviny-centrum'), null, '{"mon": []}', null, null);
+    raise exception 'an owner applied hours directly'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- a received SMS from the verified phone; only the named days change
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+  v_hours jsonb;
+  v_m uuid;
+begin
+  update public.shops set opening_hours = '{"mon": [["09:00","18:00"]], "tue": [["09:00","18:00"]], "sat": [["09:00","12:00"]]}' where id = v_a;
+  vj := public.hours_sms_receive('0905600700', 'Pondelok 8-17, nedela zatvorene', 'twilio', 'SM-1');
+  assert vj ->> 'status' = 'unknown_phone', 'a national number without a country is unknown: ' || vj::text;
+  vj := public.hours_sms_receive('+421 905 600 700', 'Pondelok 8-17, nedela zatvorene', 'twilio', 'SM-2');
+  assert vj ->> 'status' = 'received' and jsonb_array_length(vj -> 'shops') = 1 and vj -> 'shops' -> 0 ->> 'shop_id' = v_a::text, vj::text;
+  assert vj -> 'shops' -> 0 ->> 'user_id' = '00000000-0000-0000-0000-00000000000a';
+  insert into hs_test values ('sms', vj ->> 'id');
+  assert public.hours_sms_receive('+421905600700', 'again', 'twilio', 'SM-2') = '{"duplicate": true}'::jsonb, 'a repeat is ignored';
+  begin perform public.hours_sms_apply(v_a, null, '{"mon": [["25:00","08:00"]]}', null, null); raise exception 'bad hours';
+  exception when invalid_parameter_value then if sqlerrm <> 'hours' then raise; end if; end;
+  begin perform public.hours_sms_apply(v_a, null, null, jsonb_build_array(jsonb_build_object('from', current_date - 5, 'closed', true)), null);
+    raise exception 'a past day'; exception when invalid_parameter_value then if sqlerrm <> 'dates' then raise; end if; end;
+  begin perform public.hours_sms_apply(v_a, null, null, jsonb_build_array(jsonb_build_object('from', current_date + 1, 'to', current_date + 90, 'closed', true)), null);
+    raise exception '90 days at once'; exception when invalid_parameter_value then if sqlerrm <> 'dates' then raise; end if; end;
+  begin perform public.hours_sms_apply(v_a, null, null, null, null); raise exception 'nothing to apply';
+  exception when invalid_parameter_value then if sqlerrm <> 'empty' then raise; end if; end;
+  v_hours := public.hours_sms_apply(v_a, '00000000-0000-0000-0000-00000000000a', '{"mon": [["08:00","17:00"]], "sun": []}',
+    jsonb_build_array(jsonb_build_object('from', current_date + 30, 'to', current_date + 31, 'closed', true),
+                      jsonb_build_object('from', current_date + 40, 'closed', false, 'ranges', '[["10:00","12:00"]]'::jsonb)),
+    (select v::uuid from hs_test where k = 'sms'));
+  assert v_hours = '{"mon": [["08:00","17:00"]], "tue": [["09:00","18:00"]], "sat": [["09:00","12:00"]], "sun": []}'::jsonb, v_hours::text;
+  assert (select count(*) from public.shop_special_hours where shop_id = v_a and date in (current_date + 30, current_date + 31) and closed) = 2;
+  assert (select ranges = '[["10:00","12:00"]]'::jsonb from public.shop_special_hours where shop_id = v_a and date = current_date + 40);
+  assert (select count(*) from public.hours_special_days(v_a) where date >= current_date + 30) = 3;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'hours_sms_applied'
+                 and (details ->> 'special_days')::integer = 3);
+  perform public.hours_sms_result((select v::uuid from hs_test where k = 'sms'), v_a, 'applied', '{"x": 1}', 'OK', 'not_connected', null);
+  -- the reply and a code take the owner quota; a code is never kept
+  v_m := public.hours_sms_claim(v_a, '+421905600700', 'phone_code', 'Cacaduu: kod 123456');
+  assert (select body = 'Cacaduu: kod ••••••' and kind = 'phone_code' and status = 'queued' from public.shop_outgoing_messages where id = v_m);
+  assert public.hours_sms_settle(v_m, 'test', 'test', null, null) and not public.hours_sms_settle(v_m, 'sent', 'test', null, null);
+  assert public.sms_quota_used(v_a, 'owner') >= 1, 'the owner quota';
+  begin perform public.hours_sms_claim(v_a, '+421905600700', 'owner', 'x'); raise exception 'a wrong kind';
+  exception when invalid_parameter_value then null; end;
+  -- 10 an hour per phone
+  for i in 1..8 loop perform public.hours_sms_receive('+421905600700', 'x', 'twilio', 'SM-x' || i); end loop;
+  vj := public.hours_sms_receive('+421905600700', 'x', 'twilio', 'SM-11');
+  assert vj ->> 'status' = 'too_many' and jsonb_array_length(vj -> 'shops') = 0, vj::text;
+  -- Google Business: one location per shop, a wrong name refused
+  perform public.business_save(v_a, 'enc-a', 'enc-r', now() + interval '1 hour', 'https://www.googleapis.com/auth/business.manage',
+                               '00000000-0000-0000-0000-00000000000a');
+  begin perform public.business_set_location(v_a, null, 'accounts/1/locations/2', 'X'); raise exception 'a wrong location';
+  exception when invalid_parameter_value then null; end;
+  perform public.business_set_location(v_a, null, 'locations/12345', 'Potraviny Centrum');
+  assert (select location_name = 'locations/12345' from public.business_token(v_a));
+  perform public.business_pushed(v_a, null);
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select count(*) from public.hours_sms_messages where shop_id = v_a and status = 'applied') = 1, 'owners read their SMS';
+  assert (select location_title = 'Potraviny Centrum' and last_push_at is not null from public.business_profile_connections where shop_id = v_a);
+  begin perform access_token_enc from public.business_profile_connections; raise exception 'an owner read the token';
+  exception when insufficient_privilege then null; end;
+  begin perform public.business_token(v_a); raise exception 'an owner called business_token';
+  exception when insufficient_privilege then null; end;
+  assert public.owner_phone_remove((select v::uuid from hs_test where k = 'phone'));
+  assert not exists (select 1 from public.shop_owner_phones where shop_id = v_a);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert not exists (select 1 from public.hours_sms_messages), 'B reads no SMS of A';
+  assert not exists (select 1 from public.business_profile_connections), 'B reads no connection of A';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- tidy up: the hours and the subscription exactly as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (public.hours_sms_receive('+421905600700', 'x', 'twilio', 'SM-gone') ->> 'status') in ('unknown_phone', 'too_many'),
+    'a removed phone is nobody''s';
+  update public.shops set opening_hours = (select v::jsonb from hs_test where k = 'hours') where id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date >= current_date + 30 and date <= current_date + 40;
+  perform public.business_remove(v_a, null);
+  delete from public.hours_sms_messages;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from hs_test where k = 'sub'))
+  where (select v from hs_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from hs_test where k = 'had_plan');
+end $$;
+reset role;
+drop table hs_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -48,6 +48,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Rezervácie" (Pro, phase 3 of the CRM work): the shop assistant offers free times (from the opening hours, special days, holidays, other bookings and — when connected — the shop's Google Calendar; never overlapping, never outside the hours) after reading the booking terms in the shop's documents; the page's own form takes name, mobile, optional e-mail / address / note and the consent; a 6-digit SMS code (10 minutes, 5 tries) confirms at once, with no confirmation SMS; the contact is found or made by the phone and marked "overené"; the booking joins the chat; optional reminder the day before (off by default, no cancel link); Môj obchod → Rezervácie with a list, a week calendar and Potvrdená / Zrušená / Neprišiel | Built and tested (database checks, function tests); live after database update 57, the bookings function, the Google OAuth client and the merge (SETUP.md part AX3); real SMS since update 58 (phase 4, SETUP.md part AX4); without a provider the code is only written down — with `BOOKING_TEST_CODES=on` it shows in the chat for testing |
 | SMS quotas and the real SMS provider (Pro, phase 4 of the CRM work): two monthly quotas per shop kept apart — 100 SMS for bookings (codes and reminders) and 100 for the owner's own SMS (the admin may change both); counted as billed SMS parts in the shop's calendar month; at a limit nothing is sent (the owner is told, the assistant stops offering times, reminders wait); "SMS tento mesiac" with both quotas on Kontakty, the contact card and Rezervácie; SMS sent through Brevo (works in Slovakia and across Europe, the same key as the e-mails) or Twilio, chosen by one secret | Built and tested (database checks, function tests with mocked Brevo and Twilio); live after database update 58, the updated crm-messages and bookings functions, `SMS_PROVIDER` and the merge (SETUP.md part AX4); not yet tried with real SMS |
 | Unanswered questions (Pro, phase 5 of the CRM work): when the shop assistant cannot answer, the chat offers "Nechajte nám kontakt" — the page's own form for a phone or e-mail (+ optional name and consent); the contact is found (by phone, else e-mail) or made, the conversation is flagged "Bez odpovede" and joined to it; every owner of the shop gets an e-mail "Nový zákazník, prosím odpovedzte" with the question and a link; Môj obchod shows a badge and "Čakajú na odpoveď"; the owner replies by SMS or e-mail from the contact, which marks it answered, or marks it "Vybavené" | Built and tested (database checks, function tests); live after database update 59, the updated crm-messages function and the merge (SETUP.md part AX5) |
+| Opening hours by SMS (Pro, phase 6 of the CRM work): the owner verifies a phone with a 6-digit code, then texts the shops' SMS number ("Po-Pi 8-17, So 8-12, Ne zatvorené", "24.12. zatvorené"); Claude reads it as opening hours only, the database checks it and changes only the named days on the shop page and in the Google Business Profile (when connected); a confirmation SMS, or a request to write it again; unknown numbers get nothing | Built and tested (database checks, function tests); live after database update 60, the hours-sms function, a Twilio number and the merge (SETUP.md part AX6); Google needs the Business Profile API access approved |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -2021,3 +2022,26 @@ below is unchanged.)
   SMS quota (phase 4). A sent answer marks the conversation answered by itself; "Vybavené" marks it by hand, "Vrátiť
   medzi čakajúce" undoes it. Everything is in the shop's activity log.
 
+### 6.35 Opening hours by SMS (database update 60, phase 6 of the CRM work, 30 October 2026)
+
+- **Only opening hours.** An SMS changes the shop's regular week and special days — nothing else (no prices, stock,
+  messages or settings). Anything else gets "Cacaduu: cez SMS meníte len otváracie hodiny."
+- **Only from a verified phone.** Môj obchod → "Hodiny cez SMS" → the owner's mobile → "Poslať kód" → the 6-digit code
+  from the SMS → "Overiť" (10 minutes, 5 tries). Only Pro shops. An SMS from any other number is written down without
+  its text and gets no answer.
+- **What the owner writes:** in Slovak, Hungarian, English (or another language), e.g. "Po-Pi 8-17, So 8-12, Ne
+  zatvorené", "Pondelok 9-12 a 13-18", "24.12. zatvorené", "Od 1.8. do 15.8. dovolenka". Only the named days change.
+  With several shops on one phone the SMS starts with the shop's name.
+- **Reading:** Claude (the same model setting as the assistant) turns the SMS into days and times; dates are counted
+  in the shop's time zone and never lie in the past; the database checks every time again. Unclear → "nerozumel som,
+  napíšte napr. …", nothing changes.
+- **Where the hours go:** the shop page (and its own domain) at once; the shop's Google Business Profile when
+  connected (Môj obchod → "Pripojiť profil firmy na Google" → choose the location); "Poslať hodiny do Google teraz"
+  sends what is saved (e.g. after a change on the website).
+- **Reply:** one SMS — "Cacaduu: otváracie hodiny <obchod> zmenené: Po–Pi 8–17, Ne zatvorené. Google: aktualizované."
+  Codes and replies count in the shop's monthly owner SMS quota (phase 4); over it the hours still change, the reply is
+  not sent.
+- **Log:** "Posledné SMS" shows the last 20 SMS with what happened and the reply; every change and connection is in
+  the shop's activity log.
+- **Receiving SMS:** Brevo only sends SMS, so the number owners text is a Twilio number (or another gateway posting to
+  Cacaduu with a secret).
