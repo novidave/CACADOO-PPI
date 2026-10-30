@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AssistantHeading } from "./AssistantHeading";
 import { BookingPanel } from "./BookingPanel";
+import { CallbackPanel } from "./CallbackPanel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { looksLikeKey } from "@/lib/accessKey";
@@ -989,6 +990,15 @@ function Answer({
             {labels.call_shop.replace("{phone}", reply.callShop)}
           </a>
         </p>
+      )}
+      {reply.askContact && booking.conversation() && (
+        <CallbackPanel
+          base={booking.base}
+          shopName={shopName}
+          conversation={booking.conversation}
+          privacyHref={`/${booking.lang}/sukromie-asistent#kontakt`}
+          labels={labels}
+        />
       )}
     </>
   );

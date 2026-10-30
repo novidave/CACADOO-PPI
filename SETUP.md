@@ -1882,6 +1882,24 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - Optional: admin → SMS → set the booking quota to 1 → the assistant offers no times and Rezervácie shows the
      banner; set it back to 100.
 
+## Part AX5 — unanswered questions: the shopper leaves a contact (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/59_unanswered.sql` → Run → "Success". Safe to run
+   again. (Updates 55, 56 and 58 must be in first.) It makes the job `ppi-crm-alerts-tick` (every 5 minutes) and the
+   Vault secret `ppi_crm_cron`; it uses the `ppi_project_url` secret that is already there.
+2. **Edge Function:** paste the updated `supabase/functions/crm-messages/index.ts` into **`crm-messages`** → Deploy
+   ("Verify JWT" stays OFF). It uses `BREVO_API_KEY`, `ALERT_EMAIL_FROM` and `SITE_URL` (all already set).
+3. **Try it** (a shop with Pro):
+   - The shop page → the assistant → ask something the shop's stock and documents cannot answer → under the answer
+     "Nechajte nám kontakt – obchod vám odpovie" → your e-mail or mobile, tick the consent → "Odoslať obchodu" →
+     "Ďakujeme…".
+   - Within a few minutes the shop owner's mailbox has "Nový zákazník, prosím odpovedzte – <shop>" with the question
+     and a link.
+   - Môj obchod: "Asistent" shows a badge (1); Asistent → Konverzácie shows "Čakajú na odpoveď"; Kontakty has the new
+     contact.
+   - "Odpovedať" → SMS or e-mail → Náhľad → Odoslať → back on Konverzácie the shopper is "Odpovedané" and the badge is
+     gone. "Vybavené" does the same by hand.
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1936,3 +1954,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 36. "Kontakty" for Pro shops: contacts with an international phone (one per number, "overené" after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; SMS and e-mail from the contact card with a preview first; e-mail templates; every outgoing message written down (real SMS since Part AX4) | ✅ built — set up Part AX2 |
 | 37. "Rezervácie" for Pro shops: free times in the shop assistant (opening hours, holidays, special days, no overlap, optional Google Calendar), the page's own form with the consent, a 6-digit SMS code that confirms at once, the contact found or made by the phone ("overené"), optional reminder the day before; Môj obchod → Rezervácie with a list, a week calendar and statuses | ✅ built — set up Part AX3 (real SMS: Part AX4) |
 | 38. SMS quotas and real SMS: two monthly quotas per shop (100 booking SMS, 100 owner SMS, counted in SMS parts; the admin may change them), nothing sent over a limit, "SMS tento mesiac" on Kontakty and Rezervácie, SMS through Brevo (or Twilio) | ✅ built — set up Part AX4 |
+| 39. Unanswered questions: "Nechajte nám kontakt" in the shop assistant (phone or e-mail + consent), the contact made or found, the conversation flagged, an e-mail "Nový zákazník, prosím odpovedzte" to the owners, a badge and "Čakajú na odpoveď" in Môj obchod, the reply by SMS or e-mail marks it answered | ✅ built — set up Part AX5 |

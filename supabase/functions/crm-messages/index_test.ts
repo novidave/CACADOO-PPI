@@ -1,6 +1,6 @@
 // Unit tests of crm-messages: who may send, what is written down first, what goes to Brevo, SMS in test mode.
 // Run: npm run test:functions
-import { brevoBody, type Deps, handle, reason, smsProvider, testSms } from "./index.ts";
+import { alertMail, brevoBody, type Deps, handle, reason, smsProvider, testSms } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -115,4 +115,76 @@ Deno.test("bad requests and the database's refusals", async () => {
 Deno.test("the sender's name never breaks the header", () => {
   eq(brevoBody({ to: "a@b.c", subject: "s", text: "t", shopName: 'A"<b>\r\nc', replyTo: "bad" }, "f@x.y").sender.name, "Abc", "cleaned");
   eq("replyTo" in brevoBody({ to: "a@b.c", subject: "s", text: "t", shopName: "", replyTo: "bad" }, "f@x.y"), false, "bad reply-to left out");
+});
+
+function alertSetup(o: { cronOk?: boolean; rows?: unknown[]; brevo?: number } = {}) {
+  const log: string[] = [];
+  const rows = o.rows ?? [{
+    id: "a1",
+    shop_name: "Farby Kováč",
+    kind: "callback",
+    conversation_id: "c1",
+    question: "Máte modré obkladačky?",
+    has_phone: true,
+    has_email: false,
+    recipients: [{ email: "owner@example.invalid", lang: "sk" }, { email: "co-owner@example.invalid", lang: "hu" }],
+  }];
+  const deps: Deps = {
+    db: {
+      rpc: (name, args) => {
+        log.push(`db ${name} ${JSON.stringify(args)}`);
+        if (name === "crm_cron_ok") return Promise.resolve({ data: o.cronOk ?? true, error: null });
+        if (name === "crm_alerts_due") return Promise.resolve({ data: rows, error: null });
+        return Promise.resolve({ data: null, error: null });
+      },
+    },
+    asCaller: () => {
+      throw new Error("the job never acts as an owner");
+    },
+    siteUrl: "https://cacaduu.example",
+    email: { apiKey: "key", from: "noreply@cacaduu.example" },
+    sms: testSms,
+    fetch: ((url: string, init: RequestInit) => {
+      log.push(`fetch ${url} ${init.body}`);
+      return Promise.resolve(new Response(JSON.stringify({ messageId: "<m1>" }), { status: o.brevo ?? 201 }));
+    }) as unknown as typeof fetch,
+  };
+  return { deps, log };
+}
+const job = (body: unknown, secret = "s".repeat(40)) =>
+  new Request("https://x/functions/v1/crm-messages", { method: "POST", headers: { "x-ppi-cron": secret }, body: JSON.stringify(body) });
+
+Deno.test("owner e-mails: each owner in their language, the question and a link, never the shopper's number", async () => {
+  const { deps, log } = alertSetup();
+  eq(await (await handle(job({ action: "alerts" }), deps)).json(), { alerts: 1 }, "one shopper waiting");
+  const mails = log.filter((l) => l.startsWith("fetch"));
+  eq(mails.length, 2, "both owners");
+  const sk = JSON.parse(mails[0].slice(mails[0].indexOf("{")));
+  eq(sk.to, [{ email: "owner@example.invalid" }], "first owner");
+  eq(sk.subject, "Nový zákazník, prosím odpovedzte – Farby Kováč", "Slovak subject");
+  eq(sk.textContent.includes("„Máte modré obkladačky?“") && sk.textContent.includes("https://cacaduu.example/sk/dashboard/conversations/c1"), true, "question + link");
+  eq(sk.textContent.includes("telefón"), true, "says a phone was left");
+  eq(JSON.stringify(mails).includes("+421"), false, "no number");
+  eq(JSON.parse(mails[1].slice(mails[1].indexOf("{"))).subject.startsWith("Új ügyfél"), true, "Hungarian for the second owner");
+  eq(log.some((l) => l.startsWith("db crm_alert_result") && l.includes('"p_ok":true')), true, "marked sent");
+});
+
+Deno.test("owner e-mails: wrong secret refused, a Brevo failure is retried later", async () => {
+  const bad = alertSetup({ cronOk: false });
+  eq((await handle(job({ action: "alerts" }), bad.deps)).status, 403, "wrong secret");
+  eq(bad.log.some((l) => l.startsWith("db crm_alerts_due")), false, "nothing read");
+  const down = alertSetup({ brevo: 500 });
+  eq(await (await handle(job({ action: "alerts" }), down.deps)).json(), { alerts: 0 }, "not sent");
+  eq(down.log.some((l) => l.startsWith("db crm_alert_result") && l.includes('"p_ok":false')), true, "tried again later");
+  const none = alertSetup({ rows: [{ id: "a2", shop_name: "X", kind: "callback", conversation_id: null, question: null, has_phone: false, has_email: true, recipients: [] }] });
+  await handle(job({ action: "alerts" }), none.deps);
+  eq(none.log.some((l) => l.includes("no owner e-mail")), true, "no owner address");
+  eq((await handle(job({ action: "other" }), alertSetup().deps)).status, 400, "only alerts");
+});
+
+Deno.test("the owner e-mail in English for other languages, without a link when SITE_URL is missing", () => {
+  const m = alertMail({ id: "a", shop_name: "Shop\nName", kind: "callback", conversation_id: "c", question: null, has_phone: false, has_email: true, recipients: [] }, "de", null);
+  eq(m.subject, "New customer, please reply – Shop Name", "English, one line");
+  eq(m.text.includes("http"), false, "no link");
+  eq(m.text.includes("an e-mail address"), true, "says an e-mail was left");
 });

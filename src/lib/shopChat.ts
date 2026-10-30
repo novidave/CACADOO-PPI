@@ -149,6 +149,8 @@ export interface ChatReply {
   docPrices: ChatDocPrice[];
   /** The shop's phone, when neither the stock nor the documents answer. */
   callShop: string | null;
+  /** The assistant could not answer (call_shop): the page offers "Nechajte nám kontakt" (database update 59). */
+  askContact: boolean;
   /** Free times the answer offers (database update 57): the page shows them as buttons and the booking form. */
   booking: { slots: Slot[]; timezone: string; service: string | null } | null;
 }
@@ -1053,6 +1055,7 @@ async function toReply(
       pictures,
       docPrices: looseDocPrices,
       callShop: answer.call_shop && shop.phone ? shop.phone : null,
+      askContact: Boolean(answer.call_shop),
       booking: null,
     },
     archive: {

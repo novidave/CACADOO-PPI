@@ -2648,3 +2648,32 @@ which replaces three of its functions):
   parts, refusal at the limit writes nothing, e-mail free, a failed SMS gives its parts back; booking claim/settle
   once, codes masked, quotas apart, reminder marked, refusal at the limit, nothing offered, resend refused, reminders
   wait, wrong kind/status; owner B, owners and anon refused; admin limits and totals.
+
+## Update 59 — unanswered questions: the shopper leaves a contact (CRM phase 5, 30 October 2026)
+
+`supabase/sql/59_unanswered.sql` (one file, safe to run again; needs 55, 56 and 58):
+- `assistant_conversations.callback_at / callback_name / callback_email / callback_consent_version /
+  callback_answered_at / callback_answered_by / callback_caller` (owners read at, name, e-mail, answered_at).
+- `shop_owner_alerts` (kind callback, conversation, sent_at, attempts, last_error, next_try_at; service role only).
+- `shopper_leave_contact(slug, conversation, token, name, phone, email, consent, consent_version, caller)` (anon:
+  token hash, ≤ 24 h, `shop_has_plan`; refusals not_available / consent / empty / phone / email / name / too_many;
+  contact by phone → e-mail → new, fills empty fields, phone never verified; conversation flagged + joined; alert +
+  activity `callback_requested`; `crm_alerts_kick()` = pg_net to crm-messages when pg_net and Vault are there).
+- `crm_cron_ok()` (Vault `ppi_crm_cron`, made by the file), `crm_alerts_due()` (shop, conversation, last shopper
+  message — `body_owner` first —, has_phone / has_email, owners' e-mails + `profiles.language` from `shop_members` +
+  `auth.users`), `crm_alert_result()` (once; 5 min · 2ⁿ ≤ 6 h; ≤ 10 tries), job `ppi-crm-alerts-tick` (*/5).
+- Owners: `owner_callbacks(shop, limit)` (waiting first, answered of 30 days), `owner_callbacks_waiting()` (per shop of
+  the caller), `owner_callback_done(conversation, done)` (activity `callback_done` / `callback_reopened`).
+- `crm_message_result()` as 56 + a sent/test owner message marks the contact's waiting conversations answered.
+- crm-messages: `x-ppi-cron` → `action: alerts` → `alertMail(row, lang, SITE_URL)` (sk / hu / en; question, what was
+  left, link; never the number) → Brevo `smtp/email` per owner → `crm_alert_result`. Tests in `index_test.ts`.
+- Website: `ChatReply.askContact`, `@/components/CallbackPanel`, `/api/shops/[slug]/callback` (rateLimit 10/min,
+  `cleanConversation`, anon `createPublicClient().rpc`), `dashboard/Callbacks.tsx` + `callbackActions.ts`
+  (`markCallback`), the conversation page's box, `AccountNav` badge, privacy `#kontakt`. Texts `chat.callback_*`,
+  `callbacks`.
+- DB tests (block "update 59"): wrong token / no consent / nothing / bad phone / bad e-mail / another shop refused;
+  new contact by phone, never verified, conversation flagged and joined, alert queued with the Slovak question and only
+  this shop's owners, never the number; retry and once; a known contact by e-mail (case ignored) keeps its name; 3 per
+  conversation; badge, list, an answer marks it answered only when sent, "Vybavené" / back; owner B and owners writing
+  alerts refused; without the plan refused.
+

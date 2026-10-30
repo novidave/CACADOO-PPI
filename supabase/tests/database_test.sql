@@ -9678,4 +9678,218 @@ end $$;
 reset role;
 drop table sq_test;
 
+\echo '--- update 59: unanswered questions — leave a contact, contact by phone or e-mail, flag, owner e-mail queue, waiting list, answered'
+create temporary table cb_test (k text primary key, v text);
+grant all on cb_test to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb;
+begin
+  insert into cb_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_cb')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_cb');
+  v_open := public.assistant_open(v_a, 'sk', repeat('u', 32));
+  insert into cb_test values ('conv', v_open ->> 'id'), ('tok', v_open ->> 'token');
+  insert into public.assistant_messages (conversation_id, shop_id, role, body, body_owner, lang)
+  values ((v_open ->> 'id')::uuid, v_a, 'shopper', 'Do you have blue tiles?', 'Máte modré obkladačky?', 'en');
+  update public.assistant_conversations set status = 'read' where id = (v_open ->> 'id')::uuid;
+  v_open := public.assistant_open(v_a, 'sk', repeat('w', 32));
+  insert into cb_test values ('conv2', v_open ->> 'id'), ('tok2', v_open ->> 'token');
+  -- a contact the shop already has, by e-mail only
+  insert into public.shop_contacts (shop_id, name, email, source) values (v_a, 'Pani Známa', 'znama@example.invalid', 'owner');
+end $$;
+reset role;
+
+-- the shopper (a visitor) leaves a phone
+set role anon;
+do $$
+declare
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+  v_t text := (select v from cb_test where k = 'tok');
+  v jsonb;
+begin
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, 'wrong', null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+    raise exception 'a wrong token passed'; exception when raise_exception then if sqlerrm <> 'not_available' then raise; end if; end;
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '0905 444 555', null, false, 'v1', repeat('s', 32));
+    raise exception 'no consent passed'; exception when invalid_parameter_value then if sqlerrm <> 'consent' then raise; end if; end;
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, null, '  ', true, 'v1', repeat('s', 32));
+    raise exception 'nothing passed'; exception when invalid_parameter_value then if sqlerrm <> 'empty' then raise; end if; end;
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '12', null, true, 'v1', repeat('s', 32));
+    raise exception 'a bad phone passed'; exception when invalid_parameter_value then if sqlerrm <> 'phone' then raise; end if; end;
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, null, 'nope', true, 'v1', repeat('s', 32));
+    raise exception 'a bad e-mail passed'; exception when invalid_parameter_value then if sqlerrm <> 'email' then raise; end if; end;
+  begin perform public.shopper_leave_contact('drogeria-kostolne', v_c, v_t, null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+    raise exception 'another shop''s slug passed'; exception when raise_exception then if sqlerrm <> 'not_available' then raise; end if; end;
+  v := public.shopper_leave_contact('potraviny-centrum', v_c, v_t, ' Ján ', '0905 444 555', null, true, 'v1', repeat('s', 32));
+  assert v = '{"ok": true}'::jsonb, v::text;
+  begin perform 1 from public.shop_contacts; raise exception 'anon read contacts';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+  v_k uuid;
+  v record;
+begin
+  select * into v from public.assistant_conversations where id = v_c;
+  assert v.status = 'new' and v.unanswered and v.callback_at is not null and v.callback_answered_at is null, 'flagged';
+  assert v.shopper_phone = '+421905444555' and v.callback_name = 'Ján' and v.callback_consent_version = 'v1';
+  select id into v_k from public.shop_contacts where shop_id = v_a and phone = '+421905444555';
+  assert v_k is not null and v.contact_id = v_k, 'a new contact joined';
+  assert (select source = 'chat' and name = 'Ján' and phone_verified_at is null from public.shop_contacts where id = v_k), 'never verified';
+  insert into cb_test values ('contact', v_k::text);
+  assert (select count(*) from public.shop_owner_alerts where conversation_id = v_c and sent_at is null) = 1, 'one owner e-mail queued';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'callback_requested'
+                 and details ->> 'conversation_id' = v_c::text and details ->> 'phone' = 'true');
+  -- the e-mail due: owners' addresses, the question in Slovak, only whether a phone / e-mail was left
+  select * into v from public.crm_alerts_due() where conversation_id = v_c;
+  assert v.shop_name is not null and v.question = 'Máte modré obkladačky?' and v.has_phone and not v.has_email, 'due';
+  assert v.recipients @> '[{"email": "owner-a@example.invalid"}]'::jsonb, v.recipients::text;
+  assert v.recipients::text not like '%owner-b%', 'only this shop''s owners';
+  assert v.question || v.recipients::text not like '%905444555%', 'never the number';
+  perform public.crm_alert_result(v.id, false, 'brevo 500');
+  assert not exists (select 1 from public.crm_alerts_due() where conversation_id = v_c), 'waits after a failure';
+  assert (select attempts = 1 and next_try_at > now() from public.shop_owner_alerts where id = v.id);
+  update public.shop_owner_alerts set next_try_at = now() where id = v.id;
+  perform public.crm_alert_result(v.id, true, null);
+  assert (select sent_at is not null from public.shop_owner_alerts where id = v.id), 'sent';
+  assert not exists (select 1 from public.crm_alerts_due() where conversation_id = v_c), 'sent once';
+end $$;
+reset role;
+
+-- the second conversation: only an e-mail the shop already knows → the existing contact, nothing overwritten
+set role anon;
+do $$
+begin
+  perform public.shopper_leave_contact('potraviny-centrum', (select v::uuid from cb_test where k = 'conv2'),
+                                       (select v from cb_test where k = 'tok2'), 'Iné Meno', null, 'ZNAMA@example.invalid',
+                                       true, 'v1', repeat('t', 32));
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select c.contact_id = k.id and k.name = 'Pani Známa' and c.callback_email = 'znama@example.invalid'
+          from public.assistant_conversations c, public.shop_contacts k
+          where c.id = (select v::uuid from cb_test where k = 'conv2') and k.shop_id = v_a and k.email = 'znama@example.invalid'),
+         'joined the known contact by e-mail, its name kept';
+  assert (select count(*) from public.shop_contacts where shop_id = v_a and email = 'znama@example.invalid') = 1;
+end $$;
+reset role;
+
+-- three per conversation at most
+set role anon;
+do $$
+declare
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+  v_t text := (select v from cb_test where k = 'tok');
+begin
+  perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+  perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+    raise exception 'a fourth time passed'; exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+end $$;
+reset role;
+
+-- the owner: the waiting list and badge, an SMS answer marks it answered, "Vybavené" / back
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+  v_c2 uuid := (select v::uuid from cb_test where k = 'conv2');
+  vq jsonb;
+begin
+  assert (select waiting from public.owner_callbacks_waiting() where shop_id = v_a) = 2,
+    'badge ' || coalesce((select string_agg(waiting::text, ',') from public.owner_callbacks_waiting()), 'none');
+  assert (select count(*) from public.owner_callbacks(v_a)) = 2, 'list';
+  assert (select question = 'Máte modré obkladačky?' and phone = '+421905444555' and name = 'Ján'
+          from public.owner_callbacks(v_a) where conversation_id = v_c),
+    (select row_to_json(x)::text from public.owner_callbacks(v_a) x where conversation_id = v_c);
+  assert (select callback_name = 'Ján' from public.assistant_conversations where id = v_c), 'owners read the callback';
+  vq := public.owner_message_queue((select v::uuid from cb_test where k = 'contact'), 'sms', null, null, 'Dobry den, mame.');
+  insert into cb_test values ('msg', vq ->> 'id');
+  -- "Vybavené" for the second one, then back, then done again
+  assert public.owner_callback_done(v_c2, true);
+  assert (select callback_answered_at is not null from public.assistant_conversations where id = v_c2);
+  assert public.owner_callback_done(v_c2, false);
+  assert (select callback_answered_at is null from public.assistant_conversations where id = v_c2);
+  assert public.owner_callback_done(v_c2, true);
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'callback_reopened');
+  begin insert into public.shop_owner_alerts (shop_id, kind) values (v_a, 'callback'); raise exception 'an owner queued an alert';
+  exception when insufficient_privilege then null; end;
+  begin perform public.crm_alerts_due(); raise exception 'an owner read the alerts';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+begin
+  assert (select callback_answered_at is null from public.assistant_conversations where id = v_c), 'not before it is sent';
+  assert public.crm_message_result((select v::uuid from cb_test where k = 'msg'), 'test', 'test', null, null);
+  assert (select callback_answered_at is not null and callback_answered_by = '00000000-0000-0000-0000-00000000000a'
+          from public.assistant_conversations where id = v_c), 'an answer sent marks it answered';
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert not exists (select 1 from public.owner_callbacks_waiting() where shop_id = v_a), 'B sees no badge of A';
+  begin perform public.owner_callbacks(v_a); raise exception 'B read A''s list';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_callback_done((select v::uuid from cb_test where k = 'conv'), false); raise exception 'B changed A''s';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- without the plan the shopper's form is refused
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb;
+begin
+  v_open := public.assistant_open(v_a, 'sk', repeat('x', 32));
+  update public.subscriptions set status = 'canceled', current_period_end = now() - interval '1 day' where shop_id = v_a;
+  begin perform public.shopper_leave_contact('potraviny-centrum', (v_open ->> 'id')::uuid, v_open ->> 'token', null, '0905 444 556', null,
+                                             true, 'v1', repeat('y', 32));
+    raise exception 'left a contact without the plan'; exception when raise_exception then if sqlerrm <> 'not_available' then raise; end if; end;
+  -- tidy up: the subscription exactly as before
+  delete from public.shop_owner_alerts where shop_id = v_a;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  perform public.assistant_forget((select v::uuid from cb_test where k = 'conv'));
+  perform public.assistant_forget((select v::uuid from cb_test where k = 'conv2'));
+  perform public.assistant_forget((v_open ->> 'id')::uuid);
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from cb_test where k = 'sub'))
+  where (select v from cb_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from cb_test where k = 'had_plan');
+end $$;
+reset role;
+drop table cb_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'
