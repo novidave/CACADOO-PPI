@@ -157,3 +157,38 @@ test("Asistent tabs and Konverzácie (update 55): filters, bulk actions, CSV exp
   const file = await download;
   expect(file.suggestedFilename()).toBe(`konverzacie_${today}_${today}.csv`);
 });
+
+test("Kontakty (update 56): a contact with the phone in E.164, tabs, SMS preview, delete", async ({ page }) => {
+  await page.goto(`/sk/dashboard/contacts?shop=${SHOP}`);
+  test.skip((await page.locator("[data-new-contact]").count()) === 0, "database update 56 is not applied or the test shop has no Pro plan");
+  const phone = `0905 ${String(Date.now()).slice(-6, -3)} ${String(Date.now()).slice(-3)}`;
+  await page.locator("[data-new-contact] summary").click();
+  await page.fill('[data-new-contact] input[name="name"]', "E2E Kontakt");
+  await page.fill('[data-new-contact] input[name="phone"]', phone);
+  await page.fill('[data-new-contact] input[name="tags"]', "e2e, E2E");
+  await page.locator("[data-new-contact] button[type=submit]").click();
+  await expect(page).toHaveURL(/\/dashboard\/contacts\/[0-9a-f-]{36}/);
+  await expect(page.getByText(sk.contacts.ok_saved)).toBeVisible();
+  await expect(page.locator("h1")).toHaveText("E2E Kontakt");
+  // the phone as the database keeps it (the shop's country code), not "overené"
+  await expect(page.locator('[data-verified="false"]')).toBeVisible();
+  await expect(page.locator('input[name="phone"]')).toHaveValue(/^\+\d{9,15}$/);
+  await expect(page.locator('input[name="tags"]')).toHaveValue("e2e");
+  // the four tabs
+  await expect(page.locator("[data-contact-detail-tabs] [data-tab]")).toHaveCount(4);
+  await page.locator('[data-tab="bookings"]').click();
+  await expect(page.getByText(sk.contacts.bookings_none)).toBeVisible();
+  // a preview fills the variables and writes nothing
+  await page.locator('[data-tab="messages"]').click();
+  await page.fill("[data-compose-body]", "Ahoj {{first_name}}, {{shop}}");
+  await page.click("[data-preview]");
+  await expect(page.locator("[data-preview-body]")).toContainText("Ahoj E2E,");
+  await expect(page.locator("[data-message-log] li")).toHaveCount(0);
+  await page.locator('[data-composer="preview"] button[value="edit"]').click();
+  await expect(page.locator("[data-compose-body]")).toHaveValue("Ahoj {{first_name}}, {{shop}}");
+  // delete it again
+  await page.locator('[data-tab="overview"]').click();
+  await page.check('form:has(button:text("Vymazať")) input[name="confirm"]');
+  await page.getByRole("button", { name: sk.contacts.delete_button }).click();
+  await expect(page.getByText(sk.contacts.ok_deleted)).toBeVisible();
+});

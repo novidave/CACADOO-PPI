@@ -9,6 +9,7 @@ import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteConversation, markConversation, saveConversationNote } from "../../conversationActions";
+import { linkConversation } from "../../contacts/actions";
 import { conversationPdfUrl, countText, ExportState, languageName, type ExportStatus } from "../../Conversations";
 
 export const metadata: Metadata = { robots: { index: false } };
@@ -98,7 +99,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     );
   }
 
-  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes, marksRes] = await Promise.all([
+  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes, marksRes, contactRes, contactsRes] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase
       .from("assistant_messages")
@@ -115,6 +116,9 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     supabase.from("assistant_conversations").select("export_status, export_error, export_path").eq("id", id).maybeSingle(),
     supabase.from("cloud_connections").select("provider").eq("shop_id", conv.shop_id).maybeSingle(),
     supabase.from("assistant_conversations").select("status, starred, owner_note, unanswered, access_key_used, item_ids").eq("id", id).maybeSingle(),
+    // Its contact (database update 56; left out before it) and the shop's contacts to choose from.
+    supabase.from("assistant_conversations").select("contact_id").eq("id", id).maybeSingle(),
+    supabase.from("shop_contacts").select("id, name, phone, email").eq("shop_id", conv.shop_id).order("updated_at", { ascending: false }).limit(200),
   ]);
   if (messagesRes.error) return <DbError message={messagesRes.error.message} dict={dict} />;
   const shop = ((shopsRes.data ?? []) as MyShop[]).find((s) => s.id === conv.shop_id);
@@ -167,6 +171,14 @@ export default async function ConversationPage({ params, searchParams }: PagePro
       <input type="hidden" name="conversation_id" value={conv.id} />
     </>
   );
+  // The contact box (update 56): only when the contact tables exist.
+  const contactsReady = !contactRes.error && !contactsRes.error;
+  const contacts = (contactsRes.data ?? []) as { id: string; name: string | null; phone: string | null; email: string | null }[];
+  const contactId = (contactRes.data as { contact_id: string | null } | null)?.contact_id ?? null;
+  const linkedContact = contacts.find((x) => x.id === contactId) ?? null;
+  const k = dict.contacts;
+  const contactLabel = (x: { name: string | null; phone: string | null; email: string | null }) =>
+    [x.name, x.phone, x.email].filter(Boolean).join(" · ") || k.no_name;
   const flagWords = marks
     ? marks.unanswered === null && marks.access_key_used === null
       ? [c.flags_unknown]
@@ -280,9 +292,53 @@ export default async function ConversationPage({ params, searchParams }: PagePro
         </p>
       ) : (
         err &&
-        err !== "note" && <p className="border border-line p-3">{err === "delete" ? c.delete_failed : err === "mark" ? t(dict.account.error, { message: "–" }) : c.delete_confirm}</p>
+        err !== "note" && <p className="border border-line p-3">{err === "delete" ? c.delete_failed : err === "mark" ? t(dict.account.error, { message: "–" }) : err.startsWith("err_") ? ((dict.contacts as Record<string, string>)[err] ?? dict.contacts.err_failed) : c.delete_confirm}</p>
       )}
       {conv.attachment_count > 0 && !links && <p className="border border-line p-3 text-sm">{c.links_failed}</p>}
+
+      {contactsReady && (
+        <section id="contact" className="flex scroll-mt-4 flex-col gap-2 border border-line p-3" data-conversation-contact>
+          <h2 className="font-semibold">{k.link_title}</h2>
+          {ok === "linked" && (
+            <p role="status" className="text-sm font-medium">
+              {k.ok_linked}
+            </p>
+          )}
+          {linkedContact ? (
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <Link href={`/${lang}/dashboard/contacts/${linkedContact.id}`} className="underline underline-offset-4" data-linked-contact={linkedContact.id}>
+                {contactLabel(linkedContact)}
+              </Link>
+            </p>
+          ) : (
+            <p className="text-sm text-muted">{k.link_none}</p>
+          )}
+          <form action={linkConversation} className="flex flex-wrap items-end gap-2">
+            {hiddenShop}
+            <label className="flex min-w-48 flex-1 flex-col gap-1">
+              <span className="text-sm">{k.link_select}</span>
+              <select name="contact_id" defaultValue={linkedContact?.id ?? ""} className="rounded border border-line bg-white px-3 py-2 outline-none focus:border-foreground">
+                <option value="">–</option>
+                {contacts.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {contactLabel(x)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="min-h-11 rounded border border-foreground px-4 font-medium">
+              {k.link_button}
+            </button>
+          </form>
+          <Link
+            href={`/${lang}/dashboard/contacts?${new URLSearchParams({ shop: shop.slug, new: "1", conversation: conv.id })}#new`}
+            className="self-start text-sm underline underline-offset-4"
+            data-new-contact-from
+          >
+            {k.create_from}
+          </Link>
+        </section>
+      )}
 
       {marks && (
         <form id="note" action={saveConversationNote} className="flex scroll-mt-4 flex-col gap-2 border border-line p-3" data-note>
