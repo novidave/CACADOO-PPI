@@ -396,6 +396,26 @@ non-GSM text, 402 = no credits), `twilio` (`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_T
 fails every SMS (never pretends). Errors keep only the provider's status/code — **never a number or text in a log**.
 `BOOKING_TEST_CODES` is ignored while a real provider is set. Texts `sms_usage`, `admin_sms`.
 
+## Unanswered questions: the shopper leaves a contact (paid, update 59, CRM phase 5)
+
+`supabase/sql/59_unanswered.sql` + `@/components/CallbackPanel` (in `ShopChat`, after an answer with `askContact` =
+the assistant's `call_shop`) + `/api/shops/[slug]/callback` + crm-messages `alerts` + `dashboard/Callbacks.tsx` /
+`callbackActions.ts` + the conversation page's callback box + the menu badge (`AccountNav` `badge`). **The page's own
+form, never the AI**: phone or e-mail (at least one), optional name, consent (`CALLBACK_CONSENT` in the route). Only
+`shopper_leave_contact()` decides (anon, the conversation's own token, ≤ 24 h old, `shop_has_plan`; 3 per conversation,
+5 per caller an hour, 100 per shop a day; returns only `{ok}`): contact by `crm_phone` else by e-mail else new (source
+chat; fills only empty fields; **never "overené"**), conversation joined (`shopper_phone`, `contact_id`), `unanswered`,
+status new, `callback_*` kept, one row in `shop_owner_alerts`, activity `callback_requested`, `crm_alerts_kick()` (pg_net
+right away when there, else the job `ppi-crm-alerts-tick` every 5 min, Vault `ppi_crm_cron`). crm-messages `alerts`
+(x-ppi-cron → `crm_cron_ok`): `crm_alerts_due()` → one Brevo e-mail per owner of the shop in the owner's
+`profiles.language` (sk / hu / else en) "Nový zákazník, prosím odpovedzte – <shop>" with the unanswered question (Slovak
+when archived) and the link `SITE_URL/<lang>/dashboard/conversations/<id>` — **never the shopper's number or address**
+— → `crm_alert_result()` (once; back-off ≤ 6 h, 10 tries). Owners: `owner_callbacks()` ("Čakajú na odpoveď" on the
+Konverzácie tab), `owner_callbacks_waiting()` (the "Asistent" menu badge), `owner_callback_done()` ("Vybavené" / back,
+logged `callback_done` / `callback_reopened`); a reply = the contact's Správy (SMS / e-mail, phase 2 + 4 rules) — a sent
+or test owner message to that contact marks its waiting conversations answered (`crm_message_result`). Texts
+`chat.callback_*`, `callbacks`, `privacy_assistant.callback*` (#kontakt).
+
 ## Cloud folder (paid, update 23)
 
 `supabase/sql/23_cloud_export.sql` + `supabase/functions/cloud-export` (one file, Verify JWT off) + dashboard

@@ -631,7 +631,23 @@
     "booking_err_sms_failed": "The SMS could not be sent. Please try again.",
     "booking_err_not_available": "Bookings are switched off right now.",
     "booking_err_failed": "The booking failed. Please try again.",
-    "booking_err_sms_quota": "Booking through the assistant is not available this month. Please call the shop directly."
+    "booking_err_sms_quota": "Booking through the assistant is not available this month. Please call the shop directly.",
+    "callback_open": "Leave us a contact – the shop will reply",
+    "callback_intro": "The assistant could not answer this. Leave a phone number or e-mail and {shop} will reply by SMS or e-mail.",
+    "callback_phone": "Mobile",
+    "callback_email": "E-mail",
+    "callback_name": "Name (optional)",
+    "callback_consent": "I agree that {shop} keeps my contact and replies to this question.",
+    "callback_send": "Send to the shop",
+    "callback_done": "Thank you, {shop} has your question and contact. They will reply as soon as they can.",
+    "callback_err_empty": "Please enter a phone number or an e-mail.",
+    "callback_err_phone": "The phone number does not look right.",
+    "callback_err_email": "The e-mail does not look right.",
+    "callback_err_name": "The name is too long.",
+    "callback_err_consent": "Please confirm your consent.",
+    "callback_err_too_many": "You have already sent your contact. The shop will reply.",
+    "callback_err_not_available": "This cannot be sent now. Please contact the shop directly.",
+    "callback_err_failed": "Could not send. Please try again."
   },
   "docs": {
     "title": "Documents for the assistant",
@@ -835,7 +851,9 @@
     "external_partners": "“Partners” offers come from partner shops' product feeds, which Cacaduu reads on its own server. Nothing about you is sent to partners when you search; only you open a partner's link. Affiliate links are marked “partner link” and never change the order of the results.",
     "external_todo": "TODO (legal text): the services the main search sends the product and the town to – OpenStreetMap Foundation (Nominatim, Overpass API), Google (Places API, when switched on), Anthropic (Claude and its web search).",
     "booking_title": "Bookings",
-    "booking": "When you book a time through the assistant, the shop receives your name, mobile number and, if given, e-mail, address and note, and the time you agreed. We send an SMS with a code to your mobile (valid for 10 minutes); the code is not stored. The booking is kept for the shop as a contact and – if the shop connected its Google Calendar – as an event in its calendar. If the shop switches it on, you get a reminder SMS the day before. Only the shop's owners see your data. SMS are sent through an SMS provider (Brevo, or Twilio), which receives only the number and the text of the message."
+    "booking": "When you book a time through the assistant, the shop receives your name, mobile number and, if given, e-mail, address and note, and the time you agreed. We send an SMS with a code to your mobile (valid for 10 minutes); the code is not stored. The booking is kept for the shop as a contact and – if the shop connected its Google Calendar – as an event in its calendar. If the shop switches it on, you get a reminder SMS the day before. Only the shop's owners see your data. SMS are sent through an SMS provider (Brevo, or Twilio), which receives only the number and the text of the message.",
+    "callback_title": "When the assistant cannot answer",
+    "callback": "If the assistant cannot answer, you can leave the shop a phone number or e-mail (and a name). The shop keeps them as a contact together with this conversation and gets an e-mail that you are waiting for an answer (without your number or address). It replies by SMS or e-mail. The time you agreed is kept too. You can ask the shop directly to delete the contact."
   },
   "conversations": {
     "title": "Assistant conversations",
@@ -2968,5 +2986,21 @@
     "month": "{quota}: {used} SMS this month in total, shops at the limit: {shops}",
     "saved": "SMS quotas saved.",
     "error": "The SMS quotas could not be saved (0 to 100,000)."
+  },
+  "callbacks": {
+    "badge": "Waiting for an answer: {n}",
+    "title": "Waiting for an answer",
+    "count": "{n} waiting",
+    "no_name": "Customer",
+    "waiting": "Waiting",
+    "answered": "Answered",
+    "reply": "Reply (SMS or e-mail)",
+    "open": "Conversation",
+    "done": "Done",
+    "reopen": "Back to waiting",
+    "waiting_title": "The customer is waiting for an answer",
+    "answered_title": "You answered the customer",
+    "left_at": "Left a contact {when}",
+    "reply_hint": "When you send the customer an SMS or e-mail from their contact, the conversation is marked answered."
   }
 }

@@ -8,6 +8,10 @@
 //     message down first (owner_message_queue: members of the shop with the paid plan, the contact's own number or
 //     address, the variables filled in, at most 100 per channel and day), then this function sends it and reports the
 //     result once (crm_message_result: sent / failed / test). Nothing is sent that is not in the log.
+//   - action "alerts" (x-ppi-cron = Vault ppi_crm_cron; database update 59): the e-mails to the shop's owners that wait
+//     in shop_owner_alerts — "Nový zákazník, prosím odpovedzte" when a shopper left a phone or e-mail after a question
+//     the assistant could not answer — in each owner's language, with the question and a link to the conversation
+//     (SITE_URL); never the shopper's number or address. Sent once (crm_alert_result), retried with a pause.
 // E-mail goes through Brevo from ALERT_EMAIL_FROM with the shop's name as the sender's name and the shop's e-mail as
 // "reply to". SMS goes through one provider behind the SmsProvider interface (SMS_PROVIDER: brevo, twilio; unset or
 // "test" = written down as "test", not sent) and takes its parts of the shop's monthly "owner" quota first (database
@@ -15,7 +19,8 @@
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → Via Editor → name "crm-messages" → paste this file →
 // Deploy, then switch OFF "Verify JWT" (it checks its callers itself). Secrets: BREVO_API_KEY and ALERT_EMAIL_FROM
-// (already set for the other functions); SMS_PROVIDER (+ that provider's secrets, below) and SMS_SENDER for real SMS.
+// (already set for the other functions); SMS_PROVIDER (+ that provider's secrets, below) and SMS_SENDER for real SMS;
+// SITE_URL (already set) for the links in the owner e-mails.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -212,6 +217,8 @@ interface Caller extends Db {
 
 export interface Deps {
   db: Db;
+  /** The website's address for links in the owner e-mails (SITE_URL), without a trailing slash. */
+  siteUrl?: string | null;
   asCaller: (authorization: string) => Caller;
   email: EmailConfig | null;
   sms: SmsProvider;
@@ -242,8 +249,101 @@ interface Queued {
   reply_to: string | null;
 }
 
+// ---------------------------------------------------------------- owner e-mails (unanswered questions)
+
+export interface AlertRow {
+  id: string;
+  shop_name: string;
+  kind: "callback";
+  conversation_id: string | null;
+  question: string | null;
+  has_phone: boolean;
+  has_email: boolean;
+  recipients: { email: string; lang: string }[];
+}
+
+const ALERT_TEXTS = {
+  sk: {
+    subject: "Nový zákazník, prosím odpovedzte – {shop}",
+    intro: "Asistent na stránke obchodu {shop} nevedel odpovedať a zákazník vám nechal kontakt.",
+    question: "Otázka zákazníka:",
+    left: "Zákazník nechal: {what}.",
+    phone: "telefón",
+    email: "e-mail",
+    open: "Otvoriť konverzáciu a odpovedať (SMS alebo e-mailom):",
+    footer: "Táto správa prišla z Cacaduu, pretože ste majiteľom obchodu {shop}.",
+  },
+  hu: {
+    subject: "Új ügyfél, kérjük, válaszoljon – {shop}",
+    intro: "A(z) {shop} üzlet oldalán az asszisztens nem tudott válaszolni, és az ügyfél elérhetőséget hagyott.",
+    question: "Az ügyfél kérdése:",
+    left: "Az ügyfél ezt hagyta meg: {what}.",
+    phone: "telefonszám",
+    email: "e-mail",
+    open: "Nyissa meg a beszélgetést és válaszoljon (SMS-ben vagy e-mailben):",
+    footer: "Ezt az üzenetet a Cacaduu küldte, mert Ön a(z) {shop} üzlet tulajdonosa.",
+  },
+  en: {
+    subject: "New customer, please reply – {shop}",
+    intro: "The assistant on the page of {shop} could not answer, and the customer left you a contact.",
+    question: "The customer's question:",
+    left: "The customer left: {what}.",
+    phone: "a phone number",
+    email: "an e-mail address",
+    open: "Open the conversation and reply (SMS or e-mail):",
+    footer: "This message comes from Cacaduu because you own the shop {shop}.",
+  },
+} as const;
+
+const fillText = (text: string, values: Record<string, string>) => text.replace(/\{(\w+)\}/g, (all, k: string) => values[k] ?? all);
+
+/** The owner e-mail for one waiting shopper, in the owner's language (Slovak, Hungarian, else English). */
+export function alertMail(row: AlertRow, lang: string, siteUrl: string | null) {
+  const code = lang === "sk" || lang === "hu" ? lang : lang === "cs" ? "sk" : "en";
+  const t = ALERT_TEXTS[code];
+  const shop = row.shop_name.replace(/[\r\n]/g, " ").trim().slice(0, 80);
+  const what = [row.has_phone ? t.phone : null, row.has_email ? t.email : null].filter(Boolean).join(" + ");
+  const link = siteUrl && row.conversation_id ? `${siteUrl}/${code}/dashboard/conversations/${row.conversation_id}` : null;
+  const lines = [
+    fillText(t.intro, { shop }),
+    "",
+    ...(row.question ? [t.question, `„${row.question.slice(0, 500)}“`, ""] : []),
+    ...(what ? [fillText(t.left, { what }), ""] : []),
+    ...(link ? [t.open, link, ""] : []),
+    fillText(t.footer, { shop }),
+  ];
+  return { subject: fillText(t.subject, { shop }), text: lines.join("\n") };
+}
+
+async function sendAlerts(deps: Deps): Promise<Response> {
+  const { data, error } = await deps.db.rpc("crm_alerts_due", { p_limit: 20 });
+  if (error) return reply(500, { error: "failed" });
+  let sent = 0;
+  for (const row of (data ?? []) as AlertRow[]) {
+    const recipients = (row.recipients ?? []).filter((r) => EMAIL.test(r.email ?? ""));
+    let result: SmsResult = { ok: false, error: recipients.length ? "e-mail is not set up" : "no owner e-mail" };
+    for (const r of recipients) {
+      const mail = alertMail(row, r.lang, deps.siteUrl ?? null);
+      result = await sendEmail(deps, { to: r.email, subject: mail.subject, text: mail.text, shopName: "Cacaduu", replyTo: null });
+      if (!result.ok) break;
+    }
+    await deps.db.rpc("crm_alert_result", { p_id: row.id, p_ok: result.ok, p_error: result.ok ? null : (result.error ?? "failed") });
+    if (result.ok) sent++;
+    else console.error("crm-messages: owner e-mail not sent", row.id, (result.error ?? "").slice(0, 80));
+  }
+  return reply(200, { alerts: sent });
+}
+
 export async function handle(req: Request, deps: Deps): Promise<Response> {
   if (req.method !== "POST") return reply(405, { error: "method" });
+  const cron = req.headers.get("x-ppi-cron");
+  if (cron !== null) {
+    const { data: ok } = await deps.db.rpc("crm_cron_ok", { p_secret: cron });
+    if (ok !== true) return reply(403, { error: "forbidden" });
+    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (body?.action !== "alerts") return reply(400, { error: "bad_request" });
+    return await sendAlerts(deps);
+  }
   const authorization = req.headers.get("Authorization") ?? "";
   const token = authorization.replace(/^Bearer\s+/i, "").trim();
   if (!token) return reply(401, { error: "login" });
@@ -315,6 +415,7 @@ export async function handler(req: Request): Promise<Response> {
     asCaller: (authorization) =>
       createClient(url, anonKey, { ...options, global: { headers: { Authorization: authorization } } }) as unknown as Caller,
     email: apiKey && from ? { apiKey, from } : null,
+    siteUrl: (Deno.env.get("SITE_URL") ?? "").trim().replace(/\/+$/, "") || null,
     sms: smsProvider(Deno.env.get("SMS_PROVIDER"), (name) => Deno.env.get(name), fetch),
     fetch,
   });

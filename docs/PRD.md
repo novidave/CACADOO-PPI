@@ -47,6 +47,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Kontakty" (Pro, phase 2 of the CRM work): contacts with phone (international form, one contact per number, "overené" only after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; a contact card with Prehľad · Konverzácie · Rezervácie · Správy; SMS and e-mail from the card with a preview first; e-mail templates with variables; every outgoing message written down | Built and tested (database checks, function and unit tests); e-mail live after database update 56, the crm-messages function and the merge (SETUP.md part AX2); SMS real since update 58 (phase 4, SETUP.md part AX4) |
 | "Rezervácie" (Pro, phase 3 of the CRM work): the shop assistant offers free times (from the opening hours, special days, holidays, other bookings and — when connected — the shop's Google Calendar; never overlapping, never outside the hours) after reading the booking terms in the shop's documents; the page's own form takes name, mobile, optional e-mail / address / note and the consent; a 6-digit SMS code (10 minutes, 5 tries) confirms at once, with no confirmation SMS; the contact is found or made by the phone and marked "overené"; the booking joins the chat; optional reminder the day before (off by default, no cancel link); Môj obchod → Rezervácie with a list, a week calendar and Potvrdená / Zrušená / Neprišiel | Built and tested (database checks, function tests); live after database update 57, the bookings function, the Google OAuth client and the merge (SETUP.md part AX3); real SMS since update 58 (phase 4, SETUP.md part AX4); without a provider the code is only written down — with `BOOKING_TEST_CODES=on` it shows in the chat for testing |
 | SMS quotas and the real SMS provider (Pro, phase 4 of the CRM work): two monthly quotas per shop kept apart — 100 SMS for bookings (codes and reminders) and 100 for the owner's own SMS (the admin may change both); counted as billed SMS parts in the shop's calendar month; at a limit nothing is sent (the owner is told, the assistant stops offering times, reminders wait); "SMS tento mesiac" with both quotas on Kontakty, the contact card and Rezervácie; SMS sent through Brevo (works in Slovakia and across Europe, the same key as the e-mails) or Twilio, chosen by one secret | Built and tested (database checks, function tests with mocked Brevo and Twilio); live after database update 58, the updated crm-messages and bookings functions, `SMS_PROVIDER` and the merge (SETUP.md part AX4); not yet tried with real SMS |
+| Unanswered questions (Pro, phase 5 of the CRM work): when the shop assistant cannot answer, the chat offers "Nechajte nám kontakt" — the page's own form for a phone or e-mail (+ optional name and consent); the contact is found (by phone, else e-mail) or made, the conversation is flagged "Bez odpovede" and joined to it; every owner of the shop gets an e-mail "Nový zákazník, prosím odpovedzte" with the question and a link; Môj obchod shows a badge and "Čakajú na odpoveď"; the owner replies by SMS or e-mail from the contact, which marks it answered, or marks it "Vybavené" | Built and tested (database checks, function tests); live after database update 59, the updated crm-messages function and the merge (SETUP.md part AX5) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -2000,3 +2001,23 @@ below is unchanged.)
   Europe and uses the API key the e-mails already have; the account needs SMS credits) or **Twilio**; without it SMS
   are only written down as "test". The sender's name on the phone is `SMS_SENDER` (≤ 11 letters/digits, default
   "Cacaduu"). Numbers and texts never appear in any log.
+
+### 6.34 Unanswered questions: the shopper leaves a contact (database update 59, phase 5 of the CRM work, 30 October 2026)
+
+- **In the shop assistant:** when the assistant cannot answer (it points to the shop), the answer shows "Nechajte nám
+  kontakt – obchod vám odpovie". The page's own form (never the AI) takes a **phone or an e-mail** (at least one), an
+  optional name and the consent (link to the privacy page, section "Keď asistent nevie odpovedať"). After sending:
+  "Ďakujeme, <obchod> dostal vašu otázku a kontakt." At most 3 times per conversation.
+- **The shop's contact:** found by the phone (international form), else by the e-mail, else a new one ("chat"); only
+  empty fields are filled in. A number left this way is never "overené" (only a booking's SMS code verifies it). The
+  conversation joins the contact, becomes "Nové" and "Bez odpovede".
+- **The owners are told at once:** an e-mail to every owner of the shop, in their language — "Nový zákazník, prosím
+  odpovedzte – <obchod>", the question that was not answered and a link to the conversation. The shopper's number or
+  address is not in the e-mail. If sending fails it is tried again (up to 10 times, waiting longer each time).
+- **In Môj obchod:** a badge with the number of waiting shoppers on "Asistent"; on Asistent → Konverzácie the box
+  "Čakajú na odpoveď" (who, when, the question, phone / e-mail, "Odpovedať", "Konverzácia", "Vybavené"); the
+  conversation's page says "Zákazník čaká na odpoveď".
+- **Answering:** "Odpovedať" opens the contact's Správy — SMS or e-mail with the preview first (phase 2), within the
+  SMS quota (phase 4). A sent answer marks the conversation answered by itself; "Vybavené" marks it by hand, "Vrátiť
+  medzi čakajúce" undoes it. Everything is in the shop's activity log.
+

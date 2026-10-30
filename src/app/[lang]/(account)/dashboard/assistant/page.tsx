@@ -8,6 +8,7 @@ import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { saveAssistantTexts } from "../actions";
+import { Callbacks, loadCallbacks } from "../Callbacks";
 import { CloudFolder, cloudSummary, loadCloud } from "../CloudFolder";
 import { conversationFilter, Conversations, conversationsSummary, loadConversations, newConversations } from "../Conversations";
 import { Field, hiddenFields, inputClass, messages, ProOnly, ShopSwitcher, SubmitButton } from "../shared";
@@ -56,7 +57,7 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
 
   // Only the open tab's data is loaded (the badge of "Konverzácie" is one count).
-  const [hasPlan, docsData, conversations, cloud, newCount] = await Promise.all([
+  const [hasPlan, docsData, conversations, cloud, newCount, callbacks] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     tab === "docs" ? loadShopDocs(supabase, shop.id) : Promise.resolve(null),
     // The assistant's conversations (database update 22, filters update 55): owners only.
@@ -64,6 +65,8 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
     // The shop's cloud folder (database update 23): owners only, never the tokens.
     tab === "conversations" ? loadCloud(supabase, shop.id) : Promise.resolve(null),
     newConversations(supabase, shop.id),
+    // Shoppers who left a contact after an unanswered question (database update 59).
+    tab === "conversations" ? loadCallbacks(supabase, shop.id) : Promise.resolve(null),
   ]);
   const planActive = !hasPlan.error && hasPlan.data === true;
   const number = (key: string) => Math.max(0, Math.floor(Number(first(sp[key])) || 0));
@@ -165,6 +168,9 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
           <h2 className="text-lg font-semibold">
             {c.title} <span className="text-sm font-normal text-muted">· {conversationsSummary(conversations, dict, lang)}</span>
           </h2>
+          {callbacks && callbacks.length > 0 && (
+            <Callbacks rows={callbacks} lang={lang} timeZone={shop.timezone} dict={dict} hidden={hidden} />
+          )}
           {showConversations ? (
             <Conversations
               data={conversations}

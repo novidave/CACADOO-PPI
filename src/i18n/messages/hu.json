@@ -631,7 +631,23 @@
     "booking_err_sms_failed": "Az SMS-t nem sikerült elküldeni. Próbálja újra.",
     "booking_err_not_available": "A foglalás most ki van kapcsolva.",
     "booking_err_failed": "A foglalás nem sikerült. Próbálja újra.",
-    "booking_err_sms_quota": "Az asszisztensen keresztüli foglalás ebben a hónapban nem érhető el. Kérjük, hívja közvetlenül az üzletet."
+    "booking_err_sms_quota": "Az asszisztensen keresztüli foglalás ebben a hónapban nem érhető el. Kérjük, hívja közvetlenül az üzletet.",
+    "callback_open": "Hagyjon elérhetőséget – az üzlet válaszol",
+    "callback_intro": "Erre az asszisztens nem tudott válaszolni. Adja meg telefonszámát vagy e-mail-címét, és a(z) {shop} SMS-ben vagy e-mailben válaszol.",
+    "callback_phone": "Mobil",
+    "callback_email": "E-mail",
+    "callback_name": "Név (nem kötelező)",
+    "callback_consent": "Hozzájárulok, hogy a(z) {shop} elmentse az elérhetőségemet és válaszoljon erre a kérdésre.",
+    "callback_send": "Küldés az üzletnek",
+    "callback_done": "Köszönjük, a(z) {shop} megkapta a kérdését és az elérhetőségét. Hamarosan válaszol.",
+    "callback_err_empty": "Adjon meg telefonszámot vagy e-mail-címet.",
+    "callback_err_phone": "A telefonszám nem tűnik helyesnek.",
+    "callback_err_email": "Az e-mail-cím nem tűnik helyesnek.",
+    "callback_err_name": "A név túl hosszú.",
+    "callback_err_consent": "Kérjük, erősítse meg a hozzájárulást.",
+    "callback_err_too_many": "Az elérhetőségét már elküldte. Az üzlet válaszolni fog.",
+    "callback_err_not_available": "Most nem küldhető el. Próbálja közvetlenül elérni az üzletet.",
+    "callback_err_failed": "Nem sikerült elküldeni. Próbálja újra."
   },
   "docs": {
     "title": "Dokumentumok az asszisztensnek",
@@ -835,7 +851,9 @@
     "external_partners": "A „Partnerek” ajánlatai a partnerüzletek termékfeedjeiből származnak, amelyeket a Cacaduu a saját szerverén olvas be. Kereséskor semmit sem küldünk Önről a partnereknek; a partner hivatkozását csak Ön nyitja meg. A partneri (affiliate) hivatkozások „partneri hivatkozás” jelölést kapnak, és soha nem változtatnak a találatok sorrendjén.",
     "external_todo": "TODO (jogi szöveg): a szolgáltatások, amelyeknek a fő kereső a terméket és a várost elküldi – OpenStreetMap Foundation (Nominatim, Overpass API), Google (Places API, ha be van kapcsolva), Anthropic (Claude és a webes keresés).",
     "booking_title": "Foglalások",
-    "booking": "Ha az asszisztensen keresztül időpontot foglal, az üzlet megkapja a nevét, mobilszámát, adott esetben e-mailjét, címét és megjegyzését, valamint a hozzájárulás idejét. A mobilra SMS-kódot küldünk (10 percig érvényes); a kódot nem tároljuk. A foglalás kapcsolatként kerül az üzlethez, és – ha az üzlet csatlakoztatta a Google Naptárt – eseményként a naptárába. Ha az üzlet bekapcsolja, egy nappal előtte emlékeztető SMS-t kap. Az adatait csak az üzlet tulajdonosai látják. Az SMS-t SMS-szolgáltatón keresztül küldjük (Brevo vagy Twilio), amely csak a számot és az üzenet szövegét kapja meg."
+    "booking": "Ha az asszisztensen keresztül időpontot foglal, az üzlet megkapja a nevét, mobilszámát, adott esetben e-mailjét, címét és megjegyzését, valamint a hozzájárulás idejét. A mobilra SMS-kódot küldünk (10 percig érvényes); a kódot nem tároljuk. A foglalás kapcsolatként kerül az üzlethez, és – ha az üzlet csatlakoztatta a Google Naptárt – eseményként a naptárába. Ha az üzlet bekapcsolja, egy nappal előtte emlékeztető SMS-t kap. Az adatait csak az üzlet tulajdonosai látják. Az SMS-t SMS-szolgáltatón keresztül küldjük (Brevo vagy Twilio), amely csak a számot és az üzenet szövegét kapja meg.",
+    "callback_title": "Ha az asszisztens nem tud válaszolni",
+    "callback": "Ha az asszisztens nem tud válaszolni, telefonszámot vagy e-mail-címet (és nevet) hagyhat az üzletnek. Az üzlet kapcsolatként menti a beszélgetéssel együtt, és e-mailt kap, hogy Ön válaszra vár (a száma vagy címe nélkül). SMS-ben vagy e-mailben válaszol. A hozzájárulás időpontját is tároljuk. A kapcsolat törlését közvetlenül az üzletnél kérheti."
   },
   "conversations": {
     "title": "Az asszisztens beszélgetései",
@@ -2968,5 +2986,21 @@
     "month": "{quota}: ebben a hónapban összesen {used} SMS, kereten lévő üzletek: {shops}",
     "saved": "Az SMS-keretek mentve.",
     "error": "Az SMS-kereteket nem sikerült menteni (0 és 100 000 között)."
+  },
+  "callbacks": {
+    "badge": "Válaszra vár: {n}",
+    "title": "Válaszra várnak",
+    "count": "{n} vár",
+    "no_name": "Ügyfél",
+    "waiting": "Vár",
+    "answered": "Megválaszolva",
+    "reply": "Válasz (SMS vagy e-mail)",
+    "open": "Beszélgetés",
+    "done": "Elintézve",
+    "reopen": "Vissza a várakozók közé",
+    "waiting_title": "Az ügyfél válaszra vár",
+    "answered_title": "Válaszolt az ügyfélnek",
+    "left_at": "Elérhetőséget hagyott: {when}",
+    "reply_hint": "Ha az ügyfél kapcsolatából SMS-t vagy e-mailt küld neki, a beszélgetés megválaszoltként jelölődik."
   }
 }

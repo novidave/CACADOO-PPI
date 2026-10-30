@@ -8,6 +8,7 @@ import { formatDateTime, formatTime, localDay } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
+import { markCallback } from "../../callbackActions";
 import { deleteConversation, markConversation, saveConversationNote } from "../../conversationActions";
 import { linkConversation } from "../../contacts/actions";
 import { conversationPdfUrl, countText, ExportState, languageName, type ExportStatus } from "../../Conversations";
@@ -99,7 +100,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     );
   }
 
-  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes, marksRes, contactRes, contactsRes] = await Promise.all([
+  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes, marksRes, contactRes, contactsRes, callbackRes] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase
       .from("assistant_messages")
@@ -119,6 +120,8 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     // Its contact (database update 56; left out before it) and the shop's contacts to choose from.
     supabase.from("assistant_conversations").select("contact_id").eq("id", id).maybeSingle(),
     supabase.from("shop_contacts").select("id, name, phone, email").eq("shop_id", conv.shop_id).order("updated_at", { ascending: false }).limit(200),
+    // The shopper left a contact after an unanswered question (database update 59; left out before it).
+    supabase.from("assistant_conversations").select("callback_at, callback_name, callback_email, callback_answered_at").eq("id", id).maybeSingle(),
   ]);
   if (messagesRes.error) return <DbError message={messagesRes.error.message} dict={dict} />;
   const shop = ((shopsRes.data ?? []) as MyShop[]).find((s) => s.id === conv.shop_id);
@@ -176,6 +179,9 @@ export default async function ConversationPage({ params, searchParams }: PagePro
   const contacts = (contactsRes.data ?? []) as { id: string; name: string | null; phone: string | null; email: string | null }[];
   const contactId = (contactRes.data as { contact_id: string | null } | null)?.contact_id ?? null;
   const linkedContact = contacts.find((x) => x.id === contactId) ?? null;
+  const callback = callbackRes.error
+    ? null
+    : (callbackRes.data as { callback_at: string | null; callback_name: string | null; callback_email: string | null; callback_answered_at: string | null } | null);
   const k = dict.contacts;
   const contactLabel = (x: { name: string | null; phone: string | null; email: string | null }) =>
     [x.name, x.phone, x.email].filter(Boolean).join(" · ") || k.no_name;
@@ -295,6 +301,33 @@ export default async function ConversationPage({ params, searchParams }: PagePro
         err !== "note" && <p className="border border-line p-3">{err === "delete" ? c.delete_failed : err === "mark" ? t(dict.account.error, { message: "–" }) : err.startsWith("err_") ? ((dict.contacts as Record<string, string>)[err] ?? dict.contacts.err_failed) : c.delete_confirm}</p>
       )}
       {conv.attachment_count > 0 && !links && <p className="border border-line p-3 text-sm">{c.links_failed}</p>}
+
+      {callback?.callback_at && (
+        <section className="flex flex-col gap-2 border border-foreground p-3" data-conversation-callback data-answered={Boolean(callback.callback_answered_at)}>
+          <h2 className="font-semibold">{callback.callback_answered_at ? dict.callbacks.answered_title : dict.callbacks.waiting_title}</h2>
+          <p className="text-sm">
+            {t(dict.callbacks.left_at, { when: formatDateTime(callback.callback_at, lang, tz) })}
+            {callback.callback_name ? ` · ${callback.callback_name}` : ""}
+            {callback.callback_email ? ` · ${callback.callback_email}` : ""}
+          </p>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            {contactId && (
+              <Link href={`/${lang}/dashboard/contacts/${contactId}?tab=messages`} className="font-medium underline underline-offset-4" data-callback-reply>
+                {dict.callbacks.reply}
+              </Link>
+            )}
+            <form action={markCallback}>
+              <input type="hidden" name="lang" value={lang} />
+              <input type="hidden" name="shop_slug" value={shop.slug} />
+              <input type="hidden" name="conversation_id" value={id} />
+              <input type="hidden" name="from" value="conversation" />
+              <input type="hidden" name="done" value={callback.callback_answered_at ? "0" : "1"} />
+              <PendingButton pending={dict.owner.saving}>{callback.callback_answered_at ? dict.callbacks.reopen : dict.callbacks.done}</PendingButton>
+            </form>
+          </div>
+          <p className="text-xs text-muted">{dict.callbacks.reply_hint}</p>
+        </section>
+      )}
 
       {contactsReady && (
         <section id="contact" className="flex scroll-mt-4 flex-col gap-2 border border-line p-3" data-conversation-contact>

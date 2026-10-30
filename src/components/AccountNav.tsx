@@ -4,11 +4,20 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 /** The tapped menu link looks pressed while its page is being read (performance pass: feedback at the first tap). */
-function Label({ text }: { text: string }) {
+function Label({ text, badge, badgeLabel }: { text: string; badge?: number; badgeLabel?: string }) {
   const { pending } = useLinkStatus();
   return (
     <span aria-busy={pending || undefined} className={pending ? "opacity-60" : undefined} data-link-pending={pending || undefined}>
       {text}
+      {badge ? (
+        <span
+          className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-foreground px-1.5 text-xs font-semibold text-white"
+          aria-label={badgeLabel}
+          data-nav-badge={badge}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -18,7 +27,7 @@ function Label({ text }: { text: string }) {
  * (Môj obchod, AI asistent, Priečinok s exportom, Predplatné a doména) keep the shop that is
  * open (?shop=…), so an owner with several shops stays on the same shop between them.
  */
-export function AccountNav({ links }: { links: { href: string; label: string; shopPage?: boolean }[] }) {
+export function AccountNav({ links }: { links: { href: string; label: string; shopPage?: boolean; badge?: number; badgeLabel?: string }[] }) {
   const pathname = usePathname() ?? "";
   const shop = useSearchParams()?.get("shop") ?? "";
   // The most specific link wins ("/sk/dashboard/plan" over "/sk/dashboard").
@@ -37,7 +46,7 @@ export function AccountNav({ links }: { links: { href: string; label: string; sh
             aria-current={active ? "page" : undefined}
             className={active ? "font-semibold underline underline-offset-4" : "text-muted hover:text-foreground hover:underline"}
           >
-            <Label text={link.label} />
+            <Label text={link.label} badge={link.badge} badgeLabel={link.badgeLabel} />
           </Link>
         );
       })}

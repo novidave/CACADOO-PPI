@@ -12,12 +12,21 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
   const { lang } = await params;
   if (!isLocale(lang)) notFound();
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
+  // Shoppers waiting for an answer (database update 59: they left a phone or e-mail after an unanswered question).
+  const waitingRes = await session.supabase.rpc("owner_callbacks_waiting");
+  const waiting = waitingRes.error ? 0 : ((waitingRes.data ?? []) as { waiting: number }[]).reduce((n, r) => n + Number(r.waiting), 0);
   // Shop owners; the admin also gets "Predplatné a domény" (update 25), its only admin page.
   const links = [
     { href: `/${lang}/dashboard`, label: dict.account.dashboard, shopPage: true },
     { href: `/${lang}/dashboard/content`, label: dict.account.content_page, shopPage: true },
     { href: `/${lang}/dashboard/blog`, label: dict.account.blog_page, shopPage: true },
-    { href: `/${lang}/dashboard/assistant`, label: dict.account.assistant_page, shopPage: true },
+    {
+      href: `/${lang}/dashboard/assistant`,
+      label: dict.account.assistant_page,
+      shopPage: true,
+      badge: waiting,
+      badgeLabel: t(dict.callbacks.badge, { n: waiting }),
+    },
     { href: `/${lang}/dashboard/contacts`, label: dict.account.contacts_page, shopPage: true },
     { href: `/${lang}/dashboard/bookings`, label: dict.account.bookings_page, shopPage: true },
     { href: `/${lang}/dashboard/translations`, label: dict.account.translations_page, shopPage: true },
