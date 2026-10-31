@@ -41,6 +41,10 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
   // OSM Bright (OpenFreeMap "bright"), the one map style of the site (2026-10-31)
   expect((await style).url()).toContain("/styles/bright");
   expect((await map.boundingBox())?.height).toBe(before?.height);
+  // Artboard 12's background: decoration only, behind the cards, never something to tap or read.
+  const zoo = page.locator("[data-shop-backdrop]");
+  await expect(zoo).toHaveAttribute("aria-hidden", "true");
+  expect(await zoo.evaluate((e) => getComputedStyle(e).pointerEvents)).toBe("none");
   // The slider (when the shop has content, Screen 11): one frame for every slide (update 44), swipe only — no arrows,
   // no counter; a pill per slide moves to it, and the line under the frame never moves. "Čítať" opens the post under
   // the slider (its text is already in the HTML) and closes it again; another slide closes it.
@@ -60,6 +64,9 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
       await read.tap();
       await expect(read).toHaveAttribute("aria-expanded", "true");
       await expect(article).toHaveAttribute("data-open", "true");
+      // the open post offers "Všetky novinky" (a hold link to the blog), no longer "Opýtať sa asistenta"
+      const allNews = article.locator("[data-post-all-news]").first();
+      if (await allNews.count()) await expect(allNews).toHaveAttribute("href", /\/blog/);
       await read.tap();
       await expect(read).toHaveAttribute("aria-expanded", "false");
     }
