@@ -2718,3 +2718,48 @@ which replaces three of its functions):
   hidden from owners; a removed phone is unknown again.
 - Not verified here: the Google Business Profile endpoints (written from Google's published API shape; the project
   needs the Business Profile API access approved) and a real Twilio number.
+
+## Update 61 — the owner's MCP server: AI assistants work for the shop owner (CRM phase 7, 31 October 2026)
+
+`supabase/sql/61_owner_mcp.sql` (one file, safe to run again; needs 55–60):
+- Tables (RLS on, no grants; functions only): `owner_mcp_clients` (DCR: client_id `cmc_…`, name, redirect_uris, caller
+  hash), `owner_mcp_codes` (code hash, client, user, shops, scopes, redirect, S256 challenge, resource, 10 min, used,
+  token_id), `owner_mcp_tokens` (kind oauth|personal, user, client, name, shop_ids, scopes, access hash + expiry, refresh
+  hash + previous hash + expiry, rate window, last used, revoked), `owner_mcp_pending` (preview_message: grant, shop,
+  args, hash of the rendered draft, 10 min, used).
+- Helpers (no grants): `mcp_hash` (SHA-256, prefix), `mcp_random` (two v4 UUIDs), `mcp_s256`, `mcp_scopes_ok`,
+  `mcp_redirect_ok` (https of a real host or http://localhost/127.0.0.1/[::1]; no fragment), `mcp_act_as(user)` (sets
+  `request.jwt.claim.sub`, `.role` and `request.jwt.claims` for the rest of the request), `mcp_grant` (token checked,
+  ≤ 120/min), `mcp_shop` / `mcp_own` (shop in the grant, member, plan), `mcp_tool_scope`, `mcp_hours_of`,
+  `mcp_set_hours`, argument readers.
+- OAuth (anon): `owner_mcp_register(name, uris, caller)` (10/caller/hour), `owner_mcp_client`, `owner_mcp_token(grant,
+  code, verifier, client, redirect, refresh)` (code once — reuse returns `{"error":"invalid_grant"}` and revokes; refresh
+  rotates — an old one returns invalid_grant and revokes), `owner_mcp_revoke`. Owner (authenticated):
+  `owner_mcp_shops()`, `owner_mcp_authorize(client, redirect, challenge, scopes, shops, resource)` → code,
+  `owner_mcp_create_key`, `owner_mcp_grants()`, `owner_mcp_disconnect(id)`. The door (anon): `owner_mcp_whoami(token)`,
+  `owner_mcp_call(token, tool, args)`; service role: `owner_mcp_message_queue(token, confirmation)`.
+- Activity actions: `mcp_connected`, `mcp_disconnected`, `mcp_key_created`, `mcp_message_queued`, `hours_changed`,
+  `shop_details_changed`, `stock_edited`.
+- crm-messages: header `x-ppi-mcp` + `{action: "mcp_send", confirmation_id}` → `owner_mcp_message_queue` → `deliver()`
+  (the same provider / Brevo code as "send") → `crm_message_result`; refusals passed on (`MCP_REASONS`).
+- Website: `/mcp/owner` (Streamable HTTP, stateless, JSON; Bearer → `owner_mcp_whoami` → 401 + `WWW-Authenticate`
+  resource_metadata; tools registered per scope with read-only / destructive hints; send_message → crm-messages),
+  `/.well-known/oauth-protected-resource` (+ `/mcp/owner`), `/.well-known/oauth-authorization-server`,
+  `/api/oauth/register` (RFC 7591, public clients), `/api/oauth/authorize` (checks the request and the registered
+  redirect, never redirects to an unknown one, → `/[lang]/oauth/authorize` in the `ppi_lang` language),
+  `/api/oauth/token` (form or JSON), `/api/oauth/revoke`; consent page + `approveMcp` / `denyMcp` (redirect with code,
+  state, iss); `dashboard/ai` + `createMcpKey` (useActionState, key shown once) / `disconnectMcp`; login keeps `next`
+  (`safeNextPath`). No secret in the web app: every decision is in SQL.
+- DB tests (block "update 61"): S256 vector, redirect and scope rules; registration (bad redirect refused, anon cannot
+  read clients); consent (other redirect, no read scope, another owner's shop, bad challenge refused); token endpoint
+  (wrong verifier, other client, code twice → revoked, refresh rotation, old refresh → revoked, unknown grant type);
+  tools as the owner (shops, details, another shop refused, unknown tool, hours merged / bad hours refused, contact
+  saved and patched, list/get, another shop's contact not found); preview → queue once (anon refused, read-only grant
+  refused, a changed contact → preview_changed, nothing written); stock (warning first, then quantity and price only —
+  currency and freshness kept; negative price and read-only grant refused); details (address refused, the rest kept);
+  delete with confirm; search, conversations, bookings; activity as the owner; 120/min; personal keys, the list, owner B
+  sees and disconnects nothing, a disconnected key stops, revoke by refresh token; no plan → no_plan; everything tidied.
+- Also checked: the MCP route against the database through a stand-in for Supabase's REST API (initialize, tools/list
+  per scope, list_shops, set_opening_hours, input validation, save_contact, preview_message with a variable,
+  search_stock, update_stock warning, another shop refused, unknown key → 401). Not tried with the real Claude,
+  ChatGPT, Gemini or Grok apps yet.

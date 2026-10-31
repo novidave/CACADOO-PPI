@@ -1942,6 +1942,29 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - "Pripojiť profil firmy na Google" → allow → choose the location → "Poslať hodiny do Google teraz" → the hours in
      Google Maps (Google may take a while to show them).
 
+## Part AX7 — the owner's own AI assistant (MCP) (31 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/61_owner_mcp.sql` → Run → "Success". Safe to run
+   again. (Updates 55–60 must be in first.)
+2. **Edge Function:** paste the updated `supabase/functions/crm-messages/index.ts` into **`crm-messages`** → Deploy
+   ("Verify JWT" stays OFF). It now also sends the messages an AI assistant previewed for the owner.
+3. **Vercel:** nothing new. `NEXT_PUBLIC_SITE_URL` must be the public https address (e.g. `https://cacaduu.com`) —
+   the OAuth addresses the assistants use are built from it.
+4. **Try it** (an owner of a Pro shop):
+   - Môj obchod → **AI asistenti** → copy the address `https://<site>/mcp/owner`.
+   - **Claude** (claude.ai, a plan with custom connectors): Settings → Connectors → Add custom connector → the address →
+     Connect → Cacaduu's login → tick the shop and what it may do → Povoliť → back in Claude. Ask: "Aké mám dnes
+     rezervácie?", "Zmeň sobotu na 8–12", "Pošli Jane SMS, že tovar je pripravený" (Claude shows the preview first).
+   - **ChatGPT** (developer mode for connectors, where your plan offers it): Settings → Apps & Connectors → Advanced →
+     Developer mode → Create → the address, OAuth → the same consent page.
+   - **Gemini CLI:** `~/.gemini/settings.json` → `"mcpServers": {"cacaduu": {"httpUrl": "https://<site>/mcp/owner"}}` →
+     `/mcp auth cacaduu`.
+   - **Grok (xAI API) or any client without OAuth:** AI asistenti → "Kľúč pre AI asistenta" → name, shops, permissions →
+     copy the key (shown once) → the client's remote MCP server with header `Authorization: Bearer <key>`.
+   - Back on AI asistenti the connection is listed; **Odpojiť** stops it at once.
+   The menus of these apps change often; the steps above are how they described adding a custom MCP server at the time
+   of writing and have not been tried end to end with each app yet.
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1998,3 +2021,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 38. SMS quotas and real SMS: two monthly quotas per shop (100 booking SMS, 100 owner SMS, counted in SMS parts; the admin may change them), nothing sent over a limit, "SMS tento mesiac" on Kontakty and Rezervácie, SMS through Brevo (or Twilio) | ✅ built — set up Part AX4 |
 | 39. Unanswered questions: "Nechajte nám kontakt" in the shop assistant (phone or e-mail + consent), the contact made or found, the conversation flagged, an e-mail "Nový zákazník, prosím odpovedzte" to the owners, a badge and "Čakajú na odpoveď" in Môj obchod, the reply by SMS or e-mail marks it answered | ✅ built — set up Part AX5 |
 | 40. Opening hours by SMS: the owner's verified phone texts the shops' number, Claude reads only opening hours, the database checks and changes only the named days on the shop page and in the Google Business Profile, a confirmation SMS or "write it again"; "Hodiny cez SMS" in Môj obchod with phones, the log and the Google connection | ✅ built — set up Part AX6 steps 1, 2, 4; **the receiving SMS number later** (provider not chosen yet, not Twilio) |
+| 41. The owner's own AI assistant: Claude, ChatGPT, Gemini, Grok or any MCP client at /mcp/owner (OAuth consent page or a personal key), works with conversations, contacts, bookings, opening hours, shop details and stock; SMS / e-mail only after a preview the owner approves; stock changes warn that the next file overwrites them; "AI asistenti" in Môj obchod | ✅ built — set up Part AX7 |

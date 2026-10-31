@@ -24,6 +24,7 @@
     "test:items": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts",
     "test:connector": "deno test --no-check --no-lock --allow-read src/lib/connectorContract_test.ts || npx -y deno test --no-check --no-lock --allow-read src/lib/connectorContract_test.ts",
     "test:search": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/searchWords_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/searchWords_test.ts",
+    "test:mcp": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerMcpRules_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerMcpRules_test.ts",
     "test:list": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/shoppingList_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/shoppingList_test.ts",
     "test:conversations": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/conversationExport_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/conversationExport_test.ts",
     "test:crm": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts",

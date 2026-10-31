@@ -188,3 +188,64 @@ Deno.test("the owner e-mail in English for other languages, without a link when 
   eq(m.text.includes("http"), false, "no link");
   eq(m.text.includes("an e-mail address"), true, "says an e-mail was left");
 });
+
+// ---------------------------------------------------------------- the owner's MCP (database update 61)
+
+function mcpSetup(error?: { message: string; code?: string }) {
+  const log: string[] = [];
+  const base = setup({ channel: "sms" });
+  const deps: Deps = {
+    ...base.deps,
+    db: {
+      rpc: (name, args) => {
+        log.push(`db ${name} ${JSON.stringify(args)}`);
+        if (name === "owner_mcp_message_queue") {
+          if (error) return Promise.resolve({ data: null, error });
+          return Promise.resolve({
+            data: { id: MESSAGE, channel: "sms", recipient: "+421905123456", subject: null, body: "Ahoj", shop_name: "Farby", reply_to: null },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: true, error: null });
+      },
+    },
+    asCaller: () => {
+      throw new Error("the MCP path never uses an owner login");
+    },
+  };
+  return { deps, log };
+}
+const mcpPost = (body: unknown, token = "cma_" + "a".repeat(64)) =>
+  new Request("https://x/functions/v1/crm-messages", {
+    method: "POST",
+    headers: { "x-ppi-mcp": token, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+Deno.test("MCP: a previewed message goes out through the database's check, then the provider, then the result", async () => {
+  const { deps, log } = mcpSetup();
+  const res = await handle(mcpPost({ action: "mcp_send", confirmation_id: CONTACT }), deps);
+  eq([res.status, await res.json()], [200, { id: MESSAGE, status: "test" }], "sent in test mode");
+  eq(log[0], `db owner_mcp_message_queue {"p_token":"cma_${"a".repeat(64)}","p_confirmation":"${CONTACT}"}`, "the token and the preview checked first");
+  eq(log[1].startsWith(`db crm_message_result {"p_id":"${MESSAGE}","p_status":"test"`), true, "result stored once");
+});
+
+Deno.test("MCP: refusals are passed on; bad requests touch nothing", async () => {
+  for (const [error, status, why] of [
+    [{ message: "invalid_token", code: "28000" }, 401, "invalid_token"],
+    [{ message: "scope: messages.send", code: "42501" }, 403, "scope"],
+    [{ message: "preview_changed", code: "22023" }, 400, "preview_changed"],
+    [{ message: "confirmation", code: "22023" }, 400, "confirmation"],
+    [{ message: "sms_quota", code: "54000" }, 400, "sms_quota"],
+  ] as const) {
+    const { deps, log } = mcpSetup(error);
+    const res = await handle(mcpPost({ action: "mcp_send", confirmation_id: CONTACT }), deps);
+    eq([res.status, await res.json()], [status, { error: why }], why);
+    eq(log.length, 1, `${why}: nothing sent`);
+  }
+  const { deps, log } = mcpSetup();
+  eq((await handle(mcpPost({ action: "mcp_send", confirmation_id: "x" }), deps)).status, 400, "bad id");
+  eq((await handle(mcpPost({ action: "send", confirmation_id: CONTACT }), deps)).status, 400, "other action");
+  eq((await handle(mcpPost({ action: "mcp_send", confirmation_id: CONTACT }, "short"), deps)).status, 400, "short token");
+  eq(log.length, 0, "nothing read");
+});
