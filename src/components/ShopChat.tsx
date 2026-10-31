@@ -10,6 +10,7 @@ import { looksLikeKey } from "@/lib/accessKey";
 import type { FolderFile, OpenFolder, OpenSession } from "@/lib/docsAccess";
 import type { ChatCard, ChatDocPrice, ChatListItem, ChatReply, ChatSource, ChatTurn } from "@/lib/shopChat";
 import { FolderAccess, FolderViewer, type ViewTarget } from "./FolderAccess";
+import { KeyRow } from "./KeyRow";
 import { StockDot } from "./StockDot";
 
 /** Anthropic's recommended longest side for photos; larger ones only cost more. */
@@ -205,6 +206,7 @@ export function ShopChat({
   initialText = "",
   focusInput = false,
   keysOpen = false,
+  sendNow = false,
 }: {
   slug: string;
   lang: string;
@@ -225,6 +227,8 @@ export function ShopChat({
   focusInput?: boolean;
   /** "Mám prístupový kľúč" was opened in that first view. */
   keysOpen?: boolean;
+  /** "Poslať" was tapped in the first view: the typed question goes out at once. */
+  sendNow?: boolean;
 }) {
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
@@ -254,6 +258,11 @@ export function ShopChat({
     input.setSelectionRange(input.value.length, input.value.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the assistant replaced its first view
   }, []);
+  // "Poslať" tapped in the first view: the typed question goes out now.
+  useEffect(() => {
+    if (sendNow) form.current?.requestSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the assistant replaced its first view
+  }, []);
   // Private folders opened with an access key (database update 24).
   const [folders, setFolders] = useState<OpenSession | null>(null);
   const [keyBusy, setKeyBusy] = useState(false);
@@ -261,6 +270,13 @@ export function ShopChat({
   const [viewing, setViewing] = useState<ViewTarget | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const foldersOpen = useRef(false);
+  // Screen 11: "Napíšte otázku alebo pridajte fotku" under the field; "Poslať" → the plane flies, "Odoslané".
+  const [emptyAsk, setEmptyAsk] = useState(false);
+  const [sendPhase, setSendPhase] = useState<"" | "fly" | "ok">("");
+  const sendTimers = useRef<number[]>([]);
+  const [keyOpen, setKeyOpen] = useState(keysOpen);
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => () => sendTimers.current.forEach((t) => window.clearTimeout(t)), []);
 
   const putFiles = (next: Attachment[]) => {
     filesRef.current = next;
@@ -356,6 +372,7 @@ export function ShopChat({
       });
       const data = await response.json().catch(() => ({ status: "unavailable" }));
       if (data.status === "ok") {
+        setKeyOpen(true);
         showFolders(data.open ?? { folders: data.folders ?? [], expires_at: data.expires_at, downloads_left: 20, open: [] });
         const names: string[] = data.folders ?? [];
         setEntries((now) => [
@@ -631,7 +648,13 @@ export function ShopChat({
     event.preventDefault();
     const message = text.trim();
     const ready = filesRef.current.filter((f) => f.ready);
-    if (busy || filesRef.current.some((f) => !f.ready) || (!message && ready.length === 0)) return;
+    if (busy || filesRef.current.some((f) => !f.ready)) return;
+    if (!message && ready.length === 0) {
+      setEmptyAsk(true);
+      textInput.current?.focus();
+      return;
+    }
+    setEmptyAsk(false);
     // A message that is nothing but an access key is checked as a key: never sent to the AI or kept.
     if (keys && ready.length === 0 && looksLikeKey(message)) {
       setText("");
@@ -641,6 +664,12 @@ export function ShopChat({
       return;
     }
     const history = toHistory(entries);
+    sendTimers.current.forEach((t) => window.clearTimeout(t));
+    setSendPhase("fly");
+    sendTimers.current = [
+      window.setTimeout(() => setSendPhase("ok"), 550),
+      window.setTimeout(() => setSendPhase(""), 2550),
+    ];
     setEntries((now) => [
       ...now,
       { role: "user", text: message, files: ready.map((f) => ({ name: f.name, kind: f.kind, preview: f.preview })) },
@@ -703,16 +732,16 @@ export function ShopChat({
   const preparing = files.some((f) => !f.ready);
 
   return (
-    <>
-    <section className="relative flex flex-col border border-line" aria-labelledby="assistant-heading" data-assistant>
+    <div className="flex flex-col gap-[18px]">
+    <section className="ppi-ai" aria-labelledby="assistant-heading" data-assistant>
       <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
-        <div className="flex flex-col gap-3 border-t border-line p-3">
-          <p className="text-sm text-muted" data-chat-welcome>
+        <div className="flex flex-col px-[13px] py-[14px]">
+          <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
             {intro}
           </p>
           <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log>
           {entries.length > 0 && (
-            <ol className="flex flex-col gap-4" aria-live="polite">
+            <ol className="mt-3 flex flex-col gap-4" aria-live="polite">
               {entries.map((entry, i) => (
                 <li key={i} className="flex flex-col gap-2">
                   {entry.role === "user" && (
@@ -748,36 +777,18 @@ export function ShopChat({
           )}
           <div ref={end} />
           </div>
-          <form onSubmit={send} className="flex flex-col gap-2">
-            {files.length > 0 && (
-              <ul className="flex flex-wrap gap-3" aria-label={labels.photo}>
-                {files.map((f) => (
-                  <li key={f.key} className="flex items-center gap-2 text-sm" data-chat-file={f.ready ? "ready" : "working"}>
-                    {f.preview ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- local preview of the chosen picture
-                      <img src={f.preview} alt="" className="h-14 w-14 border border-line object-cover" />
-                    ) : (
-                      <span className="max-w-40 truncate border border-line px-2 py-1" title={f.name}>
-                        {f.name}
-                      </span>
-                    )}
-                    {!f.ready && <span className="text-muted">{labels.file_working}</span>}
-                    <button type="button" onClick={() => remove(f.key)} className="underline underline-offset-4">
-                      {labels.file_remove}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {problem && (
-              <p className="text-sm" role="alert">
-                {problem}
-              </p>
-            )}
+          <form ref={form} onSubmit={send} className="flex flex-col">
+            <label htmlFor="assistant-question" className="sr-only">
+              {labels.placeholder}
+            </label>
             <textarea
+              id="assistant-question"
               ref={textInput}
               value={text}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => {
+                setText(event.target.value);
+                setEmptyAsk(false);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
@@ -787,10 +798,47 @@ export function ShopChat({
               rows={2}
               maxLength={1500}
               placeholder={labels.placeholder}
-              aria-label={labels.placeholder}
-              className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+              aria-invalid={emptyAsk || undefined}
+              aria-describedby={emptyAsk ? "assistant-empty" : undefined}
+              className="ppi-ai-input mt-4"
             />
-            <div className="flex flex-wrap items-center gap-2">
+            {emptyAsk && (
+              <p id="assistant-empty" role="alert" className="mt-1.5 text-[13px] font-semibold text-[#DC2626]" data-chat-empty>
+                {labels.empty_question}
+              </p>
+            )}
+            {problem && (
+              <p className="mt-1.5 text-sm" role="alert">
+                {problem}
+              </p>
+            )}
+            {files.length > 0 && (
+              <ul className="mt-2.5 flex flex-wrap gap-2" aria-label={labels.photo}>
+                {files.map((f) => (
+                  <li key={f.key} className="ppi-ai-chip" data-chat-file={f.ready ? "ready" : "working"}>
+                    {f.preview ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- local preview of the chosen picture
+                      <img src={f.preview} alt="" className="h-5 w-5 shrink-0 rounded object-cover" />
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                        <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />
+                        <path d="M14 3v5h5" />
+                      </svg>
+                    )}
+                    <span className="truncate" title={f.name}>
+                      {f.name}
+                    </span>
+                    {!f.ready && <span className="shrink-0 font-normal">· {labels.file_working}</span>}
+                    <button type="button" onClick={() => remove(f.key)} aria-label={`${labels.file_remove}: ${f.name}`}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true" focusable="false">
+                        <path d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-2.5 flex flex-wrap items-center gap-[9px]">
               <input
                 ref={fileInput}
                 type="file"
@@ -801,56 +849,55 @@ export function ShopChat({
                 tabIndex={-1}
                 data-chat-input
               />
-              <button type="button" onClick={() => fileInput.current?.click()} className="rounded border border-line px-3 py-2">
+              <button type="button" onClick={() => fileInput.current?.click()} className="ppi-ai-attach" data-chat-attach>
+                <AttachIcon />
                 {labels.photo}
               </button>
-              <button
-                type="submit"
-                disabled={busy || preparing || (!text.trim() && files.length === 0)}
-                className="rounded border border-foreground px-4 py-2 font-medium disabled:text-muted"
-              >
-                {labels.send}
+              <button type="submit" disabled={busy || preparing} className="ppi-ai-send" data-phase={sendPhase || undefined} data-chat-send>
+                {sendPhase === "ok" ? labels.sent : labels.send}
+                <PlaneIcon />
               </button>
-              {entries.length > 0 && (
-                <button type="button" onClick={startOver} className="text-sm underline underline-offset-4">
-                  {labels.clear}
-                </button>
-              )}
-              {archive && conversation && (
-                <button type="button" onClick={deleteMine} className="text-sm underline underline-offset-4">
-                  {labels.delete_mine}
-                </button>
-              )}
-              {archive && shopperPdf && conversation && entries.some((e) => e.role === "assistant") && (
-                <button type="button" onClick={downloadConversation} disabled={pdfBusy} className="text-sm underline underline-offset-4 disabled:text-muted" data-conversation-pdf>
-                  {pdfBusy ? labels.conversation_pdf_busy : labels.conversation_pdf}
-                </button>
-              )}
             </div>
+            {(entries.length > 0 || (archive && conversation)) && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                {entries.length > 0 && (
+                  <button type="button" onClick={startOver} className="min-h-11 text-sm underline underline-offset-4">
+                    {labels.clear}
+                  </button>
+                )}
+                {archive && conversation && (
+                  <button type="button" onClick={deleteMine} className="min-h-11 text-sm underline underline-offset-4">
+                    {labels.delete_mine}
+                  </button>
+                )}
+                {archive && shopperPdf && conversation && entries.some((e) => e.role === "assistant") && (
+                  <button type="button" onClick={downloadConversation} disabled={pdfBusy} className="min-h-11 text-sm underline underline-offset-4 disabled:text-muted" data-conversation-pdf>
+                    {pdfBusy ? labels.conversation_pdf_busy : labels.conversation_pdf}
+                  </button>
+                )}
+              </div>
+            )}
           </form>
         </div>
     </section>
       {keys && (
         // "Mám prístupový kľúč": closed until the shopper opens it; open while a folder is unlocked.
-        <details key={folders ? "unlocked" : "locked"} open={Boolean(folders) || keysOpen} className="border border-line" data-key-access>
-          <summary className="cursor-pointer p-3 font-semibold">{labels.key_have}</summary>
-          <div className="px-3 pb-3">
-            <FolderAccess
-              session={folders}
-              labels={labels}
-              lang={lang}
-              timeZone={timeZone}
-              busy={keyBusy}
-              problem={keyProblem}
-              onUnlock={unlockFolders}
-              onLock={() => lockFolders()}
-              onOpen={openFile}
-              onDownload={downloadFile}
-              onZip={zipFolder}
-              inline
-            />
-          </div>
-        </details>
+        <KeyRow label={labels.key_have} open={keyOpen || Boolean(folders)} onToggle={setKeyOpen}>
+          <FolderAccess
+            session={folders}
+            labels={labels}
+            lang={lang}
+            timeZone={timeZone}
+            busy={keyBusy}
+            problem={keyProblem}
+            onUnlock={unlockFolders}
+            onLock={() => lockFolders()}
+            onOpen={openFile}
+            onDownload={downloadFile}
+            onZip={zipFolder}
+            inline
+          />
+        </KeyRow>
       )}
       {viewing && (
         <FolderViewer
@@ -862,7 +909,26 @@ export function ShopChat({
           onDownload={() => downloadFile(viewing)}
         />
       )}
-    </>
+    </div>
+  );
+}
+
+/** The orange paperclip of "Pridať fotku alebo súbor". */
+export function AttachIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F57C20" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5" />
+    </svg>
+  );
+}
+
+/** The paper plane of "Poslať" (it flies off when a question goes out). */
+export function PlaneIcon() {
+  return (
+    <svg className="ppi-ai-plane" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M22 2L11 13" />
+      <path d="M22 2l-7 20-4-9-9-4z" />
+    </svg>
   );
 }
 

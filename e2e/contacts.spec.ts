@@ -1,8 +1,9 @@
 import { expect, sk, SHOP, test, watchConsole } from "./helpers";
 
 /**
- * The shop page's contact buttons (update 51): press and hold. A quick tap does nothing, letting go early or sliding
- * off cancels, holding 1.2 s opens the link; no shadows, no context menu, no text selection.
+ * The shop page's contact buttons (update 51, Screen 11): real links, press and hold. A quick tap only says "Držte
+ * stlačené", letting go early or sliding off cancels, holding 1.2 s opens the link; Enter / Space open it at once; no
+ * shadows, no context menu, no text selection.
  */
 test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
   const console = watchConsole(page);
@@ -20,7 +21,7 @@ test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
   test.skip((await group.count()) === 0, "this shop has no contact links");
   const opened = () => page.evaluate(() => (window as unknown as { opened: string[] }).opened);
 
-  const buttons = group.locator("button[data-contact]");
+  const buttons = group.locator("a[data-contact]");
   const keys = await buttons.evaluateAll((all) => all.map((b) => (b as HTMLElement).dataset.contact));
   const order = ["facebook", "booking", "web", "email", "navigate", "phone"];
   expect(keys).toEqual(order.filter((k) => keys.includes(k)));
@@ -45,19 +46,25 @@ test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
   const box = (await tab.boundingBox())!;
   const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-  // a quick tap: nothing
+  // every button is a real link (works without JavaScript)
+  expect(await tab.getAttribute("href")).toMatch(/^https:\/\//);
+
+  // a quick tap: "Držte stlačené" for a moment, nothing opens
   await tab.click();
+  await expect(tab).toHaveAttribute("data-phase", "hint");
+  await expect(tab.locator(".ppi-cb-layer")).toHaveText(sk.contact_buttons.hold);
   await page.waitForTimeout(1500);
+  await expect(tab).toHaveAttribute("data-phase", "idle");
   expect(await opened()).toEqual([]);
 
   // let go after 0.6 s: nothing, the label comes back
   await page.mouse.move(at.x, at.y);
   await page.mouse.down();
   await expect(tab).toHaveAttribute("data-phase", "holding");
-  await expect(tab.locator(".ppi-cb-layer:not([data-leaving])")).toHaveText(sk.contact_buttons.hold);
+  await expect(tab.locator(".ppi-cb-layer")).toHaveText(sk.contact_buttons.hold);
   await page.waitForTimeout(600);
   await page.mouse.up();
-  await expect(tab).toHaveAttribute("data-phase", "idle");
+  await expect(tab).toHaveAttribute("data-phase", "idle", { timeout: 2000 });
   await page.waitForTimeout(900);
   expect(await opened()).toEqual([]);
 
@@ -80,18 +87,17 @@ test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
   await expect(page.locator("[data-contact-announce]")).toContainText(":");
   await expect(tab).toHaveAttribute("data-phase", "idle", { timeout: 3500 });
 
-  // the keyboard: hold Space
+  // the keyboard: Enter opens at once (never a hold on a keyboard), with the done state
   await tab.focus();
-  await page.keyboard.down(" ");
-  await page.waitForTimeout(1350);
-  await page.keyboard.up(" ");
+  await page.keyboard.press("Enter");
+  await expect(tab).toHaveAttribute("data-phase", "done");
   expect((await opened()).length).toBe(2);
   await expect(tab).toHaveAttribute("data-phase", "idle", { timeout: 3500 });
 
   // every label fits on one line (never cut or wrapped)
   for (const b of await buttons.all()) {
     const fits = await b.evaluate((el) => {
-      const label = el.querySelector(".ppi-cb-layer:not([data-leaving])")!.getBoundingClientRect();
+      const label = el.querySelector(".ppi-cb-layer")!.getBoundingClientRect();
       return label.width <= el.clientWidth - 24 + 1 && label.height <= 24 && el.getBoundingClientRect().height === 50;
     });
     expect(fits, (await b.getAttribute("data-contact")) ?? "").toBe(true);

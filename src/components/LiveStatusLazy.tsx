@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { StatusInput, StatusLabels, StatusState } from "@/lib/hours";
+import { STATUS_PILLS } from "@/lib/statusColors";
 import { StatusDot } from "./StatusDot";
 
 export interface StatusView {
@@ -22,12 +23,15 @@ export function LiveStatusLazy({
   labels,
   lang,
   className = "",
+  pill = false,
 }: {
   first: StatusView;
   input: StatusInput;
   labels: StatusLabels;
   lang: string;
   className?: string;
+  /** the opening hours card's pill (Screen 11): "● Otvorené · zatvára o 17:00" on the status's pale colour */
+  pill?: boolean;
 }) {
   const [view, setView] = useState(first);
   useEffect(() => {
@@ -47,6 +51,20 @@ export function LiveStatusLazy({
       if (every) clearInterval(every);
     };
   }, [input, labels, lang]);
+  if (pill) {
+    const colors = STATUS_PILLS[view.state];
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${className}`}
+        style={{ background: colors.bg, color: colors.fg }}
+        data-status={view.state}
+        data-status-pill
+      >
+        <StatusDot state={view.state} size={8} />
+        <span>{[view.main, view.detail, view.label].filter(Boolean).join(" · ")}</span>
+      </span>
+    );
+  }
   return (
     <span className={`inline-flex flex-wrap items-center gap-x-1.5 ${className}`} data-status={view.state}>
       <StatusDot state={view.state} />

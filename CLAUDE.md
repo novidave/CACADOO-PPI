@@ -117,10 +117,41 @@ check (`CONTACT_COLORS` in `@/lib/contactButtons`, `@/components/CheckLoop`; pal
 and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
-Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
+**The shop page "Screen 11" (2026-10-31, at the owner's request — see below) may use colour:** Cacaduu orange #F57C20
+(accents: news, assistant, access key), the contact buttons' own tints, green amenity pills (#DCF5E5 / #146C37), the
+stock circles and the blue list counter; everything else on it stays black / white / grey, status dots unchanged.
+Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap **"bright" = OSM Bright**, `@/lib/mapStyle` — every
+map, since 2026-10-31; no API key), pins in the status colour
 with the status in words in each pin's tooltip (no legend under the map, at the owner's request; the map data's credit
 OpenMapTiles/OpenStreetMap — required by their licences, never removed — stays closed behind MapLibre's small "i"
 button, the text only after a tap, 2026-10-27); always an extra — every page must work and show its data without it.
+
+## Shop page "Screen 11" (2026-10-31, at the owner's request)
+
+Claude Design canvas "Davide shop page – iPhone 14 Plus", artboard 11; `ShopView.tsx` (Cacaduu address and own domain),
+column ≤ 760 px, designed at 428 px (works at 390). Order: header (own domain: header logo, else logo 32 px + name) ·
+details (logo box 46 px, name 24/500, address, company line on #FBF6EC) · `@/components/AmenityPills` (server; only
+the amenities the shop has) · contact buttons · map 222 px · hours card (`ShopStatusLine pill`, `STATUS_PILLS` in
+`@/lib/statusColors`; today #FFF4D6) · "Sviatky · najbližších 14 dní" card · news slider · assistant · key row ·
+products. **Hold links** (`@/components/HoldLink`, rule `@/lib/holdLink`, tests `shopPage_test.ts`): a real `<a href>`
+(works without JavaScript); a finger or a mouse holds 1.2 s (fill, "Držte stlačené", done label + `CheckLoop` loaded on
+the first press, then opens — a finger in the same tab), a short tap only shows "Držte stlačené" (`hint`), Enter / Space
+and a click without a press open at once; children `pointer-events: none` (labels change under the finger); used by
+`ContactButtons` (12.5 px decided by `smallLabel()`, never measured) and "Všetky novinky". **News slider** =
+`ContentSlider` in the news look: every update 38/39/44 rule stays (`shop_content()`, ratio frame + crop, only the
+current ± 1 picture, `<noscript>`); no title, no arrows, no counter; swipe (scroll snap), mouse drag, ← →; gradient +
+tag "Novinka"/"Ponuka" + title + white "Čítať" (chevron down, bobbing; "Zavrieť" when open) or "Zobraziť" (viewer);
+date + one pill per slide (`aria-pressed`). **"Čítať" opens the post inline**: `InlineArticle` (server: meta "BLOG ·
+date · n MIN ČÍTANIA" with `readingMinutes()`, title, `BlogText`, `articlePhoto()` with Ken Burns), all articles in
+the HTML (`getBlogPost` per post slide), the post page stays canonical; a link to the post without JavaScript.
+**Assistant**: first view = server HTML (`ShopAssistant`) + the small loader `AssistantBoot` (carries text, cursor,
+key row, a tapped "Poslať"); `ShopChat` the same look (`.ppi-ai*`): GDPR pill (`<details>`), "Pridať fotku alebo súbor",
+orange "Poslať" (plane, "Odoslané"), "Napíšte otázku alebo pridajte fotku". **Key row**: `@/components/KeyRow` (row) +
+`@/components/KeyForm` (150 px "Otvoriť", `KeyVortex`: rings while checking, head + crest + badge on success; part of
+the assistant's code). **Styles**: every shop-page style (contact buttons, Produkty / Zoznam, the Screen 11 parts) lives in
+`@/components/shopPage.css`, imported by `ShopView` and `ContentSlider` only — never in globals.css, so no other page
+waits for it. Shop page first-load JS 148.9 kB (budget 150). e2e: `public.spec.ts` (slider, pills, Čítať,
+key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
 
 ## Commands
 
@@ -130,7 +161,8 @@ button, the text only after a tap, 2026-10-27); always an extra — every page m
 - `npm run test:status` — unit tests of `shopStatus()` in `src/lib/hours.ts` (Deno): breaks, past midnight, holidays,
   special days, DST
 - `npm run test:site` — unit tests (Deno) of the own domain's robots.txt / llms.txt, the item JSON-LD and the search
-  links (`src/lib/findable_test.ts`)
+  links (`src/lib/findable_test.ts`), the contact buttons and the shop page's hold links and stock circle
+  (`contactButtons_test.ts`, `shopPage_test.ts`)
 - `npm run test:chat` — unit tests (Deno) of the main page chat's protocol: streamed answer, refs, history, NDJSON, the
   layers' rules (town from the shopper's words, good results, OpenStreetMap hours, partner card texts and the 48-hour
   rule) (`src/lib/chat_test.ts`)
@@ -269,7 +301,7 @@ without JavaScript the plain GET form `?q=#items`. e2e `e2e/shop-search.spec.ts`
 `@/components/ShopProducts` (first load) + `@/components/ShopList` (the Zoznam tab, loaded when opened or after the
 first add) + `@/lib/shopProductsEngine` (the list's store, the movements and the live search, loaded right after the
 page appears) + `@/lib/shoppingList` (rules + store, `shoppingList_test.ts`, `npm run test:list`) + `@/lib/listMotion` +
-`@/lib/shopRows` (rows written on the server: names, price, dot state, search marks) + `.ppi-list*` in globals.css.
+`@/lib/shopRows` (rows written on the server: names, price, dot state, search marks) + `.ppi-list*` in `@/components/shopPage.css`.
 Replaces "Tovar v obchode" (heading kept for screen readers; the "Zásoby: …" line about the whole file stays above).
 **Tabs** "Produkty" / "Zoznam" = real radio inputs, visually hidden (`sr-only`); #EEF1F5 box, active white, bold,
 #1D4ED8, soft shadow, scale 0.95 → 1.05 → 1 on change; the Zoznam counter (pieces, "99+") on the icon's corner, the
@@ -673,10 +705,11 @@ PPI's sitemap leaves those pages out.
 ## Contact buttons on the shop page (update 51)
 
 `supabase/sql/51_contact_buttons.sql` + `@/lib/contactButtons` (order, colours, links, widths; `contactButtons_test.ts`
-in `npm run test:site`) + `@/components/ContactButtons` / `CheckLoop` + `.ppi-cb*` in globals.css. Under the amenities
+in `npm run test:site`) + `@/components/ContactButtons` / `CheckLoop` + `.ppi-cb*` in `@/components/shopPage.css`. Under the amenities
 ("Bidetová sprška" — the column stays `has_douchette`), two columns (gap 12 px): Facebook · Rezervovať termín / Web ·
-e-mail / Navigovať · phone; an empty link or value hides its button. **Press and hold 1.2 s** (real `<button>`s,
-pointer or Space/Enter): a tap does nothing, early release / sliding off / blur cancels; done → the action (new tab,
+e-mail / Navigovať · phone; an empty link or value hides its button. **Press and hold 1.2 s** (since Screen 11 real
+links via `HoldLink`; Enter / Space open at once): a tap only shows "Držte stlačené", early release / sliding off /
+blur cancels; done → the action (new tab,
 `mailto:`, `tel:`; **a finger hold loads the link in the same tab at completion** — a new tab is a pop-up that phones allow only inside a gesture, and a long press has none; touchstart is `preventDefault`ed, so no phone long-press menu; `pageshow` from the back-forward cache resets the button), "Otvorené"-style label with the
 check, back after 2.3 s, announced in an `aria-live` region; `prefers-reduced-motion` respected; `touch-action: none`,
 `-webkit-touch-callout: none`, no selection, no shadows; labels never cut or wrapped (12.5 px when too wide).
@@ -791,6 +824,9 @@ widget on any public page.** Privacy draft `/[lang]/sukromie` + `/[lang]/sukromi
 URLs; TODO lines). Texts `blog`, `owner_blog`, `admin_blog`, `privacy`.
 
 ## "Obsah stránky": one slider of posts, PDFs and pictures (update 38)
+
+**Its look changed on 2026-10-31 (Screen 11, above):** no title, arrows, counter or caption under the frame — the
+text sits on the picture, pills choose the slide, "Čítať" opens the post inline. The rules below still apply.
 
 `supabase/sql/38_page_content.sql` + `@/lib/pageContent` (shared rules, also the browser and `content_test.ts`) +
 `@/lib/sections` (`getShopContent()`, `slideViews()`) + `@/components/ContentSlider` (visitors and the live preview) +

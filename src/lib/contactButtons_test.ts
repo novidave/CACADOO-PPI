@@ -9,6 +9,7 @@ import {
   DEFAULT_WIDTHS,
   gridPlaces,
   navigateHref,
+  smallLabel,
   widthChoices,
   type ContactShop,
 } from "./contactButtons.ts";
@@ -85,4 +86,13 @@ Deno.test("two columns: a long button takes the row; a short one before it stays
     { row: 1, column: 1, span: 2 },
     { row: 2, column: 1, span: 1 },
   ]);
+});
+
+Deno.test("a label that would not fit is set smaller (Screen 11: decided from the texts, never measured)", () => {
+  const sk = { hold: "Držte stlačené", done: "Otvorené" };
+  assertEquals(smallLabel({ label: "Facebook", ...sk }, "short"), false);
+  assertEquals(smallLabel({ label: "Rezervovať termín", hold: sk.hold, done: "Rezervácie otvorené" }, "short"), true);
+  assertEquals(smallLabel({ label: "obchod@potraviny-centrum.example.sk", ...sk }, "long"), false);
+  assertEquals(smallLabel({ label: "obchod@potraviny-centrum.example.sk", ...sk }, "short"), true);
+  assertEquals(smallLabel({ label: "nakup.informacie@velmi-dlha-domena-obchodu.example.sk", ...sk }, "long"), true);
 });

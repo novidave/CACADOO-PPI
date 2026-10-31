@@ -57,16 +57,24 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
   const own = Boolean(siteLogo?.url);
   // The database checked the address (https of a real host); without one, the home page.
   const link = siteLogo?.link?.startsWith("https://") ? siteLogo.link : null;
-  const content = logo ? (
+  // The shop's own header logo as it is (it often holds the name); else the shop's logo at 32 px with its name
+  // (Screen 11); else the name.
+  const content = own && logo ? (
     // eslint-disable-next-line @next/next/no-img-element -- the shop's own small logo from Supabase Storage
     <img
       src={logo}
       alt={shop.name}
-      width={own ? (siteLogo?.width ?? undefined) : undefined}
-      height={own ? (siteLogo?.height ?? undefined) : undefined}
-      className="h-9 w-auto max-w-[200px] object-contain sm:h-10"
-      data-site-logo={own ? "own" : "shop"}
+      width={siteLogo?.width ?? undefined}
+      height={siteLogo?.height ?? undefined}
+      className="h-8 w-auto max-w-[200px] object-contain sm:h-10"
+      data-site-logo="own"
     />
+  ) : logo ? (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {/* eslint-disable-next-line @next/next/no-img-element -- the shop's logo from Supabase Storage */}
+      <img src={logo} alt="" width={32} height={32} className="h-8 w-8 shrink-0 object-contain" data-site-logo="shop" />
+      <span className="truncate text-lg font-bold tracking-tight">{shop.name}</span>
+    </span>
   ) : (
     <span className="truncate text-lg font-semibold tracking-tight">{shop.name}</span>
   );

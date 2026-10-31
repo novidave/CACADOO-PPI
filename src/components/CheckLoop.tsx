@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const DUR = "2.6s";
 const RINGS = [
@@ -12,10 +12,12 @@ const RINGS = [
 /**
  * The orange check of the contact buttons' "done" badge (the owner's orange-check-loop.svg, inline: three rings spin in
  * and shrink, then the check draws itself; loops every 2.6 s). Mounted fresh on every appearance, and its clock set back
- * to 0, so it always starts from the beginning. Decorative: the button's text says what happened.
+ * to 0, so it always starts from the beginning. Decorative: the button's text says what happened. With reduced motion
+ * the check is shown still (no rings, no drawing).
  */
 export function CheckLoop({ size = 19 }: { size?: number }) {
   const ref = useRef<SVGSVGElement>(null);
+  const [still] = useState(() => typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches));
   useEffect(() => {
     try {
       ref.current?.setCurrentTime(0);
@@ -23,6 +25,12 @@ export function CheckLoop({ size = 19 }: { size?: number }) {
       // older engines: the fresh element already starts at 0
     }
   }, []);
+  if (still)
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width={size} height={size} aria-hidden="true" focusable="false" data-check-still>
+        <path d="M24 52 L42 70 L77 32" fill="none" stroke="#F57C20" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
   return (
     <svg ref={ref} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width={size} height={size} aria-hidden="true" focusable="false">
       <g transform="translate(50 50)">

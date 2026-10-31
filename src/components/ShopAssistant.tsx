@@ -1,117 +1,78 @@
-"use client";
-
+import { AssistantBoot, type AssistantProps } from "./AssistantBoot";
 import { AssistantHeading } from "./AssistantHeading";
-import { useEffect, useRef, useState, type ComponentProps } from "react";
-import type { ShopChat as Chat } from "./ShopChat";
-
-type Props = Omit<ComponentProps<typeof Chat>, "initialText" | "focusInput" | "keysOpen">;
 
 /**
- * The shop assistant's first view, light (performance pass): the same box, texts and field as `ShopChat`, so the page
- * looks the same at once and nothing moves; the assistant's own code (chat, files, PDFs, access keys) is not part of
- * the page's first JavaScript. It loads when the box comes near the screen (after the page has loaded, when the
- * browser is idle) or at the first touch, focus or key; what was typed meanwhile goes along and the cursor stays.
+ * The shop assistant's first view (performance pass, Screen 11): the same box, texts and field as `ShopChat`, written
+ * on the server as plain HTML, so the page looks the same at once and nothing moves; the assistant's own code (chat,
+ * files, PDFs, access keys) is not part of the page's first JavaScript — `AssistantBoot` loads it and carries over
+ * what was typed, the cursor, an opened key row and a tapped "Poslať".
  */
-export function ShopAssistant(props: Props) {
+export function ShopAssistant(props: AssistantProps) {
   const { lang, shopName, keys, labels, buttonLabel, welcome, archive = false } = props;
-  const [live, setLive] = useState<{ Chat: typeof Chat } | null>(null);
-  // What the shopper did in the first view goes along at the swap: the text, the cursor, an opened key dropdown.
-  const [text, setText] = useState("");
-  const [focused, setFocused] = useState(false);
-  const [keysOpen, setKeysOpen] = useState(false);
-  const box = useRef<HTMLElement>(null);
-  const loading = useRef(false);
-
-  // The first view stays until the assistant's code is here (nothing disappears or moves).
-  const load = () => {
-    if (loading.current) return;
-    loading.current = true;
-    import("./ShopChat")
-      .then((m) => setLive({ Chat: m.ShopChat }))
-      .catch(() => {
-        loading.current = false;
-      });
-  };
-
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    let idle = 0;
-    let timer = 0;
-    const soon = () => {
-      const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
-      if (w.requestIdleCallback) idle = w.requestIdleCallback(() => load(), { timeout: 3000 });
-      else timer = window.setTimeout(() => load(), 1200);
-    };
-    const observer = new IntersectionObserver(
-      (seen) => {
-        if (!seen.some((e) => e.isIntersecting)) return;
-        observer.disconnect();
-        if (document.readyState === "complete") soon();
-        else window.addEventListener("load", soon, { once: true });
-      },
-      { rootMargin: "400px 0px" },
-    );
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("load", soon);
-      if (idle) (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(idle);
-      if (timer) window.clearTimeout(timer);
-    };
-  }, []);
-
-  if (live) return <live.Chat {...props} initialText={text} focusInput={focused} keysOpen={keysOpen} />;
-
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
   return (
-    <div className="contents" onPointerDown={() => load()}>
-      <section ref={box} className="relative flex flex-col border border-line" aria-labelledby="assistant-heading" data-assistant>
+    <AssistantBoot props={props}>
+      <section className="ppi-ai" data-pop aria-labelledby="assistant-heading" data-assistant>
         <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
-        <div className="flex flex-col gap-3 border-t border-line p-3">
-          <p className="text-sm text-muted" data-chat-welcome>
+        <div className="flex flex-col px-[13px] py-[14px]">
+          <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
             {intro}
           </p>
           <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log />
-          <form onSubmit={(e) => e.preventDefault()} className="flex flex-col gap-2">
+          <form className="flex flex-col">
+            <label htmlFor="assistant-question" className="sr-only">
+              {labels.placeholder}
+            </label>
             <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onFocus={() => {
-                setFocused(true);
-                load();
-              }}
-              onBlur={() => setFocused(false)}
+              id="assistant-question"
               rows={2}
               maxLength={1500}
               placeholder={labels.placeholder}
-              aria-label={labels.placeholder}
-              className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+              aria-describedby="assistant-empty"
+              className="ppi-ai-input mt-4"
             />
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onFocus={() => load()} className="rounded border border-line px-3 py-2">
+            <p id="assistant-empty" role="alert" hidden className="mt-1.5 text-[13px] font-semibold text-[#DC2626]" data-chat-empty>
+              {labels.empty_question}
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-[9px]">
+              <button type="button" className="ppi-ai-attach" data-chat-attach>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F57C20" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                  <path d="M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5" />
+                </svg>
                 {labels.photo}
               </button>
-              <button type="submit" disabled className="rounded border border-foreground px-4 py-2 font-medium disabled:text-muted">
+              <button type="submit" className="ppi-ai-send" data-chat-send>
                 {labels.send}
+                <svg className="ppi-ai-plane" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                  <path d="M22 2L11 13" />
+                  <path d="M22 2l-7 20-4-9-9-4z" />
+                </svg>
               </button>
             </div>
           </form>
         </div>
       </section>
       {keys && (
-        <details
-          className="border border-line"
-          data-key-access
-          onToggle={(e) => {
-            setKeysOpen(e.currentTarget.open);
-            load();
-          }}
-        >
-          <summary className="cursor-pointer p-3 font-semibold">{labels.key_have}</summary>
-        </details>
+        // The same row as `KeyRow`; the key field comes with the assistant's code (opening the row loads it).
+        <div className="ppi-key" data-key-access>
+          <button type="button" className="ppi-key-row" aria-expanded="false" aria-controls="key-body-first" data-key-toggle>
+            <span className="ppi-key-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+                <circle cx="8" cy="15" r="4.5" />
+                <path d="M11.2 11.8L20 3M16.5 6.5l2.5 2.5M14.3 8.7l1.8 1.8" />
+              </svg>
+            </span>
+            {labels.key_have}
+            <span className="ppi-key-chev" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </span>
+          </button>
+          <div id="key-body-first" className="ppi-key-body" />
+        </div>
       )}
-    </div>
+    </AssistantBoot>
   );
 }

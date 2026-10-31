@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { cropPosition, DEFAULT_RATIO, ratioCss, ratioValue, srcSet, type SliderRatio, type SlideImage, type SlideView } from "@/lib/pageContent";
-import { PlayMark } from "./YouTubePlay";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { cropPosition, DEFAULT_RATIO, ratioCss, ratioValue, slideTag, srcSet, type SliderRatio, type SlideImage, type SlideView } from "@/lib/pageContent";
+import { HoldLink } from "./HoldLink";
+import { PlayMark } from "./PlayMark";
+import "@/components/shopPage.css";
 
 export interface ContentSliderLabels {
   slider: string;
@@ -11,6 +13,7 @@ export interface ContentSliderLabels {
   go_to: string;
   read: string;
   all_news: string;
+  all_news_done: string;
   pages_one: string;
   pages_few: string;
   pages_other: string;
@@ -23,6 +26,14 @@ export interface ContentSliderLabels {
   play_post: string;
   play_facebook: string;
   video: string;
+  tag_post: string;
+  tag_offer: string;
+  close: string;
+  view: string;
+  ask_assistant: string;
+  close_article: string;
+  article: string;
+  slide_of: string;
 }
 
 /** The slide and the ones on either side of it (once the slider is near the screen). */
@@ -39,25 +50,13 @@ const fill = (text: string, values: Record<string, string | number>) =>
 
 /**
  * The frame every slide shares (update 44): the ratio, as wide as the slider, at most 80 % of the screen high (then
- * narrower, centred). The caption, the arrows and the counter use the same width, so nothing moves between slides.
+ * narrower, centred). The line under it (date and pills) uses the same width, so nothing moves between slides.
  */
 export function frameStyle(ratio: SliderRatio): React.CSSProperties {
   return { aspectRatio: ratioCss(ratio), width: `min(100%, calc(80vh * ${ratioValue(ratio)}))` };
 }
 
-function Picture({
-  image,
-  alt,
-  load,
-  priority,
-  position,
-}: {
-  image: SlideImage;
-  alt: string;
-  load: boolean;
-  priority?: boolean;
-  position: string;
-}) {
+function Picture({ image, alt, load, priority, position }: { image: SlideImage; alt: string; load: boolean; priority?: boolean; position: string }) {
   const img = (
     // eslint-disable-next-line @next/next/no-img-element -- pictures are already 800/1600 px: srcset, no optimisation
     <img
@@ -80,19 +79,24 @@ function Picture({
   return load ? img : <noscript>{img}</noscript>;
 }
 
-/** ▶ in black and white (no colours), always the same size in the middle of the frame. */
-const PlayIcon = () => <PlayMark size={64} />;
+/** The orange chevron of "Čítať": down, bobbing gently; up while the article is open. */
+const Chevron = () => (
+  <span className="ppi-read-chev" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F57C20" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  </span>
+);
 
 /**
- * "Obsah stránky" (database update 38): ONE slider on the shop page with blog posts, PDFs and pictures in the owner's
- * order — at most 10 slides. Update 44: every slide has the same frame (the shop's "Pomer strán slidera", 4:5 by
- * default) filled by its picture (object-fit cover, the owner's "Výrez" top / middle / bottom), and the same caption
- * below it with fixed places — the title (2 lines at most), one meta line (the date, or "5 strán"), one action ("Čítať",
- * "Stiahnuť PDF", "Stiahnuť") — that keep their space when empty. So the slider never changes height, and the arrows
- * (centred on the frame), ▶, the counter and the dots stay where they are on every slide. A swipe (native scroll
- * snapping, also without JavaScript), ‹ › and the ← → keys; only the current and the next slide's pictures load.
- * A PDF or a picture opens uncropped in the full-screen viewer (SectionZoom); its text is the slide's description for
- * screen readers (and the viewer's), with no visible "Zobraziť text". `preview`: the editor's live preview.
+ * "Obsah stránky" (database update 38) in the shop page's news look (Screen 11, 2026-10-31): ONE slider of blog posts,
+ * PDFs and pictures in the owner's order — the database decides the slides (`shop_content()`). Each slide is one
+ * rounded frame of the shop's "Pomer strán slidera" (update 44, the owner's "Výrez"), with a dark gradient, a tag
+ * ("Novinka" / "Ponuka"), the title and one white button: "Čítať" (a post: opens the article under the slider, the text
+ * is in the HTML; without JavaScript the link goes to the post's page), "Zobraziť" (a PDF or a picture: the full-screen
+ * viewer). Swipe only — scroll snapping, a mouse drag on a computer, ← → on the focused slider; under the frame the
+ * date and one pill per slide. No arrows, no counter. Only the current and the next pictures load; a video post keeps
+ * its ▶ (update 39). `preview`: the editor's live preview (nothing reacts).
  */
 export function ContentSlider({
   views,
@@ -105,6 +109,9 @@ export function ContentSlider({
   ratio = DEFAULT_RATIO,
   preview = false,
   first = false,
+  articles,
+  hold,
+  assistant = false,
 }: {
   views: SlideView[];
   title: string;
@@ -118,29 +125,41 @@ export function ContentSlider({
   preview?: boolean;
   /** Right under the shop's opening hours on a phone: the first picture asks to load first. */
   first?: boolean;
+  /** The posts' inline articles, written on the server (key = the slide's key). */
+  articles?: Record<string, ReactNode>;
+  /** "Držte stlačené" for "Všetky novinky". */
+  hold?: string;
+  /** The shop assistant is on the page: the article offers "Opýtať sa asistenta". */
+  assistant?: boolean;
 }) {
   const region = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLOListElement>(null);
-  const box = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(0);
+  const [open, setOpen] = useState(false);
   const near = useRef(false);
+  const drag = useRef<{ x: number; left: number; from: number; moved: boolean } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const total = views.length;
   const [wanted, setWanted] = useState<ReadonlySet<number>>(() => new Set(display === "open" || preview ? [0] : []));
   const want = (i: number) => setWanted((prev) => withNeighbours(prev, i, total));
   const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const frame = frameStyle(ratio);
+  const articleId = useId();
 
   // Near the screen (or a closed dropdown opened): the current and the next slide may load.
   useEffect(() => {
-    const el = box.current;
+    const el = region.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
-    const io = new IntersectionObserver((entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      near.current = true;
-      const i = Math.round((track.current?.scrollLeft ?? 0) / (track.current?.clientWidth || 1));
-      setWanted((prev) => withNeighbours(prev, i, total));
-      io.disconnect();
-    }, { rootMargin: "300px" });
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        near.current = true;
+        const i = Math.round((track.current?.scrollLeft ?? 0) / (track.current?.clientWidth || 1));
+        setWanted((prev) => withNeighbours(prev, i, total));
+        io.disconnect();
+      },
+      { rootMargin: "300px" },
+    );
     io.observe(el);
     return () => io.disconnect();
   }, [total]);
@@ -150,26 +169,24 @@ export function ContentSlider({
     if (!el) return;
     const i = Math.max(0, Math.min(total - 1, index));
     el.scrollTo({ left: i * el.clientWidth, behavior: reduced() ? "auto" : "smooth" });
+    if (i !== current) setOpen(false);
     setCurrent(i);
     want(i);
-    // ‹ on the first slide or › on the last is hidden and would drop the focus: the keys keep working.
-    const active = document.activeElement as HTMLElement | null;
-    if ((i === 0 && active?.dataset.sliderPrev !== undefined) || (i === total - 1 && active?.dataset.sliderNext !== undefined)) {
-      region.current?.focus({ preventScroll: true });
-    }
   };
 
   const onScroll = () => {
     const el = track.current;
-    if (!el || !el.clientWidth) return;
+    if (!el || !el.clientWidth || drag.current) return;
     const i = Math.round(el.scrollLeft / el.clientWidth);
     if (i === current || i < 0 || i >= total) return;
+    // another slide: its article is not the open one
+    setOpen(false);
     setCurrent(i);
     if (near.current || preview) want(i);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).closest("summary, input, textarea")) return;
+    if ((e.target as HTMLElement).closest("summary, input, textarea, [data-post-article]")) return;
     if (e.key === "ArrowRight") {
       e.preventDefault();
       go(current + 1);
@@ -179,71 +196,117 @@ export function ContentSlider({
     }
   };
 
+  // A mouse drag on a computer (fingers swipe natively): the track follows, then snaps to the nearest slide.
+  const onPointerDown = (e: React.PointerEvent) => {
+    const el = track.current;
+    if (preview || !el || e.pointerType !== "mouse" || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button, [data-slide-read]")) return;
+    drag.current = { x: e.clientX, left: el.scrollLeft, from: current, moved: false };
+    const move = (ev: PointerEvent) => {
+      const d = drag.current;
+      if (!d) return;
+      const dx = ev.clientX - d.x;
+      if (!d.moved && Math.abs(dx) > 5) {
+        d.moved = true;
+        setDragging(true);
+      }
+      if (d.moved) el.scrollLeft = d.left - dx;
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const d = drag.current;
+      drag.current = null;
+      setDragging(false);
+      if (!d?.moved) return;
+      const dx = ev.clientX - d.x;
+      const to = dx < -40 ? d.from + 1 : dx > 40 ? d.from - 1 : d.from;
+      // the click that follows a drag is not a tap on the slide
+      const swallow = (c: Event) => {
+        c.preventDefault();
+        c.stopPropagation();
+      };
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      window.setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+      window.setTimeout(() => go(to), 0);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const plural = (n: number) => {
     const form = new Intl.PluralRules(lang).select(n);
     return fill(form === "one" ? labels.pages_one : form === "few" ? labels.pages_few : labels.pages_other, { n });
   };
   const inert = preview ? { tabIndex: -1, onClick: (e: React.MouseEvent) => e.preventDefault() } : {};
-  const frameClass = "relative mx-auto overflow-hidden bg-[#f4f4f4]";
-  const action = "rounded border border-foreground px-3 py-1.5 text-sm font-medium";
+  const currentView = views[current];
+  const hasArticle = (view: SlideView | undefined) => Boolean(view && view.kind === "post" && articles?.[view.key]);
 
-  /** The caption under every frame: three fixed places (8 + 44 + 6 + 20 + 6 + 36 = 120 px), each keeps its height when empty. */
-  const caption = (titleNode: React.ReactNode, meta: React.ReactNode, act: React.ReactNode) => (
-    <div className="mx-auto grid h-[7.5rem] grid-rows-[2.75rem_1.25rem_2.25rem] content-start gap-1.5 pt-2" style={{ width: frame.width }} data-slide-caption>
-      <div className="line-clamp-2 font-semibold leading-snug" data-slide-title>
-        {titleNode}
+  /** The text and the button over the picture's bottom. */
+  const overlay = (view: SlideView, action: ReactNode) => {
+    const name = view.title;
+    return (
+      <div className="ppi-slide-bottom">
+        <div className="min-w-0">
+          <span className="ppi-slide-tag">{labels[slideTag(view.kind)]}</span>
+          {name && (
+            <h3 className="ppi-slide-title" data-slide-title>
+              {name}
+            </h3>
+          )}
+        </div>
+        {action}
       </div>
-      <div className="truncate text-sm leading-5 text-muted" data-slide-meta>
-        {meta}
-      </div>
-      <div className="flex items-end" data-slide-action-slot>
-        {act}
-      </div>
-    </div>
-  );
+    );
+  };
 
   const slide = (view: SlideView, i: number) => {
     const load = wanted.has(i);
     const focus = i === current ? 0 : -1;
     if (view.kind === "post") {
-      // A video post (update 39): a ▶ that leads where the owner chose (the article, or the post on Facebook).
       const video = view.video;
-      const play = video
-        ? {
-            href: video.href,
-            ...(video.external ? { target: "_blank", rel: "noopener" } : {}),
-            "aria-label": video.facebook ? labels.play_facebook : labels.play_post,
-            tabIndex: focus,
-            "data-slide-play": video.facebook ? "facebook" : "post",
-            ...inert,
-          }
-        : null;
+      const article = hasArticle(view);
+      const expanded = open && i === current && article;
       return (
-        <article data-slide-kind="post" data-slide-video={video ? "" : undefined}>
-          <div className={frameClass} style={frame} data-slide-frame>
-            <a href={view.href} tabIndex={-1} aria-hidden="true" {...inert} className="absolute inset-0 block">
-              {view.image ? (
-                <Picture image={view.image} alt="" load={load} priority={first && i === 0} position={cropPosition("center")} />
-              ) : (
-                // No photo: a neutral frame with the title.
-                <span className="absolute inset-0 flex items-center justify-center p-6 text-center text-lg font-semibold" data-slide-no-photo>
-                  {view.title}
-                </span>
-              )}
+        <article className="ppi-slide-frame" style={frame} data-slide-frame data-slide-kind="post" data-slide-video={video ? "" : undefined}>
+          {view.image ? <Picture image={view.image} alt="" load={load} priority={first && i === 0} position={cropPosition("center")} /> : <span className="absolute inset-0 bg-[#2A2A2A]" data-slide-no-photo />}
+          <span className="ppi-slide-shade" aria-hidden="true" />
+          {video && (
+            <a
+              href={video.href}
+              {...(video.external ? { target: "_blank", rel: "noopener" } : {})}
+              aria-label={video.facebook ? labels.play_facebook : labels.play_post}
+              tabIndex={focus}
+              className="absolute inset-0 flex items-center justify-center"
+              data-slide-play={video.facebook ? "facebook" : "post"}
+              data-slide-play-mark
+              {...inert}
+            >
+              <PlayMark size={64} />
             </a>
-            {play && (
-              <a {...play} className="absolute inset-0 flex items-center justify-center" data-slide-play-mark>
-                <PlayIcon />
-              </a>
-            )}
-          </div>
-          {caption(
-            <a href={view.href} tabIndex={focus} {...inert} className="hover:underline">
-              {view.title}
-            </a>,
-            <time dateTime={view.dateTime}>{view.date}</time>,
-            <a href={view.href} tabIndex={focus} {...inert} className="font-medium underline underline-offset-4" data-slide-read>
-              {labels.read}
+          )}
+          {overlay(
+            view,
+            <a
+              href={view.href}
+              tabIndex={focus}
+              className="ppi-read"
+              data-slide-read
+              {...(article ? { role: "button", "aria-expanded": expanded ? "true" : "false", "aria-controls": articleId } : {})}
+              onClick={(e) => {
+                if (preview) {
+                  e.preventDefault();
+                  return;
+                }
+                // Without its article (or without JavaScript) the link goes to the post's page.
+                if (!article) return;
+                e.preventDefault();
+                if (i !== current) go(i);
+                setOpen((o) => (i === current ? !o : true));
+              }}
+            >
+              {expanded ? labels.close : labels.read}
+              <Chevron />
             </a>,
           )}
         </article>
@@ -266,58 +329,62 @@ export function ContentSlider({
           };
     const text = view.kind === "pdf" ? view.pages.map((p) => p.text).filter((t) => t.trim()).join("\n\n") : view.text;
     const described = text.trim() ? { "aria-describedby": textId } : {};
-    const download = view.download && !preview && (
-      <a href={view.download} rel="nofollow" tabIndex={focus} className={action} data-slide-download>
-        {view.kind === "pdf" ? labels.download_pdf : labels.download}
-      </a>
-    );
+    const image = view.kind === "pdf" ? view.pages[0] : view.image;
+    const openLabel = view.kind === "pdf" ? fill(labels.open_pdf, { title: view.title }) : labels.open_picture;
+    const zoomFirst = view.kind === "pdf" ? zoom(view.pages[0], 0, fill(labels.page_of, { n: 1, total: view.pages.length }), view.pages[0].text) : zoom(view.image, 0, view.title ?? view.alt, view.text);
     return (
-      <figure data-slide-kind={view.kind} data-slide-crop={view.crop}>
-        <div className={frameClass} style={frame} data-slide-frame>
-          {view.kind === "pdf" ? (
-            <>
-              <a
-                {...zoom(view.pages[0], 0, fill(labels.page_of, { n: 1, total: view.pages.length }), view.pages[0].text)}
-                {...described}
-                tabIndex={focus}
-                aria-label={fill(labels.open_pdf, { title: view.title })}
-                className="absolute inset-0 block"
-              >
-                <Picture image={view.pages[0]} alt={fill(labels.page_alt, { title: view.title, n: 1 })} load={load} priority={first && i === 0} position={cropPosition(view.crop)} />
-              </a>
-              {/* The other pages for the viewer (never loaded here). */}
-              {!preview &&
-                view.pages.slice(1).map((p, k) => (
-                  <a key={p.large} {...zoom(p, k + 1, fill(labels.page_of, { n: k + 2, total: view.pages.length }), p.text)} hidden tabIndex={-1}>
-                    {fill(labels.page_alt, { title: view.title, n: k + 2 })}
-                  </a>
-                ))}
-            </>
-          ) : (
-            <a {...zoom(view.image, 0, view.title ?? view.alt, view.text)} {...described} tabIndex={focus} aria-label={labels.open_picture} className="absolute inset-0 block">
-              <Picture image={view.image} alt={view.alt} load={load} priority={first && i === 0} position={cropPosition(view.crop)} />
+      <figure className="ppi-slide-frame" style={frame} data-slide-frame data-slide-kind={view.kind} data-slide-crop={view.crop}>
+        <Picture
+          image={image}
+          alt={view.kind === "pdf" ? fill(labels.page_alt, { title: view.title, n: 1 }) : view.alt}
+          load={load}
+          priority={first && i === 0}
+          position={cropPosition(view.crop)}
+        />
+        <span className="ppi-slide-shade" aria-hidden="true" />
+        {/* The other pages for the viewer (never loaded here). */}
+        {!preview &&
+          view.kind === "pdf" &&
+          view.pages.slice(1).map((p, k) => (
+            <a key={p.large} {...zoom(p, k + 1, fill(labels.page_of, { n: k + 2, total: view.pages.length }), p.text)} hidden tabIndex={-1}>
+              {fill(labels.page_alt, { title: view.title, n: k + 2 })}
             </a>
-          )}
-        </div>
-        {/* The text as written: the slide's description for screen readers and search engines (no visible button). */}
+          ))}
+        {/* The text as written: the slide's description for screen readers and search engines. */}
         {text.trim() && (
           <p id={textId} className="sr-only" data-slide-text>
             {text}
           </p>
         )}
-        <figcaption>
-          {caption(view.title, view.kind === "pdf" ? plural(view.pages.length) : null, download || null)}
-        </figcaption>
+        {overlay(
+          view,
+          <a {...zoomFirst} {...described} tabIndex={focus} aria-label={openLabel} className="ppi-read" data-slide-view {...inert}>
+            {labels.view}
+          </a>,
+        )}
       </figure>
     );
   };
 
-  const arrow =
-    "pointer-events-auto absolute top-1/2 z-10 -translate-y-1/2 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xl leading-none shadow-sm disabled:invisible";
+  const meta = (view: SlideView | undefined) =>
+    !view ? null : view.kind === "post" ? <time dateTime={view.dateTime}>{view.date}</time> : view.kind === "pdf" ? plural(view.pages.length) : null;
+  const download = currentView && currentView.kind !== "post" && currentView.download && !preview && (
+    <a href={currentView.download} rel="nofollow" className="ml-3 underline underline-offset-4" data-slide-download>
+      {currentView.kind === "pdf" ? labels.download_pdf : labels.download}
+    </a>
+  );
+
+  const askAssistant = () => {
+    const box = document.querySelector<HTMLElement>("[data-assistant]");
+    if (!box) return;
+    box.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "start" });
+    box.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
+  };
+
   const slider = (
     <div
       ref={region}
-      className="flex flex-col gap-2 outline-none focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-foreground"
+      className="ppi-news flex flex-col outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#2563EB]"
       role="region"
       aria-roledescription={labels.slider}
       aria-label={title}
@@ -326,81 +393,118 @@ export function ContentSlider({
       data-content-slider
       data-ratio={ratio}
     >
-      <div ref={box} className="relative w-full overflow-hidden" data-slider-box>
-        <ol
-          ref={track}
-          onScroll={onScroll}
-          className="flex items-start snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] motion-safe:scroll-smooth [&::-webkit-scrollbar]:hidden"
-        >
-          {views.map((view, i) => (
-            <li
-              key={view.key}
-              className="w-full shrink-0 snap-start snap-always px-px"
-              aria-hidden={i !== current}
-              aria-roledescription="slide"
-              data-slide={i}
-            >
-              {slide(view, i)}
-            </li>
-          ))}
-        </ol>
+      <ol
+        ref={track}
+        onScroll={onScroll}
+        onPointerDown={onPointerDown}
+        className="ppi-news-track"
+        data-dragging={dragging || undefined}
+        data-slider-track
+      >
+        {views.map((view, i) => (
+          <li
+            key={view.key}
+            className="w-full shrink-0 snap-start snap-always"
+            aria-hidden={i !== current}
+            aria-roledescription="slide"
+            aria-label={fill(labels.slide_of, { n: i + 1, total })}
+            data-slide={i}
+          >
+            {slide(view, i)}
+          </li>
+        ))}
+      </ol>
+      <div className="mx-auto mt-3 flex min-h-[22px] items-center justify-between gap-3" style={{ width: frame.width }} data-slider-nav>
+        <span className="truncate text-[13px] font-semibold text-[#6E6E6E]" data-slide-meta>
+          {meta(currentView)}
+          {download}
+        </span>
         {total > 1 && (
-          // Over the frame (same width and ratio): ‹ › in its vertical middle, a hidden one keeps its place.
-          <div className="pointer-events-none absolute inset-x-0 top-0 mx-auto" style={frame} data-slider-arrows>
-            <button type="button" onClick={() => go(current - 1)} disabled={current === 0} aria-label={labels.prev} className={`${arrow} left-2`} data-slider-prev>
-              ‹
-            </button>
-            <button type="button" onClick={() => go(current + 1)} disabled={current === total - 1} aria-label={labels.next} className={`${arrow} right-2`} data-slider-next>
-              ›
-            </button>
-          </div>
-        )}
-      </div>
-      {total > 1 && (
-        <div className="flex h-6 items-center justify-center gap-3 text-sm" data-slider-nav>
-          <span className="inline-block w-[7ch] text-center tabular-nums" aria-live="polite" data-slider-counter>
-            {current + 1} / {total}
-          </span>
-          <span className="flex gap-1.5">
+          <span className="flex shrink-0 gap-2" data-slider-pills>
             {views.map((view, i) => (
               <button
                 key={view.key}
                 type="button"
                 onClick={() => go(i)}
                 aria-label={fill(labels.go_to, { n: i + 1 })}
+                aria-pressed={i === current}
                 aria-current={i === current ? "true" : undefined}
-                className={`h-2.5 w-2.5 rounded-full border border-foreground ${i === current ? "bg-foreground" : "bg-white"}`}
+                className="ppi-pill-select"
                 data-slider-dot={i}
+                {...(preview ? { tabIndex: -1 } : {})}
               />
             ))}
           </span>
+        )}
+      </div>
+      {articles && Object.keys(articles).length > 0 && (
+        // Every article is in the HTML (crawlers, no JavaScript needed to read the post's page); the current one opens.
+        <div id={articleId} className="ppi-post" data-open={(open && hasArticle(currentView)) || undefined} role="region" aria-label={labels.article} data-post-article>
+          <div inert={!open || undefined}>
+            {views.map((view) =>
+              view.kind === "post" && articles[view.key] ? (
+                <div key={view.key} hidden={view.key !== currentView?.key} data-post-for={view.key}>
+                  <div className="mt-[18px] border-t border-[#EEEEEE] pt-5">
+                    {articles[view.key]}
+                    <div className="mt-[18px] flex flex-wrap gap-2.5">
+                      {assistant && (
+                        <button type="button" onClick={askAssistant} className="ppi-btn-orange" data-post-ask>
+                          {labels.ask_assistant}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpen(false);
+                          region.current?.querySelector<HTMLElement>(`[data-slide="${current}"] [data-slide-read]`)?.focus({ preventScroll: true });
+                        }}
+                        className="ppi-btn-plain"
+                        data-post-close
+                      >
+                        {labels.close_article}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null,
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 
-  // "Všetky novinky": its fixed place in the header row, right of the title (never inside a slide).
-  const news = allNews && (
-    <a href={allNews} {...inert} className="shrink-0 text-sm underline underline-offset-4" data-all-news>
-      {labels.all_news}
-    </a>
-  );
+  // "Všetky novinky": right-aligned above the slider, press and hold (Screen 11).
+  const news =
+    allNews &&
+    (preview ? (
+      <span className="ppi-hold-news" data-all-news>
+        {labels.all_news}
+      </span>
+    ) : (
+      <HoldLink href={allNews} newTab={false} label={labels.all_news} holdLabel={hold ?? labels.all_news} doneLabel={labels.all_news_done} className="ppi-hold-news" data={{ "all-news": "" }} />
+    ));
 
-  // "Vždy otvorené" (default) or "Rozbaľovacie"; the title can be hidden (screen readers still get it).
+  // "Vždy otvorené" (default) or "Rozbaľovacie"; the section has no visible title (screen readers get it).
   return display === "collapsed" ? (
-    <details className="border border-line p-3" data-page-content="collapsed">
+    <details className="rounded-[18px] border border-line p-3" data-page-content="collapsed">
       <summary className="cursor-pointer text-lg font-semibold">{title}</summary>
-      <div className="flex flex-col gap-2 pt-3">
+      <div className="flex flex-col gap-3 pt-3">
         {news && <div className="flex justify-end">{news}</div>}
         {slider}
       </div>
     </details>
   ) : (
-    <section aria-label={title} className="flex flex-col gap-3" data-page-content="open">
-      <div className="flex items-baseline justify-between gap-3" data-slider-header>
-        <h2 className={showTitle ? "text-lg font-semibold" : "sr-only"}>{title}</h2>
-        {news}
-      </div>
+    <section aria-label={title} className="flex flex-col" data-page-content="open">
+      {/* No visible title in the news look; "Zobraziť nadpis" keeps it for screen readers only. */}
+      <h2 className="sr-only" data-show-title={showTitle || undefined}>
+        {title}
+      </h2>
+      {news && (
+        <div className="mb-3 flex justify-end" data-slider-header>
+          {news}
+        </div>
+      )}
       {slider}
     </section>
   );
