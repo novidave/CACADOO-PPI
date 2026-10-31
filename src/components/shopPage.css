@@ -1,0 +1,1481 @@
+/*
+ * The shop page's own styles (Screen 11): loaded only where it is shown (ShopView, ContentSlider — also the editor's
+ * preview), never by the rest of the site, so other pages do not wait for them.
+ */
+/*
+ * The shop page's contact buttons (update 51, ContactButtons): press and hold 1.2 s. Each button's own colour (--c, the
+ * owner's exception to "no colours") at 8 % over white, its border at 28 %; no shadows anywhere. Holding: a fill
+ * sweeps from the left; done: the colour at 12 %, a pop, a ring, the badge. Touch: no context menu, no selection.
+ */
+.ppi-cb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 50px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--c) 28%, #fff);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c) 8%, #fff);
+  box-shadow: none;
+  color: #1a1a1a;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  text-decoration: none;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+.ppi-cb:active {
+  opacity: 1;
+}
+/* The finger's target is always the link itself: its labels change under the finger while it is held, and touch
+   events stay with the element they started on (a removed label would take them along). */
+.ppi-cb > *,
+.ppi-hold-news > * {
+  pointer-events: none;
+}
+.ppi-cb[data-fit="small"] {
+  font-size: 12.5px;
+}
+@media (hover: hover) {
+  .ppi-cb:hover {
+    transform: translateY(-2px);
+    border-color: var(--c);
+  }
+}
+.ppi-cb:focus-visible {
+  outline: 2px solid var(--c);
+  outline-offset: 2px;
+}
+.ppi-cb[data-phase="holding"] {
+  transform: translateY(1px) scale(0.985);
+}
+.ppi-cb[data-phase="done"] {
+  border-color: var(--c);
+  background: color-mix(in srgb, var(--c) 12%, #fff);
+  animation: ppi-cb-pop 450ms ease-out;
+}
+.ppi-cb-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  pointer-events: none;
+}
+.ppi-cb-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--c);
+  opacity: 0.22;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 300ms ease-out;
+}
+.ppi-cb[data-phase="holding"] .ppi-cb-fill {
+  transform: scaleX(1);
+  transition: transform 1200ms linear;
+}
+.ppi-cb[data-phase="done"] .ppi-cb-fill {
+  opacity: 0;
+  transition: none;
+}
+.ppi-cb-ring {
+  position: absolute;
+  inset: -1px;
+  border: 2px solid var(--c);
+  border-radius: 11px;
+  opacity: 0;
+  pointer-events: none;
+  animation: ppi-cb-ring 700ms ease-out;
+}
+.ppi-cb-label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+.ppi-cb-layer {
+  display: inline-flex;
+  grid-area: 1 / 1;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.ppi-cb-layer[data-entering] {
+  animation: ppi-cb-in 200ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.ppi-cb-badge {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: #fff;
+}
+.ppi-cb-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
+@keyframes ppi-cb-pop {
+  0% {
+    transform: scale(0.96);
+  }
+  55% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes ppi-cb-ring {
+  from {
+    inset: -1px;
+    opacity: 0.7;
+  }
+  to {
+    inset: -9px;
+    border-radius: 18px;
+    opacity: 0;
+  }
+}
+@keyframes ppi-cb-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+@keyframes ppi-cb-out {
+  from {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(-10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-cb,
+  .ppi-cb[data-phase="done"] {
+    animation: none;
+    transition: none;
+  }
+  .ppi-cb-ring {
+    display: none;
+  }
+  .ppi-cb-layer[data-entering] {
+    animation: none;
+  }
+  .ppi-cb-fill,
+  .ppi-cb[data-phase="holding"] .ppi-cb-fill {
+    transform: scaleX(0);
+    transition: none;
+  }
+}
+
+/*
+ * The shop page's "Produkty / Zoznam" (ShopProducts, ShopList; 2026-10-29, at the owner's request — its blues, oranges
+ * and the search highlight are the owner's exceptions to "no colours"). Every button here is reset (no browser border,
+ * padding, background or rounding: Safari otherwise draws a grey square around the stock dot) and inherits Quicksand.
+ */
+.ppi-list button,
+.ppi-list input,
+.ppi-list textarea {
+  font: inherit;
+  color: inherit;
+}
+.ppi-list button {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border-radius: 0;
+  cursor: pointer;
+}
+.ppi-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #eef1f5;
+}
+.ppi-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 9px;
+  color: #475569;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ppi-tab[data-active] {
+  background: #fff;
+  color: #1d4ed8;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12), 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.ppi-tab[data-moved] {
+  animation: ppi-tab-select 0.3s ease-out;
+}
+.ppi-tab:has(input:focus-visible) {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+/* The icon's own box: the counter sits on its corner and never covers the label. */
+.ppi-tab-icon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.ppi-tab-badge,
+.ppi-badge {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 1.5px #fff;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+/* The tab's counter starts on the icon's right half and the icon keeps room for it: the label never moves under it. */
+.ppi-tab-badge {
+  top: -9px;
+  left: 11px;
+}
+.ppi-tab-icon[data-counted] {
+  margin-right: 16px;
+}
+/* On the circle's top-right corner (the circle is 20 px in the middle of the 32 px button). */
+.ppi-badge {
+  top: -4px;
+  left: 17px;
+}
+.ppi-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 6px 0 12px;
+  border: 1px solid #d4d4d8;
+  border-radius: 12px;
+  background: #fff;
+  color: #64748b;
+}
+.ppi-search:focus-within {
+  border-color: var(--foreground);
+}
+.ppi-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--foreground);
+  font-size: 16px; /* 16 px: iPhone Safari does not zoom in */
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ppi-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  display: none;
+}
+.ppi-list .ppi-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  color: #64748b;
+}
+.ppi-list .ppi-search-go {
+  padding: 6px 12px;
+  border: 1px solid var(--foreground);
+  border-radius: 8px;
+  color: var(--foreground);
+  font-weight: 500;
+}
+.ppi-mark {
+  background: #fef3c7;
+  color: inherit;
+  border-radius: 2px;
+}
+.ppi-rows {
+  border-top: 1px solid #eaeaea;
+}
+.ppi-row,
+.ppi-list-row {
+  border-bottom: 1px solid #eaeaea;
+}
+.ppi-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 0;
+}
+.ppi-row-name {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+@media (hover: hover) {
+  .ppi-row-name:hover {
+    text-decoration: underline;
+  }
+}
+.ppi-row-original {
+  font-size: 13px;
+  color: var(--muted);
+}
+.ppi-row-price {
+  flex-shrink: 0;
+  min-width: 4.5em;
+  text-align: right;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* The stock dot as a button: 32 × 32 to tap, the 20 px circle in its middle, the blue counter on its corner. */
+.ppi-list .ppi-add {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+}
+.ppi-add [data-stock-dot] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+.ppi-list .ppi-add:active {
+  opacity: 1;
+  transform: scale(0.9);
+}
+.ppi-list .ppi-add:focus-visible,
+.ppi-list .ppi-step:focus-visible,
+.ppi-list .ppi-copy:focus-visible,
+.ppi-list .ppi-search-clear:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+.ppi-list-row {
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.ppi-swipe-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 0;
+  background: #fff;
+}
+.ppi-list-row[data-swiping] .ppi-swipe-content {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.ppi-swipe-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  background: #ffedd5;
+  color: #ea580c;
+  transition: background-color 0.12s, color 0.12s;
+}
+.ppi-list-row[data-armed] .ppi-swipe-bg {
+  background: #f97316;
+  color: #fff;
+}
+.ppi-line-price {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ppi-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ppi-list .ppi-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: var(--foreground);
+}
+.ppi-list .ppi-step-minus {
+  background: #fff1e6;
+  color: #ea580c;
+}
+.ppi-step-qty {
+  min-width: 2ch;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ppi-list-total {
+  display: flex;
+  justify-content: space-between;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ppi-list-empty {
+  padding: 28px 0;
+  text-align: center;
+  color: var(--muted);
+}
+.ppi-list .ppi-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  border: 1px solid #bfd5fb;
+  border-radius: 12px;
+  background: #eff5ff;
+  color: #1d4ed8;
+  font-weight: 600;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+.ppi-list .ppi-copy[data-copied] {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.ppi-check {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: ppi-check-draw 0.35s ease-out forwards;
+}
+.ppi-copy-manual {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
+  font-size: 14px;
+}
+@keyframes ppi-tab-select {
+  0% {
+    transform: scale(0.95);
+  }
+  60% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes ppi-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-tab[data-moved],
+  .ppi-check {
+    animation: none;
+  }
+  .ppi-check {
+    stroke-dashoffset: 0;
+  }
+  .ppi-swipe-bg,
+  .ppi-list .ppi-copy {
+    transition: none;
+  }
+}
+
+/*
+ * Screen 11 (2026-10-31, at the owner's request): the hold pill "Všetky novinky" (HoldLink with the contact buttons'
+ * inner parts; fill #FFE3CC, Cacaduu orange border while held and done), the green amenity pills, the opening hours
+ * card's rows and today, the news slider, the assistant card, the access-key row. Cacaduu orange #F57C20 is the owner's
+ * accent; everything else stays black, white and grey.
+ */
+.ppi-hold-news {
+  --c: #f57c20;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 170px;
+  height: 44px;
+  padding: 0 18px;
+  border: 1.5px solid #e2e2e2;
+  border-radius: 999px;
+  background: #fff;
+  color: #1a1a1a;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 200ms ease;
+}
+.ppi-hold-news .ppi-cb-clip {
+  border-radius: 999px;
+}
+.ppi-hold-news .ppi-cb-fill {
+  background: #ffe3cc;
+  opacity: 1;
+}
+.ppi-hold-news[data-phase="holding"],
+.ppi-hold-news[data-phase="done"] {
+  border-color: #f57c20;
+}
+.ppi-hold-news[data-phase="holding"] .ppi-cb-fill {
+  transform: scaleX(1);
+  transition: transform 1200ms linear;
+}
+.ppi-hold-news[data-phase="done"] .ppi-cb-fill {
+  transform: scaleX(1);
+  transition: none;
+}
+.ppi-hold-news .ppi-cb-ring {
+  border-radius: 999px;
+}
+.ppi-hold-news:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ppi-amenity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 999px;
+  background: #dcf5e5;
+  color: #146c37;
+  font-size: 13px;
+  font-weight: 700;
+}
+[data-hours] table {
+  width: calc(100% + 20px);
+  margin: 0 -10px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+[data-hours] th {
+  padding-left: 10px;
+}
+[data-hours] td {
+  padding-right: 10px;
+}
+.ppi-hours-row > * {
+  border-bottom: 1px solid #f1ede6;
+}
+.ppi-hours-row:last-child > *,
+.ppi-hours-row:has(+ .ppi-hours-today) > * {
+  border-bottom: 0;
+}
+.ppi-hours-today > * {
+  background: #fff4d6;
+}
+.ppi-hours-today > :first-child {
+  border-radius: 10px 0 0 10px;
+}
+.ppi-hours-today > :last-child {
+  border-radius: 0 10px 10px 0;
+}
+.ppi-news-track {
+  display: flex;
+  align-items: flex-start;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  border-radius: 18px;
+  cursor: grab;
+}
+.ppi-news-track::-webkit-scrollbar {
+  display: none;
+}
+.ppi-news-track[data-dragging] {
+  cursor: grabbing;
+  scroll-snap-type: none;
+  scroll-behavior: auto;
+}
+.ppi-slide-frame {
+  position: relative;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #2a2a2a;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ppi-slide-frame img {
+  pointer-events: none;
+}
+.ppi-slide-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 35%, rgba(0, 0, 0, 0.8) 100%);
+  pointer-events: none;
+}
+.ppi-slide-bottom {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ppi-slide-tag {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff;
+  color: #9a3a0a;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ppi-slide-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.ppi-read {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0 8px 0 16px;
+  border-radius: 999px;
+  background: #fff;
+  color: #1a1a1a;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 150ms ease;
+}
+[data-slide-view].ppi-read {
+  padding: 0 16px;
+}
+.ppi-read:active {
+  transform: scale(0.96);
+}
+.ppi-read:focus-visible,
+.ppi-pill-select:focus-visible,
+.ppi-btn-orange:focus-visible,
+.ppi-btn-plain:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ppi-read-chev {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  transition: transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.ppi-read-chev svg {
+  animation: ppi-bob 1.6s ease-in-out infinite;
+}
+.ppi-read[aria-expanded="true"] .ppi-read-chev {
+  transform: rotate(180deg);
+}
+.ppi-read[aria-expanded="true"] .ppi-read-chev svg {
+  animation: none;
+}
+.ppi-pill-select {
+  width: 44px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid #dcdcdc;
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+  transition:
+    background-color 250ms ease,
+    border-color 250ms ease;
+}
+.ppi-pill-select[aria-pressed="true"] {
+  border-color: #f57c20;
+  background: #ffe3cc;
+}
+.ppi-post {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 450ms ease;
+}
+.ppi-post[data-open] {
+  grid-template-rows: 1fr;
+}
+.ppi-post > div {
+  min-height: 0;
+  overflow: hidden;
+}
+.ppi-post-meta {
+  margin-bottom: 6px;
+  color: #c2410c;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.ppi-post-title {
+  margin-bottom: 14px;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.ppi-post-text {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: #333;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.ppi-post-text .ppi-blog-body {
+  gap: 12px;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.ppi-post-text [data-blog-text] > p:first-child {
+  color: #1a1a1a;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.ppi-post-fig {
+  position: relative;
+  height: 220px;
+  margin: 20px 0 6px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #2a2a2a;
+}
+.ppi-post-fig img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transform: scale(1.25);
+}
+.ppi-post[data-open] .ppi-post-fig img {
+  animation: ppi-kenburns 7s ease-out 0.3s forwards;
+}
+.ppi-btn-orange,
+.ppi-btn-plain {
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ppi-btn-orange {
+  border: 0;
+  background: #f57c20;
+  color: #fff;
+}
+.ppi-btn-plain {
+  border: 1.5px solid #e2e2e2;
+  background: #fff;
+  color: #1a1a1a;
+}
+@keyframes ppi-bob {
+  0%,
+  100% {
+    transform: translateY(-1px);
+  }
+  50% {
+    transform: translateY(2px);
+  }
+}
+@keyframes ppi-kenburns {
+  0% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-news-track {
+    scroll-behavior: auto;
+  }
+  .ppi-read-chev,
+  .ppi-post {
+    transition: none;
+  }
+  .ppi-read-chev svg,
+  .ppi-post[data-open] .ppi-post-fig img {
+    animation: none;
+  }
+  .ppi-post-fig img {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* "Mám prístupový kľúč" (KeyRow): the 56 px row, the body's height transition, the fixed 150 px "Otvoriť". */
+.ppi-key {
+  border: 1px solid #e2e2e2;
+  border-radius: 6px;
+  background: #fff;
+}
+.ppi-key-row {
+  display: flex;
+  width: 100%;
+  height: 56px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 13px 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+  color: #1a1a1a;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.ppi-key-row:focus-visible,
+.ppi-key-input:focus-visible,
+.ppi-key-go:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ppi-key-icon {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #fff1e6;
+  stroke: #f57c20;
+  transition: background-color 250ms ease;
+}
+.ppi-key-icon svg {
+  transition: transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (hover: hover) {
+  .ppi-key-row:hover .ppi-key-icon svg {
+    transform: rotate(-20deg);
+  }
+}
+.ppi-key[data-open] .ppi-key-icon {
+  background: #f57c20;
+  stroke: #fff;
+}
+.ppi-key[data-open] .ppi-key-icon svg {
+  transform: rotate(-90deg);
+}
+.ppi-key-chev {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #f4f4f5;
+  transition:
+    transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 200ms ease;
+}
+.ppi-key[data-open] .ppi-key-chev {
+  transform: rotate(180deg);
+  background: #ffe7d3;
+}
+.ppi-key-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 300ms ease;
+}
+.ppi-key[data-open] .ppi-key-body {
+  grid-template-rows: 1fr;
+}
+.ppi-key-body > div {
+  min-height: 0;
+  overflow: hidden;
+}
+.ppi-key-input {
+  min-width: 0;
+  height: 44px;
+  flex: 1;
+  padding: 0 13px;
+  border: 1px solid #dcdcdc;
+  border-radius: 6px;
+  background: #fff;
+  color: #1a1a1a;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  outline: none;
+}
+.ppi-key-input[aria-invalid="true"] {
+  border-color: #dc2626;
+}
+.ppi-key-go {
+  display: grid;
+  width: 150px;
+  height: 44px;
+  flex-shrink: 0;
+  grid-template-columns: 1fr 30px;
+  align-items: center;
+  column-gap: 6px;
+  padding: 0 8px 0 14px;
+  border: 1.5px solid #f57c20;
+  border-radius: 8px;
+  background: #fff1e6;
+  color: #1a1a1a;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    transform 150ms ease;
+}
+@media (hover: hover) {
+  .ppi-key-go:hover {
+    background: #ffe4cc;
+  }
+}
+.ppi-key-go:active {
+  transform: scale(0.97);
+}
+.ppi-key-go[data-phase="ok"] {
+  background: #ffe4cc;
+}
+/* The Cacaduu vortex (KeyVortex): rings spin while checking; on success head, crest and the badge with the check. */
+.ppi-vx {
+  display: block;
+  animation: ppi-vx-in 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.ppi-vx :is(.ppi-vx-r1, .ppi-vx-r2, .ppi-vx-r3, .ppi-vx-head, .ppi-vx-crest, .ppi-vx-badge) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ppi-vx .ppi-vx-crest {
+  transform-origin: 85% 100%;
+}
+.ppi-vx .ppi-vx-r1,
+.ppi-vx .ppi-vx-r3 {
+  animation: ppi-vx-spin-a 1.3s linear infinite;
+}
+.ppi-vx .ppi-vx-r2 {
+  animation: ppi-vx-spin-b 1.3s linear infinite;
+}
+.ppi-vx[data-vx="busy"] :is(.ppi-vx-head, .ppi-vx-badge) {
+  opacity: 0;
+}
+.ppi-vx[data-vx="ok"] .ppi-vx-rings {
+  animation: ppi-vx-rings-out 1.2s ease-in-out forwards;
+}
+.ppi-vx[data-vx="ok"] .ppi-vx-head {
+  animation: ppi-vx-head 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.ppi-vx[data-vx="ok"] .ppi-vx-crest {
+  animation: ppi-vx-crest 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.ppi-vx[data-vx="ok"] .ppi-vx-badge {
+  animation: ppi-vx-badge 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.ppi-vx .ppi-vx-check {
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+}
+.ppi-vx[data-vx="ok"] .ppi-vx-check {
+  animation: ppi-vx-check 1.2s ease-out forwards;
+}
+@keyframes ppi-vx-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes ppi-vx-spin-a {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ppi-vx-spin-b {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@keyframes ppi-vx-rings-out {
+  0%,
+  20% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  40%,
+  100% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+@keyframes ppi-vx-head {
+  0%,
+  20% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  60%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes ppi-vx-crest {
+  0%,
+  30% {
+    transform: rotate(-38deg);
+  }
+  55% {
+    transform: rotate(10deg);
+  }
+  70%,
+  100% {
+    transform: rotate(0);
+  }
+}
+@keyframes ppi-vx-badge {
+  0%,
+  55% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  72% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  85%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes ppi-vx-check {
+  0%,
+  65% {
+    stroke-dashoffset: 40;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+/* The shop assistant (ShopAssistant / ShopChat, AssistantHeading): the orange card, the GDPR pill, "Poslať". */
+.ppi-ai {
+  position: relative;
+  overflow: hidden;
+  border: 1.5px solid #fbcfa9;
+  border-radius: 16px;
+  background: #fff;
+}
+.ppi-ai[data-pop] {
+  animation: ppi-ai-in 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.ppi-ai-head {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 104px 12px 13px;
+  border-bottom: 1px solid #fde3cc;
+  background: #fff6ee;
+}
+.ppi-ai-spark {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #f57c20;
+  animation: ppi-ai-glow 2.6s ease-in-out infinite;
+}
+.ppi-gdpr-btn {
+  position: absolute;
+  top: 12px;
+  right: 13px;
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  padding: 0 12px 0 9px;
+  border: 1.5px solid #c7d7f5;
+  border-radius: 999px;
+  background: #fff;
+  color: #2d5bb8;
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease,
+    transform 150ms ease;
+}
+.ppi-gdpr-btn::-webkit-details-marker {
+  display: none;
+}
+.ppi-gdpr-btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(45, 91, 184, 0.18), transparent);
+  animation: ppi-ai-shine 3.2s ease-in-out infinite;
+}
+.ppi-gdpr-btn .ppi-gdpr-check {
+  stroke-dasharray: 10;
+  stroke-dashoffset: 10;
+  transition: stroke-dashoffset 350ms ease;
+}
+@media (hover: hover) {
+  .ppi-gdpr-btn:hover {
+    border-color: #2d5bb8;
+    background: #eef3fc;
+  }
+  .ppi-gdpr-btn:hover .ppi-gdpr-check {
+    stroke-dashoffset: 0;
+  }
+}
+.ppi-gdpr-btn:active {
+  transform: scale(0.95);
+}
+.ppi-gdpr-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+details[open] > .ppi-gdpr-btn {
+  border-color: #2d5bb8;
+  background: #2d5bb8;
+  color: #fff;
+}
+details[open] > .ppi-gdpr-btn::after {
+  display: none;
+}
+details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
+  stroke-dashoffset: 0;
+}
+.ppi-gdpr-panel {
+  padding: 10px 13px;
+  background: #f5f8fe;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ppi-ai-input {
+  display: block;
+  width: 100%;
+  height: 70px;
+  padding: 12px 13px;
+  border: 1.5px solid #e2e2e2;
+  border-radius: 10px;
+  background: #fff;
+  color: #1a1a1a;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  resize: none;
+  outline: none;
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+.ppi-ai-input::placeholder {
+  color: #8a8a8a;
+}
+.ppi-ai-input:focus {
+  border-color: #f57c20;
+  box-shadow: 0 0 0 3px rgba(245, 124, 32, 0.18);
+}
+.ppi-ai-input[aria-invalid="true"] {
+  border-color: #dc2626;
+}
+.ppi-ai-attach {
+  display: inline-flex;
+  height: 44px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1.5px solid #e2e2e2;
+  border-radius: 10px;
+  background: #fff;
+  color: #1a1a1a;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease,
+    transform 150ms ease;
+}
+@media (hover: hover) {
+  .ppi-ai-attach:hover {
+    border-color: #f8b27a;
+    background: #fff9f4;
+  }
+}
+.ppi-ai-attach:active {
+  transform: scale(0.97);
+}
+.ppi-ai-send {
+  display: inline-flex;
+  height: 44px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: #f57c20;
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    transform 150ms ease;
+}
+.ppi-ai-send:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+@media (hover: hover) {
+  .ppi-ai-send:not(:disabled):hover {
+    background: #e46a0e;
+  }
+  .ppi-ai-send:not(:disabled):hover .ppi-ai-plane {
+    transform: translate(2px, -2px) rotate(-8deg);
+  }
+}
+.ppi-ai-send:active {
+  transform: scale(0.95);
+}
+.ppi-ai-plane {
+  transition: transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.ppi-ai-send[data-phase="fly"] .ppi-ai-plane {
+  animation: ppi-ai-fly 600ms ease-in forwards;
+}
+.ppi-ai-send[data-phase="ok"] {
+  background: #fff;
+  box-shadow: inset 0 0 0 1.5px #f57c20;
+  color: #c2410c;
+}
+.ppi-ai-attach:focus-visible,
+.ppi-ai-send:focus-visible,
+.ppi-ai-chip button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ppi-ai-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  border-radius: 999px;
+  background: #fff1e6;
+  color: #9a3a0a;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ppi-ai-chip button {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: #9a3a0a;
+  cursor: pointer;
+}
+@keyframes ppi-ai-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes ppi-ai-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 124, 32, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(245, 124, 32, 0.18);
+  }
+}
+@keyframes ppi-ai-shine {
+  0%,
+  60% {
+    left: -60%;
+  }
+  100% {
+    left: 130%;
+  }
+}
+@keyframes ppi-ai-fly {
+  0% {
+    transform: translate(0, 0);
+  }
+  40% {
+    transform: translate(-3px, 3px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(28px, -28px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-key-icon,
+  .ppi-key-icon svg,
+  .ppi-key-chev,
+  .ppi-key-body {
+    transition: none;
+  }
+  .ppi-vx,
+  .ppi-vx * {
+    animation: none !important;
+  }
+  .ppi-vx[data-vx="ok"] .ppi-vx-rings {
+    opacity: 0;
+  }
+  .ppi-vx[data-vx="ok"] .ppi-vx-check {
+    stroke-dashoffset: 0;
+  }
+  .ppi-ai[data-pop],
+  .ppi-ai-spark,
+  .ppi-gdpr-btn::after,
+  .ppi-ai-send[data-phase="fly"] .ppi-ai-plane {
+    animation: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-hold-news,
+  .ppi-hold-news .ppi-cb-fill {
+    transition: none;
+  }
+  .ppi-hold-news[data-phase="holding"] .ppi-cb-fill {
+    transform: scaleX(0);
+    transition: none;
+  }
+  .ppi-hold-news .ppi-cb-ring {
+    display: none;
+  }
+}
