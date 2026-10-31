@@ -1,0 +1,55 @@
+CACADUU PPI – WHAT THE OWNER DOES BY HAND
+==========================================
+
+How this list works
+- Each item has a number that never changes. New items get the next number.
+- When you finish items, write to Claude for example "done 2, 4". Claude moves them to DONE with the date.
+- Claude never sees secret values: when an item says "add the secret X", you paste the value yourself.
+- Things done before 31 October 2026 are not listed here (SETUP.md keeps that history).
+
+
+OPEN
+----
+
+1. Choose an SMS provider in the EU that can RECEIVE SMS (for "Hodiny cez SMS"; not Twilio)
+   Why: owners will text their opening hours to this number. Everything else of "Hodiny cez SMS" already works.
+   Steps:
+   a) Pick a provider that gives a phone number which receives SMS and forwards each SMS to a web address (a
+      "webhook" or "inbound SMS URL").
+   b) Write its name to Claude. Claude then adds it and tells you which secrets to add and where.
+
+2. Connect the Google Business Profile (after Google approves the API access)
+   Why: opening hours changed in Cacaduu (or by SMS) also change on Google Maps.
+   Steps:
+   a) Wait for Google's e-mail that the Business Profile API access request is approved.
+   b) cacaduu.com → log in → Môj obchod → Hodiny cez SMS → "Pripojiť Google" → log in with the Google account that
+      manages the shop's profile → allow → choose the shop's location.
+   c) Click "Poslať hodiny do Google teraz" and check the hours on Google Maps.
+
+3. Try your own AI assistant with Cacaduu (once)
+   Why: this was tested without the real Claude / ChatGPT apps.
+   Steps:
+   a) claude.ai → Settings → Connectors → "Add custom connector".
+   b) Address: https://cacaduu.com/mcp/owner → Add → Connect.
+   c) Log in to Cacaduu → tick your shop and what it may do → "Povoliť".
+   d) In a new Claude chat ask: "Aké mám otváracie hodiny?" and "Aké mám dnes rezervácie?".
+   e) Tell Claude what happened (a screenshot is enough if something fails).
+
+4. Final legal texts
+   Why: the privacy page, the terms and the domain terms still show "TODO" lines.
+   Steps:
+   a) Prepare (or have a lawyer approve): the operator's name, address, IČO and contact; the full terms of use
+      (obchodné podmienky); the terms of domain registration; the list of outside services the main search uses
+      (OpenStreetMap Foundation – Nominatim / Overpass, Google Places if switched on, Anthropic).
+   b) Send the texts to Claude. Legal texts always wait for your "OK" before they go live.
+
+5. Before the public launch: remove the 4 test shops
+   Shops: potraviny-centrum, drogeria-kostolne, zeleziarstvo-vychod, kisbolt-budapest (test data).
+   Steps:
+   a) Write to Claude: "remove the test shops".
+   b) Claude shows exactly what would be deleted and waits for your "OK" (deleting data always needs it).
+
+
+DONE
+----
+(nothing yet)

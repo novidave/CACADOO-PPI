@@ -8,6 +8,22 @@ Do the steps in order. It takes about 15 minutes. You only copy two values from 
 
 ---
 
+## How changes reach the live site (from 31 October 2026)
+
+From database update 63 on you no longer paste SQL or Edge Functions yourself. Claude applies each SQL file and deploys
+each changed function through the Supabase connector, checks them, and (while there are no paying shops) merges the PR
+into `main` itself; then it checks the live site. The full rules are in `CLAUDE.md` → "How changes go live".
+- **What still needs you:** anything listed in **`TODO-OWNER.txt`** (secrets, settings, checks). Write "done 4, 7"
+  when you finished items 4 and 7.
+- **Claude waits for your "OK"** before anything that deletes data, touches payments, domains, legal texts, login /
+  security or secrets, and before changing these rules. It writes "Čaká na tvoje OK: …" and stops.
+- **Secret values are never given to Claude:** it names the secret; you add the value in Supabase (Edge Functions →
+  Secrets) or Vercel (Settings → Environment Variables).
+- **Paying shops:** when you write "we have paying shops", Claude stops merging by itself and waits for "OK, merge".
+- Vercel must deploy production from `main` (Settings → Git → Production Branch = `main`).
+
+The parts below (A … AX8) stay as the record of how each update was set up by hand.
+
 ## Part A — Supabase: create the database
 
 ### A1. Open the SQL Editor
