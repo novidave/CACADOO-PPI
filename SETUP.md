@@ -1908,7 +1908,12 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    `supabase/functions/hours-sms/index.ts` → Deploy → switch **OFF "Verify JWT"**. It uses `ANTHROPIC_API_KEY`,
    `SMS_PROVIDER` + its secrets (Part AX4), `SITE_URL`, `REVALIDATE_SECRET` and `BOOKING_TOKEN_ENCRYPTION_KEY` (all
    already set).
-3. **The number owners text** (Brevo cannot receive SMS):
+3. **The number owners text — LATER (not set up yet).** The owner decided on 2026-10-31 not to use Twilio and to pick
+   a cheaper EU provider later. Until then skip this step: the rest works (phones can be verified, the codes go out
+   through `SMS_PROVIDER`), "Hodiny cez SMS" says the number is not set up yet, and nothing changes hours by SMS.
+   When a provider is chosen: it must give an EU number that can **receive** SMS and forward each one to a web
+   address; unless it can post the generic JSON below, Claude adds a small adapter for it in `hours-sms` first.
+   For reference, the two ways that work today (Brevo cannot receive SMS):
    - Twilio → Phone Numbers → buy a number that can **receive SMS** in your country → its "Messaging" settings →
      "A message comes in" = Webhook, **HTTP POST**, address
      `https://<project>.supabase.co/functions/v1/hours-sms/inbound/twilio` (exactly this; the signature is checked
@@ -1992,4 +1997,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 37. "Rezervácie" for Pro shops: free times in the shop assistant (opening hours, holidays, special days, no overlap, optional Google Calendar), the page's own form with the consent, a 6-digit SMS code that confirms at once, the contact found or made by the phone ("overené"), optional reminder the day before; Môj obchod → Rezervácie with a list, a week calendar and statuses | ✅ built — set up Part AX3 (real SMS: Part AX4) |
 | 38. SMS quotas and real SMS: two monthly quotas per shop (100 booking SMS, 100 owner SMS, counted in SMS parts; the admin may change them), nothing sent over a limit, "SMS tento mesiac" on Kontakty and Rezervácie, SMS through Brevo (or Twilio) | ✅ built — set up Part AX4 |
 | 39. Unanswered questions: "Nechajte nám kontakt" in the shop assistant (phone or e-mail + consent), the contact made or found, the conversation flagged, an e-mail "Nový zákazník, prosím odpovedzte" to the owners, a badge and "Čakajú na odpoveď" in Môj obchod, the reply by SMS or e-mail marks it answered | ✅ built — set up Part AX5 |
-| 40. Opening hours by SMS: the owner's verified phone texts the shops' number, Claude reads only opening hours, the database checks and changes only the named days on the shop page and in the Google Business Profile, a confirmation SMS or "write it again"; "Hodiny cez SMS" in Môj obchod with phones, the log and the Google connection | ✅ built — set up Part AX6 |
+| 40. Opening hours by SMS: the owner's verified phone texts the shops' number, Claude reads only opening hours, the database checks and changes only the named days on the shop page and in the Google Business Profile, a confirmation SMS or "write it again"; "Hodiny cez SMS" in Môj obchod with phones, the log and the Google connection | ✅ built — set up Part AX6 steps 1, 2, 4; **the receiving SMS number later** (provider not chosen yet, not Twilio) |
