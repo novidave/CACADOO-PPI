@@ -42,6 +42,14 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Own domains easy to find: "Overiť v Google Search Console" (the TXT record written into DNS for domains Cacaduu runs, shown to add by hand otherwise) and "Odoslať sitemap"; llms.txt and robots.txt per own domain (with "Kategórie tovaru"); IndexNow after every stock upload (only changed pages); search results, map pins and AI cards link to the own domain; item pages carry Product/Offer + Store JSON-LD | Built and tested; live after database update 33, the updated domains and stock-pull functions and the merge (SETUP.md part AC) |
 | Own domains fully findable: "Overiť v Google Search Console" — a TXT record added to the DNS of a domain Cacaduu runs ("Odstrániť" removes only that record), or for a connected domain the **HTML značka** on its pages (recommended) or the TXT record to add by hand; **Bing Webmaster Tools** (the same meta tag, or the import from Search Console); sitemap steps for Google and Bing; llms.txt with holidays, the stock's categories and Cacaduu's API/MCP; **IndexNow on every host** (the main domain too) with only meaningful changes, once per upload and once an hour per host; the Offer keeps the price on stale pages (no availability); API/MCP `source_url` and PPI's llms.txt point to the own domain | Built and tested; live after database update 36, `INDEXNOW_KEY` (Vercel + Supabase) and `SITE_URL` (Supabase), the updated domains and stock-pull functions and the merge (SETUP.md part AG) |
 | Shop blog "Novinky" (every shop; free: the newest 10 posts shown, Pro: all): posts written in Môj obchod → "Novinky / Blog" with up to 10 photos, now or scheduled; the shop's Facebook Page connected once: all past posts imported, a daily sync, and "Zverejniť aj na Facebooku?" before each post; `/blog` pages, RSS, JSON-LD, sitemap, llms.txt and IndexNow, also on own domains; privacy and data deletion pages | Built and tested against Facebook, Brevo and IndexNow stand-ins; live after database update 37, the new shop-blog function, the Meta app and the merge (SETUP.md part AI) |
+| Forgiving product search: "Tovar v obchode" suggests up to 8 products while typing (from 2 letters; ↑ ↓ Enter Esc; "Zobraziť všetky výsledky") and finds them despite typos, word order, other languages, word endings and sizes ("akril paint 0.5l" → "Akrylové médium lesklé, 250 ml"); codes and EANs exact first; nothing exact → "podobné produkty"; the same rule in the main search, the API, MCP, the chat and the shop assistant ("farba v Budinciach" → only Budince) | Built and tested; live after database update 54 and the merge (SETUP.md part AW) |
+| "Konverzácie" (Pro, phase 1 of the CRM work): the Asistent page in three tabs (Nastavenia · Konverzácie with the number of new ones · Súkromné priečinky); every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" and "Prístupový kľúč"; filters (days, status, star, no answer, files, language) and search; ticks with bulk actions (prečítané, nové, hviezdička, archivovať, vymazať with a confirmation); suggested products linked; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action in the activity log | Built and tested (database checks, unit tests); live after database update 55 and the merge (SETUP.md part AX) |
+| "Kontakty" (Pro, phase 2 of the CRM work): contacts with phone (international form, one contact per number, "overené" only after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; a contact card with Prehľad · Konverzácie · Rezervácie · Správy; SMS and e-mail from the card with a preview first; e-mail templates with variables; every outgoing message written down | Built and tested (database checks, function and unit tests); e-mail live after database update 56, the crm-messages function and the merge (SETUP.md part AX2); SMS real since update 58 (phase 4, SETUP.md part AX4) |
+| "Rezervácie" (Pro, phase 3 of the CRM work): the shop assistant offers free times (from the opening hours, special days, holidays, other bookings and — when connected — the shop's Google Calendar; never overlapping, never outside the hours) after reading the booking terms in the shop's documents; the page's own form takes name, mobile, optional e-mail / address / note and the consent; a 6-digit SMS code (10 minutes, 5 tries) confirms at once, with no confirmation SMS; the contact is found or made by the phone and marked "overené"; the booking joins the chat; optional reminder the day before (off by default, no cancel link); Môj obchod → Rezervácie with a list, a week calendar and Potvrdená / Zrušená / Neprišiel | Built and tested (database checks, function tests); live after database update 57, the bookings function, the Google OAuth client and the merge (SETUP.md part AX3); real SMS since update 58 (phase 4, SETUP.md part AX4); without a provider the code is only written down — with `BOOKING_TEST_CODES=on` it shows in the chat for testing |
+| SMS quotas and the real SMS provider (Pro, phase 4 of the CRM work): two monthly quotas per shop kept apart — 100 SMS for bookings (codes and reminders) and 100 for the owner's own SMS (the admin may change both); counted as billed SMS parts in the shop's calendar month; at a limit nothing is sent (the owner is told, the assistant stops offering times, reminders wait); "SMS tento mesiac" with both quotas on Kontakty, the contact card and Rezervácie; SMS sent through Brevo (works in Slovakia and across Europe, the same key as the e-mails) or Twilio, chosen by one secret | Built and tested (database checks, function tests with mocked Brevo and Twilio); live after database update 58, the updated crm-messages and bookings functions, `SMS_PROVIDER` and the merge (SETUP.md part AX4); not yet tried with real SMS |
+| Unanswered questions (Pro, phase 5 of the CRM work): when the shop assistant cannot answer, the chat offers "Nechajte nám kontakt" — the page's own form for a phone or e-mail (+ optional name and consent); the contact is found (by phone, else e-mail) or made, the conversation is flagged "Bez odpovede" and joined to it; every owner of the shop gets an e-mail "Nový zákazník, prosím odpovedzte" with the question and a link; Môj obchod shows a badge and "Čakajú na odpoveď"; the owner replies by SMS or e-mail from the contact, which marks it answered, or marks it "Vybavené" | Built and tested (database checks, function tests); live after database update 59, the updated crm-messages function and the merge (SETUP.md part AX5) |
+| Opening hours by SMS (Pro, phase 6 of the CRM work): the owner verifies a phone with a 6-digit code, then texts the shops' SMS number ("Po-Pi 8-17, So 8-12, Ne zatvorené", "24.12. zatvorené"); Claude reads it as opening hours only, the database checks it and changes only the named days on the shop page and in the Google Business Profile (when connected); a confirmation SMS, or a request to write it again; unknown numbers get nothing | Built and tested (database checks, function tests); live after database update 60, the hours-sms function and the merge (SETUP.md part AX6); **the receiving SMS number is set up later** — the owner will pick a cheaper EU provider instead of Twilio (an adapter may be needed); Google needs the Business Profile API access approved |
+| The owner's own AI assistant (Pro, phase 7 of the CRM work): Claude, ChatGPT, Gemini, Grok or any MCP client connects to https://<site>/mcp/owner — by logging in to Cacaduu and ticking shops and permissions (OAuth), or with a personal key from Môj obchod → "AI asistenti" — and works for the owner: conversations, contacts (add / change / delete), bookings, opening hours, shop details, stock (read; manual change with a warning that the next stock file overwrites it), SMS and e-mail only after a preview the owner approves; the shoppers' MCP stays as it is | Built and tested (database checks, function tests, the MCP route against the database); live after database update 61, the updated crm-messages function and the merge (SETUP.md part AX7); not yet tried with the real Claude / ChatGPT / Gemini / Grok apps |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -80,11 +88,17 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
 
 **Built**
 
-- Text search across all shops: item name, brand, EAN, shop name, street or town
+- Text search across all shops: item name, brand, EAN, shop name, street or town — forgiving since update 54 (6.28)
 - Shop pages and item pages with map, opening hours, "open now", facilities and freshness
 - Freshness and availability rules applied in the database for every output
 - Self-service accounts and the owner dashboard
-- Two ways for stock to arrive, both uploads: the PPI app window (folder, every 15 minutes) and "Upload file"
+- Two ways for stock to arrive, both uploads: the PPI app window (folder, every 15 minutes) and "Upload file"; and,
+  since update 49, the shop's inventory program over its API (SuperFaktúra, WooCommerce, own JSON/CSV URL)
+- A third way being built (Prompt 13): the **Cacaduu POS Sync Agent**, an optional desktop app (its own repository)
+  that reads stock from the POS and sends it to the Cacaduu Cloud API. Phase A (update 50): pairing with a one-time
+  code, device tokens, heartbeats and the device list in Môj obchod. Phase B (update 52): inventory snapshots and one
+  active stock source ("Zdroj zásob"). Phase C (update 53): "Synchronizovať teraz". The contract for all three is
+  docs/CONNECTOR_CLOUD_API.md
 - AI-proposed column mapping, always approved by the owner
 - Item names in three languages: every name is also kept in plain Slovak, Hungarian and English (made by AI in the
   background, correctable by the owner), so a search in any of the three languages finds it
@@ -115,8 +129,10 @@ The operator uses the Supabase dashboard if anything else needs fixing by hand.
   (and, since 2026-10-14, the same blue "Vybrať súbor" link of page sections)
 - An admin area for shops and stock on the website (removed 2026-10-06; the one operator page since update 25 is
   "Predplatné a domény" for own domains)
-- Software or tunnels on the shop PC (a Cloudflare tunnel + rclone design was built on 2026-10-04 and replaced by the
-  browser app on 2026-10-06)
+- Tunnels into the shop PC (a Cloudflare tunnel + rclone design was built on 2026-10-04 and replaced by the browser app
+  on 2026-10-06). Software on the shop PC is **no longer decided against** (2026-10-27): the POS Sync Agent is an
+  optional desktop app; it only makes outbound HTTPS requests, the cloud never connects to the shop PC, and the PPI app
+  window and "Upload file" stay as they are
 - Google Merchant Center (AI readability replaces it)
 
 **Not built (possible later)**
@@ -271,7 +287,7 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
   happens in that app.
 - Opening hours for the week in the shop's time zone, with the live status (6.6): the browser recomputes it right after
   the page loads and every minute while it is open (no server polling).
-- Facilities: customer toilet, douchette (bidet shower), card payment.
+- Facilities: customer toilet, bidet shower ("Bidetová sprška"; the field is still called has_douchette), card payment.
 - Stock freshness line, then the shop's public items: searchable in all three languages, 50 per page, name +
   translation, price and availability.
 - JSON-LD `Store` (address, geo, opening hours, phone, `email`, `sameAs` = website and Facebook page, logo,
@@ -419,8 +435,8 @@ where, at what price and how fresh that is. Anything else gets "Pomáham len s h
 - **Shop assistant** (page AI Assistant; paid plan): the button label (up to 40 characters) and the welcome message shown when the
   assistant opens (up to 300). Plain text only: HTML, links and e-mail addresses are removed (the owner is told);
   empty = the default texts in the page language. Without the plan the section only says it is part of the plan.
-- **Konverzácie asistenta** (page AI Assistant; paid plan; owners only; see 6.10): how long conversations are kept (30, 90 or
-  365 days, default 90); search words (any message or its Slovak version) and a date range (in the shop's time zone);
+- **Konverzácie asistenta** (page AI Assistant, tab "Konverzácie" since update 55, 6.30; paid plan; owners only; see
+  6.10): how long conversations are kept ("Neobmedzene" — the default since update 55 — or 30, 90 or 365 days); search words (any message or its Slovak version) and a date range (in the shop's time zone);
   the list, newest first: date and time, the shopper's language, number of messages, a paperclip with the number of
   files, the first question; 20 per page. **Open** shows the whole conversation: every message with its time and
   "Zákazník"/"Asistent", the Slovak version in grey under a foreign message, the item cards as the shopper saw them
@@ -755,7 +771,8 @@ all as days off (shops-closed rules there depend on the shop's size and type; th
   the same private folder; the owner takes it home with "Stiahnuť PDF" or through the cloud folder (6.11).
 - **Who sees it:** only the shop's owners (RLS), in "Konverzácie asistenta"; never shoppers, other shops, pages, the
   API, MCP or the AI search. Conversation tokens are kept as hashes; access keys never reach a conversation.
-- **Keep time:** 30, 90 or 365 days after the last message (the owner chooses; default 90); a daily job deletes older
+- **Keep time:** "Neobmedzene" (kept until the owner deletes them; the default since update 55) or 30, 90 or 365 days
+  after the last message (the owner chooses); only for a shop that chose a limit, a nightly job deletes older
   conversations with their files and PDF. The owner can delete one at any time. Copies already in the shop's cloud
   folder (6.11) stay there: PPI never deletes anything in it.
 - **The shopper's right to delete:** "Vymazať moju konverzáciu" while the box is open deletes the conversation, its
@@ -1169,7 +1186,7 @@ page language).
 
 ### 6.16 "Obsah stránky": one slider of posts, PDFs and pictures (database update 38)
 
-**Môj obchod → Asistent** (Part A) has four sections, each exactly once and in this order: **Nastavenia asistenta**
+**Môj obchod → Asistent** (Part A; since update 55 three tabs, 6.30) has four sections, each exactly once and in this order: **Nastavenia asistenta**
 (button text, welcome), **Konverzácie asistenta** (list, search, and the cloud folder they are copied to with its
 settings and statuses), **Súkromné priečinky** (documents, folders, access keys, "Len zobraziť" / "Zobraziť a
 stiahnuť"), **Posledné nahrané súbory** (the last 10 stock files). Nothing of these is on another page any more; old
@@ -1278,6 +1295,27 @@ nothing yet; what it already has (e.g. conversations from its Pro time, the stoc
   GB18030 for Chinese …).
 - **Cost:** a monthly budget for the AI (`TRANSLATION_MONTHLY_BUDGET_EUR`) with one e-mail at 80 %; translations stop
   at 100 % until the next month (pages show the originals).
+
+### 6.23 The shop assistant's texts and the GDPR link (27 October 2026, database update 46)
+
+- The assistant's button label and welcome text are translated with the page automatically, as a preset of every
+  translation run: into every pre-translated language (sk, hu, en by default), the shop's preferred languages, the
+  languages visitors asked for and also the shop's own language, from whatever language the owner wrote them in. The
+  owner's original stays as written; the owner's own translations are never overwritten. No "Preložené automaticky"
+  note for these two texts.
+- The small print of the assistant (the conversation and files are stored for the shop + "Viac", the file limits and
+  GPS removal, "Odpovede píše AI; ceny a zásoby sú priamo z obchodu") is hidden behind a blue "GDPR" link in the right
+  corner of the assistant's heading and opens under the heading when tapped.
+
+### 6.24 The company in "Môj obchod" (27 October 2026, database update 47)
+
+- The shop's details show, right under the street: PSČ, "Obchodné meno firmy", IČO and DIČ (all optional). No IČ DPH.
+- Kept in its own table that only the shop's owners can read; an empty field clears the value; an invalid DIČ or PSČ
+  is refused with a clear message.
+- **Shown on the shop page** (update 48, at the owner's request): the address line gets the PSČ before the town, and
+  under it "Obchodné meno · IČO … · DIČ …" (only what the owner filled in), on the Cacaduu address and the own domain;
+  the JSON-LD gets postalCode, legalName and taxID. Visitors read it through one database function, never the table.
+  Not in the API/MCP or the assistant.
 
 ## 7. Data model (after database update 40)
 
@@ -1679,3 +1717,349 @@ All texts are in `src/i18n/messages/{sk,hu,en}.json`. A native speaker should ch
   applied since (then it says so). At most 3 removals per shop and day. Every action is in "Posledné akcie".
 - **Not built:** customer alerts ("Upozorniť ma") and the Pomocník do not exist yet, so there is no "zrušiť upozornenia"
   choice; the activity log and `owner_inventory_state()` hold what a future Pomocník needs ("Vymazal sa mi sklad?").
+
+### 6.21 "Priečinok s exportom": review after an upload, translations folder on the shop PC (database update 45)
+
+**Page order** of Priečinok s exportom: 1. Priečinok so skladom (read only) · 2. Po nahratí súboru · 3. Preklady v
+priečinku · 4. Posledné nahrané súbory (+ "Vymazať všetky nahrané súbory") · (Pro: conversations to the PC) · 5.
+Nebezpečná zóna – sklad. The shop's languages, the stock file's columns and the stock files in other languages moved
+here from "Jazyky a inventár" (old addresses forwarded).
+
+- **"Nový súbor – skontrolujte"** appears only when something waits for a decision:
+  - a **new column** of the stock file: a free field or **"Súkromné – nezobrazovať"** (the default; nothing is approved
+    by itself — until then the column is private, never read or shown);
+  - **"Nové produkty: X · zmenené: Y"** (name, description or category differ from what the owner last saw): the
+    languages they are translated into (the shop's preferred languages, at most the plan's number: free 2, Pro 6) and
+    **"☐ Vygenerovať popisy"** (drafts for these products only, from the shop's own data);
+  - **"☐ Zapamätať a už sa nepýtať"**: later new products are handled the same way by the shop PC's window; new
+    columns are always asked about.
+- **Translations folder** (Edge/Chrome on the shop PC): "Vybrať priečinok pre preklady" (never the stock folder).
+  Cacaduu writes `sklad.<main>.xlsx` (the approved columns as the stock file names them + "Popis" + "Stav popisu") and
+  `sklad.<lang>.xlsx` per language (Kód, Pôvodný názov, Názov, Popis, Kategória, Stav); every column is text, the header
+  bold, frozen and filtered, a "Návod" sheet explains it. **Never private data** (only approved columns exist in PPI).
+- **Reading the owner's edits** on every check (every 15 minutes, when the window opens, "Skontrolovať teraz"): files
+  whose time or contents changed, untouched for 60 s (open in Excel → "… je otvorený v Exceli", read later). Rows by Kód,
+  then EAN. A changed translation → the owner's own ("upravené ručne", never overwritten); a changed main "Popis" → the
+  owner's published description (its machine translations are made again). Changes in read-only columns, empty cells,
+  unknown or extra rows change nothing (listed). One result line per file; every applied file in the activity log.
+- **Order:** read the edits → the stock file (from the stock folder) → write the files again (only when something
+  changed; through a temporary file that replaces the old one; a file open in Excel waits — "Naposledy zapísané …",
+  "Zapísať teraz"). Cacaduu only writes, reads or deletes files it created itself.
+- **Any browser:** "Stiahnuť preklady (.xlsx, ZIP)" and "Nahrať upravený súbor" (the same rules).
+- **Danger zone B** ("Vymazať celý sklad") also deletes the translation files Cacaduu created (ticked by default; done by
+  the shop PC's window). Its backup CSV already contains the descriptions and the translations. There are no customer
+  alerts yet, so nothing to cancel there.
+
+### 6.22 Product display (27 October 2026)
+
+- **Names:** in every product list (shop page, search results, chat cards) and on the product page the name in the
+  page language comes first (dark) and the shop's own name under it (light); without a translation only the shop's name.
+- **Stock dot before every price:** green = in stock, red = sold out, yellow = no information (the shop's data are stale).
+  Always next to the availability in words.
+- **Product page:** no "Preložené automaticky · Zobraziť originál" line; the names and the data in one frame with bullet points (price
+  with the dot, Dostupnosť, Značka, EAN, Kategória), the description under a thin line in the same frame.
+
+### 6.23 "Pripojiť skladový program (API)" (database update 49)
+
+- On "Priečinok s exportom", first: the shop connects its inventory program with a key that only reads. Built:
+  SuperFaktúra, WooCommerce, "Vlastné API (JSON/CSV URL s API kľúčom)"; Shoptet and Dotykačka "Pripravujeme" (their
+  documentation could not be checked yet). Each program has a hint where to make the key.
+- Pro by default (every 15 min); the admin may allow Free with its own slower interval (default 24 h). SuperFaktúra at
+  most once an hour (its daily limit).
+- The key goes from the browser straight to Cacaduu's function, is tested, stored only encrypted, never shown again
+  ("••••1234" + date). "Otestovať pripojenie", "Zmeniť kľúč", "Odpojiť" (deletes it at once).
+- First a preview (first rows, number of products, the fields) → "Schváliť a spustiť". Changed fields → asked again.
+  Nothing is published before the approval.
+- One source at a time: while connected, the folder and the upload say "Sklad sa aktualizuje cez <program>".
+- A run applies only a complete list; a partial, empty or failed answer never changes the stock. No quantities →
+  "Údaje o množstve tento program neposiela": names and prices only if the owner agrees, never an availability.
+- The card: program, connected since, last success ("X produktov, Y zmien"), next sync, the last error in plain
+  Slovak, "Synchronizovať teraz" (4× an hour). Invalid key → "Kľúč neplatný" and one e-mail after 24 h.
+- Purchase prices, suppliers and margins are never asked for; if a program sends them they are dropped first.
+
+### 6.24 POS Sync Agent: pairing and devices (database update 50, Prompt 13 phase A)
+
+- Môj obchod → Priečinok s exportom → **"Prepojenie s pokladňou (POS agent)"**: "Pridať POS agenta" shows a one-time
+  code (8 characters without look-alikes, valid 10 minutes, shown once) and three steps; the owner types it into the
+  desktop app and the computer appears in the list.
+- The list: name (Premenovať), agent version and system, POS source label, last online, last sync, paired, the last
+  error as plain text, **Odpojiť** (at once). The state comes from the heartbeat times, never a stored flag: Online
+  (a heartbeat in the last 3 minutes), Offline, Chyba (the agent's last read failed), Ešte nesynchronizované (online,
+  no snapshot applied yet), Synchronizuje (while it answers "Synchronizovať teraz", 6.27). The list refreshes itself every 30 seconds while the page is open.
+- Each computer has its own token for this one shop, stored by Cacaduu only as a hash; Cacaduu never asks for POS
+  passwords or settings. Wrong codes are limited (5 per 15 minutes per caller).
+- Stock from the agent: phase B (6.26). Sync Now: phase C (6.27).
+
+### 6.25 Contact buttons on the shop page (database update 51, 28 October 2026)
+
+- Under "Vybavenie" the shop's contacts are buttons in two columns, in this order: Facebook · Rezervovať termín / Web ·
+  e-mail / Navigovať · phone. A button whose link or value is empty is not shown; the rest move up.
+- **Press and hold** (1.2 s): a quick tap does nothing. While held: "Držte stlačené" and a bar filling from the left;
+  letting go early or sliding off empties it and nothing happens. When full: the link opens (Facebook, web, booking and
+  directions in a new tab on a computer and in the same tab on a phone — the back button returns —, e-mail → mail app,
+  phone → call), the button says Otvorené / Rezervácie otvorené / Navigujem /
+  Volám with an orange check, then goes back after ~2 s. Screen readers hear "<button>: <result>".
+- Navigovať leads to the shop's map position (exact); a shop without one is navigated to its written address.
+- Each button has its own colour (Facebook blue, booking orange, web purple, e-mail teal, navigation amber, phone
+  green), pale background and border, no shadows; the label is never cut or wrapped (a long one gets a smaller size).
+- Môj obchod → "Údaje obchodu": "Tlačidlo na stránke: Krátke / Dlhé" next to each contact field. Short = one column,
+  long = the whole row; defaults: e-mail long, the rest short. Saved with the shop's details; the page shows it at once.
+- Without JavaScript the page shows the same contacts as plain links.
+
+### 6.26 POS Sync Agent: inventory snapshots and one stock source (database update 52, Prompt 13 phase B)
+
+- Môj obchod → Priečinok s exportom starts with **"Zdroj zásob"**: *Súbory – priečinok so skladom alebo ručné nahratie*
+  (default) or *POS agent – aplikácia na počítači pri pokladni* (only with a paired, not disconnected agent). One source
+  at a time, so two sources never overwrite each other. A connected inventory program (update 49) always wins and is
+  only named there. While the POS agent is the source, the folder window and "Nahrať súbor" say that the stock comes
+  from the POS agent and refuse files; switching back to files is one click.
+- The agent sends the shop's **whole** stock (a snapshot: code, name, EAN, brand, price, currency, quantity) as a
+  gzipped file straight to private storage, then asks Cacaduu to check it. Cacaduu never asks for POS passwords; any
+  field outside the list (purchase price, supplier, margin, …) is dropped and never stored.
+- Checks: the announced count and SHA-256 must match the file; > 5 % invalid rows → the whole snapshot is refused and
+  the old stock stays; ≤ 5 % → those rows are skipped and listed, and those products keep their previous stock. A
+  product missing from a snapshot is set to 0, as with files. Older than the last applied snapshot → refused. At most
+  one full snapshot per 5 minutes per shop.
+- **Never automatic:** a snapshot with 0 products, or fewer than half of the last applied count, waits as "Čaká na vaše
+  rozhodnutie" ("Nový stav má výrazne menej produktov (1 namiesto 3). Môže ísť o chybu pri čítaní pokladne.") with
+  **"Áno, použiť tento stav"** / **"Zahodiť"**.
+- While the source is still "Súbory", snapshots are checked and listed as "Skontrolované, nepoužité – zdroj zásob nie je
+  POS agent" (a safe test before switching).
+- Unchanged stock: the agent only confirms the same content hash; the freshness time moves forward, nothing else.
+- "Posledné stavy skladu z POS agenta" (last 10): state, time of the POS read, the computer, counts (products, written,
+  set to 0, skipped) and the reason of a refusal in plain words. Each applied snapshot is also a "Posledné nahrané
+  súbory" report ("POS agent · <computer>") and refreshes the public pages at once (and IndexNow).
+- Sync Now: phase C (6.27). Tested with the test stand-in (`scripts/connector-test-agent.mjs snapshot` / `confirm`),
+  not yet with the real desktop agent.
+
+### 6.27 POS Sync Agent: "Synchronizovať teraz" (database update 53, Prompt 13 phase C)
+
+- Môj obchod → Priečinok s exportom → "Prepojenie s pokladňou (POS agent)" → box **"Synchronizovať teraz"** (shown when
+  an agent is paired). The button works only while "Zdroj zásob" is the POS agent; otherwise the box says so.
+- Pressing it asks the agent to read the till now. The cloud never connects to the shop's computer: the agent sees the
+  request the next time it checks in (it checks every minute, every 15 s while a request waits) — "POS agent prečíta
+  pokladňu hneď, ako sa nabudúce ozve – zvyčajne do minúty."
+- "Posledná požiadavka" shows what happened, refreshed every 5 s while it waits: Čaká na agenta… → "<počítač> číta
+  pokladňu…" → **Hotovo – nový stav skladu prijatý** / **Hotovo – sklad sa nezmenil** / **Nepodarilo sa: <the
+  agent's reason>** / "Nepodarilo sa – agent neodpovedal ani na tretí pokus." / **"Agent je offline – zapnite počítač s
+  POS agentom."** (nobody picked it up within 10 minutes). The device list shows "Synchronizuje" meanwhile.
+- One request at a time (pressing again while it waits changes nothing); at most 4 an hour per shop ("Najviac 4
+  synchronizácie za hodinu – skúste neskôr.").
+- The answer is an ordinary snapshot (6.26: every check, the held rule and the stock source still apply) or "unchanged";
+  it may come sooner than the usual one snapshot per 5 minutes.
+- Only two kinds of request exist (read the stock, ping); the cloud never sends programs, file paths or POS settings.
+- Tested with the test stand-in (`scripts/connector-test-agent.mjs sync`), not yet with the real desktop agent.
+
+### 6.28 Forgiving product search and the "Tovar v obchode" dropdown (database update 54)
+
+(Since 29 October 2026 the shop page's dropdown is replaced by the live search of "Produkty", 6.29; the search rule
+below is unchanged.)
+
+- **Shop page, "Tovar v obchode":** the field "Hľadať v tomto obchode…". From 2 letters, a moment after the last key,
+  a list under the field (full width on a phone) shows up to 8 products: the name in the page language with the shop's
+  name under it, the price with the stock dot, the availability in bold and the category; the searched words are in
+  bold. ↑ ↓ choose, Enter opens the chosen product, Enter on the field (or "Zobraziť všetky výsledky (N)") filters the
+  whole list — "Výsledky pre „…“ (N)" with "Zrušiť". Esc closes the list. Only the newest answer is ever shown. Without
+  JavaScript the field is a plain form that reloads the page with the results.
+- **What it finds:** exact matches first (the shop's code or the EAN typed exactly, then every word), then close ones:
+  any word order; every language the item's name is known in (Slovak, Hungarian, English, …); accents and capitals
+  ignored; typos ("akrylvé farby", "mercedez 775"); word endings ("akrylové" = "akryl" = "acrylic"); sizes ("0,5 l" =
+  "500 ml" — the same size ranks higher, another size is still shown); general words such as "farba", "paint",
+  "festék" count less than the product's own words. Every product word must match (one may be missing from a long
+  search), so "white chocolate" never shows a white paint. Nothing close → "Nenašli sme presnú zhodu – podobné
+  produkty:" with the most similar names. A search that still finds little is tried once more in Claude's words
+  (cached 30 days).
+- **Main search, API, MCP, the chat and the shop assistant use the same rule.** A town written in the search ("farba
+  v Budinciach") limits the results to that town's shops; the visitor's location is never used. Order: how well the
+  product matches, then in stock with current data, then fresher, then nearer (only when a place was given) —
+  **a paid plan never changes the order.**
+- Speed: suggestions in under 150 ms for a shop with 5 000 products, the main search under 300 ms for 100 000.
+- At most 120 suggestions a minute per visitor (then a short pause).
+
+### 6.29 Shop page "Produkty / Zoznam" and the stock sentence only on product pages (29 October 2026)
+
+- **The stock sentence** ("12 ks na sklade", "Vypredané", "Informácia o zásobe momentálne nie je dostupná") is shown
+  only on a product's own page. Every list of products — the shop page, the main page's results and chat cards, the
+  product page's other shops, the shop assistant's cards and its copied list — shows only the stock dot (green in
+  stock, red sold out, yellow no information or old data; a solid fill with a darker ring); screen readers hear the
+  status from the dot ("na sklade", "vypredané", "zásoba neznáma"). The line about how fresh the shop's whole file is
+  stays above the shop's products.
+- **Two tabs** replace "Tovar v obchode": "Produkty" and "Zoznam" (the visitor's shopping list; its counter shows the
+  pieces on the list). Keyboard: they are a radio group. Without JavaScript only Produkty shows, with the plain form.
+- **Produkty:** "Hľadať v tomto obchode" filters the list while typing (the forgiving search of 6.28: accents, case,
+  word order, several words, typos), the found words highlighted, × or Esc clears, "Nájdené: N produktov" or "Pre „…“
+  sme nič nenašli". Each row: the name (a link to the product), the stock dot and the price as in the shop's file.
+  Tapping the dot puts one piece on the list (a small blue ball jumps to the Zoznam tab; a counter on the dot, "9+"
+  above nine).
+- **Zoznam:** each product with quantity × price and − / quantity / + (a bin at one); swiping a row left or right
+  removes it; "Spolu"; "Zoznam je prázdny". **"Kopírovať zoznam"** copies plain text with the shop's name and
+  address (the address is not shown on the page), one line per product and the total; if the browser does not allow
+  copying, the text is shown selected to copy by hand.
+- The list is kept only in this browser, per shop (it survives a reload); nothing is sent to Cacaduu or the shop, and
+  no shop data are changed. Changes are announced to screen readers in Slovak; with "reduce motion" nothing moves.
+- Colours of this section (blue, orange, the yellow highlight) are an exception to "no colours", at the owner's
+  request.
+
+### 6.30 "Konverzácie" for Pro shops (database update 55, phase 1 of the CRM work, 30 October 2026)
+
+- **Môj obchod → Asistent** has three tabs (plain links, they work without JavaScript; old addresses still open the
+  right one): **Nastavenia** (button text, welcome), **Konverzácie** (with the number of new conversations on the tab)
+  and **Súkromné priečinky**. Only the open tab's data are loaded.
+- **Every conversation is kept** (messages with their times, the shopper's language, the products the assistant
+  suggested, the shopper's files) with: a status **Nové / Prečítané / Archivované** (a new message makes it "Nové"
+  again; opening it marks it read), a **star**, the owner's **private note** (≤ 2000 characters, never shown to the
+  shopper) and two marks: **"Bez odpovede"** (the assistant could not answer and pointed to the shop) and
+  **"Prístupový kľúč"** (the shopper had folders open with an access key). Conversations from before the update count
+  as read and their marks are "unknown".
+- **List:** newest first, 20 per page; search words (any message, its Slovak version, the note; accents ignored), days
+  Od / Do (the shop's time zone), status (default "Nové a prečítané"; also Archivované or Všetky), "Len s
+  hviezdičkou", "Len bez odpovede", "Len so súbormi", language. Each row: date, status in words (new ones in bold),
+  language, messages, files, the marks, "Navrhnuté produkty: N", ☆/★, "Stiahnuť PDF".
+- **Bulk actions** on the ticked rows: Označiť ako prečítané / nové, hviezdička on / off, Archivovať (Vrátiť z
+  archívu in the archive), **Vymazať vybrané** only after "Áno, vymazať vybrané konverzácie aj so súbormi a PDF" (at
+  most 100 at once). "Stiahnuť vybrané" downloads the ticked ones as PDFs.
+- **Detail:** read-only transcript with times, the Slovak version, the shopper's pictures inline (files through
+  10-minute links), the product cards (a link to the product while it is still offered, "už nie je v ponuke"
+  otherwise), "Asistent nevedel odpovedať" under such an answer; status, marks, Označiť ako nové / hviezdička /
+  archivovať, the private note, **Stiahnuť PDF** (once finished) and **Stiahnuť TXT**; delete with a confirmation.
+- **Export:** one conversation as PDF or TXT; a date range as **CSV** for Excel (UTF-8, ";", one row per message: the
+  conversation, start, status, star, marks, language, time, who, text, Slovak version, files, products; at most
+  50 000 rows; a cell that a spreadsheet would run as a formula is written as text).
+- **Keep time:** "Neobmedzene" (default; shops still on the old default of 90 days get it) or 30 / 90 / 365 days.
+- **Log:** keep time, marks (not the automatic "read" when opening), notes, deletions and exports go into the shop's
+  activity log (`shop_activity`). Only the shop's members see or change anything (RLS and the owner functions);
+  visitors never.
+
+### 6.31 "Kontakty" for Pro shops (database update 56, phase 2 of the CRM work, 30 October 2026)
+
+- **Môj obchod → Kontakty** (a new menu page): the shop's contacts, last changed first, with a search (name, phone,
+  e-mail, address, tags, note; a number also as typed with spaces), a tag filter, "Nový kontakt", and a second tab
+  **"E-mailové šablóny"**.
+- **A contact:** name, **phone** (typed in any common way, kept in international form with the shop's country code —
+  "0905 123 456" in a Slovak shop is "+421905123456"; one contact per number), e-mail, address, tags (comma separated),
+  a private note. **"overené"** only when the customer confirmed the number with an SMS code (the booking, phase 3); a
+  changed number is no longer "overené". At least a name, a phone or an e-mail.
+- **Conversations and bookings join a contact by the phone** (a conversation with the customer's number — from a booking
+  or a number left in the chat, phases 3 and 5 — joins the contact with that number), or the owner assigns one on the
+  conversation's page ("Priradiť ku kontaktu", "Nový kontakt z tejto konverzácie").
+- **Contact card tabs:** Prehľad (the details to edit, delete with a confirmation — conversations and the log stay),
+  Konverzácie, Rezervácie (filled in phase 3), Správy.
+- **Správy:** SMS or e-mail; an e-mail template copies its subject and text in to edit; the variables {{name}},
+  {{first_name}}, {{shop}}, {{shop_phone}}, {{shop_email}}, {{shop_address}}, {{shop_web}}; the SMS length in parts
+  (accents make an SMS shorter: 70 characters instead of 160). **"Náhľad" shows the message exactly as it will go**
+  (variables filled in); only then "Odoslať". E-mails go out with the shop's name and replies come to the shop's e-mail.
+  **SMS are only written down ("test – neodoslané") until an SMS provider is set (phase 4, 6.33).** At most
+  100 messages of each kind per shop and day.
+- **Every outgoing message is written down** (to whom, the text as sent, sent / not sent / test, who sent it) and shown
+  under "Odoslané správy". Saving, deleting, assigning and sending also go into the shop's activity log.
+- Only the shop's owners see or change anything (RLS, owner functions); without the Pro plan the contacts stay readable,
+  changes and messages are refused.
+
+### 6.32 "Rezervácie" for Pro shops (database update 57, phase 3 of the CRM work, 30 October 2026)
+
+- **Môj obchod → Rezervácie → Nastavenia:** "Prijímať rezervácie" (off by default), the service's name, its length
+  (5–480 min), the step between start times, a pause after each booking, how long ahead at the earliest (hours) and at
+  the latest (days), "Pripomienka deň vopred (SMS)" (off by default). **Google Calendar** (optional): "Pripojiť Google
+  Kalendár" — Cacaduu asks only to read when the calendar is busy and to add its own events (no other calendar data);
+  busy times there are never offered, a confirmed booking is added as an event (no guests, no invitations).
+  "Odpojiť" removes the connection at Google and in Cacaduu.
+- **In the shop assistant** (Pro, bookings switched on): the shopper asks for an appointment; the assistant first looks
+  in the shop's documents for the booking terms (what to bring, prices, cancelling) and says them as written, then
+  offers free times as buttons. **The personal data never go through the AI:** a tap on a time opens the page's own
+  form — name, mobile, e-mail / address / note (optional), the consent with a link to the privacy page.
+- **Free times** are decided only in the database: the opening hours of that day (a special day wins over a holiday;
+  closed by law → none or until "closed from"; a "day off" holiday → none), the lead time and the horizon, the pause,
+  other bookings (confirmed ones and those whose code is still valid), and the shop's Google Calendar. Two bookings can
+  never overlap (the database refuses it even if two people tap the same time at once).
+- **SMS code:** 6 digits, valid 10 minutes, 5 wrong tries end the booking, "Poslať znova" at most 3 times; at most 3
+  bookings per phone and 5 per shopper per hour, 100 per shop per day. The right code **confirms at once** ("Rezervácia
+  je potvrdená") — no confirmation SMS. Without an SMS provider (6.33) the code is only written down ("test"); for
+  testing, `BOOKING_TEST_CODES=on` shows it in the chat (never while a real provider is set).
+- **On confirming:** the shop's contact with that phone is found or made (source "booking"), its number marked
+  "overené", empty e-mail / address filled in; the booking and the chat join the contact; the event in Google Calendar;
+  the activity log. The code itself is never stored or logged (only its hash; the SMS log shows "••••••").
+- **Reminder** (when switched on): one SMS the day before, after 9:00 in the shop's time zone, with the shop, the day
+  and the time; no cancel link.
+- **Rezervácie page:** "Zoznam" (filter by status; name with the contact's card, phone, the conversation, Google
+  status, reminder sent; buttons Potvrdená / Zrušená / Neprišiel) and "Kalendár" (one week, ‹ ›). The contact card's
+  "Rezervácie" tab lists that contact's bookings. Only the shop's owners see or change anything; without the Pro plan
+  nothing new is booked and the list stays readable.
+
+### 6.33 SMS quotas and the SMS provider (database update 58, phase 4 of the CRM work, 30 October 2026)
+
+- **Two quotas per shop and month, kept apart:** **Rezervácie** (the booking's SMS codes and day-before reminders) and
+  **Vaše SMS** (what the owner sends from a contact card). 100 each by default; the admin changes both in "SMS" on the
+  admin page (for every shop at once).
+- **What counts:** the SMS parts each message is billed as — 160 characters without accents in one SMS (153 per part
+  when longer), 70 with accents (67 per part); every SMS written down this month (sent, and "test" while no provider is
+  connected), not the ones that failed. The month is the shop's own calendar month (its time zone).
+- **At the limit nothing is sent:** the owner's SMS is refused with "Tento mesiac ste už poslali všetky SMS svojej kvóty"
+  (e-mails still go); the assistant stops offering booking times (a shopper already in the form is told to call the
+  shop), "Poslať kód znova" is refused, and reminders wait. Two SMS at the same moment can never pass a limit together.
+- **Usage shown:** "SMS tento mesiac" with both quotas (written out, "23 zo 100 SMS", and a thin bar) on Kontakty, the
+  owner quota on a contact's Správy tab, the booking quota on Rezervácie → Nastavenia, and a banner on Rezervácie when
+  bookings pause ("Znova od 1. 12. 2026").
+- **The SMS provider** is one secret (`SMS_PROVIDER`): **Brevo** (recommended — it sends to Slovakia and the rest of
+  Europe and uses the API key the e-mails already have; the account needs SMS credits) or **Twilio**; without it SMS
+  are only written down as "test". The sender's name on the phone is `SMS_SENDER` (≤ 11 letters/digits, default
+  "Cacaduu"). Numbers and texts never appear in any log.
+
+### 6.34 Unanswered questions: the shopper leaves a contact (database update 59, phase 5 of the CRM work, 30 October 2026)
+
+- **In the shop assistant:** when the assistant cannot answer (it points to the shop), the answer shows "Nechajte nám
+  kontakt – obchod vám odpovie". The page's own form (never the AI) takes a **phone or an e-mail** (at least one), an
+  optional name and the consent (link to the privacy page, section "Keď asistent nevie odpovedať"). After sending:
+  "Ďakujeme, <obchod> dostal vašu otázku a kontakt." At most 3 times per conversation.
+- **The shop's contact:** found by the phone (international form), else by the e-mail, else a new one ("chat"); only
+  empty fields are filled in. A number left this way is never "overené" (only a booking's SMS code verifies it). The
+  conversation joins the contact, becomes "Nové" and "Bez odpovede".
+- **The owners are told at once:** an e-mail to every owner of the shop, in their language — "Nový zákazník, prosím
+  odpovedzte – <obchod>", the question that was not answered and a link to the conversation. The shopper's number or
+  address is not in the e-mail. If sending fails it is tried again (up to 10 times, waiting longer each time).
+- **In Môj obchod:** a badge with the number of waiting shoppers on "Asistent"; on Asistent → Konverzácie the box
+  "Čakajú na odpoveď" (who, when, the question, phone / e-mail, "Odpovedať", "Konverzácia", "Vybavené"); the
+  conversation's page says "Zákazník čaká na odpoveď".
+- **Answering:** "Odpovedať" opens the contact's Správy — SMS or e-mail with the preview first (phase 2), within the
+  SMS quota (phase 4). A sent answer marks the conversation answered by itself; "Vybavené" marks it by hand, "Vrátiť
+  medzi čakajúce" undoes it. Everything is in the shop's activity log.
+
+### 6.35 Opening hours by SMS (database update 60, phase 6 of the CRM work, 30 October 2026)
+
+- **Only opening hours.** An SMS changes the shop's regular week and special days — nothing else (no prices, stock,
+  messages or settings). Anything else gets "Cacaduu: cez SMS meníte len otváracie hodiny."
+- **Only from a verified phone.** Môj obchod → "Hodiny cez SMS" → the owner's mobile → "Poslať kód" → the 6-digit code
+  from the SMS → "Overiť" (10 minutes, 5 tries). Only Pro shops. An SMS from any other number is written down without
+  its text and gets no answer.
+- **What the owner writes:** in Slovak, Hungarian, English (or another language), e.g. "Po-Pi 8-17, So 8-12, Ne
+  zatvorené", "Pondelok 9-12 a 13-18", "24.12. zatvorené", "Od 1.8. do 15.8. dovolenka". Only the named days change.
+  With several shops on one phone the SMS starts with the shop's name.
+- **Reading:** Claude (the same model setting as the assistant) turns the SMS into days and times; dates are counted
+  in the shop's time zone and never lie in the past; the database checks every time again. Unclear → "nerozumel som,
+  napíšte napr. …", nothing changes.
+- **Where the hours go:** the shop page (and its own domain) at once; the shop's Google Business Profile when
+  connected (Môj obchod → "Pripojiť profil firmy na Google" → choose the location); "Poslať hodiny do Google teraz"
+  sends what is saved (e.g. after a change on the website).
+- **Reply:** one SMS — "Cacaduu: otváracie hodiny <obchod> zmenené: Po–Pi 8–17, Ne zatvorené. Google: aktualizované."
+  Codes and replies count in the shop's monthly owner SMS quota (phase 4); over it the hours still change, the reply is
+  not sent.
+- **Log:** "Posledné SMS" shows the last 20 SMS with what happened and the reply; every change and connection is in
+  the shop's activity log.
+- **Receiving SMS:** Brevo only sends SMS, so the number owners text is a Twilio number (or another gateway posting to
+  Cacaduu with a secret).
+
+### 6.36 The owner's own AI assistant (database update 61, phase 7 of the CRM work, 31 October 2026)
+
+- **Who:** owners of Pro shops. The shoppers' MCP server (/mcp) is unchanged and stays read-only.
+- **Connecting:** Môj obchod → "AI asistenti" shows the address https://<site>/mcp/owner and how to add it in Claude,
+  ChatGPT, Gemini (CLI) and Grok. Assistants that can log in send the owner to Cacaduu's page "Pripojiť AI asistenta":
+  the owner ticks the shops and what the assistant may do — read; change; send messages — and allows or denies. Others
+  get a personal key (shown once, 1 year). "Odpojiť" ends any connection at once.
+- **What it can do:** read conversations (with the Slovak version), contacts, bookings, the e-mail templates, the SMS
+  usage and the stock as in the last file; mark conversations, write the private note; add, change and delete contacts;
+  confirm / cancel / no-show bookings; change the opening hours and special days (only the days named); change the
+  shop's name, phone, e-mail, website, Facebook and booking link; change one item's quantity or price by hand.
+- **Safety:** a message is sent only after preview_message showed exactly what goes and the owner said yes (then
+  send_message, once, within 10 minutes; refused if the message changed meanwhile). Deleting a contact and changing
+  stock first answer with what would change; a stock change says that the next stock file, POS agent or inventory
+  program will overwrite it, and never changes the currency or how fresh the stock is. Every change is in the shop's
+  activity log under the owner's name. At most 120 requests a minute per connection.

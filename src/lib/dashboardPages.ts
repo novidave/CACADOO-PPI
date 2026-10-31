@@ -1,28 +1,33 @@
 /**
- * Môj obchod's pages: "Môj obchod" (stock file columns, details, logo, items, plan, delete), "Obsah stránky" (the
- * shop page's slider and its library of files, database update 38), "Asistent" (its settings, the conversations with their
- * cloud folder, the private folders), "Jazyky a inventár" (update 40: the shop's languages, the stock file's columns, the
- * items and their translations) and "Priečinok s exportom" (the export folder, the last stock files and, update 43, the
- * danger zone of the stock). A form
+ * Môj obchod's pages: "Môj obchod" (details, logo, plan, delete), "Obsah stránky" (the shop page's slider and its
+ * library of files, database update 38), "Asistent" (its settings, the conversations with their cloud folder, the
+ * private folders), "Jazyky a inventár" (update 40: the items and their translations) and "Priečinok s exportom" (the
+ * stock folder, update 45's review after an upload with the languages and the columns, the translations folder, the
+ * last stock files and, update 43, the danger zone of the stock). A form
  * sends the owner back to the page and section ("at") it came from; a section that moved keeps working under its
  * old name (old links, e-mails, the cloud sign-in coming back with ?at=cloud).
  */
 export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs", "private"];
-/** "Posledné nahrané súbory" lives with the stock file again since update 43, next to "Nebezpečná zóna – sklad". */
-export const EXPORT_SECTIONS = ["export", "imports", "conversations-pc", "danger"];
+/**
+ * "Priečinok s exportom": the stock folder, "Po nahratí súboru" (update 45: the review card, the languages and the
+ * stock file's columns), "Preklady v priečinku" (update 45: the translations folder and the stock files in other
+ * languages), "Posledné nahrané súbory" (back here since update 43) and "Nebezpečná zóna – sklad".
+ */
+export const EXPORT_SECTIONS = ["source", "api", "pos", "export", "review", "trfolder", "imports", "conversations-pc", "danger"];
 export const CONTENT_SECTIONS = ["content", "library", "sections"];
-/** "Jazyky a inventár" (update 40): the shop's languages, its stock file's columns, its items, every translation. */
-export const TRANSLATION_SECTIONS = ["languages", "columns", "files", "items", "translations"];
+/** "Jazyky a inventár" (update 40): the items and every translation (languages, columns and files moved in update 45). */
+export const TRANSLATION_SECTIONS = ["items", "translations"];
 
 /** Old names of sections that were merged into another one (the anchor and the open dropdown follow). */
-const MERGED: Record<string, string> = { private: "docs", sections: "content" };
+const MERGED: Record<string, string> = { private: "docs", sections: "content", languages: "review", columns: "review", files: "trfolder" };
 
 /** The section a name stands for now ("private" → "docs"; "cloud" is a part of "conversations" with its own anchor). */
 export function sectionId(at: string): string {
   return MERGED[at] ?? at;
 }
 
-export function sectionPath(lang: string, at: string): string {
+export function sectionPath(lang: string, name: string): string {
+  const at = sectionId(name);
   if (ASSISTANT_SECTIONS.includes(at)) return `/${lang}/dashboard/assistant`;
   if (EXPORT_SECTIONS.includes(at)) return `/${lang}/sync`;
   if (CONTENT_SECTIONS.includes(at)) return `/${lang}/dashboard/content`;

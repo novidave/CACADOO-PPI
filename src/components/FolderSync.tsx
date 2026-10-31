@@ -153,6 +153,17 @@ export function FolderSync({
     [shopId],
   );
 
+  // while a stock program is connected (update 49) PPI refuses files: say so in words
+  const failText = useCallback(
+    (e: unknown) =>
+      errorText(e) === "api_connected"
+        ? labels.api_connected
+        : errorText(e) === "agent_connected"
+          ? labels.agent_connected
+          : fill(labels.send_failed, { error: errorText(e) }),
+    [labels],
+  );
+
   const check = useCallback(async () => {
     if (running.current || !active.current) return;
     running.current = true;
@@ -243,16 +254,18 @@ export function FolderSync({
         result,
       } satisfies Attempt);
       setMessage(resultText(result));
+      // the translations folder (update 45) writes its files again after the stock file
+      window.dispatchEvent(new Event("ppi:stock-sent"));
       schedule(CHECK_EVERY_MS);
     } catch (e) {
-      setMessage(fill(labels.send_failed, { error: errorText(e) }));
+      setMessage(failText(e));
       schedule(CHECK_EVERY_MS);
     } finally {
       running.current = false;
       setBusy(false);
       setLastCheck(Date.now());
     }
-  }, [attemptKey, folderKey, labels, resultText, schedule, shopId, upload]);
+  }, [attemptKey, failText, folderKey, labels, resultText, schedule, shopId, upload]);
 
   const checkRef = useRef(check);
   useEffect(() => {
@@ -350,8 +363,9 @@ export function FolderSync({
       if (after) setServer(after as ServerStatus);
       setNewest({ name: file.name, time: file.lastModified });
       setMessage(resultText(result));
+      window.dispatchEvent(new Event("ppi:stock-sent"));
     } catch (e) {
-      setMessage(fill(labels.send_failed, { error: errorText(e) }));
+      setMessage(failText(e));
     } finally {
       running.current = false;
       setBusy(false);

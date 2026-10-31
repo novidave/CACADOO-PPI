@@ -5,7 +5,7 @@ export function BlogText({ body }: { body: string }) {
   const blocks = textBlocks(body);
   if (!blocks.length) return null;
   return (
-    <div className="flex flex-col gap-3 leading-relaxed" data-blog-text>
+    <div className="ppi-blog-body flex flex-col gap-4" data-blog-text>
       {blocks.map((parts, i) => (
         <p key={i} className="break-words">
           {parts.map((part, j) =>

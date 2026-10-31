@@ -30,6 +30,9 @@ const ERRORS = [
   "email",
   "facebook",
   "booking",
+  "company_name",
+  "dic",
+  "zip",
   "logo",
   "translation",
   "plan_active",
@@ -42,6 +45,11 @@ const ERRORS = [
 
 export function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
+  // "Konverzácie" (update 55): the bulk actions.
+  if (err === "conversations_none") return dict.conversations.bulk_none;
+  if (err === "conversations_confirm") return dict.conversations.bulk_confirm_needed;
+  if (err === "conversations_range") return dict.conversations.export_range_invalid;
+  if (err === "conversations_export") return dict.conversations.export_failed_csv;
   if (err === "site_logo") return dict.sections.error_site_logo;
   if (err.startsWith("sections_failed:")) return t(dict.sections.error_failed, { message: err.slice("sections_failed:".length) });
   if (err.startsWith("sections_")) {
@@ -82,7 +90,10 @@ export function errorText(dict: Dictionary, err: string): string {
 }
 
 /** The "ok" messages of every section (unknown ones say "Saved"). */
-export function okTexts(dict: Dictionary, extra: { retention?: number; backfilled?: number; n?: number } = {}): Record<string, string> {
+export function okTexts(
+  dict: Dictionary,
+  extra: { retention?: number | null; backfilled?: number; n?: number; failed?: number } = {},
+): Record<string, string> {
   const o = dict.owner;
   const d = dict.dashboard;
   return {
@@ -96,7 +107,10 @@ export function okTexts(dict: Dictionary, extra: { retention?: number; backfille
     shopper_pdf: dict.conversations.shopper_pdf_saved,
     assistant_cleaned: d.assistant_cleaned,
     retention: t(dict.conversations.retention_saved, { n: extra.retention ?? 90 }),
+    retention_unlimited: dict.conversations.retention_saved_unlimited,
     conversation_deleted: dict.conversations.deleted,
+    conversations_marked: t(dict.conversations.ok_marked, { n: extra.n ?? 0 }),
+    conversations_deleted: t(dict.conversations.ok_deleted_many, { n: extra.n ?? 0 }),
     cloud_connected: dict.cloud.ok_connected,
     cloud_disconnected: dict.cloud.ok_disconnected,
     cloud_folder: dict.cloud.ok_folder,
@@ -135,7 +149,11 @@ export function messages(dict: Dictionary, sp: Record<string, string | string[] 
   const okText = (ok && okTexts(dict, extra)[ok]) || dict.account.saved;
   const box = (
     <p role="status" className={ok ? "border border-foreground p-3 font-medium" : "border border-line p-3"}>
-      {ok ? okText : errorText(dict, err ?? "")}
+      {ok
+        ? okText
+        : err === "conversations_delete_some"
+          ? t(dict.conversations.delete_some_failed, { n: extra.n ?? 0, failed: extra.failed ?? 0 })
+          : errorText(dict, err ?? "")}
     </p>
   );
   return {

@@ -87,7 +87,7 @@ function buildServer() {
       description:
         "One shop by its slug (from search results): address, coordinates, phone, website, e-mail, Facebook page, booking link, opening hours, " +
         "status now (open / lunch break / closed / public holiday / no hours, in words, and when it changes next), " +
-        "open now, facilities (customer toilet, douchette, card payment) and stock freshness.",
+        "open now, facilities (customer toilet, bidet shower, card payment) and stock freshness.",
       inputSchema: {
         slug: z.string().min(1).max(80).describe("Shop slug, e.g. 'potraviny-centrum'."),
         lang: z.enum(LANGS).optional(),

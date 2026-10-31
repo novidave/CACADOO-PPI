@@ -6,17 +6,18 @@ import { getDictionary, t } from "@/i18n/dictionaries";
 import { itemHref, siteItemUrl, siteLang, sitePath } from "@/lib/customDomain";
 import { getItem, getLiveSites, getOtherOffers, getShop, getShopCalendars, getShopsByIds, shopSiteHost, shopStandsAlone } from "@/lib/data";
 import { addressLine, directionsUrl, formatDistance, formatPrice } from "@/lib/format";
-import { translatedName } from "@/lib/names";
+import { itemNames } from "@/lib/names";
 import { requestTime } from "@/lib/requestTime";
 import { statusInput } from "@/lib/shopCalendar";
 import { itemJsonLd } from "@/lib/jsonLd";
 import { pageAlternates, siteUrl } from "@/lib/site";
 import { getShopLanguages } from "@/lib/shopLanguages";
 import { getItemTexts, getShopTexts } from "@/lib/contentTranslations";
-import { TranslationNote } from "@/components/TranslationNote";
 import { JsonLd } from "@/components/JsonLd";
 import { ShopMap } from "@/components/ShopMap";
-import { LiveStatus } from "@/components/ShopStatus";
+import { ShopStatusLine } from "@/components/ShopStatusLine";
+import { StockDot } from "@/components/StockDot";
+import { STOCK_WORDS, stockState } from "@/lib/stockDot";
 import { StockLine } from "@/components/StockLine";
 
 export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> {
@@ -24,8 +25,8 @@ export async function itemMetadata(lang: Locale, id: string): Promise<Metadata> 
   if (!item) return {};
   // The canonical address: the shop's own domain once it is live (database update 25).
   const [host, langs] = await Promise.all([shopSiteHost(item.shop_slug).catch(() => null), getShopLanguages(item.shop_slug, item.shop_country)]);
-  const translated = translatedName(item.item_name, item.item_name_i18n, lang);
-  const name = translated ? `${item.item_name} (${translated})` : item.item_name;
+  const names = itemNames(item.item_name, item.item_name_i18n, lang);
+  const name = names.secondary ? `${names.primary} (${names.secondary})` : names.primary;
   return {
     title: `${name} · ${item.shop_name}`,
     description: t(dict.item.meta_description, {
@@ -83,51 +84,61 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
   ]);
   const renderedAt = requestTime();
   const hasLocation = item.shop_lat !== null && item.shop_lng !== null;
-  const translated = translatedName(item.item_name, item.item_name_i18n, lang);
+  const names = itemNames(item.item_name, item.item_name_i18n, lang);
   const shopHref = siteSlug && shop ? sitePath(lang, siteLang(shop.country, shop.site_lang)) : `/${lang}/shops/${item.shop_slug}`;
   const description = texts.text("item_description", item.item_id, itemTexts?.description ?? null);
   const category = texts.text("item_category", item.item_id, itemTexts?.category ?? null);
-  const itemPath = `/${lang}/items/${item.item_id}`;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <JsonLd data={itemJsonLd(item, shop, lang, host, shop ? statusInput(shop, calendars) : null, siteUrl())} />
 
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{item.item_name}</h1>
-        {translated && <p className="text-lg text-muted">{translated}</p>}
-        <p className="text-2xl font-semibold">{formatPrice(item.price, lang, item.currency)}</p>
-        <p>
-          <StockLine row={item} timeZone={item.shop_timezone} dict={dict} lang={lang} />
+      {/* One frame: the name in the page language first, the shop's own name under it (light), then the data. */}
+      <section aria-labelledby="item-name" className="flex flex-col gap-4 border border-line p-4" data-item-details>
+        <header className="flex flex-col gap-1">
+          <h1 id="item-name" className="text-2xl font-semibold tracking-tight">
+            {names.primary}
+          </h1>
+          {names.secondary && (
+            <p className="text-lg text-muted" data-item-original-name>
+              {names.secondary}
+            </p>
+          )}
+        </header>
+        <p className="flex items-center gap-2 text-2xl font-semibold" data-item-price>
+          <StockDot availability={item.availability} size={12} />
+          <span>
+            <span className="sr-only">{dict.item.price}: </span>
+            {formatPrice(item.price, lang, item.currency)}
+          </span>
         </p>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 text-sm">
+        <ul className="flex list-disc flex-col gap-1 pl-5">
+          <li>
+            <span className="text-muted">{dict.item.availability}:</span> <StockLine row={item} timeZone={item.shop_timezone} dict={dict} lang={lang} />
+          </li>
           {item.brand && (
-            <>
-              <dt className="text-muted">{dict.item.brand}</dt>
-              <dd>{item.brand}</dd>
-            </>
+            <li>
+              <span className="text-muted">{dict.item.brand}:</span> {item.brand}
+            </li>
           )}
           {item.ean && (
-            <>
-              <dt className="text-muted">{dict.item.ean}</dt>
-              <dd className="tabular-nums">{item.ean}</dd>
-            </>
+            <li>
+              <span className="text-muted">{dict.item.ean}:</span> <span className="tabular-nums">{item.ean}</span>
+            </li>
           )}
           {category && (
-            <>
-              <dt className="text-muted">{dict.item.category}</dt>
-              <dd data-item-category>{category}</dd>
-            </>
+            <li data-item-category>
+              <span className="text-muted">{dict.item.category}:</span> {category}
+            </li>
           )}
-        </dl>
+        </ul>
         {description && (
-          <div className="flex flex-col gap-1" data-item-description={itemTexts?.source ?? ""}>
-            <h2 className="text-sm text-muted">{dict.item.description}</h2>
+          <div className="flex flex-col gap-1 border-t border-line pt-3" data-item-description={itemTexts?.source ?? ""}>
+            <h3 className="text-sm text-muted">{dict.item.description}</h3>
             <p className="whitespace-pre-line">{description}</p>
           </div>
         )}
-        <TranslationNote texts={texts} path={itemPath} labels={dict.translation} />
-      </header>
+      </section>
 
       <section aria-labelledby="shop-heading" className="flex flex-col gap-2 border border-line p-4">
         <h2 id="shop-heading" className="text-sm text-muted">
@@ -137,7 +148,7 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
           {item.shop_name}
         </Link>
         <p>{addressLine(item.shop_address, item.shop_city)}</p>
-        {shop && <LiveStatus input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} className="text-sm" />}
+        {shop && <ShopStatusLine input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} className="text-sm" />}
         <p className="flex flex-wrap gap-x-4 text-sm">
           {hasLocation && (
             <a
@@ -206,7 +217,10 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
                       <Link href={itemHref(sites, lang, o.shop_slug, o.item_id)} className="font-medium hover:underline">
                         {o.shop_name}
                       </Link>
-                      <span className="whitespace-nowrap font-medium">{formatPrice(o.price, lang, o.currency)}</span>
+                      <span className="flex items-center gap-2 whitespace-nowrap font-medium">
+                        <StockDot availability={o.availability} label={dict.stock[STOCK_WORDS[stockState(o.availability)]]} />
+                        {formatPrice(o.price, lang, o.currency)}
+                      </span>
                     </div>
                     <div className="text-sm text-muted">
                       {[o.shop_city, o.distance_km !== null ? formatDistance(o.distance_km, lang) : null]
@@ -214,9 +228,9 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
                         .join(" · ")}
                     </div>
                     <div className="flex flex-wrap gap-x-3 text-sm">
-                      <StockLine row={o} timeZone={o.shop_timezone} dict={dict} lang={lang} />
+                      <StockLine row={o} timeZone={o.shop_timezone} dict={dict} lang={lang} listing />
                       {otherShop && (
-                        <LiveStatus input={statusInput(otherShop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />
+                        <ShopStatusLine input={statusInput(otherShop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />
                       )}
                     </div>
                   </li>

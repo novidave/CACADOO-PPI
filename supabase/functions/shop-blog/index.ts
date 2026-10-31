@@ -108,8 +108,24 @@ export function sameSecret(given: string | null, expected: string | null): boole
 
 type Json = Record<string, unknown>;
 
+/**
+ * Môj obchod calls this function straight from the owner's browser (photos, publishing), another origin than the
+ * Supabase project: every answer carries the CORS headers and the browser's OPTIONS check is answered first, as in
+ * page-sections and doc-ingest. Without them the browser blocks the call ("Failed to send a request to the Edge
+ * Function"). The owner's login is still checked on every action.
+ */
+export const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Max-Age": "86400",
+};
+
 function reply(status: number, data: unknown) {
-  return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS_HEADERS },
+  });
 }
 
 const failText = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/[\r\n]+/g, " ").slice(0, 300);
@@ -1523,6 +1539,7 @@ async function webhook(req: Request, deps: Deps): Promise<Response> {
 
 export async function handle(req: Request, deps: Deps): Promise<Response> {
   const url = new URL(req.url);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
   if (/\/oauth\/?$/.test(url.pathname)) {
     if (req.method !== "GET") return reply(405, { error: "method" });
     return await callback(req, deps);

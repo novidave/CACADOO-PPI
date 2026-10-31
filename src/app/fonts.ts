@@ -1,4 +1,4 @@
-import { Noto_Sans, Quicksand } from "next/font/google";
+import { Lora, Noto_Sans, Quicksand } from "next/font/google";
 
 /**
  * The website's one typeface, at the owner's request: Quicksand (variable, 300–700), with the
@@ -29,4 +29,20 @@ export const notoFallback = Noto_Sans({
   display: "swap",
   preload: false,
   variable: "--font-noto",
+});
+
+/**
+ * The blog's reading text (at the owner's request, 2026-10-27): Lora Regular for the article body only — headings,
+ * links, buttons and captions stay Quicksand. Only the blog pages use it (its variable on their root element, the
+ * `.ppi-blog-body` class in globals.css), so no other page downloads it; self-hosted like Quicksand.
+ */
+export const lora = Lora({
+  subsets: ["latin", "latin-ext"],
+  weight: "400",
+  display: "swap",
+  // Not preloaded: on a phone the preloaded files share the slow first second with the blog list's first photo (its
+  // largest picture, LCP); the text shows in the size-matched serif fallback and switches to Lora when it arrives.
+  preload: false,
+  variable: "--font-lora",
+  fallback: ["Georgia", "Times New Roman", "serif"],
 });

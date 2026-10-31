@@ -10,6 +10,8 @@ import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings, saveSectionLimits } from "./actions";
 import { BlogAdmin, type BlogAdminInfo } from "./BlogAdmin";
+import { SmsAdmin, type SmsQuotaRow } from "./SmsAdmin";
+import { InventoryAdmin, type InventoryOverview } from "./InventoryAdmin";
 import { ErrorsAdmin, type ServerErrorRow } from "./ErrorsAdmin";
 import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
 import { ExternalSearchAdmin, type SearchSettings, type SourcesEnv } from "./ExternalSearchAdmin";
@@ -109,7 +111,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     hyear: String(hyear),
   })}`;
 
-  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo, serverErrors] = await Promise.all([
+  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo, serverErrors, inventory, smsQuotas, smsProvider] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
@@ -135,6 +137,14 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
       .catch(() => null),
     // "Chyby za posledných 7 dní" (database update 42).
     session.supabase.rpc("admin_server_errors", { p_days: 7 }),
+    // "Skladové programy (API)" (database update 49).
+    session.supabase.rpc("admin_inventory_overview"),
+    // "SMS" (database update 58): the quotas and which provider the crm-messages function sends with.
+    session.supabase.rpc("admin_sms_quotas"),
+    session.supabase.functions
+      .invoke<{ sms?: string; sms_live?: boolean }>("crm-messages", { body: { action: "config" } })
+      .then(({ data, error }) => (error || !data?.sms ? null : { name: data.sms, live: data.sms_live === true }))
+      .catch(() => null),
   ]);
   const limitRows = sectionLimits.error ? null : ((sectionLimits.data ?? []) as LimitsRow[]);
   if (overview.error) return <DbError message={overview.error.message} dict={dict} />;
@@ -168,12 +178,27 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
         <h1 className="text-2xl font-semibold tracking-tight">{a.title}</h1>
         {ok && (
           <p role="status" className="border border-foreground p-3 font-medium">
-            {ok === "partner_queued" ? dict.admin_partners.queued : ok === "blog_limits" ? dict.admin_blog.saved : a.done}
+            {ok === "partner_queued"
+              ? dict.admin_partners.queued
+              : ok === "blog_limits"
+                ? dict.admin_blog.saved
+                : ok === "inventory"
+                  ? dict.admin_inventory.saved
+                  : ok === "sms"
+                    ? dict.admin_sms.saved
+                    : a.done}
           </p>
         )}
         {err && (
           <p role="alert" className="border border-line p-3">
-            {searchErr ?? (err === "blog_limits" ? dict.admin_blog.error : t(a.failed, { message: err }))}
+            {searchErr ??
+              (err === "blog_limits"
+                ? dict.admin_blog.error
+                : err === "inventory"
+                  ? dict.admin_inventory.error
+                  : err === "sms"
+                    ? dict.admin_sms.error
+                    : t(a.failed, { message: err }))}
           </p>
         )}
       </header>
@@ -449,6 +474,10 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
       </section>
 
       <ErrorsAdmin rows={serverErrors.error ? null : ((serverErrors.data ?? []) as ServerErrorRow[])} lang={lang} dict={dict} />
+
+      <InventoryAdmin overview={inventory.error ? null : (inventory.data as InventoryOverview)} lang={lang} dict={dict} hidden={hidden} />
+
+      <SmsAdmin rows={smsQuotas.error ? null : ((smsQuotas.data ?? []) as SmsQuotaRow[])} provider={smsProvider} dict={dict} hidden={hidden} />
 
       <BlogAdmin
         limits={blogLimits.error ? null : ((blogLimits.data ?? []) as { plan: "free" | "pro"; max_posts: number | null }[])}

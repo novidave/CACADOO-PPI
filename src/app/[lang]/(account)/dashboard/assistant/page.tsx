@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import type { MyShop } from "@/lib/myShops";
-import { DashboardSection } from "@/components/DashboardSection";
 import { DbError } from "@/components/DbError";
 import { saveAssistantTexts } from "../actions";
+import { Callbacks, loadCallbacks } from "../Callbacks";
 import { CloudFolder, cloudSummary, loadCloud } from "../CloudFolder";
-import { conversationFilter, Conversations, conversationsSummary, loadConversations } from "../Conversations";
+import { conversationFilter, Conversations, conversationsSummary, loadConversations, newConversations } from "../Conversations";
 import { Field, hiddenFields, inputClass, messages, ProOnly, ShopSwitcher, SubmitButton } from "../shared";
 import { loadShopDocs, ShopDocuments } from "../ShopDocuments";
 
@@ -23,13 +24,19 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+/** The page's three tabs (update 55): every section name of the page belongs to one of them. */
+const TABS = ["assistant", "conversations", "docs"] as const;
+type Tab = (typeof TABS)[number];
+const tabOf = (at: string): Tab => (at === "conversations" || at === "cloud" ? "conversations" : at === "docs" ? "docs" : "assistant");
+
 /**
- * "Asistent": everything about the shop's assistant on one page, each part once (update 38), as dropdowns like Môj
- * obchod: 1) "Nastavenia asistenta" (its button text and welcome), 2) "Konverzácie asistenta" (the list with its
- * search, and the cloud folder they are copied to), 3) "Súkromné priečinky" (the documents it answers from, the
- * folders, their access keys and "Len zobraziť" / "Zobraziť a stiahnuť"). "Posledné nahrané súbory" moved to
- * "Priečinok s exportom" (update 43); its old address is forwarded there. A free shop sees "Dostupné v Pro" where it
- * has nothing yet; what it already has stays reachable. Every paid part checks shop_has_plan() in SQL.
+ * "Asistent": everything about the shop's assistant on one page, each part once, as three tabs since update 55 (plain
+ * links, `?at=`, so they work without JavaScript and every old address still lands on its part): 1) "Nastavenia" (its
+ * button text and welcome), 2) "Konverzácie" (status, star, filters, search, bulk actions, exports, the keep time and
+ * the cloud folder they are copied to; the tab shows how many wait as "Nové"), 3) "Súkromné priečinky" (the documents
+ * it answers from, the folders, their access keys and "Len zobraziť" / "Zobraziť a stiahnuť"). "Posledné nahrané
+ * súbory" moved to "Priečinok s exportom" (update 43); its old address is forwarded there. A free shop sees "Dostupné
+ * v Pro" where it has nothing yet; what it already has stays reachable. Every paid part checks shop_has_plan() in SQL.
  */
 export default async function AssistantPage({ params, searchParams }: PageProps<"/[lang]/dashboard/assistant">) {
   const { lang } = await params;
@@ -40,6 +47,8 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
   const { supabase } = session;
   const d = dict.dashboard;
+  const c = dict.conversations;
+  const tab = tabOf(at);
 
   const { data: shopRows, error: shopsError } = await supabase.rpc("my_shops");
   if (shopsError) return <DbError message={shopsError.message} dict={dict} />;
@@ -47,21 +56,30 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   if (!shops.length) redirect(`/${lang}/dashboard`);
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
 
-  const [hasPlan, docsData, conversations, cloud] = await Promise.all([
+  // Only the open tab's data is loaded (the badge of "Konverzácie" is one count).
+  const [hasPlan, docsData, conversations, cloud, newCount, callbacks] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
-    loadShopDocs(supabase, shop.id),
-    // The assistant's conversations (database update 22): owners only.
-    loadConversations(supabase, shop.id, conversationFilter(sp)),
+    tab === "docs" ? loadShopDocs(supabase, shop.id) : Promise.resolve(null),
+    // The assistant's conversations (database update 22, filters update 55): owners only.
+    tab === "conversations" ? loadConversations(supabase, shop.id, conversationFilter(sp)) : Promise.resolve(null),
     // The shop's cloud folder (database update 23): owners only, never the tokens.
-    loadCloud(supabase, shop.id),
+    tab === "conversations" ? loadCloud(supabase, shop.id) : Promise.resolve(null),
+    newConversations(supabase, shop.id),
+    // Shoppers who left a contact after an unanswered question (database update 59).
+    tab === "conversations" ? loadCallbacks(supabase, shop.id) : Promise.resolve(null),
   ]);
   const planActive = !hasPlan.error && hasPlan.data === true;
+  const number = (key: string) => Math.max(0, Math.floor(Number(first(sp[key])) || 0));
   const m = messages(dict, sp, {
     retention: conversations?.retention ?? 90,
-    backfilled: Math.max(0, Math.floor(Number(first(sp.n)) || 0)),
+    backfilled: number("n"),
+    n: number("n"),
+    failed: number("failed"),
   });
   const hidden = hiddenFields(lang, shop);
   const planUrl = `/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
+  const tabUrl = (to: Tab) => `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: shop.slug, at: to })}`;
+  const tabLabels: Record<Tab, string> = { assistant: c.tab_settings, conversations: c.tab_conversations, docs: c.tab_docs };
 
   // What a free shop still has (from its Pro time) stays reachable; otherwise "Dostupné v Pro".
   const showConversations = planActive || (conversations?.all ?? 0) > 0;
@@ -69,15 +87,6 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   const showDocs = Boolean(
     docsData && (planActive || docsData.docs.length > 0 || docsData.pictures.length > 0 || docsData.keys.length > 0),
   );
-  const summaries = {
-    assistant: planActive ? t(d.summary_assistant, { label: shop.assistant_label || dict.chat.title }) : d.pro_only,
-    conversations: showConversations ? conversationsSummary(conversations, dict, lang) : d.pro_only,
-    docs: !docsData
-      ? dict.docs.unavailable
-      : showDocs
-        ? t(d.summary_docs, { documents: docsData.docs.length, pictures: docsData.pictures.length })
-        : d.pro_only,
-  };
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -87,16 +96,39 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
           shops={shops}
           current={shop}
           label={d.shop}
-          href={(slug) => `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: slug })}`}
+          href={(slug) => `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: slug, ...(at ? { at: tab } : {}) })}`}
         />
         <p className="text-muted">{shop.name}</p>
         <p className="text-sm">{dict.account.assistant_page_intro}</p>
         {m.top}
       </header>
 
-      <div className="flex flex-col border-t border-line" data-assistant-sections>
-        {/* 1. Nastavenia asistenta */}
-        <DashboardSection {...m.section("assistant")} first title={d.assistant_title} summary={summaries.assistant}>
+      <nav aria-label={c.tabs} className="flex flex-wrap gap-1 border-b border-line" data-assistant-tabs>
+        {TABS.map((to) => (
+          <Link
+            key={to}
+            href={tabUrl(to)}
+            aria-current={tab === to ? "page" : undefined}
+            className={`-mb-px flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm ${
+              tab === to ? "border-foreground font-semibold" : "border-transparent text-muted hover:text-foreground"
+            }`}
+            data-tab={to}
+          >
+            {tabLabels[to]}
+            {to === "conversations" && newCount > 0 && (
+              <span className="rounded-full border border-foreground px-2 text-xs font-semibold" data-new-count>
+                <span aria-hidden="true">{newCount > 99 ? "99+" : newCount}</span>
+                <span className="sr-only">{t(c.tab_new, { n: newCount })}</span>
+              </span>
+            )}
+          </Link>
+        ))}
+      </nav>
+
+      {/* 1. Nastavenia asistenta */}
+      {tab === "assistant" && (
+        <section id="assistant" className="flex scroll-mt-4 flex-col gap-3" data-tab-panel="assistant">
+          <h2 className="text-lg font-semibold">{d.assistant_title}</h2>
           {m.notice("assistant")}
           <p className="text-sm">{d.assistant_intro}</p>
           {planActive ? (
@@ -127,15 +159,18 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
           ) : (
             <ProOnly dict={dict} href={planUrl} />
           )}
-        </DashboardSection>
+        </section>
+      )}
 
-        {/* 2. Konverzácie asistenta, with the cloud folder they are copied to */}
-        <DashboardSection
-          id="conversations"
-          forceOpen={at === "conversations" || at === "cloud"}
-          title={dict.conversations.title}
-          summary={summaries.conversations}
-        >
+      {/* 2. Konverzácie, with the cloud folder they are copied to */}
+      {tab === "conversations" && (
+        <section id="conversations" className="flex scroll-mt-4 flex-col gap-4" data-tab-panel="conversations">
+          <h2 className="text-lg font-semibold">
+            {c.title} <span className="text-sm font-normal text-muted">· {conversationsSummary(conversations, dict, lang)}</span>
+          </h2>
+          {callbacks && callbacks.length > 0 && (
+            <Callbacks rows={callbacks} lang={lang} timeZone={shop.timezone} dict={dict} hidden={hidden} />
+          )}
           {showConversations ? (
             <Conversations
               data={conversations}
@@ -158,10 +193,21 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
               <CloudFolder cloud={cloud} shop={shop} lang={lang} dict={dict} hasPlan={planActive} hidden={hidden} notice={m.notice("cloud")} />
             </div>
           )}
-        </DashboardSection>
+        </section>
+      )}
 
-        {/* 3. Súkromné priečinky: documents, folders, access keys, "Len zobraziť" / "Zobraziť a stiahnuť" */}
-        <DashboardSection {...m.section("docs")} title={d.private_folders_title} summary={summaries.docs}>
+      {/* 3. Súkromné priečinky: documents, folders, access keys, "Len zobraziť" / "Zobraziť a stiahnuť" */}
+      {tab === "docs" && (
+        <section id="docs" className="flex scroll-mt-4 flex-col gap-3" data-tab-panel="docs">
+          <h2 className="text-lg font-semibold">
+            {d.private_folders_title}
+            {docsData && showDocs && (
+              <span className="text-sm font-normal text-muted">
+                {" · "}
+                {t(d.summary_docs, { documents: docsData.docs.length, pictures: docsData.pictures.length })}
+              </span>
+            )}
+          </h2>
           {!docsData || showDocs ? (
             <ShopDocuments supabase={supabase} data={docsData} shop={shop} lang={lang} dict={dict} hasPlan={planActive} notice={m.notice("docs")} />
           ) : (
@@ -171,8 +217,8 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
               <ProOnly dict={dict} href={planUrl} />
             </>
           )}
-        </DashboardSection>
-      </div>
+        </section>
+      )}
     </div>
   );
 }

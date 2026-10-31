@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
-import { getSession } from "@/lib/auth";
+import { getSession, safeNextPath } from "@/lib/auth";
 import { authErrorText } from "@/lib/authErrors";
 import { AuthField, AuthNotice } from "@/components/AuthField";
 import { signIn } from "./actions";
@@ -15,10 +15,12 @@ export default async function LoginPage({ params, searchParams }: PageProps<"/[l
   if (!isLocale(lang)) notFound();
   const dict = await getDictionary(lang);
 
-  const session = await getSession().catch(() => null);
-  if (session) redirect(`/${lang}/dashboard`);
-
   const sp = await searchParams;
+  // Where to go after logging in: a same-site path only (e.g. the AI assistant's consent page, update 61).
+  const next = typeof sp.next === "string" ? safeNextPath(sp.next, "") : "";
+  const session = await getSession().catch(() => null);
+  if (session) redirect(next || `/${lang}/dashboard`);
+
   const errorText = authErrorText(dict, sp.error, sp.message);
 
   return (
@@ -29,6 +31,7 @@ export default async function LoginPage({ params, searchParams }: PageProps<"/[l
 
       <form action={signIn} className="flex flex-col gap-3">
         <input type="hidden" name="lang" value={lang} />
+        {next && <input type="hidden" name="next" value={next} />}
         <AuthField label={dict.login.email} type="email" name="email" required autoComplete="email" />
         <AuthField label={dict.login.password} type="password" name="password" required autoComplete="current-password" />
         <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium">

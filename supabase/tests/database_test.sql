@@ -81,8 +81,11 @@ begin
   assert (select currency || ' ' || shop_timezone || ' ' || shop_country
           from public.search_stock('kave', 47.4979, 19.0402, 10, false)) = 'HUF Europe/Budapest HU';
   assert (select distance_km from public.search_stock('kave', 47.4979, 19.0402, 10, false)) between 1 and 3;
-  select count(*) into n from public.search_stock('kave', 48.755, 21.918, 10, false);
+  -- update 54: "kave" now also finds the Slovak "Káva" nearby (forgiving search), never the Budapest shop
+  select count(*) into n from public.search_stock('kave', 48.755, 21.918, 10, false) where shop_slug = 'kisbolt-budapest';
   assert n = 0, 'Budapest shop must not appear within 10 km of Michalovce';
+  assert (select bool_and(distance_km <= 10) from public.search_stock('kave', 48.755, 21.918, 10, false)),
+    'every row must be inside the radius';
 
   -- nonsense coordinates are ignored (treated as no location)
   select count(*) into n from public.search_stock('8714789012351', 999, 999, 10, false);
@@ -2172,9 +2175,14 @@ begin
   assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], 'deleted after 30 days';
   update public.shop_assistant_settings set retention_days = 90;
   assert not exists (select 1 from public.assistant_expired(10)), 'a longer keep time keeps it';
-  delete from public.shop_assistant_settings;
   update public.assistant_conversations set last_message_at = now() - interval '91 days' where id = v_id;
-  assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], '90 days when nothing is set';
+  assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], 'deleted after 90 days';
+  -- update 55: nothing set (or "Neobmedzene") = kept until the owner deletes it
+  delete from public.shop_assistant_settings;
+  update public.assistant_conversations set last_message_at = now() - interval '3000 days' where id = v_id;
+  assert not exists (select 1 from public.assistant_expired(10)), 'kept forever when nothing is set';
+  insert into public.shop_assistant_settings (shop_id, retention_days) select shop_id, null from public.assistant_conversations where id = v_id;
+  assert not exists (select 1 from public.assistant_expired(10)), 'kept forever with Neobmedzene';
   -- forgetting removes the messages and files with it
   assert public.assistant_forget(v_id);
   assert not exists (select 1 from public.assistant_messages where conversation_id = v_id)
@@ -3305,7 +3313,9 @@ do $$
 declare
   v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
   v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
-  v_d date := current_date + 3;
+  -- three days on, but never a public holiday (that day or the next): the checks below expect plain days
+  v_d date := (select min(d)::date from generate_series(current_date + 3, current_date + 30, interval '1 day') d
+               where not exists (select 1 from public.public_holidays h where h.date in (d::date, d::date + 1)));
   v_r jsonb;
 begin
   assert public.owner_save_special_hours(v_a, v_d, v_d + 2, true, null, ' Inventúra  www.example.com ') = 3, 'a date range';
@@ -3375,7 +3385,9 @@ do $$
 declare
   v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
   v_h uuid := (select id from public.shops where slug = 'kisbolt-budapest');
-  v_d date := current_date + 3;
+  -- three days on, but never a public holiday (that day or the next): the checks below expect plain days
+  v_d date := (select min(d)::date from generate_series(current_date + 3, current_date + 30, interval '1 day') d
+               where not exists (select 1 from public.public_holidays h where h.date in (d::date, d::date + 1)));
 begin
   assert (select count(*) from public.shop_special_hours where shop_id = v_a) = 2, 'visitors read special days';
   assert (select holiday_kind || ' ' || holiday_closed_from from public.shop_calendar(array[v_a, v_h], '2026-12-20', '2027-01-10')
@@ -3394,7 +3406,9 @@ set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
 do $$
 declare
   v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
-  v_d date := current_date + 3;
+  -- three days on, but never a public holiday (that day or the next): the checks below expect plain days
+  v_d date := (select min(d)::date from generate_series(current_date + 3, current_date + 30, interval '1 day') d
+               where not exists (select 1 from public.public_holidays h where h.date in (d::date, d::date + 1)));
 begin
   assert public.owner_set_auto_holidays(v_a, false) = false;
   assert not exists (select 1 from public.shop_calendar(array[v_a], '2026-12-20', '2027-01-10') where holiday_kind is not null),
@@ -6897,16 +6911,17 @@ begin
   assert public.search_patterns('  ') = '{}'::text[], 'blank query → no patterns';
   assert cardinality(public.search_patterns('Káva  zrnková')) = 2, 'two words → two patterns';
   assert public.search_patterns('50%') = array['%50\%%'], '% is escaped';
-  -- Search gives what the rule says: every word matches, sold out still listed, EAN exact.
-  assert (select count(*) from public.search_stock('káva')) = 3, 'three coffees in the seed';
+  -- Search gives what the rule says: every word matches, sold out still listed, EAN exact. Since update 54 these are
+  -- the 'exact' rows; the forgiving ones ("Kávé") come after them.
+  assert (select count(*) from public.item_search('káva') where kind = 'exact') = 3, 'three coffees in the seed';
   assert (select count(*) from public.search_stock('kava zrnkova')) = 1, 'every word must match (no accents)';
   assert (select count(*) from public.search_stock('káva lavazza')) = 1, 'brand counts as a word';
   assert (select count(*) from public.search_stock('káva centrum')) = 2, 'shop name counts as a word';
   assert (select count(*) from public.search_stock('8000070012345')) = 1, 'EAN';
   assert (select count(*) from public.search_stock('káva neexistuje')) = 0, 'a missing word → nothing';
   assert not exists (
-    select 1 from public.search_stock('káva') r join public.shop_items si on si.id = r.item_id
-    where not public.matches_all_words(
+    select 1 from public.item_search('káva') r join public.shop_items si on si.id = r.item_id
+    where r.kind = 'exact' and not public.matches_all_words(
       public.item_names_text(si.name, si.name_i18n) || ' ' || coalesce(r.brand, '') || ' ' || coalesce(r.ean, '') || ' '
         || r.shop_name || ' ' || coalesce(r.shop_address, '') || ' ' || coalesce(r.shop_city, ''), 'káva')
   ), 'every row matches all words';
@@ -7328,5 +7343,3153 @@ begin
   assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.shop_content(text)'::regprocedure), 'still without JIT';
 end $$;
 reset role;
+
+-- ------------------------------------------------------------------ update 45: review after an upload, translations folder
+\echo '--- export folder: review and translation files (update 45)'
+do $$
+declare
+  v_shop uuid;
+begin
+  insert into public.shops (slug, name, ico, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-export', 'Farby Export', null, address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.sync_sources (shop_id, file_format, field_mapping, mapping_status, last_file_name, file_columns)
+  values (v_shop, 'csv', '{"source_code":"Kód","name":"Názov","ean":"EAN","quantity":"Mn","price":"Cena","category":"Kat"}', 'confirmed',
+          'sklad.csv', array['Kód', 'Názov', 'EAN', 'Mn', 'Cena', 'Kat', 'NákupnáCena', 'Poznámka']);
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"E1","name":"Farba biela 5 l","ean":"8580000000101","quantity":4,"price":29.9,"category":"Farby"},
+    {"source_code":"E2","name":"Štetec 50 mm","ean":"8580000000102","quantity":7,"price":3.5},
+    {"source_code":"E3","name":"Valček 25 cm","quantity":0,"price":6}
+  ]', '2026-10-25 08:00:00+00', '[]');
+end $$;
+
+-- another owner and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+begin
+  begin perform public.owner_export_review(v_shop); raise exception 'B read the review'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_export_review(v_shop, '{}', null, false, false); raise exception 'B saved'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_export_auto(v_shop); raise exception 'B auto'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_export_info(v_shop); raise exception 'B info'; exception when insufficient_privilege then null; end;
+  begin perform * from public.owner_export_rows(v_shop, null); raise exception 'B rows'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_apply_export_edits(v_shop, 'hu', 'x', '[]'); raise exception 'B edits'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_log_export_files_deleted(v_shop, 1); raise exception 'B logged'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_request_export_files_delete(v_shop); raise exception 'B asked to delete'; exception when insufficient_privilege then null; end;
+  begin perform public.export_new_items(v_shop); raise exception 'internal function callable'; exception when insufficient_privilege then null; end;
+  begin perform public.export_mark_seen(v_shop); raise exception 'internal function callable'; exception when insufficient_privilege then null; end;
+  assert (select count(*) from public.shop_export_marks where shop_id = v_shop) = 0, 'B reads no marks of A';
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_export_review((select id from public.public_shops where slug = 'farby-export')); raise exception 'anon read';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- owner A: the card asks about the two new columns and the three new products
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_r jsonb := public.owner_export_review((select id from public.shops where slug = 'farby-export'));
+  v_s jsonb;
+begin
+  assert (v_r ->> 'needed')::boolean, 'a decision is needed';
+  assert v_r -> 'new_columns' = '["NákupnáCena", "Poznámka"]'::jsonb, v_r ->> 'new_columns';
+  assert (v_r ->> 'new_products')::int = 3 and (v_r ->> 'changed_products')::int = 0, v_r::text;
+  assert v_r -> 'free_fields' = '["brand", "currency", "description"]'::jsonb, v_r ->> 'free_fields';
+  assert (v_r ->> 'max_langs')::int = 2, 'free plan: two languages';
+  -- refused: a column that is not new, a field already used, the same field twice, more languages than the plan
+  begin perform public.owner_save_export_review(v_shop, '{"Názov":"private"}', null, false, false); raise exception 'old column accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'column'; end;
+  begin perform public.owner_save_export_review(v_shop, '{"Poznámka":"name"}', null, false, false); raise exception 'taken field accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'field'; end;
+  begin perform public.owner_save_export_review(v_shop, '{"Poznámka":"description","NákupnáCena":"description"}', null, false, false);
+    raise exception 'same field twice accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'field'; end;
+  begin perform public.owner_save_export_review(v_shop, '{}', array['hu', 'de', 'en'], false, false); raise exception 'over the plan';
+  exception when invalid_parameter_value then assert sqlerrm = 'limit'; end;
+  assert (select field_mapping ->> 'description' from public.my_shops() where id = v_shop) is null, 'a refused card changed nothing';
+  -- saved: Poznámka → description, NákupnáCena private, hu + de, descriptions for the new products
+  v_s := public.owner_save_export_review(v_shop, '{"Poznámka":"description","NákupnáCena":"private"}', array['hu', 'de'], true, false);
+  assert jsonb_array_length(v_s -> 'describe_ids') = 3 and (v_s ->> 'marked')::int = 3, v_s::text;
+  assert (select field_mapping ->> 'description' from public.my_shops() where id = v_shop) = 'Poznámka';
+  assert (select mapping_status from public.my_shops() where id = v_shop) = 'confirmed', 'still approved';
+  assert (select private_columns from public.shop_export_settings where shop_id = v_shop) = array['NákupnáCena'];
+  assert public.shop_preferred_langs(v_shop) = array['hu', 'de'], 'the languages';
+  v_r := public.owner_export_review(v_shop);
+  assert not (v_r ->> 'needed')::boolean and v_r -> 'new_columns' = '[]'::jsonb, v_r::text;
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'export_review');
+end $$;
+reset role;
+
+-- a changed product (its name in the next file) is asked about again; "Zapamätať" handles it without asking
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+begin
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"E1","name":"Farba biela 5 l","ean":"8580000000101","quantity":4,"price":29.9,"category":"Farby"},
+    {"source_code":"E2","name":"Štetec plochý 50 mm","ean":"8580000000102","quantity":7,"price":3.5},
+    {"source_code":"E3","name":"Valček 25 cm","quantity":0,"price":6},
+    {"source_code":"E4","name":"Páska 50 m","quantity":3,"price":2}
+  ]', '2026-10-26 08:00:00+00', '[]');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_r jsonb := public.owner_export_review((select id from public.shops where slug = 'farby-export'));
+  v_a jsonb;
+begin
+  assert (v_r ->> 'needed')::boolean and (v_r ->> 'new_products')::int = 1 and (v_r ->> 'changed_products')::int = 1, v_r::text;
+  v_a := public.owner_export_auto(v_shop);
+  assert not (v_a ->> 'remember')::boolean and (v_a ->> 'marked')::int = 0, 'nothing without "Zapamätať"';
+  perform public.owner_save_export_review(v_shop, '{}', null, true, true);
+  assert not (public.owner_export_review(v_shop) ->> 'needed')::boolean;
+end $$;
+reset role;
+do $$ begin
+  perform public.apply_stock_file((select id from public.shops where slug = 'farby-export'), '[
+    {"source_code":"E1","name":"Farba biela 5 l","ean":"8580000000101","quantity":4,"price":29.9,"category":"Farby"},
+    {"source_code":"E2","name":"Štetec plochý 50 mm","ean":"8580000000102","quantity":7,"price":3.5},
+    {"source_code":"E3","name":"Valček 25 cm","quantity":0,"price":6},
+    {"source_code":"E4","name":"Páska 50 m","quantity":3,"price":2},
+    {"source_code":"E5","name":"Tmel 300 ml","quantity":5,"price":4}
+  ]', '2026-10-27 08:00:00+00', '[]');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_a jsonb;
+begin
+  assert not (public.owner_export_review(v_shop) ->> 'needed')::boolean, 'remembered: no card for new products';
+  v_a := public.owner_export_auto(v_shop);
+  assert (v_a ->> 'remember')::boolean and (v_a ->> 'marked')::int = 1, v_a::text;
+  -- E5 has no description: it is described; E1–E4 were marked before and are not described again
+  assert v_a -> 'describe_ids' = jsonb_build_array((select id from public.shop_items where shop_id = v_shop and source_code = 'E5')), v_a::text;
+  assert (public.owner_export_auto(v_shop) ->> 'marked')::int = 0, 'only once';
+end $$;
+reset role;
+
+-- the files: what is written (approved columns only) and the owner's edits
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_e1 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-export') and source_code = 'E1');
+begin
+  -- E1 has a category (from the file's texts), Cacaduu's description and an AI translation of it
+  update public.shop_items set category = 'Farby' where id = v_e1;
+  insert into public.item_descriptions (item_id, shop_id, text, published_at) values (v_e1, v_shop, 'Biela farba.', now());
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  values (v_shop, 'item_description', v_e1::text, 'hu', 'Fehér festék.', 'ai', md5('Biela farba.'));
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_e1 uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-export') and source_code = 'E1');
+  v_i jsonb := public.owner_export_info((select id from public.shops where slug = 'farby-export'));
+  v_version text;
+  v_e jsonb;
+  v_n integer;
+begin
+  assert v_i -> 'langs' = '["de", "hu"]'::jsonb, v_i ->> 'langs';
+  assert (v_i ->> 'items')::int = 5;
+  assert not (v_i -> 'columns')::text like '%NákupnáCena%', 'a private column is never a column of the files';
+  assert v_i -> 'columns' @> '[{"field":"description","column":"Poznámka"}]'::jsonb, v_i ->> 'columns';
+  v_version := v_i ->> 'version';
+  assert (select count(*) from public.owner_export_rows(v_shop, null)) = 5;
+  assert (select st_name from public.owner_export_rows(v_shop, null) where code = 'E1') is null, 'the main file has no translation states';
+  assert (select st_name from public.owner_export_rows(v_shop, 'hu') where code = 'E1') = 'missing';
+  assert (select st_cat from public.owner_export_rows(v_shop, 'hu') where code = 'E2') = 'no_source', 'E2 has no category';
+  assert (select count(*) from public.owner_export_rows(v_shop, 'hu', 4, 1000)) = 1, 'paged';
+  begin perform * from public.owner_export_rows(v_shop, 'xx-yy'); raise exception 'bad language'; exception when invalid_parameter_value then null; end;
+
+  -- the main file's "Popis" → the owner's approved description; an AI translation of the old one becomes stale
+  v_e := public.owner_apply_export_edits(v_shop, null, 'sklad.sk.xlsx', '[
+    {"code":"E1","field":"description","text":"Biela farba na steny, 5 l."},
+    {"code":"E2","field":"price","text":"1"},
+    {"code":"NEZNAMY","field":"description","text":"x"}
+  ]');
+  assert (v_e ->> 'applied')::int = 1, v_e::text;
+  assert v_e -> 'unknown' = '[{"code":"NEZNAMY","ean":null}]'::jsonb, v_e::text;
+  assert v_e -> 'skipped' @> '[{"code":"E2","field":"price","reason":"readonly"}]'::jsonb, v_e::text;
+  assert (select text from public.item_description_shown(v_e1)) = 'Biela farba na steny, 5 l.';
+  assert (select public.translation_state(c.status, c.source_hash, 'Biela farba na steny, 5 l.') from public.content_translations c
+          where c.shop_id = v_shop and c.kind = 'item_description' and c.ref = v_e1::text and c.lang = 'hu') = 'stale', 'its AI translation is stale';
+  assert (select quantity from public.inventory where shop_item_id = (select id from public.shop_items where shop_id = v_shop and source_code = 'E2')) = 7,
+    'the stock is never changed';
+
+  -- a language file: changed cells → the owner's own translations; matched by EAN when the code is missing
+  v_e := public.owner_apply_export_edits(v_shop, 'hu', 'sklad.hu.xlsx', '[
+    {"code":"E1","field":"name","text":"Fehér festék 5 l"},
+    {"code":"","ean":"8580000000102","field":"name","text":"Lapos ecset 50 mm"},
+    {"code":"E1","field":"category","text":"Festékek"},
+    {"code":"E2","field":"category","text":"Ecsetek"},
+    {"code":"E1","field":"description","text":"   "}
+  ]');
+  assert (v_e ->> 'applied')::int = 3, v_e::text;
+  assert v_e -> 'skipped' @> '[{"code":"E2","field":"category","reason":"no_source"}]'::jsonb, v_e::text;
+  assert (select status from public.content_translations where shop_id = v_shop and kind = 'item_name' and ref = v_e1::text and lang = 'hu') = 'manual';
+  assert (select text from public.content_translations where shop_id = v_shop and kind = 'item_description' and ref = v_e1::text and lang = 'hu') = 'Fehér festék.',
+    'an empty cell changes nothing';
+  assert (select st_name from public.owner_export_rows(v_shop, 'hu') where code = 'E2') = 'manual';
+  -- the same text again: nothing new; the version of the files moved on with the edits
+  v_e := public.owner_apply_export_edits(v_shop, 'hu', 'sklad.hu.xlsx', '[{"code":"E1","field":"name","text":"Fehér festék 5 l"}]');
+  assert (v_e ->> 'applied')::int = 0 and (v_e ->> 'same')::int = 1, v_e::text;
+  assert public.owner_export_info(v_shop) ->> 'version' <> v_version, 'the files are written again';
+  begin perform public.owner_apply_export_edits(v_shop, 'hu', 'x', '{}'); raise exception 'not a list'; exception when invalid_parameter_value then null; end;
+  select count(*) into v_n from public.shop_activity where shop_id = v_shop and action = 'export_edits';
+  assert v_n = 2, 'two applied files in the activity log';
+  assert public.owner_export_info(v_shop) -> 'delete_files_at' = 'null'::jsonb, 'no deletion asked';
+  perform public.owner_request_export_files_delete(v_shop);
+  assert public.owner_export_info(v_shop) ->> 'delete_files_at' is not null, 'the shop PC is asked to delete its files';
+  perform public.owner_log_export_files_deleted(v_shop, 3);
+  assert public.owner_export_info(v_shop) -> 'delete_files_at' = 'null'::jsonb, 'done';
+  assert (select details ->> 'files' from public.shop_activity where shop_id = v_shop and action = 'export_files_deleted') = '3';
+  assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.owner_export_rows(uuid,text,integer,integer)'::regprocedure);
+end $$;
+reset role;
+
+-- ------------------------------------------------------------------ update 46: the assistant's texts in every language
+\echo '--- assistant label and welcome: preset translations, also into the shop language (update 46)'
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+  v_hash text;
+  v_langs text[];
+begin
+  update public.shops set assistant_label = 'Keresés Cacadoo Assistenssel',
+    assistant_welcome = 'Keress rá kedvenc termékedre.' where id = v_shop;
+  assert public.shop_main_lang(v_shop) = 'sk', 'a Slovak shop';
+  assert public.preset_translation_kind('assistant_label') and public.preset_translation_kind('assistant_welcome');
+  assert not public.preset_translation_kind('item_name') and not public.preset_translation_kind('blog_body');
+  -- every pre-translated language (sk, hu, en) and the shop's own language; item names never into the shop's own
+  v_langs := public.shop_target_langs(v_shop, 'assistant_label');
+  assert v_langs @> array['sk', 'hu', 'en'], v_langs::text;
+  assert not ('sk' = any (public.shop_target_langs(v_shop, 'item_name'))), 'items keep the old rule';
+  assert not ('sk' = any (public.shop_target_langs(v_shop, 'special_note'))), 'other texts keep the old rule';
+  -- the translate function is told to see the language itself
+  assert (select source_lang from public.translation_work(500, v_shop, 'sk') where kind = 'assistant_label') = 'auto';
+  assert exists (select 1 from public.translation_work(500, v_shop, 'hu') where kind = 'assistant_welcome' and source_lang = 'auto');
+  assert exists (select 1 from public.translation_work(500, v_shop, 'en') where kind = 'assistant_label');
+  -- stored like any AI translation; the shop's own language reads it
+  select source_hash into v_hash from public.translation_work(500, v_shop, 'sk') where kind = 'assistant_label';
+  assert public.apply_translations(jsonb_build_array(jsonb_build_object('shop_id', v_shop, 'kind', 'assistant_label', 'ref', v_shop::text,
+    'lang', 'sk', 'text', 'Hľadanie s asistentom Cacadoo', 'source_hash', v_hash))) = 1;
+  assert (select text from public.shop_translations('farby-export', 'sk', array['assistant_label'])) = 'Hľadanie s asistentom Cacadoo';
+  assert not exists (select 1 from public.translation_work(500, v_shop, 'sk') where kind = 'assistant_label'), 'done once';
+  -- the owner changes the text: made again
+  update public.shops set assistant_label = 'Keresés' where id = v_shop;
+  assert exists (select 1 from public.translation_work(500, v_shop, 'sk') where kind = 'assistant_label'), 'a changed original is translated again';
+  assert not exists (select 1 from public.shop_translations('farby-export', 'sk', array['assistant_label'])), 'never a stale text';
+  assert (select proconfig @> array['jit=off'] from pg_proc where oid = 'public.translation_work(integer,uuid,text)'::regprocedure);
+end $$;
+set role anon;
+do $$
+begin
+  begin perform public.shop_target_langs((select id from public.public_shops where slug = 'farby-export'), 'assistant_label');
+    raise exception 'anon read the target languages';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- ------------------------------------------------------------------ update 47: the company in Môj obchod
+\echo '--- the company under the address: name, IČO, DIČ, PSČ (update 47)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+begin
+  perform public.owner_save_company(v_shop, '  Farby  <s.r.o.> ', ' sk2020123456 ', ' 040  01 ');
+  assert (select zip from public.my_shops() where id = v_shop) = '040 01', 'one space';
+  assert (select company_name from public.my_shops() where id = v_shop) = 'Farby s.r.o.', 'plain text, no tags';
+  assert (select dic from public.my_shops() where id = v_shop) = 'SK2020123456', 'trimmed, upper case';
+  begin perform public.owner_save_company(v_shop, 'Farby', 'x', null); raise exception 'a bad DIČ was kept';
+  exception when invalid_parameter_value then assert sqlerrm = 'dic'; end;
+  begin perform public.owner_save_company(v_shop, repeat('a', 201), null, null); raise exception 'a long name was kept';
+  exception when invalid_parameter_value then assert sqlerrm = 'company_name'; end;
+  begin perform public.owner_save_company(v_shop, 'Farby', null, '04001!'); raise exception 'a bad PSČ was kept';
+  exception when invalid_parameter_value then assert sqlerrm = 'zip'; end;
+  perform public.owner_save_company(v_shop, '', '', '');
+  assert (select company_name is null and dic is null and zip is null from public.my_shops() where id = v_shop), 'empty fields clear';
+  perform public.owner_save_company(v_shop, 'Farby s.r.o.', '2020123456', '04001');
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_save_company((select id from public.shops where slug = 'farby-export'), 'X', null, null);
+    raise exception 'B saved A''s company';
+  exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.shop_company), 'B reads no company of A';
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_save_company((select id from public.public_shops where slug = 'farby-export'), 'X', null, null);
+    raise exception 'anon saved';
+  exception when insufficient_privilege then null; end;
+  begin perform (select company_name from public.shop_company limit 1); raise exception 'anon read the company';
+  exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name in ('public_shops', 'shops')
+    and column_name in ('company_name', 'dic', 'zip')), 'never next to the public shop data';
+end $$;
+reset role;
+
+-- ------------------------------------------------------------------ update 48: the company on the shop page
+\echo '--- the company on the shop page: shop_company_details() (update 48)'
+set role anon;
+do $$
+declare
+  r record;
+begin
+  select * into r from public.shop_company_details('farby-export');
+  assert r.company_name = 'Farby s.r.o.' and r.dic = '2020123456' and r.zip = '04001', r::text;
+  assert not exists (select 1 from public.shop_company_details('no-such-shop')), 'unknown shop: nothing';
+  begin perform (select company_name from public.shop_company limit 1); raise exception 'anon read the table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+do $$
+begin
+  update public.shops set is_active = false where slug = 'farby-export';
+end $$;
+set role anon;
+do $$
+begin
+  assert not exists (select 1 from public.shop_company_details('farby-export')), 'a hidden shop shows nothing';
+end $$;
+reset role;
+update public.shops set is_active = true where slug = 'farby-export';
+
+-- ------------------------------------------------------------------ update 49: inventory program over an API
+\echo '--- inventory API: connection, key never readable, one source, approval, safe runs (update 49)'
+do $$
+declare
+  v_shop uuid;
+  v_free uuid;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-api', 'Farby API', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  perform public.apply_stripe_subscription(v_shop, 'cus_INV1', 'sub_INV1', 'active', 'pro', now() + interval '30 days', null);
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-api-free', 'Farby API Free', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_free;
+  insert into public.shop_members (shop_id, user_id) values (v_free, '00000000-0000-0000-0000-00000000000a');
+  -- the defaults: Pro on every 15 minutes, Free off; SuperFaktúra at least hourly; Shoptet / Dotykačka not built
+  assert (select allowed and interval_minutes = 15 from public.inventory_plan_settings where plan = 'pro');
+  assert (select not allowed and interval_minutes = 1440 from public.inventory_plan_settings where plan = 'free');
+  assert (select not built and not enabled from public.inventory_providers where code = 'shoptet');
+  assert extract(epoch from public.inventory_interval(v_shop, 'superfaktura')) = 3600, 'the provider''s request limit';
+  assert extract(epoch from public.inventory_interval(v_shop, 'woocommerce')) = 900;
+  begin update public.inventory_providers set enabled = true where code = 'dotykacka'; raise exception 'enabled unbuilt';
+  exception when check_violation then null; end;
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_free uuid := (select id from public.shops where slug = 'farby-api-free');
+  v_card jsonb;
+begin
+  assert public.owner_inventory_can_connect(v_shop, 'woocommerce') = 'ok';
+  assert public.owner_inventory_can_connect(v_free, 'woocommerce') = 'plan', 'Free: not by default';
+  assert public.owner_inventory_can_connect(v_shop, 'shoptet') = 'provider', 'Pripravujeme';
+  v_card := public.owner_inventory_api(v_shop);
+  assert (v_card ->> 'allowed')::boolean and v_card -> 'connection' = 'null'::jsonb, v_card::text;
+  assert (select (e ->> 'available')::boolean from jsonb_array_elements(v_card -> 'providers') e where e ->> 'code' = 'shoptet') = false;
+  -- owners never write a connection themselves
+  begin insert into public.inventory_connections (shop_id, provider, key_cipher) values (v_shop, 'custom', 'v1.a.b');
+    raise exception 'owner inserted'; exception when insufficient_privilege then null; end;
+  begin perform public.inventory_save_connection(v_shop, 'custom', 'v1.a.b', '1234', '{}'); raise exception 'service fn callable';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_approve(v_shop, '{}'::jsonb); raise exception 'approved nothing';
+  exception when no_data_found then null; end;
+end $$;
+reset role;
+
+-- the function saves a tested key and the preview
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  perform public.inventory_save_connection(v_shop, 'woocommerce', 'v1.aXY.c2VjcmV0', 'ab12', '{"store_url":"https://obchod.example"}');
+  assert (select status from public.inventory_connections where shop_id = v_shop) = 'preview';
+  assert public.inventory_save_preview(v_shop, array['id', 'sku', 'name', 'price', 'stock_quantity', 'purchase_price'],
+    '[{"sku":"A1","name":"Farba","price":"9.90","stock_quantity":3,"purchase_price":"5"}]', 120, true,
+    '{"source_code":"sku","name":"name","price":"price","quantity":"stock_quantity"}') = 'ok';
+  assert not (select 'purchase_price' = any (fields) from public.inventory_connections where shop_id = v_shop), 'private field dropped';
+  assert not ((select sample_rows -> 0 from public.inventory_connections where shop_id = v_shop) ? 'purchase_price'), 'not in the preview';
+  -- one source: no folder sync, no upload while connected
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_card jsonb;
+begin
+  begin perform public.upload_check_in(v_shop); raise exception 'upload while connected';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'api_connected'; end;
+  -- the key column is not readable, everything else is
+  begin perform (select key_cipher from public.inventory_connections where shop_id = v_shop); raise exception 'key readable';
+  exception when insufficient_privilege then null; end;
+  assert (select key_hint from public.inventory_connections where shop_id = v_shop) = 'ab12';
+  v_card := public.owner_inventory_api(v_shop);
+  assert not (v_card -> 'connection' ? 'key_cipher') and v_card::text not like '%c2VjcmV0%', 'the card has no key';
+  assert v_card #>> '{connection,status}' = 'preview' and v_card #>> '{connection,mapping_status}' = 'proposed';
+  -- nothing runs before the approval
+  begin perform public.owner_inventory_sync_now(v_shop); raise exception 'synced before approval';
+  exception when invalid_parameter_value then assert sqlerrm = 'not_active'; end;
+  -- a mapping must use the API's fields, never a private one, and have code, name, price and quantity
+  begin perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"price"}'); raise exception 'no quantity';
+  exception when invalid_parameter_value then assert sqlerrm = 'mapping'; end;
+  begin perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"purchase_price","quantity":"stock_quantity"}');
+    raise exception 'private field approved'; exception when invalid_parameter_value then null; end;
+  begin perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"nope","price":"price","quantity":"stock_quantity"}');
+    raise exception 'unknown field approved'; exception when invalid_parameter_value then null; end;
+  begin perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"price"}', true);
+    raise exception 'without quantity although it has one'; exception when invalid_parameter_value then null; end;
+  perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"price","quantity":"stock_quantity","ean":null}');
+  assert (select status = 'active' and mapping_status = 'confirmed' and not (mapping ? 'ean') from public.inventory_connections where shop_id = v_shop);
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'inventory_api_approved');
+end $$;
+reset role;
+
+-- runs: claimed once, complete data applied, empty / older never, failures back off, an invalid key stops
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_r jsonb;
+  v_next timestamptz;
+begin
+  assert (select count(*) from public.inventory_claim(10, v_shop)) = 1, 'due';
+  assert (select count(*) from public.inventory_claim(10, v_shop)) = 0, 'never two runs at once';
+  v_r := public.inventory_apply(v_shop, '[{"source_code":"A1","name":"Farba biela","quantity":3,"price":9.9,"currency":"EUR"},
+                                          {"source_code":"A2","name":"Štetec","quantity":0,"price":2.5,"currency":"EUR"}]',
+                                '2026-10-27 10:00:00+00', '[{"sku":"A1"}]');
+  assert v_r ->> 'status' = 'updated' and (v_r ->> 'items')::int = 2 and (v_r ->> 'changed')::int = 2, v_r::text;
+  assert (select public.freshness_label(latest_file_time) from public.sync_sources where shop_id = v_shop) is not null;
+  assert (select last_file_name from public.sync_sources where shop_id = v_shop) = 'API · woocommerce';
+  -- the same or older data again: refused
+  assert public.inventory_apply(v_shop, '[{"source_code":"A1","name":"Farba biela","quantity":0,"price":9.9}]',
+                                '2026-10-27 10:00:00+00', null) ->> 'status' = 'older';
+  -- an empty result is never "everything sold out"
+  assert public.inventory_apply(v_shop, '[]', '2026-10-27 11:00:00+00', null) ->> 'status' = 'empty';
+  assert (select inv.quantity from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+          where si.shop_id = v_shop and si.source_code = 'A1') = 3, 'stock kept';
+  perform public.inventory_record_import(v_shop, 'API · WooCommerce', '2026-10-27 10:00:00+00', 'ok', 2, 2, 0, 0, null,
+    '[{"sku":"A1","name":"Farba biela","price":"9.9","stock_quantity":3,"purchase_price":"5"}]');
+  assert (select source = 'api' and not (preview -> 0 ? 'purchase_price') from public.stock_imports
+          where shop_id = v_shop order by id desc limit 1), 'the report: source api, approved fields only';
+  perform public.inventory_finish(v_shop, '{"kind":"ok","items":2,"changed":2}');
+  assert (select running_since is null and last_success_at is not null and next_run_at > now() + interval '14 minutes'
+          from public.inventory_connections where shop_id = v_shop);
+  -- a warning (incomplete data): nothing applied, the next run as usual
+  perform public.inventory_finish(v_shop, '{"kind":"warning","code":"incomplete","message":"Not all pages"}');
+  assert (select last_error_code = 'incomplete' and fail_count = 0 from public.inventory_connections where shop_id = v_shop);
+  -- failures: 5 min, then 10, logged once
+  perform public.inventory_finish(v_shop, '{"kind":"error","code":"network","message":"timeout"}');
+  select next_run_at into v_next from public.inventory_connections where shop_id = v_shop;
+  assert v_next between now() + interval '4 minutes' and now() + interval '6 minutes', v_next::text;
+  perform public.inventory_finish(v_shop, '{"kind":"error","code":"network","message":"timeout"}');
+  assert (select next_run_at between now() + interval '9 minutes' and now() + interval '11 minutes' from public.inventory_connections where shop_id = v_shop);
+  perform public.inventory_finish(v_shop, '{"kind":"error","code":"rate_limited","message":"429","retry_after":7200}');
+  assert (select next_run_at > now() + interval '119 minutes' from public.inventory_connections where shop_id = v_shop), 'Retry-After';
+  assert (select count(*) from public.shop_activity where shop_id = v_shop and action = 'inventory_api_error') = 1, 'logged once';
+  perform public.inventory_finish(v_shop, '{"kind":"ok","items":2,"changed":0}');
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'inventory_api_recovered');
+  -- an invalid key stops the runs; after 24 h one e-mail
+  perform public.inventory_finish(v_shop, '{"kind":"error","code":"invalid_key","message":"401"}');
+  assert (select status = 'invalid_key' and next_run_at is null from public.inventory_connections where shop_id = v_shop);
+  assert (select count(*) from public.inventory_claim(10, v_shop)) = 0, 'no runs with an invalid key';
+  assert not exists (select 1 from public.inventory_alerts_due() where shop_id = v_shop), 'not before 24 h';
+  update public.inventory_connections set invalid_since = now() - interval '25 hours' where shop_id = v_shop;
+  assert (select emails from public.inventory_alerts_due() where shop_id = v_shop) = array['owner-a@example.invalid'];
+  perform public.inventory_alert_sent(v_shop);
+  assert not exists (select 1 from public.inventory_alerts_due() where shop_id = v_shop), 'once';
+  -- a new valid key brings it back, mapping kept
+  perform public.inventory_save_connection(v_shop, 'woocommerce', 'v1.bmV3.a2V5', 'cd34', '{"store_url":"https://obchod.example"}');
+  assert (select status = 'active' and mapping_status = 'confirmed' and invalid_since is null from public.inventory_connections where shop_id = v_shop);
+  -- the fields changed: asked again, never approved by itself
+  assert public.inventory_save_preview(v_shop, array['id', 'code', 'title', 'price'], '[]', 10, false, '{"source_code":"code"}') = 'changed';
+  assert (select status = 'preview' and mapping_status = 'proposed' from public.inventory_connections where shop_id = v_shop);
+  assert public.inventory_apply(v_shop, '[{"source_code":"A1","name":"x","quantity":0,"price":1}]', now(), null) ->> 'status' = 'not_active';
+end $$;
+
+-- a provider without quantities: names and prices only, never an availability
+do $$
+declare
+  v_free uuid := (select id from public.shops where slug = 'farby-api-free');
+begin
+  update public.inventory_plan_settings set allowed = true where plan = 'free';
+  perform public.inventory_save_connection(v_free, 'custom', 'v1.YQ.Yg', '9999', '{"format":"json"}');
+  perform public.inventory_save_preview(v_free, array['code', 'title', 'price'], '[]', 1, false, '{"source_code":"code","name":"title","price":"price"}');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_free uuid := (select id from public.shops where slug = 'farby-api-free');
+begin
+  perform public.owner_inventory_approve(v_free, '{"source_code":"code","name":"title","price":"price"}', true);
+  assert (select publish_without_quantity from public.inventory_connections where shop_id = v_free);
+end $$;
+reset role;
+do $$
+declare
+  v_free uuid := (select id from public.shops where slug = 'farby-api-free');
+begin
+  assert public.inventory_apply(v_free, '[{"source_code":"P1","name":"Lak","price":4.2,"currency":"EUR"}]', now(), null) ->> 'status' = 'updated';
+  assert (select public.freshness_label(latest_file_time) from public.sync_sources where shop_id = v_free) = 'stale',
+    'the data time is not renewed: no availability is shown';
+  assert (select availability is null and price = 4.2 from public.public_stock where shop_slug = 'farby-api-free' and item_name = 'Lak');
+  update public.inventory_plan_settings set allowed = false where plan = 'free';
+  assert (select count(*) from public.inventory_claim(10, v_free)) = 0, 'Free switched off: no runs';
+end $$;
+
+-- another owner and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  assert not exists (select 1 from public.inventory_connections where shop_id = v_shop), 'B sees no connection of A';
+  begin perform public.owner_inventory_api(v_shop); raise exception 'B read'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_disconnect(v_shop); raise exception 'B disconnected'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_sync_now(v_shop); raise exception 'B synced'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_inventory_approve(v_shop, '{}'); raise exception 'B approved'; exception when insufficient_privilege then null; end;
+  begin perform public.admin_inventory_overview(); raise exception 'not admin'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform (select provider from public.inventory_connections limit 1); raise exception 'anon read';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the admin: settings, providers, the list without keys
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare
+  v_o jsonb;
+begin
+  perform public.admin_save_inventory_settings(30, true, 720);
+  assert (select (e ->> 'interval_minutes')::int from jsonb_array_elements(public.admin_inventory_overview() -> 'plans') e where e ->> 'plan' = 'pro') = 30;
+  perform public.admin_set_inventory_provider('shoptet', true);
+  assert (select not (e ->> 'enabled')::boolean from jsonb_array_elements(public.admin_inventory_overview() -> 'providers') e where e ->> 'code' = 'shoptet'), 'not built: stays off';
+  perform public.admin_set_inventory_provider('woocommerce', false);
+  v_o := public.admin_inventory_overview();
+  assert jsonb_array_length(v_o -> 'connections') >= 2 and v_o::text not like '%v1.%' and v_o::text not like '%cd34%', 'no keys';
+  perform public.admin_set_inventory_provider('woocommerce', true);
+  perform public.admin_save_inventory_settings(15, false, 1440);
+end $$;
+reset role;
+
+-- sync now: 4 an hour; disconnect deletes the key and frees the uploads
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  perform public.owner_inventory_approve(v_shop, '{"source_code":"code","name":"title","price":"price"}', false)
+  ;
+exception when invalid_parameter_value then null; -- no quantity field any more: refused (checked above)
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  perform public.inventory_save_preview(v_shop, array['sku', 'name', 'price', 'stock_quantity'], '[]', 2, true,
+    '{"source_code":"sku","name":"name","price":"price","quantity":"stock_quantity"}');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+begin
+  perform public.owner_inventory_approve(v_shop, '{"source_code":"sku","name":"name","price":"price","quantity":"stock_quantity"}');
+  for i in 1..4 loop perform public.owner_inventory_sync_now(v_shop); end loop;
+  begin perform public.owner_inventory_sync_now(v_shop); raise exception 'fifth sync';
+  exception when program_limit_exceeded then assert sqlerrm = 'too_many'; end;
+  perform public.owner_inventory_disconnect(v_shop);
+  assert not exists (select 1 from public.inventory_connections where shop_id = v_shop), 'the key is gone';
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'inventory_api_disconnected');
+  perform public.upload_check_in(v_shop);
+end $$;
+reset role;
+
+-- ------------------------------------------------------------------ update 50: POS agent pairing and devices
+\echo '--- POS agent: pairing codes, devices, tokens, rotation, revoke, heartbeat state (update 50)'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_code jsonb;
+  v_raw text;
+  i integer;
+begin
+  v_code := public.owner_connector_create_code(v_shop);
+  v_raw := v_code ->> 'code';
+  assert v_raw ~ '^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$', 'no look-alikes (0 O 1 I L): ' || v_raw;
+  assert (v_code ->> 'expires_at')::timestamptz between now() + interval '9 minutes' and now() + interval '11 minutes';
+  perform set_config('ppi.test_code', replace(v_raw, '-', ''), false);
+  -- owners never read codes or hashes, and never write devices themselves
+  begin perform 1 from public.connector_pairing_codes; raise exception 'codes readable';
+  exception when insufficient_privilege then null; end;
+  begin perform token_hash from public.connector_devices; raise exception 'hash readable';
+  exception when insufficient_privilege then null; end;
+  begin insert into public.connector_devices (shop_id, name, token_hash) values (v_shop, 'x', repeat('a', 64));
+    raise exception 'owner inserted'; exception when insufficient_privilege then null; end;
+  -- the function's steps are not the owner's
+  begin perform public.connector_pair(repeat('a', 64), 'caller-hash-0001', 'x', '1.0.0', 'Windows', repeat('b', 64));
+    raise exception 'pair callable'; exception when insufficient_privilege then null; end;
+  begin perform public.connector_auth(repeat('a', 64)); raise exception 'auth callable';
+  exception when insufficient_privilege then null; end;
+  -- at most 10 codes an hour per shop
+  for i in 2 .. 10 loop perform public.owner_connector_create_code(v_shop); end loop;
+  begin perform public.owner_connector_create_code(v_shop); raise exception '11th code';
+  exception when program_limit_exceeded then assert sqlerrm = 'too_many'; end;
+end $$;
+reset role;
+
+-- an owner of another shop gets nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_connector_create_code((select id from public.shops where slug = 'farby-api'));
+    raise exception 'other owner made a code'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_connector_devices((select id from public.shops where slug = 'farby-api'));
+    raise exception 'other owner listed devices'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_connector_create_code((select id from public.shops where slug = 'farby-api'));
+    raise exception 'visitor made a code'; exception when insufficient_privilege then null; end;
+  begin perform 1 from public.connector_devices; raise exception 'visitor read devices';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the function (service role) pairs, authenticates, rotates, records heartbeats
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_other uuid := (select id from public.shops where slug = 'farby-api-free');
+  v_hash text := encode(sha256(convert_to(current_setting('ppi.test_code'), 'UTF8')), 'hex');
+  v_tok text := encode(sha256(convert_to('device-token-A', 'UTF8')), 'hex');
+  v_tok2 text := encode(sha256(convert_to('device-token-A2', 'UTF8')), 'hex');
+  v_r jsonb;
+  v_dev uuid;
+  v_dev_b uuid;
+  i integer;
+begin
+  v_r := public.connector_pair(v_hash, 'caller-hash-0001', 'Pokladňa 1', '1.2.0', 'Windows 11', v_tok);
+  assert v_r ->> 'status' = 'ok' and (v_r ->> 'shop_id')::uuid = v_shop, v_r::text;
+  v_dev := (v_r ->> 'device_id')::uuid;
+  assert (select token_hash from public.connector_devices where id = v_dev) = v_tok;
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'connector_paired');
+  -- the same code again: used
+  assert public.connector_pair(v_hash, 'caller-hash-0002', 'x', '1.2.0', 'Windows', repeat('c', 64)) ->> 'status' = 'invalid';
+  -- an expired code
+  insert into public.connector_pairing_codes (shop_id, code_hash, expires_at)
+  values (v_shop, encode(sha256(convert_to('EXPIRED1', 'UTF8')), 'hex'), now() - interval '1 second');
+  assert public.connector_pair(encode(sha256(convert_to('EXPIRED1', 'UTF8')), 'hex'), 'caller-hash-0002', 'x', null, null,
+    repeat('d', 64)) ->> 'status' = 'invalid', 'expired';
+  -- 5 wrong codes in 15 minutes → locked, even for a right code
+  insert into public.connector_pairing_codes (shop_id, code_hash, expires_at)
+  values (v_other, encode(sha256(convert_to('GOODCODE', 'UTF8')), 'hex'), now() + interval '10 minutes');
+  for i in 1 .. 5 loop
+    assert public.connector_pair(repeat('e', 64), 'caller-hash-0003', 'x', null, null, repeat('f', 64)) ->> 'status' = 'invalid';
+  end loop;
+  assert public.connector_pair(encode(sha256(convert_to('GOODCODE', 'UTF8')), 'hex'), 'caller-hash-0003', 'x', null, null,
+    repeat('f', 64)) ->> 'status' = 'locked', 'locked out';
+  -- another caller is not locked: the other shop's device
+  v_r := public.connector_pair(encode(sha256(convert_to('GOODCODE', 'UTF8')), 'hex'), 'caller-hash-0004', 'Druhý', null, null,
+    encode(sha256(convert_to('device-token-B', 'UTF8')), 'hex'));
+  assert v_r ->> 'status' = 'ok' and (v_r ->> 'shop_id')::uuid = v_other;
+  v_dev_b := (v_r ->> 'device_id')::uuid;
+  perform set_config('ppi.test_dev_b', v_dev_b::text, false);
+  -- a token belongs to one shop
+  assert (select shop_id from public.connector_auth(v_tok)) = v_shop;
+  assert (select shop_id from public.connector_auth(encode(sha256(convert_to('device-token-B', 'UTF8')), 'hex'))) = v_other;
+  assert not exists (select 1 from public.connector_auth(repeat('9', 64))), 'unknown token';
+  assert not exists (select 1 from public.connector_auth('not-a-hash')), 'malformed token';
+  -- state from the heartbeat times: never seen = offline; seen = never_synced; old = offline; error
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'offline';
+  assert public.connector_heartbeat(v_dev, '1.2.1', 'Windows 11', 'POHODA XML', 'ok', null) ->> 'status' = 'ok';
+  assert (select agent_version = '1.2.1' and source_label = 'POHODA XML' from public.connector_devices where id = v_dev);
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'never_synced';
+  update public.connector_devices set last_sync_at = now() where id = v_dev;
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'online';
+  assert public.connector_heartbeat(v_dev, null, null, 'POHODA XML', 'error', E'súbor sa nedá prečítať\x01' || repeat('x', 600))
+    ->> 'status' = 'ok';
+  assert (select length(last_error) = 500 and position(E'\x01' in last_error) = 0 from public.connector_devices where id = v_dev),
+    'error text cut and plain';
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'error';
+  update public.connector_devices set last_seen_at = now() - interval '4 minutes' where id = v_dev;
+  assert (select public.connector_device_state(last_seen_at, revoked_at, last_read_result, last_sync_at) from public.connector_devices where id = v_dev) = 'offline', 'offline after 3 minutes';
+  -- at most 4 heartbeats a minute (2 sent above)
+  assert public.connector_heartbeat(v_dev, null, null, null, 'ok', null) ->> 'status' = 'ok';
+  assert public.connector_heartbeat(v_dev, null, null, null, 'ok', null) ->> 'status' = 'ok';
+  assert public.connector_heartbeat(v_dev, null, null, null, 'ok', null) ->> 'status' = 'too_many';
+  -- rotation: the old token works until the new one is used, then stops
+  assert public.connector_rotate(v_dev, v_tok2) = 'ok';
+  assert (select device_id from public.connector_auth(v_tok)) = v_dev, 'old still works before the new one is used';
+  assert (select device_id from public.connector_auth(v_tok2)) = v_dev, 'new works';
+  assert not exists (select 1 from public.connector_auth(v_tok)), 'old stops once the new one is used';
+  -- rotation: the old token stops 24 h after a rotation even if the new one was never used
+  assert public.connector_rotate(v_dev, v_tok) = 'ok';
+  update public.connector_devices set next_token_at = now() - interval '25 hours' where id = v_dev;
+  assert not exists (select 1 from public.connector_auth(v_tok2)), 'old token expired after 24 h';
+  assert (select device_id from public.connector_auth(v_tok)) = v_dev;
+  -- status for the device itself
+  assert public.connector_status(v_dev) -> 'shop' ->> 'slug' = 'farby-api';
+end $$;
+
+-- the owner sees the device without hashes, renames and revokes it; then the token is dead
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-api');
+  v_list jsonb := public.owner_connector_devices((select id from public.shops where slug = 'farby-api'));
+  v_dev uuid := (v_list -> 'devices' -> 0 ->> 'id')::uuid;
+begin
+  assert jsonb_array_length(v_list -> 'devices') = 1;
+  assert not (v_list::text ~ 'token_hash|code_hash'), 'no hashes';
+  assert (select count(*) from public.connector_devices where shop_id = v_shop) = 1, 'RLS: own shop''s rows';
+  perform public.owner_connector_rename(v_dev, '  Pokladňa pri vchode  ');
+  assert (select name from public.connector_devices where id = v_dev) = 'Pokladňa pri vchode';
+  begin perform public.owner_connector_rename(v_dev, '   '); raise exception 'empty name';
+  exception when invalid_parameter_value then null; end;
+  perform public.owner_connector_revoke(v_dev);
+  assert jsonb_array_length(public.owner_connector_devices(v_shop) -> 'devices') = 0;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  assert (select count(*) from public.connector_devices) = 0, 'RLS: another owner sees none of these devices';
+  begin perform public.owner_connector_revoke(current_setting('ppi.test_dev_b')::uuid);
+    raise exception 'revoked another shop''s device'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+do $$
+begin
+  assert not exists (select 1 from public.connector_auth(encode(sha256(convert_to('device-token-A', 'UTF8')), 'hex'))),
+    'revoked: 401';
+  assert public.connector_heartbeat((select id from public.connector_devices where name = 'Pokladňa pri vchode'),
+    null, null, null, null, null) ->> 'status' = 'revoked';
+  assert exists (select 1 from public.shop_activity a join public.shops s on s.id = a.shop_id
+                 where s.slug = 'farby-api' and a.action = 'connector_revoked');
+end $$;
+
+-- ------------------------------------------------------------------ update 51: contact buttons short / long
+\echo '--- contact buttons: short / long per button (update 51)'
+do $$
+begin
+  assert (select bool_and(contact_buttons = '{}'::jsonb) from public.shops), 'existing shops keep the defaults';
+  begin update public.shops set contact_buttons = '{"twitter":"long"}' where slug = 'farby-export';
+    raise exception 'an unknown button was kept'; exception when check_violation then null; end;
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-export');
+begin
+  perform public.owner_set_contact_buttons(v_shop, '{"email":"short","phone":"long"}');
+  assert (select contact_buttons from public.my_shops() where id = v_shop) = '{"email":"short","phone":"long"}'::jsonb;
+  begin perform public.owner_set_contact_buttons(v_shop, '{"phone":"wide"}'); raise exception 'a bad width was kept';
+  exception when invalid_parameter_value then assert sqlerrm = 'contact_buttons'; end;
+  begin perform public.owner_set_contact_buttons(v_shop, '["long"]'); raise exception 'not an object';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.owner_set_contact_buttons(v_shop, '{"map":"long"}'); raise exception 'an unknown key';
+  exception when invalid_parameter_value then null; end;
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_set_contact_buttons((select id from public.shops where slug = 'farby-export'), '{}');
+    raise exception 'B changed A''s buttons';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  assert public.shop_contact_buttons('farby-export') = '{"email":"short","phone":"long"}'::jsonb;
+  assert public.shop_contact_buttons('no-such-shop') is null;
+  begin perform public.owner_set_contact_buttons((select id from public.public_shops where slug = 'farby-export'), '{}');
+    raise exception 'anon saved';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+update public.shops set is_active = false where slug = 'farby-export';
+set role anon;
+do $$ begin assert public.shop_contact_buttons('farby-export') is null, 'a hidden shop shows nothing'; end $$;
+reset role;
+update public.shops set is_active = true where slug = 'farby-export';
+
+-- ------------------------------------------------------------------ update 52: POS agent snapshots and "Zdroj zásob"
+\echo '--- POS agent snapshots: stock source, announce, apply, held, keep, confirm, stale, test_ok (update 52)'
+do $$
+declare
+  v_shop uuid;
+  v_r jsonb;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-pos', 'Farby POS', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.connector_pairing_codes (shop_id, code_hash, expires_at)
+  values (v_shop, encode(sha256(convert_to('POSCODE1', 'UTF8')), 'hex'), now() + interval '10 minutes');
+  v_r := public.connector_pair(encode(sha256(convert_to('POSCODE1', 'UTF8')), 'hex'), 'caller-hash-pos1', 'Pokladňa',
+    '1.0.0', 'Windows 11', encode(sha256(convert_to('device-token-POS', 'UTF8')), 'hex'));
+  assert v_r ->> 'status' = 'ok', v_r::text;
+  perform set_config('ppi.pos_dev', v_r ->> 'device_id', false);
+  -- without a choice the files stay the source; a device alone changes nothing
+  assert public.stock_source_of(v_shop) = 'file';
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_api uuid := (select shop_id from public.inventory_connections limit 1);
+  v_src jsonb;
+begin
+  v_src := public.owner_stock_source(v_shop);
+  assert v_src ->> 'active' = 'file' and (v_src ->> 'devices')::int = 1, v_src::text;
+  -- while an inventory program is connected the owner cannot choose (disconnect it first)
+  if v_api is not null then
+    begin perform public.owner_set_stock_source(v_api, 'agent'); raise exception 'chose agent next to the API';
+    exception when object_not_in_prerequisite_state then assert sqlerrm = 'api_connected'; end;
+  end if;
+  begin perform public.owner_set_stock_source(v_shop, 'pos'); raise exception 'unknown source';
+  exception when invalid_parameter_value then null; end;
+  perform public.owner_set_stock_source(v_shop, 'agent');
+  assert public.owner_stock_source(v_shop) ->> 'active' = 'agent';
+  -- one source at a time: no folder, no upload, no inventory program now
+  begin perform public.upload_check_in(v_shop); raise exception 'upload while agent';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'agent_connected'; end;
+  assert public.owner_inventory_can_connect(v_shop, 'woocommerce') = 'agent';
+  -- owners never write snapshots or the source row themselves
+  begin insert into public.connector_snapshots (shop_id, id, source_id, source_time, product_count, content_hash)
+    values (v_shop, gen_random_uuid(), 'x', now(), 0, repeat('a', 64)); raise exception 'owner inserted a snapshot';
+  exception when insufficient_privilege then null; end;
+  begin update public.shop_stock_source set source = 'file' where shop_id = v_shop; raise exception 'owner wrote the source';
+  exception when insufficient_privilege then null; end;
+  begin perform public.connector_snapshot_announce(gen_random_uuid(), gen_random_uuid(), 'x', now(), true, 1, repeat('a', 64), null);
+    raise exception 'announce callable'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_set_stock_source((select id from public.shops where slug = 'farby-pos'), 'file');
+    raise exception 'other owner changed the source'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_connector_snapshots((select id from public.shops where slug = 'farby-pos'));
+    raise exception 'other owner listed snapshots'; exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.connector_snapshots), 'RLS: another owner sees no snapshot';
+end $$;
+reset role;
+
+-- the function (service role): announce, begin, apply, held, keep, confirm, stale
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_dev uuid := current_setting('ppi.pos_dev')::uuid;
+  s1 uuid := gen_random_uuid();
+  s2 uuid := gen_random_uuid();
+  s3 uuid := gen_random_uuid();
+  v_t timestamptz := now() - interval '10 minutes';
+  v_r jsonb;
+  v_rows jsonb := '[{"source_code":"A1","name":"Farba biela","ean":"2000000000101","brand":"Primalex","price":10.5,"currency":"EUR","quantity":4},
+                    {"source_code":"A2","name":"Farba modrá","price":11,"currency":"eur","quantity":0},
+                    {"source_code":"A3","name":"Štetec","price":2.2,"currency":"EUR","quantity":12}]';
+begin
+  -- announce: new, again the same, incomplete, clock ahead
+  v_r := public.connector_snapshot_announce(v_dev, s1, 'pohoda-xml', v_t, true, 3, repeat('1', 64), null);
+  assert v_r ->> 'status' = 'new' and v_r -> 'snapshot' ->> 'state' = 'awaiting_upload', v_r::text;
+  assert public.connector_snapshot_announce(v_dev, s1, 'pohoda-xml', v_t, true, 3, repeat('1', 64), null) ->> 'status' = 'existing';
+  v_r := public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'pohoda-xml', v_t, false, 3, repeat('1', 64), null);
+  assert v_r -> 'snapshot' ->> 'state' = 'rejected' and v_r -> 'snapshot' ->> 'error' = 'incomplete', v_r::text;
+  assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'pohoda-xml', now() + interval '10 minutes', true, 3,
+    repeat('1', 64), null) ->> 'status' = 'clock_ahead';
+  -- one full snapshot per 5 minutes per shop
+  assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'pohoda-xml', v_t + interval '1 second', true, 3,
+    repeat('1', 64), null) ->> 'status' = 'rate_limited';
+  -- begin once (a second complete only sees "processing")
+  assert public.connector_snapshot_begin(v_dev, s1) ->> 'status' = 'begin';
+  assert public.connector_snapshot_begin(v_dev, s1) -> 'snapshot' ->> 'state' = 'processing';
+  assert public.connector_snapshot_begin(v_dev, gen_random_uuid()) ->> 'status' = 'not_found';
+  -- apply
+  v_r := public.connector_snapshot_apply(v_shop, s1, v_rows, '{}', '{"products":3,"skipped":0}', v_rows);
+  assert v_r ->> 'state' = 'applied' and (v_r -> 'result' ->> 'imported')::int = 3, v_r::text;
+  assert (select count(*) from public.shop_items si join public.inventory i on i.shop_item_id = si.id where si.shop_id = v_shop) = 3;
+  assert (select i.currency from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+          where si.shop_id = v_shop and si.source_code = 'A2') = 'EUR', 'currency upper case';
+  assert (select latest_file_time = v_t and last_file_name = 'POS agent · Pokladňa' from public.sync_sources where shop_id = v_shop);
+  assert (select last_sync_at is not null from public.connector_devices where id = v_dev);
+  assert (select agent_product_count = 3 and agent_content_hash = repeat('1', 64) from public.shop_stock_source where shop_id = v_shop);
+  assert exists (select 1 from public.stock_imports where shop_id = v_shop and source = 'agent' and imported = 3 and status = 'ok');
+  assert public.connector_snapshot_get(v_dev, s1) ->> 'state' = 'applied';
+  -- the same snapshot again only returns its state (nothing applied twice)
+  assert public.connector_snapshot_begin(v_dev, s1) -> 'snapshot' ->> 'state' = 'applied';
+  -- older than the last applied: stale
+  assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'pohoda-xml', v_t - interval '1 minute', true, 3,
+    repeat('1', 64), null) ->> 'status' = 'stale';
+  -- confirm unchanged: only the same hash; the freshness time moves forward, never back
+  assert public.connector_confirm(v_dev, repeat('2', 64), now()) ->> 'status' = 'send_full';
+  assert public.connector_confirm(v_dev, repeat('1', 64), v_t + interval '2 minutes') ->> 'status' = 'confirmed';
+  assert (select latest_file_time = v_t + interval '2 minutes' from public.sync_sources where shop_id = v_shop);
+  assert public.connector_confirm(v_dev, repeat('1', 64), v_t) ->> 'status' = 'confirmed';
+  assert (select latest_file_time = v_t + interval '2 minutes' from public.sync_sources where shop_id = v_shop), 'never back';
+
+  -- much fewer products: held for the owner (the old stock stays)
+  update public.connector_snapshots set created_at = now() - interval '6 minutes' where shop_id = v_shop;
+  assert public.connector_snapshot_announce(v_dev, s2, 'pohoda-xml', v_t + interval '3 minutes', true, 1, repeat('3', 64), null) ->> 'status' = 'new';
+  assert public.connector_snapshot_begin(v_dev, s2) ->> 'status' = 'begin';
+  v_r := public.connector_snapshot_apply(v_shop, s2, '[{"source_code":"A1","name":"Farba biela","price":10.5,"currency":"EUR","quantity":1}]',
+    '{}', '{"products":1,"skipped":0}', '[]');
+  assert v_r ->> 'state' = 'held' and v_r ->> 'reason' = 'shrinking', v_r::text;
+  assert (select count(*) from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+          where si.shop_id = v_shop and i.quantity > 0) = 2, 'held: nothing changed';
+  assert public.connector_snapshot_get(v_dev, s2) ->> 'reason' = 'shrinking';
+  perform set_config('ppi.pos_held', s2::text, false);
+
+  -- rows the function had to skip keep their stock (never set to 0)
+  update public.connector_snapshots set created_at = now() - interval '6 minutes' where shop_id = v_shop;
+  assert public.connector_snapshot_announce(v_dev, s3, 'pohoda-xml', v_t + interval '4 minutes', true, 3, repeat('4', 64), null) ->> 'status' = 'new';
+  assert public.connector_snapshot_begin(v_dev, s3) ->> 'status' = 'begin';
+  v_r := public.connector_snapshot_apply(v_shop, s3,
+    '[{"source_code":"A1","name":"Farba biela","price":9.9,"currency":"EUR","quantity":2},{"source_code":"A2","name":"Farba modrá","price":11,"currency":"EUR","quantity":5}]',
+    '{A3}', '{"products":3,"skipped":1,"skipped_text":"riadok 3: cena"}', '[]');
+  assert v_r ->> 'state' = 'applied' and (v_r -> 'result' ->> 'zeroed')::int = 0, v_r::text;
+  assert (select i.quantity = 12 from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+          where si.shop_id = v_shop and si.source_code = 'A3'), 'kept';
+  assert exists (select 1 from public.stock_imports where shop_id = v_shop and status = 'errors' and skipped = 1);
+  -- the held one is now older than the last applied: approving it would go back in time
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_held uuid := current_setting('ppi.pos_held')::uuid;
+  v_list jsonb;
+begin
+  v_list := public.owner_connector_snapshots(v_shop);
+  assert jsonb_array_length(v_list) >= 4, v_list::text;
+  assert not (v_list::text ~ 'held_rows'), 'no held rows in the list';
+  begin perform held_rows from public.connector_snapshots; raise exception 'held rows readable';
+  exception when insufficient_privilege then null; end;
+  assert (select previous_count = 3 from public.connector_snapshots where id = v_held);
+  assert public.owner_connector_decide(v_shop, v_held, true) ->> 'error' = 'stale', 'older than the last applied';
+  begin perform public.owner_connector_decide(v_shop, v_held, true); raise exception 'decided twice';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'not_held'; end;
+end $$;
+reset role;
+
+-- a newer held one approved by the owner; then "files" as the source: snapshots are only checked (test_ok)
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_dev uuid := current_setting('ppi.pos_dev')::uuid;
+  s4 uuid := gen_random_uuid();
+begin
+  update public.connector_snapshots set created_at = now() - interval '6 minutes' where shop_id = v_shop;
+  perform public.connector_snapshot_announce(v_dev, s4, 'pohoda-xml', now() - interval '1 minute', true, 0, repeat('5', 64), null);
+  perform public.connector_snapshot_begin(v_dev, s4);
+  assert public.connector_snapshot_apply(v_shop, s4, '[]', '{}', '{"products":0,"skipped":0}', '[]') ->> 'reason' = 'empty';
+  perform set_config('ppi.pos_held', s4::text, false);
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_r jsonb;
+begin
+  v_r := public.owner_connector_decide(v_shop, current_setting('ppi.pos_held')::uuid, true);
+  assert v_r ->> 'state' = 'applied' and (v_r -> 'result' ->> 'zeroed')::int = 3, 'the owner said yes: all sold out ' || v_r::text;
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'connector_snapshot_approved');
+  perform public.owner_set_stock_source(v_shop, 'file');
+  assert public.upload_check_in(v_shop) is not null, 'files allowed again';
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-pos');
+  v_dev uuid := current_setting('ppi.pos_dev')::uuid;
+  s5 uuid := gen_random_uuid();
+begin
+  update public.connector_snapshots set created_at = now() - interval '6 minutes' where shop_id = v_shop;
+  perform public.connector_snapshot_announce(v_dev, s5, 'pohoda-xml', now(), true, 1, repeat('6', 64), null);
+  perform public.connector_snapshot_begin(v_dev, s5);
+  assert public.connector_snapshot_apply(v_shop, s5, '[{"source_code":"A1","name":"Farba","price":1,"currency":"EUR","quantity":9}]',
+    '{}', '{"products":1,"skipped":0}', '[]') ->> 'state' = 'test_ok';
+  assert (select i.quantity = 0 from public.shop_items si join public.inventory i on i.shop_item_id = si.id
+          where si.shop_id = v_shop and si.source_code = 'A1'), 'test_ok never changes the stock';
+  assert public.connector_confirm(v_dev, repeat('6', 64), now()) ->> 'status' = 'test_ok';
+  -- back to the agent, then the device is revoked: the files are the source again
+  update public.shop_stock_source set source = 'agent' where shop_id = v_shop;
+  assert public.stock_source_of(v_shop) = 'agent';
+  update public.connector_devices set revoked_at = now() where id = v_dev;
+  assert public.stock_source_of(v_shop) = 'file';
+  assert public.connector_snapshot_announce(v_dev, gen_random_uuid(), 'x', now(), true, 1, repeat('7', 64), null) ->> 'status' = 'revoked';
+end $$;
+
+-- ------------------------------------------------------------------ update 53: Sync Now commands for the POS agent
+\echo '--- POS agent Sync Now: owner request, claim once, lease, result, snapshot or unchanged, expiry (update 53)'
+do $$
+declare
+  v_shop uuid;
+  v_r jsonb;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'sklad-sync', 'Sklad Sync', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.connector_pairing_codes (shop_id, code_hash, expires_at)
+  values (v_shop, encode(sha256(convert_to('SYNCODE1', 'UTF8')), 'hex'), now() + interval '10 minutes'),
+         (v_shop, encode(sha256(convert_to('SYNCODE2', 'UTF8')), 'hex'), now() + interval '10 minutes');
+  v_r := public.connector_pair(encode(sha256(convert_to('SYNCODE1', 'UTF8')), 'hex'), 'caller-hash-sync1', 'Pokladňa 1',
+    '1.0.0', 'Windows 11', encode(sha256(convert_to('device-token-SYNC1', 'UTF8')), 'hex'));
+  perform set_config('ppi.sync_d1', v_r ->> 'device_id', false);
+  v_r := public.connector_pair(encode(sha256(convert_to('SYNCODE2', 'UTF8')), 'hex'), 'caller-hash-sync2', 'Pokladňa 2',
+    '1.0.0', 'Windows 11', encode(sha256(convert_to('device-token-SYNC2', 'UTF8')), 'hex'));
+  perform set_config('ppi.sync_d2', v_r ->> 'device_id', false);
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'sklad-sync');
+  v_r jsonb;
+begin
+  -- only when the POS agent is the shop's stock source
+  begin perform public.owner_connector_sync_now(v_shop); raise exception 'sync now with files as the source';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'not_agent'; end;
+  perform public.owner_set_stock_source(v_shop, 'agent');
+  v_r := public.owner_connector_sync_now(v_shop);
+  assert v_r ->> 'status' = 'new' and v_r -> 'command' ->> 'state' = 'pending' and v_r -> 'command' ->> 'type' = 'sync_inventory', v_r::text;
+  perform set_config('ppi.sync_c1', v_r -> 'command' ->> 'id', false);
+  -- pressed again while it waits: the same command, never a second one
+  assert public.owner_connector_sync_now(v_shop) ->> 'status' = 'existing';
+  assert (select count(*) from public.connector_commands where shop_id = v_shop) = 1;
+  assert exists (select 1 from public.shop_activity where shop_id = v_shop and action = 'connector_sync_requested');
+  assert jsonb_array_length(public.owner_connector_commands(v_shop)) = 1;
+  -- owners never write commands themselves
+  begin insert into public.connector_commands (shop_id, type) values (v_shop, 'ping'); raise exception 'owner inserted a command';
+  exception when insufficient_privilege then null; end;
+  begin perform public.connector_command_claim(gen_random_uuid(), gen_random_uuid()); raise exception 'claim callable';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_connector_sync_now((select id from public.shops where slug = 'sklad-sync'));
+    raise exception 'other owner pressed sync now'; exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.connector_commands), 'RLS: another owner sees no command';
+end $$;
+reset role;
+
+-- the function (service role): list, claim once, lease, result
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'sklad-sync');
+  d1 uuid := current_setting('ppi.sync_d1')::uuid;
+  d2 uuid := current_setting('ppi.sync_d2')::uuid;
+  c1 uuid := current_setting('ppi.sync_c1')::uuid;
+  s0 uuid := gen_random_uuid();
+  s1 uuid := gen_random_uuid();
+  v_r jsonb;
+  v_rows jsonb := '[{"source_code":"S1","name":"Skrutka","price":0.1,"currency":"EUR","quantity":100},
+                    {"source_code":"S2","name":"Matica","price":0.05,"currency":"EUR","quantity":50}]';
+begin
+  v_r := public.connector_commands_list(d1, true);
+  assert v_r ->> 'status' = 'ok' and jsonb_array_length(v_r -> 'commands') = 1 and v_r -> 'commands' -> 0 ->> 'id' = c1::text, v_r::text;
+  -- claimed once: the second agent gets already_claimed (one atomic update)
+  v_r := public.connector_command_claim(d1, c1);
+  assert v_r ->> 'status' = 'claimed' and v_r -> 'command' ->> 'state' = 'claimed' and (v_r -> 'command' ->> 'attempt')::int = 1, v_r::text;
+  assert public.connector_command_claim(d2, c1) ->> 'status' = 'already_claimed';
+  assert public.connector_command_claim(d1, gen_random_uuid()) ->> 'status' = 'not_found';
+  assert jsonb_array_length(public.connector_commands_list(d2, false) -> 'commands') = 0, 'claimed: not pending any more';
+  assert public.connector_status(d1) ->> 'state' = 'syncing';
+  -- only the device holding the claim reports; running renews the lease
+  assert public.connector_command_result(d2, c1, 'running', null, null) ->> 'status' = 'not_claimed';
+  assert public.connector_command_result(d1, c1, 'paused', null, null) ->> 'status' = 'bad_state';
+  update public.connector_commands set lease_expires_at = now() + interval '10 seconds' where id = c1;
+  v_r := public.connector_command_result(d1, c1, 'running', null, null);
+  assert v_r -> 'command' ->> 'state' = 'running' and (select lease_expires_at > now() + interval '100 seconds' from public.connector_commands where id = c1), v_r::text;
+  -- completed needs an applied/held snapshot made after the command (or "unchanged")
+  assert public.connector_command_result(d1, c1, 'completed', null, null) ->> 'status' = 'snapshot_not_applied';
+  -- a snapshot just arrived (5-minute rule), but the answer to Sync Now skips the wait
+  perform public.connector_snapshot_announce(d1, s0, 'pos', now() - interval '2 minutes', true, 2, repeat('8', 64), null);
+  assert public.connector_snapshot_announce(d1, gen_random_uuid(), 'pos', now() - interval '1 minute', true, 2, repeat('8', 64), null)
+    ->> 'status' = 'rate_limited';
+  assert public.connector_snapshot_announce(d2, s1, 'pos', now() - interval '1 minute', true, 2, repeat('9', 64), c1)
+    ->> 'status' = 'rate_limited', 'only the device holding the command skips the wait';
+  assert public.connector_snapshot_announce(d1, s1, 'pos', now() - interval '1 minute', true, 2, repeat('9', 64), c1) ->> 'status' = 'new';
+  perform public.connector_snapshot_begin(d1, s1);
+  assert public.connector_snapshot_apply(v_shop, s1, v_rows, '{}', '{"products":2,"skipped":0}', '[]') ->> 'state' = 'applied';
+  assert public.connector_command_result(d1, c1, 'completed', null, s0) ->> 'status' = 'snapshot_not_applied', 'not applied';
+  v_r := public.connector_command_result(d1, c1, 'completed', null, s1);
+  assert v_r ->> 'status' = 'ok' and v_r -> 'command' ->> 'state' = 'completed', v_r::text;
+  assert (select snapshot_id = s1 and finished_at is not null from public.connector_commands where id = c1);
+  assert public.connector_status(d1) ->> 'state' <> 'syncing';
+  assert public.connector_command_result(d1, c1, 'running', null, null) ->> 'status' = 'not_claimed', 'finished stays finished';
+end $$;
+
+-- unchanged stock, lease that runs out (back to pending, failed after 3 attempts), expiry, ping, agent failure
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform set_config('ppi.sync_c2', public.owner_connector_sync_now((select id from public.shops where slug = 'sklad-sync')) -> 'command' ->> 'id', false);
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'sklad-sync');
+  d1 uuid := current_setting('ppi.sync_d1')::uuid;
+  d2 uuid := current_setting('ppi.sync_d2')::uuid;
+  c2 uuid := current_setting('ppi.sync_c2')::uuid;
+  p uuid;
+  v_r jsonb;
+begin
+  -- a lease that runs out: pending again (10 more minutes), another agent may claim it
+  perform public.connector_command_claim(d1, c2);
+  update public.connector_commands set lease_expires_at = now() - interval '1 second' where id = c2;
+  v_r := public.connector_commands_list(d2, false);
+  assert v_r -> 'commands' -> 0 ->> 'id' = c2::text and v_r -> 'commands' -> 0 ->> 'state' = 'pending', v_r::text;
+  assert public.connector_command_result(d1, c2, 'completed', null, null) ->> 'status' = 'not_claimed', 'the lost lease cannot report';
+  assert public.connector_command_claim(d2, c2) ->> 'status' = 'claimed';
+  -- "unchanged": the confirm for this command completes it without a snapshot
+  assert not public.connector_command_confirmed(d1, c2), 'only the device holding it';
+  assert public.connector_confirm(d2, repeat('9', 64), now()) ->> 'status' = 'confirmed';
+  assert public.connector_command_confirmed(d2, c2);
+  v_r := public.connector_command_result(d2, c2, 'completed', null, null);
+  assert v_r -> 'command' ->> 'state' = 'completed', v_r::text;
+  assert (v_r -> 'command' ->> 'attempt')::int = 2;
+
+  -- third attempt runs out: failed (lease_expired)
+  insert into public.connector_commands (shop_id, type, attempt, state, claimed_by, claimed_at, lease_expires_at)
+  values (v_shop, 'sync_inventory', 3, 'running', d1, now() - interval '5 minutes', now() - interval '1 second') returning id into p;
+  perform public.connector_commands_tidy(v_shop);
+  assert (select state = 'failed' and error = 'lease_expired' from public.connector_commands where id = p);
+  -- nobody claims within 10 minutes: expired
+  insert into public.connector_commands (shop_id, type, expires_at) values (v_shop, 'sync_inventory', now() - interval '1 second')
+  returning id into p;
+  assert public.connector_command_claim(d1, p) ->> 'status' = 'already_claimed';
+  assert (select state = 'expired' from public.connector_commands where id = p);
+  -- ping completes without a snapshot
+  insert into public.connector_commands (shop_id, type) values (v_shop, 'ping') returning id into p;
+  perform public.connector_command_claim(d1, p);
+  assert public.connector_command_result(d1, p, 'completed', null, null) -> 'command' ->> 'state' = 'completed';
+  -- the agent reports failure: plain text, cut
+  insert into public.connector_commands (shop_id, type) values (v_shop, 'sync_inventory') returning id into p;
+  perform public.connector_command_claim(d1, p);
+  v_r := public.connector_command_result(d1, p, 'failed', E'POS nie je\n dostupný' || repeat('x', 600), null);
+  assert v_r -> 'command' ->> 'state' = 'failed', v_r::text;
+  assert (select error = 'agent' and length(reason) = 500 and reason !~ '[[:cntrl:]]' from public.connector_commands where id = p);
+  -- a disconnected device can do nothing
+  update public.connector_devices set revoked_at = now() where id = d2;
+  assert public.connector_command_claim(d2, p) ->> 'status' = 'revoked';
+  assert public.connector_commands_list(d2, true) ->> 'status' = 'revoked';
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'sklad-sync');
+  v_list jsonb;
+begin
+  v_list := public.owner_connector_commands(v_shop);
+  assert jsonb_array_length(v_list) = 5, v_list::text;
+  assert v_list::text ~ 'lease_expired' and v_list::text ~ 'expired', v_list::text;
+  -- at most 4 an hour per shop
+  begin perform public.owner_connector_sync_now(v_shop); raise exception 'fifth sync now in an hour';
+  exception when object_not_in_prerequisite_state then assert sqlerrm = 'too_many'; end;
+end $$;
+reset role;
+
+
+-- ------------------------------------------------------------------ update 54: forgiving product search
+\echo '--- forgiving search: stems, sizes, typos, languages, word order, codes, similar, cross-shop, no plan (update 54)'
+do $$
+begin
+  -- stems: one spelling for every language and ending; numbers stay
+  assert public.search_stem('akrylové') = 'akril' and public.search_stem('Acrylic') = 'akril'
+     and public.search_stem('akryl') = 'akril' and public.search_stem('akrylový') = 'akril', 'acrylic stems';
+  assert public.search_stem('Budinciach') = public.search_stem('Budince'), 'town endings';
+  assert public.search_stem('775') = '775';
+  -- sizes: 0.5l = 0,5 l = 500 ml = 5 dl
+  assert public.search_sizes('akril paint 0.5l') = '{ml:500}' and public.search_sizes('0,5 l') = '{ml:500}'
+     and public.search_sizes('500 ml') = '{ml:500}' and public.search_sizes('5 dl') = '{ml:500}', 'sizes';
+  assert public.search_sizes('2,5kg 10 ks') @> '{g:2500,ks:10}';
+  -- generic words weigh a third
+  assert (select weights from public.search_query('akril paint')) @> '{0.34}', 'paint is generic';
+  assert (select specific from public.search_query('farba paint')) = false;
+end $$;
+do $$
+declare v_shop uuid; v_item uuid; r record;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'davide-search', 'Davide Search', 'Hlavná 97', 'Budince', country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum' returning id into v_shop;
+  insert into public.sync_sources (shop_id, latest_file_time) values (v_shop, now()) on conflict (shop_id) do update set latest_file_time = now();
+  for r in select * from (values
+    ('AUTO-0035', 'Autolak 2K akrylátový Mercedes-Benz 775 Iridium Silver, 1 l', '2001000000999', '{"en":"2K acrylic car paint Mercedes-Benz 775 Iridium Silver, 1 l","hu":"2K akril autófesték Mercedes-Benz 775 Iridium Silver, 1 l"}', 3, 42.9),
+    ('CP14', 'Akrylové médium lesklé, 250 ml', '2000000000145', '{"en":"Glossy acrylic medium, 250 ml","hu":"Fényes akril médium, 250 ml"}', 5, 6.9),
+    ('CP06', 'Akrylové farby, sada 12 × 12 ml', '2000000000060', '{"en":"Acrylic paints, set of 12 × 12 ml","hu":"Akril festékek, készlet 12 × 12 ml"}', 2, 9.9),
+    ('CP18', 'Akrylový sprej, matný, 400 ml', '2000000000183', '{"en":"Matt acrylic spray, 400 ml","hu":"Matt akril spray, 400 ml"}', 0, 6.4),
+    ('CP01', 'Interiérová farba biela, matná, 15 l', '2000000000015', '{"en":"White matt interior paint, 15 l","hu":"Fehér matt beltéri festék, 15 l"}', 7, 54.9),
+    ('CP02', 'Fasádna farba biela, 10 l', '2000000000022', '{"en":"White facade paint, 10 l","hu":"Fehér homlokzatfesték, 10 l"}', 4, 39.9),
+    ('CP03', 'Olejová farba čierna, 0,5 l', '2000000000039', '{"en":"Black oil paint, 0.5 l","hu":"Fekete olajfesték, 0,5 l"}', 6, 8.5),
+    ('AUTO-0010', 'Riedidlo akrylátové, 1 l', '2001000000647', '{"en":"Acrylic thinner, 1 l","hu":"Akril hígító, 1 l"}', 9, 9.9),
+    ('CP20', 'Štetec plochý 50 mm', '2000000000206', '{"en":"Flat brush 50 mm","hu":"Lapos ecset 50 mm"}', 12, 3.2)
+  ) as t(code, name, ean, i18n, qty, price) loop
+    insert into public.shop_items (shop_id, source_code, name, ean, name_lang, name_i18n)
+    values (v_shop, r.code, r.name, r.ean, 'sk', r.i18n::jsonb) returning id into v_item;
+    insert into public.inventory (shop_item_id, quantity, price, currency, source_updated_at) values (v_item, r.qty, r.price, 'EUR', now());
+  end loop;
+end $$;
+
+set role anon;
+do $$
+declare
+  v_ids text;
+begin
+  -- the example of the request: acrylic products first, every word not required
+  assert (select string_agg(item_name, '|' order by score desc, item_name) from (
+            select * from public.shop_item_search('davide-search', 'akril paint 0.5l', 5)) s) ~ '^Akryl|^Autolak',
+         'acrylic first: ' || (select string_agg(item_name, '|') from public.shop_item_search('davide-search', 'akril paint 0.5l', 5));
+  assert exists (select 1 from public.shop_item_search('davide-search', 'akril paint 0.5l', 8) where item_name like 'Akrylové médium lesklé%');
+  assert not exists (select 1 from public.shop_item_search('davide-search', 'akril paint 0.5l', 8) where item_name like 'Štetec%'),
+         'unrelated items stay out';
+  -- English and Hungarian names, any word order
+  assert (select item_name from public.shop_item_search('davide-search', 'glossy acrylic medium', 1)) = 'Akrylové médium lesklé, 250 ml';
+  assert (select item_name from public.shop_item_search('davide-search', 'akril médium fényes', 1)) = 'Akrylové médium lesklé, 250 ml';
+  assert (select item_name from public.shop_item_search('davide-search', 'lesklé médium akrylové', 1)) = 'Akrylové médium lesklé, 250 ml';
+  -- typos
+  assert (select item_name from public.shop_item_search('davide-search', 'akrylvé farby', 1)) like 'Akrylové farby%';
+  assert (select item_name from public.shop_item_search('davide-search', 'mercedez 775', 1)) like 'Autolak 2K akrylátový Mercedes-Benz 775%';
+  -- sizes: the same size ranks higher, a different size never excludes
+  assert (select item_name from public.shop_item_search('davide-search', '500 ml', 1)) like 'Olejová farba%', '500 ml = 0,5 l';
+  assert (select item_name from public.shop_item_search('davide-search', 'farba 0,5 l', 1)) like 'Olejová farba%';
+  assert (select count(*) from public.shop_item_search('davide-search', 'farba 0,5 l', 20)) >= 3;
+  -- code and EAN exact first
+  assert (select item_name || '|' || kind from public.shop_item_search('davide-search', 'AUTO-0035', 1)) like 'Autolak%775%|exact';
+  assert (select item_name from public.shop_item_search('davide-search', '2000000000145', 1)) like 'Akrylové médium%';
+  -- nonsense: the closest names, never an error
+  assert (select count(*) from public.shop_item_search('davide-search', 'xqzw blorf', 8)) >= 0;
+  assert not exists (select 1 from public.shop_item_search('davide-search', 'xqzw blorf', 8) where kind <> 'similar');
+  assert (select count(*) from public.shop_item_search('davide-search', '', 8)) = 0;
+  -- the shop's list (and the assistant, the API's items) the same order; without words by name as before
+  assert (select item_name from public.shop_stock('davide-search', 'glossy acrylic medium', 1, 0)) = 'Akrylové médium lesklé, 250 ml';
+  assert (select count(*) from public.shop_stock('davide-search', null, 50, 0)) = 9;
+  -- across shops: the same items; search_stock() keeps its output and its nearby list without words
+  assert exists (select 1 from public.item_search('glossy acrylic medium') where shop_slug = 'davide-search'
+                 and item_name like 'Akrylové médium%' and kind = 'exact');
+  assert exists (select 1 from public.search_stock('mercedez 775') where item_name like '%Mercedes-Benz 775%');
+  -- the town as the shopper writes it ("v Budinciach" = Budince): only that town's items
+  assert exists (select 1 from public.item_search('akrylové médium v Budinciach') where shop_slug = 'davide-search');
+  assert (select bool_and(shop_city = 'Budince') from public.item_search('akrylové médium v Budinciach')),
+    'a town in the words: only that town';
+  assert (select bool_and(shop_city = 'Budince') from public.item_search('farba Budince')), 'farba Budince: only Budince';
+  -- Hungarian, English and Slovak words mixed
+  assert exists (select 1 from public.item_search('akril medium fényes glossy') where item_name like 'Akrylové médium lesklé%');
+  -- the HU shop's "Kávé" by the Slovak word and the town
+  assert exists (select 1 from public.item_search('kava budapest') where shop_slug = 'kisbolt-budapest');
+  assert (select count(*) from public.search_stock(null)) > 0;
+  -- only public data: the columns are public_stock's (no quantity for stale shops), nothing private
+  assert not exists (select 1 from public.item_search('akril') s join public.public_stock p on p.item_id = s.item_id
+                     where s.quantity is distinct from p.quantity or s.availability is distinct from p.availability);
+  -- an inactive shop is never found
+  begin perform public.search_stock_exact('akril'); raise exception 'exact search callable by visitors';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- a paid plan never changes the ranking
+do $$
+declare
+  v_before text := (select string_agg(item_id::text, ',' order by score desc, item_id)
+                    from public.item_search('akril paint 0.5l'));
+  v_after text;
+begin
+  insert into public.subscriptions (shop_id, status, plan, current_period_end)
+  select id, 'active', 'pro', now() + interval '30 days' from public.shops where slug = 'cacadoo-paint-shop-budince'
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  v_after := (select string_agg(item_id::text, ',' order by score desc, item_id) from public.item_search('akril paint 0.5l'));
+  assert v_before = v_after, 'ranking changed with a plan';
+  delete from public.subscriptions where shop_id = (select id from public.shops where slug = 'cacadoo-paint-shop-budince');
+  update public.shops set is_active = false where slug = 'davide-search';
+  assert not exists (select 1 from public.shop_item_search('davide-search', 'akril', 8)), 'inactive shop';
+  assert not exists (select 1 from public.item_search('glossy acrylic medium') where shop_slug = 'davide-search');
+  update public.shops set is_active = true where slug = 'davide-search';
+end $$;
+
+\echo '--- update 55: Konverzácie — status, star, note, flags, products, filters, export, log, owners only'
+create temporary table conv_test (k text primary key, v text);
+grant all on conv_test to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_item uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'potraviny-centrum') order by id limit 1);
+  v_foreign uuid := (select id from public.shop_items where shop_id <> (select id from public.shops where slug = 'potraviny-centrum') order by id limit 1);
+  v_open jsonb;
+  v_two jsonb;
+  v_had_plan boolean := public.shop_has_plan((select id from public.shops where slug = 'potraviny-centrum'));
+begin
+  insert into conv_test values ('had_plan', v_had_plan::text);
+  if not v_had_plan then
+    insert into public.subscriptions (shop_id, status, plan, current_period_end)
+    values (v_a, 'active', 'pro', now() + interval '30 days')
+    on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  end if;
+  -- keep time: the column takes null (Neobmedzene), 30 / 90 / 365; nothing else
+  begin
+    insert into public.shop_assistant_settings (shop_id, retention_days) values (v_a, 45)
+    on conflict (shop_id) do update set retention_days = 45;
+    raise exception '45 days stored';
+  exception when check_violation then null;
+  end;
+  assert (select column_default from information_schema.columns
+          where table_schema = 'public' and table_name = 'shop_assistant_settings' and column_name = 'retention_days') is null,
+    'no default keep time';
+
+  v_open := public.assistant_open(v_a, 'sk', repeat('g', 32));
+  assert (select status = 'new' and not starred and unanswered = false and access_key_used = false and item_ids = '{}'
+          from public.assistant_conversations where id = (v_open ->> 'id')::uuid), 'a new conversation starts new, flags false';
+  perform public.assistant_add_turn((v_open ->> 'id')::uuid, v_open ->> 'token', v_a,
+    jsonb_build_object('body', 'Máte kakao Granko?', 'lang', 'sk', 'access_key', true),
+    jsonb_build_object('body', 'Áno, máme.', 'lang', 'sk', 'cards', jsonb_build_array(
+      jsonb_build_object('item_id', v_item, 'name', 'Kakao', 'price', '1,99 €'),
+      jsonb_build_object('item_id', v_item, 'name', 'Kakao znova'),
+      jsonb_build_object('item_id', v_foreign, 'name', 'Iný obchod'),
+      jsonb_build_object('item_id', 'not-a-uuid', 'name', 'Zlé id'))));
+  perform public.assistant_add_turn((v_open ->> 'id')::uuid, v_open ->> 'token', v_a,
+    jsonb_build_object('body', 'A čokoládu Studentskú?', 'lang', 'sk'),
+    jsonb_build_object('body', 'To neviem, zavolajte do obchodu.', 'lang', 'sk', 'unanswered', true,
+                       'cards', jsonb_build_array(jsonb_build_object('item_id', v_item, 'name', 'Kakao'))));
+  assert (select unanswered and access_key_used and item_ids = array[v_item] and status = 'new'
+          from public.assistant_conversations where id = (v_open ->> 'id')::uuid),
+    'flags kept (or), only this shop''s products, each once';
+  assert (select count(*) from public.assistant_messages where conversation_id = (v_open ->> 'id')::uuid and unanswered) = 1,
+    'the answer that could not help is marked';
+  assert (select cards -> 0 ->> 'item_id' from public.assistant_messages
+          where conversation_id = (v_open ->> 'id')::uuid and role = 'assistant' order by id limit 1) = v_item::text,
+    'cards keep the product id';
+  assert (select cards -> 3 ? 'item_id' from public.assistant_messages
+          where conversation_id = (v_open ->> 'id')::uuid and role = 'assistant' order by id limit 1) = false,
+    'a broken id is dropped';
+  assert (select search_doc like '%granko%' from public.assistant_conversations where id = (v_open ->> 'id')::uuid);
+
+  v_two := public.assistant_open(v_a, 'hu', repeat('h', 32));
+  perform public.assistant_add_turn((v_two ->> 'id')::uuid, v_two ->> 'token', v_a,
+    jsonb_build_object('body', 'Van tej?', 'lang', 'hu', 'body_owner', 'Máte mlieko?'),
+    jsonb_build_object('body', 'Igen.', 'lang', 'hu'));
+  insert into conv_test values ('one', v_open ->> 'id'), ('two', v_two ->> 'id');
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_one uuid := (select v::uuid from conv_test where k = 'one');
+  v_two uuid := (select v::uuid from conv_test where k = 'two');
+  v_log bigint := (select count(*) from public.shop_activity where shop_id = (select id from public.shops where slug = 'potraviny-centrum'));
+begin
+  -- keep time: Neobmedzene (null) and the three limits; logged
+  assert public.owner_set_assistant_retention(v_a, null) is null;
+  assert (select retention_days is null and retention_chosen_at is not null from public.shop_assistant_settings where shop_id = v_a);
+  assert public.owner_set_assistant_retention(v_a, 365) = 365;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversation_retention'
+                 and details ->> 'days' = '365');
+  perform public.owner_set_assistant_retention(v_a, null);
+
+  -- the list: new first in the badge, filters
+  assert public.owner_conversations_new(v_a) >= 2, 'the badge counts new conversations';
+  assert exists (select 1 from public.owner_conversations(v_a) where id = v_one and status = 'new' and unanswered
+                 and access_key_used and item_count = 1 and not has_note);
+  assert (select count(*) from public.owner_conversations(v_a, p_unanswered => true) where id in (v_one, v_two)) = 1;
+  assert (select count(*) from public.owner_conversations(v_a, p_lang => 'hu') where id in (v_one, v_two)) = 1;
+  assert exists (select 1 from public.owner_conversations(v_a, 'MLIEKO') where id = v_two), 'the Slovak version is searched';
+  assert exists (select 1 from public.owner_conversations(v_a, 'studentsku cokoladu') where id = v_one), 'accents ignored';
+  assert not exists (select 1 from public.owner_conversations(v_a, 'granko mlieko')), 'every word must appear';
+  assert exists (select 1 from public.owner_conversation_languages(v_a) where lang = 'hu');
+  assert (select count(*) from public.owner_conversations(v_a, p_attachments => true) where id in (v_one, v_two)) = 0;
+
+  -- marking: read, star, archive (hidden from the default list), back
+  assert public.owner_conversations_mark(v_a, array[v_one], 'read', false) = 1;
+  assert public.owner_conversations_mark(v_a, array[v_one], 'read') = 0, 'already read: nothing changes';
+  assert (select read_at is not null from public.assistant_conversations where id = v_one), 'owners read the new columns';
+  assert not exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversations_marked'),
+    'opening a conversation is not written in the log';
+  assert public.owner_conversations_mark(v_a, array[v_one, v_two], 'star') = 2;
+  assert (select count(*) from public.owner_conversations(v_a, p_starred => true) where id in (v_one, v_two)) = 2;
+  assert public.owner_conversations_mark(v_a, array[v_two], 'archive') = 1;
+  assert not exists (select 1 from public.owner_conversations(v_a) where id = v_two), 'archived: not in the default list';
+  assert exists (select 1 from public.owner_conversations(v_a, p_status => 'archived') where id = v_two);
+  assert exists (select 1 from public.owner_conversations(v_a, p_status => 'all') where id = v_two);
+  assert (select count(*) from public.owner_conversations(v_a, p_status => 'read') where id in (v_one, v_two)) = 1;
+  assert public.owner_conversations_mark(v_a, array[v_two], 'unarchive') = 1;
+  assert (select status from public.assistant_conversations where id = v_two) = 'read';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversations_marked'
+                 and details ->> 'action' = 'star' and details ->> 'count' = '2');
+  begin
+    perform public.owner_conversations_mark(v_a, array[v_one], 'delete');
+    raise exception 'an unknown action was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- the private note
+  assert public.owner_conversation_note(v_one, '  Zavolať späť zajtra  ') = 'Zavolať späť zajtra';
+  assert exists (select 1 from public.owner_conversations(v_a, 'zavolat zajtra') where id = v_one and has_note),
+    'the note is searched too';
+  assert public.owner_conversation_note(v_one, '') is null;
+  begin
+    perform public.owner_conversation_note(v_one, repeat('x', 2001));
+    raise exception 'a 2001-character note was stored';
+  exception when invalid_parameter_value then null;
+  end;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversation_note');
+
+  -- export (CSV): every message of the range, logged; a bad range refused
+  assert (select count(*) from public.owner_conversations_export(v_a, (now() at time zone 'Europe/Bratislava')::date,
+            (now() at time zone 'Europe/Bratislava')::date) where conversation_id = v_one) = 4;
+  assert (select products from public.owner_conversations_export(v_a, current_date - 1, current_date + 1)
+          where conversation_id = v_one and role = 'assistant' order by message_at limit 1) like 'Kakao%';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversations_exported');
+  begin
+    perform public.owner_conversations_export(v_a, current_date, current_date - 1);
+    raise exception 'a backwards range was exported';
+  exception when invalid_parameter_value then null;
+  end;
+  perform public.owner_conversations_log(v_a, 'conversations_deleted', jsonb_build_object('count', 1));
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'conversations_deleted');
+  begin
+    perform public.owner_conversations_log(v_a, 'stock_files_deleted', '{}');
+    raise exception 'the log took another action';
+  exception when invalid_parameter_value then null;
+  end;
+  -- owners never read the search text, never write a conversation directly
+  begin
+    perform search_doc from public.assistant_conversations;
+    raise exception 'an owner read the search text';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.assistant_conversations set status = 'read' where id = v_two;
+    raise exception 'an owner wrote a conversation directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- owner B: nothing of shop A
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_one uuid := (select v::uuid from conv_test where k = 'one');
+begin
+  assert not exists (select 1 from public.owner_conversations(v_a, p_status => 'all'));
+  assert public.owner_conversations_new(v_a) = 0;
+  assert not exists (select 1 from public.owner_conversation_languages(v_a));
+  begin perform public.owner_conversations_mark(v_a, array[v_one], 'archive'); raise exception 'B marked A''s conversation';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_conversation_note(v_one, 'x'); raise exception 'B wrote a note on A''s conversation';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_conversations_export(v_a, current_date, current_date); raise exception 'B exported A''s conversations';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_set_assistant_retention(v_a, 30); raise exception 'B set A''s keep time';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_conversations_log(v_a, 'conversations_deleted', '{}'); raise exception 'B wrote A''s log';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  begin perform public.owner_conversations((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'a visitor listed conversations';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- a new message makes an archived conversation new again; a shop with a keep time loses it, Neobmedzene never
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_one uuid := (select v::uuid from conv_test where k = 'one');
+  v_two uuid := (select v::uuid from conv_test where k = 'two');
+begin
+  update public.assistant_conversations set status = 'archived' where id = v_one;
+  begin
+    perform public.assistant_add_turn(v_one, repeat('x', 1), v_a, '{"body":"x"}', '{"body":"y"}');
+    raise exception 'a wrong token added a message';
+  exception when no_data_found then null;
+  end;
+end $$;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_one uuid := (select v::uuid from conv_test where k = 'one');
+  v_two uuid := (select v::uuid from conv_test where k = 'two');
+begin
+  assert (select status from public.assistant_conversations where id = v_one) = 'archived', 'a refused message changes nothing';
+  update public.assistant_conversations set ended_at = now(), last_message_at = now() - interval '400 days'
+  where id in (v_one, v_two);
+  assert not exists (select 1 from public.assistant_expired(1000) x where x in (v_one, v_two)), 'Neobmedzene keeps them';
+  update public.shop_assistant_settings set retention_days = 365 where shop_id = v_a;
+  assert (select count(*) from public.assistant_expired(1000) x where x in (v_one, v_two)) = 2, '365 days: deleted';
+  perform public.assistant_forget(v_one);
+  perform public.assistant_forget(v_two);
+  delete from public.shop_assistant_settings where shop_id = v_a;
+  if not (select v::boolean from conv_test where k = 'had_plan') then
+    delete from public.subscriptions where shop_id = v_a;
+  end if;
+end $$;
+reset role;
+drop table conv_test;
+
+\echo '--- update 56: Kontakty — phones (E.164), contacts, tags, links by phone, templates, messages, log, owners only'
+create temporary table crm_test (k text primary key, v text);
+grant all on crm_test to public;
+
+do $$ begin
+  assert public.crm_phone('0905 123 456', 'SK') = '+421905123456', 'SK national';
+  assert public.crm_phone('+421 905/123-456', 'HU') = '+421905123456', 'international stays';
+  assert public.crm_phone('00421905123456', null) = '+421905123456', '00 prefix';
+  assert public.crm_phone('06 30 123 4567', 'HU') = '+36301234567', 'HU 06';
+  assert public.crm_phone('06 123 4567', 'IT') = '+39061234567', 'IT keeps its 0';
+  assert public.crm_phone('0170 1234567', 'DE') = '+491701234567', 'DE';
+  assert public.crm_phone('0905123456', null) is null, 'national without a country';
+  assert public.crm_phone('abc', 'SK') is null and public.crm_phone('12', 'SK') is null and public.crm_phone('', 'SK') is null;
+  assert public.crm_tags(array[' VIP ', 'vip', '', 'Stály zákazník']) = array['VIP', 'Stály zákazník'], 'tags once, trimmed';
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb;
+begin
+  insert into crm_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_crm')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_crm');
+  -- a conversation that already has the shopper's phone (phase 3 / 5 fill it)
+  v_open := public.assistant_open(v_a, 'sk', repeat('k', 32));
+  update public.assistant_conversations set shopper_phone = '+421905123456' where id = (v_open ->> 'id')::uuid;
+  insert into crm_test values ('conv', v_open ->> 'id');
+  v_open := public.assistant_open(v_a, 'sk', repeat('l', 32));
+  insert into crm_test values ('conv2', v_open ->> 'id');
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_conv uuid := (select v::uuid from crm_test where k = 'conv');
+  v_conv2 uuid := (select v::uuid from crm_test where k = 'conv2');
+  v_c uuid;
+  v_d uuid;
+  v_t uuid;
+  v jsonb;
+begin
+  -- a new contact: the phone as E.164, the conversation with that phone joins it
+  v_c := public.owner_save_contact(v_a, null, 'Jana Nová', '0905 123 456', 'Jana@Example.invalid', 'Hlavná 1, Michalovce',
+                                   array['VIP', 'vip', 'Stály zákazník'], 'Chce rezervovať');
+  assert (select phone = '+421905123456' and email = 'jana@example.invalid' and tags = array['VIP', 'Stály zákazník']
+                 and phone_verified_at is null and source = 'owner'
+          from public.shop_contacts where id = v_c);
+  assert (select contact_id from public.assistant_conversations where id = v_conv) = v_c, 'linked by phone';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'contact_saved');
+  -- one contact per number
+  begin
+    perform public.owner_save_contact(v_a, null, 'Iná', '+421 905 123 456', null, null, null, null);
+    raise exception 'the same phone twice';
+  exception when unique_violation then null;
+  end;
+  begin
+    perform public.owner_save_contact(v_a, null, 'Zlé', '12', null, null, null, null);
+    raise exception 'a bad phone was stored';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'phone' then raise; end if;
+  end;
+  begin
+    perform public.owner_save_contact(v_a, null, null, null, 'nie-email', null, null, null);
+    raise exception 'a bad e-mail was stored';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.owner_save_contact(v_a, null, ' ', '', '', null, null, null);
+    raise exception 'an empty contact was stored';
+  exception when invalid_parameter_value then null;
+  end;
+  -- a second contact made from a conversation; search, tags, phone written another way
+  v_d := public.owner_save_contact(v_a, null, 'Peter Starý', null, 'peter@example.invalid', null, array['VIP'], null, v_conv2);
+  assert (select contact_id from public.assistant_conversations where id = v_conv2) = v_d, 'linked from the conversation';
+  assert (select count(*) from public.owner_contacts(v_a)) = 2;
+  assert (select id from public.owner_contacts(v_a, 'jana NOVA')) = v_c, 'accents and case ignored';
+  assert (select id from public.owner_contacts(v_a, '0905 123 456')) = v_c, 'the phone as typed';
+  assert (select count(*) from public.owner_contacts(v_a, null, 'vip')) = 2, 'a tag, case ignored';
+  assert (select count(*) from public.owner_contacts(v_a, null, 'Stály zákazník')) = 1;
+  assert (select contacts from public.owner_contact_tags(v_a) where tag = 'VIP') = 2;
+  assert (select conversation_count from public.owner_contacts(v_a) where id = v_c) = 1;
+  -- a changed number is not "overené" any more (the system sets it; here by hand as the service would)
+  -- relinking and unlinking by hand
+  assert public.owner_link_conversation(v_conv2, v_c);
+  assert (select contact_id from public.assistant_conversations where id = v_conv2) = v_c;
+  assert public.owner_link_conversation(v_conv2, null);
+  assert (select contact_id from public.assistant_conversations where id = v_conv2) is null;
+  -- templates
+  v_t := public.owner_save_email_template(v_a, null, 'Pripomienka', 'Dobrý deň, {{ first_name }}',
+                                          'Dobrý deň {{name}},\nčakáme vás v {{shop}} ({{shop_phone}}). {{neznáme}}');
+  begin
+    perform public.owner_save_email_template(v_a, null, 'pripomienka', 'x', 'y');
+    raise exception 'a template name twice';
+  exception when unique_violation then null;
+  end;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'email_template_saved');
+  -- preview: variables filled, nothing written
+  v := public.owner_message_preview(v_c, 'email', v_t);
+  assert v ->> 'subject' = 'Dobrý deň, Jana', 'first name';
+  assert v ->> 'body' like 'Dobrý deň Jana Nová,%Potraviny Centrum (+421 56 000 0001). {{neznáme}}', 'variables, unknown kept';
+  assert v ->> 'recipient' = 'jana@example.invalid';
+  assert not exists (select 1 from public.shop_outgoing_messages where shop_id = v_a), 'a preview writes nothing';
+  v := public.owner_message_preview(v_c, 'sms', null, null, 'Ahoj {{first_name}}');
+  assert v ->> 'recipient' = '+421905123456' and v ->> 'body' = 'Ahoj Jana' and v ->> 'subject' is null;
+  begin
+    perform public.owner_message_preview(v_d, 'sms', null, null, 'x');
+    raise exception 'an SMS to a contact without a phone';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'no_recipient' then raise; end if;
+  end;
+  begin
+    perform public.owner_message_preview(v_c, 'sms', null, null, repeat('a', 481));
+    raise exception 'a too long SMS';
+  exception when invalid_parameter_value then null;
+  end;
+  -- queue: written down as queued, the shop's e-mail for "reply to"
+  v := public.owner_message_queue(v_c, 'email', v_t);
+  insert into crm_test values ('msg', v ->> 'id'), ('c', v_c), ('d', v_d), ('t', v_t);
+  assert (select status = 'queued' and recipient = 'jana@example.invalid' and channel = 'email' and template_id = v_t
+                 and sent_by = '00000000-0000-0000-0000-00000000000a'
+          from public.shop_outgoing_messages where id = (v ->> 'id')::uuid);
+  assert v ->> 'shop_name' = 'Potraviny Centrum';
+  -- owners never write the log or a contact directly, never report a result
+  begin
+    update public.shop_outgoing_messages set status = 'sent';
+    raise exception 'an owner changed the message log';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.shop_contacts (shop_id, name) values (v_a, 'x');
+    raise exception 'an owner wrote a contact directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.crm_message_result((v ->> 'id')::uuid, 'sent', 'x', null, null);
+    raise exception 'an owner reported a result';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the function reports the result once; the activity log gets the line
+set role service_role;
+do $$
+declare
+  v_msg uuid := (select v::uuid from crm_test where k = 'msg');
+begin
+  assert public.crm_message_result(v_msg, 'sent', 'brevo', 'ref-1', null);
+  assert not public.crm_message_result(v_msg, 'failed', 'brevo', null, 'late'), 'only once';
+  assert (select status = 'sent' and sent_at is not null and provider_ref = 'ref-1' from public.shop_outgoing_messages where id = v_msg);
+  assert exists (select 1 from public.shop_activity where action = 'message_sent' and details ->> 'message_id' = v_msg::text);
+  -- the system checks the number (phase 3): a changed number loses it
+  update public.shop_contacts set phone_verified_at = now() where id = (select v::uuid from crm_test where k = 'c');
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from crm_test where k = 'c');
+begin
+  assert (select phone_verified from public.owner_contacts(v_a) where id = v_c), 'overené';
+  perform public.owner_save_contact(v_a, v_c, 'Jana Nová', '+421905123456', 'jana@example.invalid', null, array['VIP'], null);
+  assert (select phone_verified_at is not null from public.shop_contacts where id = v_c), 'the same number stays overené';
+  perform public.owner_save_contact(v_a, v_c, 'Jana Nová', '0905 999 888', 'jana@example.invalid', null, array['VIP'], null);
+  assert (select phone_verified_at is null from public.shop_contacts where id = v_c), 'a changed number is not overené';
+  assert (select message_count from public.owner_contacts(v_a) where id = v_c) = 1;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- owner B and visitors: nothing of shop A
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from crm_test where k = 'c');
+  v_t uuid := (select v::uuid from crm_test where k = 't');
+begin
+  assert not exists (select 1 from public.shop_contacts) and not exists (select 1 from public.shop_outgoing_messages)
+     and not exists (select 1 from public.shop_email_templates), 'B reads none of A''s rows';
+  assert not exists (select 1 from public.owner_contacts(v_a)) and not exists (select 1 from public.owner_contact_tags(v_a));
+  begin perform public.owner_save_contact(v_a, null, 'x', null, null, null, null, null); raise exception 'B saved a contact in A';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_contact((select id from public.shops where slug = 'drogeria-kostolne'), v_c, 'x', null, null, null, null, null);
+    raise exception 'B changed A''s contact through its own shop';
+  exception when insufficient_privilege or raise_exception then null; end;
+  begin perform public.owner_delete_contact(v_c); raise exception 'B deleted A''s contact';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_message_preview(v_c, 'sms', null, null, 'x'); raise exception 'B previewed to A''s contact';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_message_queue(v_c, 'sms', null, null, 'x'); raise exception 'B sent to A''s contact';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_delete_email_template(v_t); raise exception 'B deleted A''s template';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  begin perform count(*) from public.shop_contacts; raise exception 'a visitor read contacts';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_contacts((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'a visitor listed contacts';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- without the plan: reading stays, changes and messages are refused; deleting the contact keeps the log line
+set role service_role;
+do $$ begin
+  update public.subscriptions set status = 'canceled', current_period_end = now() - interval '1 day'
+  where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from crm_test where k = 'c');
+begin
+  assert (select count(*) from public.owner_contacts(v_a)) = 2, 'a free shop still reads its contacts';
+  begin perform public.owner_message_queue(v_c, 'email', null, 'x', 'y'); raise exception 'sent without the plan';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+  begin perform public.owner_save_contact(v_a, null, 'x', null, null, null, null, null); raise exception 'saved without the plan';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+  assert public.owner_delete_contact(v_c), 'deleting stays possible';
+  assert (select contact_id is null and recipient = 'jana@example.invalid' from public.shop_outgoing_messages
+          where id = (select v::uuid from crm_test where k = 'msg')), 'the log keeps the line';
+  assert (select contact_id from public.assistant_conversations where id = (select v::uuid from crm_test where k = 'conv')) is null;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  perform public.assistant_forget((select v::uuid from crm_test where k = 'conv'));
+  perform public.assistant_forget((select v::uuid from crm_test where k = 'conv2'));
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.shop_email_templates where shop_id = v_a;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  -- the subscription exactly as before
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from crm_test where k = 'sub'))
+  where (select v from crm_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from crm_test where k = 'had_plan');
+end $$;
+reset role;
+drop table crm_test;
+
+\echo '--- update 57: Rezervácie — settings, free times within hours, no overlap, SMS code, confirm, contact, log, owners only'
+create temporary table bk_test (k text primary key, v text);
+grant all on bk_test to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb;
+begin
+  insert into bk_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('day', (current_date + 10)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_bk')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_bk');
+  update public.shops set auto_holidays = true where id = v_a;
+  -- a controlled day: 09:00–11:00; the next one closed
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, current_date + 10, false, '[["09:00","11:00"]]'), (v_a, current_date + 11, true, '[]')
+  on conflict (shop_id, date) do update set closed = excluded.closed, ranges = excluded.ranges;
+  v_open := public.assistant_open(v_a, 'sk', repeat('m', 32));
+  insert into bk_test values ('conv', v_open ->> 'id'), ('conv_token', v_open ->> 'token');
+end $$;
+reset role;
+
+-- the owner switches bookings on
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin
+    perform public.owner_save_booking_settings(v_a, true, 'Strih', 3, 30, 0, 120, 30, false);
+    raise exception '3 minutes accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  perform public.owner_save_booking_settings(v_a, true, 'Strih', 30, 30, 0, 120, 30, false);
+  assert (select enabled and duration_minutes = 30 and service_name = 'Strih' from public.shop_booking_settings where shop_id = v_a);
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'booking_settings_saved');
+  begin
+    insert into public.shop_bookings (shop_id, starts_at, ends_at, name, phone, consent_at, consent_version, token_hash)
+    values (v_a, now(), now() + interval '1 hour', 'x', '+421905000000', now(), 'v', 'x');
+    raise exception 'an owner wrote a booking directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_day date := (select v::date from bk_test where k = 'day');
+  v_nine timestamptz := (v_day + time '09:00') at time zone 'Europe/Bratislava';
+  vb jsonb;
+  v2 jsonb;
+  v_conv uuid := (select v::uuid from bk_test where k = 'conv');
+  v_dow_ranges integer;
+begin
+  -- free times only inside that day's hours, in the shop's time zone
+  assert (select count(*) from public.booking_day_ranges(v_a, v_day)) = 1;
+  assert (select range_start = v_nine and range_end = v_nine + interval '2 hours' from public.booking_day_ranges(v_a, v_day));
+  assert (select count(*) from public.booking_slots('potraviny-centrum', v_day, 1)) = 4, '09:00, 09:30, 10:00, 10:30';
+  assert (select min(starts_at) from public.booking_slots('potraviny-centrum', v_day, 1)) = v_nine;
+  assert not exists (select 1 from public.booking_slots('potraviny-centrum', v_day + 1, 1)), 'a closed special day';
+  assert not exists (select 1 from public.booking_slots('potraviny-centrum', current_date - 3, 3)), 'never in the past or within the notice';
+  -- holidays: closed by law cuts the day at "closed from"; a day off has no times
+  insert into public.public_holidays (country, date, kind, closed_from, source)
+  values ('SK', v_day + 12, 'shops_closed', '12:00', 'admin'), ('SK', v_day + 13, 'day_off', null, 'admin')
+  on conflict (country, date, source) do update set kind = excluded.kind, closed_from = excluded.closed_from;
+  assert not exists (select 1 from public.booking_day_ranges(v_a, v_day + 12)
+                     where range_end > ((v_day + 12) + time '12:00') at time zone 'Europe/Bratislava'), 'cut at 12:00';
+  assert not exists (select 1 from public.booking_day_ranges(v_a, v_day + 13)), 'a day off: no times';
+  -- the regular hours on an ordinary day
+  v_dow_ranges := jsonb_array_length(coalesce((select opening_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[extract(dow from v_day + 14)::int + 1]
+                                              from public.shops where id = v_a), '[]'));
+  assert (select count(*) from public.booking_day_ranges(v_a, v_day + 14)) = v_dow_ranges, 'the regular hours';
+
+  -- refusals of a start
+  begin perform public.booking_start('potraviny-centrum', v_nine, 'Jana', '0905 111 222', null, null, null, false, 'v1', 'sk', repeat('c', 32));
+    raise exception 'without consent'; exception when invalid_parameter_value then if sqlerrm <> 'consent' then raise; end if; end;
+  begin perform public.booking_start('potraviny-centrum', v_nine, 'Jana', '12', null, null, null, true, 'v1', 'sk', repeat('c', 32));
+    raise exception 'a bad phone'; exception when invalid_parameter_value then if sqlerrm <> 'phone' then raise; end if; end;
+  begin perform public.booking_start('potraviny-centrum', v_nine + interval '15 minutes', 'Jana', '0905 111 222', null, null, null, true, 'v1', 'sk', repeat('c', 32));
+    raise exception 'a time between the steps'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  begin perform public.booking_start('potraviny-centrum', v_nine - interval '1 hour', 'Jana', '0905 111 222', null, null, null, true, 'v1', 'sk', repeat('c', 32));
+    raise exception 'outside the hours'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+
+  -- a start holds the time, the code is 6 digits and only its hash is kept; the conversation is remembered
+  vb := public.booking_start('potraviny-centrum', v_nine, '  Jana Nová ', '0905 111 222', 'Jana@Example.invalid', 'Hlavná 1',
+                            'Prvýkrát', true, 'booking-2026-10-30', 'sk', repeat('c', 32),
+                            v_conv, (select v from bk_test where k = 'conv_token'));
+  assert vb ->> 'code' ~ '^\d{6}$' and vb ->> 'phone' = '+421905111222';
+  assert (select code_hash <> (vb ->> 'code') and status = 'pending' and conversation_id = v_conv and name = 'Jana Nová'
+                 and email = 'jana@example.invalid' and ends_at = v_nine + interval '30 minutes'
+          from public.shop_bookings where id = (vb ->> 'id')::uuid);
+  assert (select count(*) from public.booking_slots('potraviny-centrum', v_day, 1)) = 3, 'the waiting booking holds its time';
+  begin perform public.booking_start('potraviny-centrum', v_nine, 'Iný', '0905 333 444', null, null, null, true, 'v1', 'sk', repeat('d', 32));
+    raise exception 'the same time twice'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  -- wrong codes count, the right one verifies once
+  v2 := public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', '000000');
+  assert (v2 ->> 'ok')::boolean is false and v2 ->> 'reason' in ('wrong_code') and (v2 ->> 'attempts_left')::int = 4
+      or (vb ->> 'code') = '000000';
+  assert (public.booking_verify((vb ->> 'id')::uuid, 'wrong-token', vb ->> 'code') ->> 'reason') = 'not_pending', 'the token decides';
+  v2 := public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code');
+  assert (v2 ->> 'ok')::boolean and v2 ->> 'timezone' = 'Europe/Bratislava' and (v2 ->> 'google')::boolean is false;
+  assert (public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code') ->> 'ok')::boolean is false, 'only once';
+  -- confirmed: a new contact from the booking, "overené", the conversation linked through the number
+  v2 := public.booking_confirm((vb ->> 'id')::uuid, 'evt_1', 'created');
+  assert (select status = 'confirmed' and google_status = 'created' and google_event_id = 'evt_1' and contact_id is not null
+          from public.shop_bookings where id = (vb ->> 'id')::uuid);
+  assert (select source = 'booking' and phone = '+421905111222' and phone_verified_at is not null and email = 'jana@example.invalid'
+          from public.shop_contacts where id = (v2 ->> 'contact_id')::uuid);
+  assert (select shopper_phone = '+421905111222' and contact_id = (v2 ->> 'contact_id')::uuid
+          from public.assistant_conversations where id = v_conv);
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'booking_confirmed');
+  begin perform public.booking_confirm((vb ->> 'id')::uuid, null, null); raise exception 'confirmed twice';
+  exception when raise_exception then null; end;
+  -- never two bookings at the same time, not even directly
+  begin
+    insert into public.shop_bookings (shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash)
+    values (v_a, v_nine + interval '10 minutes', v_nine + interval '40 minutes', 'confirmed', 'x', '+421905999999', now(), 'v', 'x');
+    raise exception 'an overlapping booking was stored';
+  exception when exclusion_violation then null;
+  end;
+  insert into bk_test values ('b1', vb ->> 'id'), ('contact1', v2 ->> 'contact_id');
+
+  -- a second booking of the same number joins the same contact
+  vb := public.booking_start('potraviny-centrum', v_nine + interval '30 minutes', 'Jana', '+421905111222', null, null, null,
+                            true, 'booking-2026-10-30', 'sk', repeat('c', 32));
+  perform public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code');
+  v2 := public.booking_confirm((vb ->> 'id')::uuid, null, 'none');
+  assert (v2 ->> 'contact_id') = (select v from bk_test where k = 'contact1'), 'the same contact by the number';
+  assert (select count(*) from public.shop_contacts where shop_id = v_a and phone = '+421905111222') = 1;
+
+  -- five wrong codes end a booking and free its time; a new code replaces the old one
+  vb := public.booking_start('potraviny-centrum', v_nine + interval '60 minutes', 'Peter', '0905 555 666', null, null, null,
+                            true, 'booking-2026-10-30', 'sk', repeat('e', 32));
+  v2 := public.booking_resend((vb ->> 'id')::uuid, vb ->> 'token');
+  assert (v2 ->> 'ok')::boolean and v2 ->> 'code' ~ '^\d{6}$';
+  -- the old code stops working (one try either way)
+  if v2 ->> 'code' <> vb ->> 'code' then
+    assert (public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code') ->> 'reason') = 'wrong_code', 'the old code stops';
+  else
+    perform public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', 'abcdef');
+  end if;
+  perform public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', 'abcdef') from generate_series(1, 3);
+  assert (public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', 'abcdef') ->> 'reason') = 'too_many_attempts';
+  assert (select status = 'expired' and end_reason = 'too_many_attempts' from public.shop_bookings where id = (vb ->> 'id')::uuid);
+  assert exists (select 1 from public.booking_slots('potraviny-centrum', v_day, 1) where starts_at = v_nine + interval '60 minutes'), 'freed';
+  -- a code that ran out
+  vb := public.booking_start('potraviny-centrum', v_nine + interval '60 minutes', 'Eva', '0905 777 888', null, null, null,
+                            true, 'booking-2026-10-30', 'sk', repeat('f', 32));
+  update public.shop_bookings set code_expires_at = now() - interval '1 second' where id = (vb ->> 'id')::uuid;
+  assert (public.booking_verify((vb ->> 'id')::uuid, vb ->> 'token', vb ->> 'code') ->> 'reason') = 'expired';
+  -- at most 3 codes per booking
+  vb := public.booking_start('potraviny-centrum', v_nine + interval '90 minutes', 'Eva', '0905 777 888', null, null, null,
+                            true, 'booking-2026-10-30', 'sk', repeat('f', 32));
+  perform public.booking_resend((vb ->> 'id')::uuid, vb ->> 'token');
+  perform public.booking_resend((vb ->> 'id')::uuid, vb ->> 'token');
+  assert (public.booking_resend((vb ->> 'id')::uuid, vb ->> 'token') ->> 'reason') = 'too_many';
+  -- Google says busy meanwhile: released
+  assert public.booking_release((vb ->> 'id')::uuid, 'slot_taken');
+  -- at most 3 starts an hour per number (Eva's 3rd is still fine, the 4th is refused)
+  perform public.booking_start('potraviny-centrum', v_nine + interval '90 minutes', 'Eva', '0905 777 888', null, null, null,
+                               true, 'booking-2026-10-30', 'sk', repeat('g', 32));
+  begin
+    perform public.booking_start('potraviny-centrum', v_nine + interval '60 minutes', 'Eva', '0905 777 888', null, null, null,
+                                 true, 'booking-2026-10-30', 'sk', repeat('g', 32));
+    raise exception 'a 4th start within the hour';
+  exception when sqlstate '54000' then null;
+  end;
+
+  -- the SMS log: the code is never readable there
+  perform public.booking_log_sms((select v::uuid from bk_test where k = 'b1'), 'booking_code', 'Váš kód je 123456.', 'test', 'test', null, null);
+  assert (select body from public.shop_outgoing_messages where kind = 'booking_code' order by created_at desc limit 1) = 'Váš kód je ••••••.';
+  assert (select count(*) from public.shop_outgoing_messages where kind = 'owner' and booking_id is not null) = 0;
+
+  -- day-before reminders: only with the reminder on, tomorrow in the shop's time, from 09:00 there
+  update public.shop_booking_settings set reminder = true where shop_id = v_a;
+  insert into public.shop_bookings (shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash, confirmed_at)
+  values (v_a, ((now() at time zone 'Europe/Bratislava')::date + 1 + time '06:00') at time zone 'Europe/Bratislava',
+          ((now() at time zone 'Europe/Bratislava')::date + 1 + time '06:30') at time zone 'Europe/Bratislava',
+          'confirmed', 'Zajtra', '+421905121212', now(), 'v', 'x', now());
+  assert (select count(*) from public.booking_reminders_due() where name = 'Zajtra')
+       = case when (now() at time zone 'Europe/Bratislava')::time >= time '09:00' then 1 else 0 end, 'tomorrow, from 09:00';
+  update public.shop_booking_settings set reminder = false where shop_id = v_a;
+  assert not exists (select 1 from public.booking_reminders_due() where name = 'Zajtra'), 'reminders off by default';
+end $$;
+reset role;
+
+-- the owner's list and statuses
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b1 uuid := (select v::uuid from bk_test where k = 'b1');
+  v_day date := (select v::date from bk_test where k = 'day');
+begin
+  assert (select count(*) from public.owner_bookings(v_a, v_day, v_day)) = 2, 'only confirmed / cancelled / no-show';
+  assert not exists (select 1 from public.owner_bookings(v_a, v_day, v_day) where status in ('pending', 'expired'));
+  assert (select count(*) from public.owner_bookings(v_a, v_day, v_day, 'expired')) >= 2;
+  assert (select name from public.owner_bookings(v_a, v_day, v_day) order by starts_at limit 1) = 'Jana Nová';
+  assert public.owner_set_booking_status(v_b1, 'cancelled');
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'booking_status_changed');
+  assert public.owner_set_booking_status(v_b1, 'no_show');
+  assert public.owner_set_booking_status(v_b1, 'confirmed');
+  assert not public.owner_set_booking_status(v_b1, 'confirmed'), 'no change';
+  begin perform public.owner_set_booking_status(v_b1, 'pending'); raise exception 'pending set by hand';
+  exception when invalid_parameter_value then null; end;
+  -- owners read their bookings but never the token or the code
+  assert (select count(*) from public.shop_bookings where shop_id = v_a) >= 4;
+  begin perform token_hash from public.shop_bookings; raise exception 'an owner read a token hash';
+  exception when insufficient_privilege then null; end;
+  begin perform public.booking_start('potraviny-centrum', now(), 'x', '0905000000', null, null, null, true, 'v', 'sk', repeat('h', 32));
+    raise exception 'an owner called booking_start'; exception when insufficient_privilege then null; end;
+  begin perform access_token_enc from public.booking_google_connections; raise exception 'an owner read a Google token';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert not exists (select 1 from public.shop_bookings) and not exists (select 1 from public.owner_bookings(v_a, null, null, 'confirmed'));
+  begin perform public.owner_set_booking_status((select v::uuid from bk_test where k = 'b1'), 'cancelled'); raise exception 'B changed A''s booking';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_booking_settings(v_a, false, null, 30, 30, 0, 0, 30, false); raise exception 'B saved A''s settings';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role anon;
+do $$ begin
+  assert (select duration_minutes from public.shop_takes_bookings('potraviny-centrum')) = 30, 'the assistant may know it';
+  assert not exists (select 1 from public.shop_takes_bookings('drogeria-kostolne')), 'a shop without bookings';
+  begin perform public.booking_slots('potraviny-centrum', current_date, 7); raise exception 'a visitor read slots directly';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.shop_bookings; raise exception 'a visitor read bookings';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- without the plan or with bookings off: nothing to book
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  update public.shop_booking_settings set enabled = false where shop_id = v_a;
+  assert not exists (select 1 from public.booking_shop('potraviny-centrum'));
+  begin perform public.booking_start('potraviny-centrum', now() + interval '1 day', 'x', '0905 101 010', null, null, null, true, 'v', 'sk', repeat('i', 32));
+    raise exception 'booked while off'; exception when raise_exception then if sqlerrm <> 'not_available' then raise; end if; end;
+  -- tidy up: the subscription exactly as before
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.shop_bookings where shop_id = v_a;
+  delete from public.shop_booking_settings where shop_id = v_a;
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date in ((select v::date from bk_test where k = 'day'),
+                                                                          (select v::date from bk_test where k = 'day') + 1);
+  delete from public.public_holidays where source = 'admin' and country = 'SK'
+    and date in ((select v::date from bk_test where k = 'day') + 12, (select v::date from bk_test where k = 'day') + 13);
+  perform public.assistant_forget((select v::uuid from bk_test where k = 'conv'));
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from bk_test where k = 'sub'))
+  where (select v from bk_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from bk_test where k = 'had_plan');
+end $$;
+reset role;
+drop table bk_test;
+
+\echo '--- update 58: SMS quotas — parts, two monthly quotas (booking / owner), blocked at the limit, usage, admin'
+create temporary table sq_test (k text primary key, v text);
+grant all on sq_test to public;
+
+do $$ begin
+  assert public.crm_sms_parts('') = 0 and public.crm_sms_parts(null) = 0;
+  assert public.crm_sms_parts('Hello') = 1;
+  assert public.crm_sms_parts(repeat('a', 160)) = 1 and public.crm_sms_parts(repeat('a', 161)) = 2, 'GSM 160 / 153';
+  assert public.crm_sms_parts(repeat('a', 306)) = 2 and public.crm_sms_parts(repeat('a', 307)) = 3;
+  assert public.crm_sms_parts(repeat('€', 80)) = 1 and public.crm_sms_parts(repeat('€', 81)) = 2, 'extension counts twice';
+  assert public.crm_sms_parts('a' || chr(10) || 'b') = 1, 'a new line is GSM';
+  assert public.crm_sms_parts('Dobrý deň') = 1;
+  assert public.crm_sms_parts(repeat('č', 70)) = 1 and public.crm_sms_parts(repeat('č', 71)) = 2, 'Unicode 70 / 67';
+  assert public.crm_sms_parts(repeat('ő', 134)) = 2 and public.crm_sms_parts(repeat('ő', 135)) = 3;
+  assert public.sms_quota_of('owner') = 'owner' and public.sms_quota_of('booking_code') = 'booking'
+    and public.sms_quota_of('booking_reminder') = 'booking';
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  insert into sq_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('day', (current_date + 20)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_sq')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_sq');
+  update public.sms_quota_limits set monthly = 3 where quota = 'booking';
+  update public.sms_quota_limits set monthly = 4 where quota = 'owner';
+  insert into public.shop_booking_settings (shop_id, enabled, service_name, duration_minutes, step_minutes, buffer_minutes,
+                                            lead_minutes, horizon_days, reminder)
+  values (v_a, true, 'Strih', 30, 30, 0, 120, 30, true)
+  on conflict (shop_id) do update set enabled = true, reminder = true;
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, current_date + 20, false, '[["09:00","11:00"]]')
+  on conflict (shop_id, date) do update set closed = excluded.closed, ranges = excluded.ranges;
+  -- an SMS of last month never counts
+  insert into public.shop_outgoing_messages (shop_id, channel, recipient, body, status, kind, parts, created_at)
+  values (v_a, 'sms', '+421905000001', 'old', 'sent', 'owner', 5, (select starts_at from public.sms_month(v_a)) - interval '1 day');
+  assert public.sms_quota_used(v_a, 'owner') = 0, 'last month';
+end $$;
+reset role;
+
+-- the owner's quota: parts counted, refused at the limit, e-mail never counted
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid;
+  v jsonb;
+begin
+  v_c := public.owner_save_contact(v_a, null, 'Eva Kvóta', '0905 777 888', 'eva@example.invalid', null, null, null);
+  insert into sq_test values ('c', v_c::text);
+  v := public.owner_message_queue(v_c, 'sms', null, null, repeat('č', 71));
+  assert (v ->> 'parts')::integer = 2, v::text;
+  insert into sq_test values ('m1', v ->> 'id');
+  assert (select parts from public.shop_outgoing_messages where id = (v ->> 'id')::uuid) = 2;
+  perform public.owner_message_queue(v_c, 'sms', null, null, 'Dobry den');
+  perform public.owner_message_queue(v_c, 'sms', null, null, 'Dakujeme');
+  v := public.owner_sms_usage(v_a);
+  assert (v -> 'owner' ->> 'used')::integer = 4 and (v -> 'owner' ->> 'limit')::integer = 4, v::text;
+  assert (v -> 'booking' ->> 'used')::integer = 0 and (v -> 'booking' ->> 'limit')::integer = 3, v::text;
+  assert (v ->> 'resets_at')::timestamptz > now() and (v ->> 'month_start')::timestamptz <= now();
+  begin
+    perform public.owner_message_queue(v_c, 'sms', null, null, 'x');
+    raise exception 'sent over the owner quota';
+  exception when program_limit_exceeded then if sqlerrm <> 'sms_quota' then raise; end if;
+  end;
+  assert (select count(*) from public.shop_outgoing_messages where shop_id = v_a and channel = 'sms' and kind = 'owner'
+          and created_at > now() - interval '1 hour') = 3, 'the refused SMS was not written down';
+  perform public.owner_message_queue(v_c, 'email', null, 'Ahoj', 'E-mail nemá kvótu');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- a failed SMS gives its parts back
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.crm_message_result((select v::uuid from sq_test where k = 'm1'), 'failed', 'brevo', null, 'down');
+  assert public.sms_quota_used(v_a, 'owner') = 2;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_message_queue((select v::uuid from sq_test where k = 'c'), 'sms', null, null, 'Znova');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the booking quota: claim → settle, codes masked, refused at the limit, nothing offered, resend and reminders wait
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_day date := (select v::date from sq_test where k = 'day');
+  v_nine timestamptz := (v_day + time '09:00') at time zone 'Europe/Bratislava';
+  vb jsonb;
+  v_m uuid;
+  v_r uuid;
+begin
+  assert exists (select 1 from public.shop_takes_bookings('potraviny-centrum'));
+  vb := public.booking_start('potraviny-centrum', v_nine, 'Eva', '0905 777 999', null, null, null, true, 'v1', 'sk', repeat('q', 32));
+  insert into sq_test values ('b', vb ->> 'id'), ('bt', vb ->> 'token');
+  v_m := public.booking_sms_claim((vb ->> 'id')::uuid, 'booking_code', 'Kod ' || (vb ->> 'code') || ' pre Potraviny');
+  assert (select status = 'queued' and body = 'Kod •••••• pre Potraviny' and parts = 1 and kind = 'booking_code'
+          from public.shop_outgoing_messages where id = v_m), 'claimed, masked';
+  assert public.booking_sms_settle(v_m, 'test', 'test', null, null);
+  assert not public.booking_sms_settle(v_m, 'sent', 'test', null, null), 'settled once';
+  assert public.sms_quota_used(v_a, 'booking') = 1 and public.sms_quota_used(v_a, 'owner') = 3, 'two quotas apart';
+  vb := public.booking_resend((select v::uuid from sq_test where k = 'b'), (select v from sq_test where k = 'bt'));
+  assert (vb ->> 'ok')::boolean, vb::text;
+  v_m := public.booking_sms_claim((select v::uuid from sq_test where k = 'b'), 'booking_code', 'Kod ' || (vb ->> 'code'));
+  perform public.booking_sms_settle(v_m, 'sent', 'brevo', 'ref-1', null);
+  -- a confirmed booking tomorrow with a reminder due
+  insert into public.shop_bookings (shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash)
+  values (v_a, ((current_date + 1) + time '15:00') at time zone 'Europe/Bratislava',
+          ((current_date + 1) + time '15:30') at time zone 'Europe/Bratislava', 'confirmed', 'Pripomienka', '+421905777990',
+          now(), 'v1', 'sq-token')
+  returning id into v_r;
+  if (now() at time zone 'Europe/Bratislava')::time >= time '09:00' then
+    assert exists (select 1 from public.booking_reminders_due() where id = v_r), 'due while the quota has room';
+  end if;
+  v_m := public.booking_sms_claim(v_r, 'booking_reminder', 'Zajtra 15:00 Potraviny');
+  assert public.booking_sms_settle(v_m, 'sent', 'brevo', null, null);
+  assert (select reminder_sent_at is not null from public.shop_bookings where id = v_r), 'the reminder is marked';
+  assert public.sms_quota_used(v_a, 'booking') = 3 and public.sms_quota_left(v_a, 'booking') = 0;
+  -- at the limit
+  begin
+    perform public.booking_sms_claim((select v::uuid from sq_test where k = 'b'), 'booking_code', 'Kod 111111');
+    raise exception 'claimed over the booking quota';
+  exception when program_limit_exceeded then if sqlerrm <> 'sms_quota' then raise; end if;
+  end;
+  assert not exists (select 1 from public.shop_takes_bookings('potraviny-centrum')), 'nothing offered at the limit';
+  vb := public.booking_resend((select v::uuid from sq_test where k = 'b'), (select v from sq_test where k = 'bt'));
+  assert vb ->> 'reason' = 'sms_quota', vb::text;
+  update public.shop_bookings set reminder_sent_at = null where id = v_r;
+  assert not exists (select 1 from public.booking_reminders_due() where id = v_r), 'reminders wait at the limit';
+  -- a failed booking SMS gives its part back; the owner quota is untouched by it
+  update public.shop_outgoing_messages set status = 'failed' where id = v_m;
+  assert public.sms_quota_left(v_a, 'booking') = 1 and public.sms_quota_used(v_a, 'owner') = 3;
+  assert exists (select 1 from public.shop_takes_bookings('potraviny-centrum'));
+  begin perform public.booking_sms_claim(v_r, 'owner', 'x'); raise exception 'wrong kind accepted';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.booking_sms_settle(v_m, 'queued', null, null, null); raise exception 'bad status accepted';
+  exception when invalid_parameter_value then null; end;
+end $$;
+reset role;
+
+-- owner B, visitors and owners never write or read A's quota
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_sms_usage(v_a); raise exception 'B read A''s SMS use';
+  exception when insufficient_privilege then null; end;
+  begin perform public.booking_sms_claim((select v::uuid from sq_test where k = 'b'), 'booking_code', 'x'); raise exception 'an owner claimed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sms_quota_take(v_a, 'owner', 1); raise exception 'an owner took quota';
+  exception when insufficient_privilege then null; end;
+  begin update public.sms_quota_limits set monthly = 1000; raise exception 'an owner changed the limits';
+  exception when insufficient_privilege then null; end;
+  begin perform public.admin_save_sms_quotas(1000, 1000); raise exception 'an owner saved the limits';
+  exception when insufficient_privilege then null; end;
+  begin perform public.admin_sms_quotas(); raise exception 'an owner read the totals';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$
+begin
+  begin perform public.owner_sms_usage((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'anon read SMS use';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the admin: limits and this month's totals
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+set role authenticated;
+do $$
+begin
+  assert (select monthly = 3 and used_this_month >= 2 and shops_at_limit >= 0 from public.admin_sms_quotas() where quota = 'booking');
+  assert (select used_this_month >= 3 from public.admin_sms_quotas() where quota = 'owner');
+  begin perform public.admin_save_sms_quotas(-1, 100); raise exception 'a negative limit accepted';
+  exception when invalid_parameter_value then null; end;
+  perform public.admin_save_sms_quotas(100, 100);
+  assert (select bool_and(monthly = 100) from public.admin_sms_quotas());
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- tidy up: the subscription exactly as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.sms_quota_limit('booking') = 100 and public.sms_quota_limit('owner') = 100;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.shop_bookings where shop_id = v_a;
+  delete from public.shop_booking_settings where shop_id = v_a;
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from sq_test where k = 'day');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from sq_test where k = 'sub'))
+  where (select v from sq_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from sq_test where k = 'had_plan');
+end $$;
+reset role;
+drop table sq_test;
+
+\echo '--- update 59: unanswered questions — leave a contact, contact by phone or e-mail, flag, owner e-mail queue, waiting list, answered'
+create temporary table cb_test (k text primary key, v text);
+grant all on cb_test to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb;
+begin
+  insert into cb_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_cb')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_cb');
+  v_open := public.assistant_open(v_a, 'sk', repeat('u', 32));
+  insert into cb_test values ('conv', v_open ->> 'id'), ('tok', v_open ->> 'token');
+  insert into public.assistant_messages (conversation_id, shop_id, role, body, body_owner, lang)
+  values ((v_open ->> 'id')::uuid, v_a, 'shopper', 'Do you have blue tiles?', 'Máte modré obkladačky?', 'en');
+  update public.assistant_conversations set status = 'read' where id = (v_open ->> 'id')::uuid;
+  v_open := public.assistant_open(v_a, 'sk', repeat('w', 32));
+  insert into cb_test values ('conv2', v_open ->> 'id'), ('tok2', v_open ->> 'token');
+  -- a contact the shop already has, by e-mail only
+  insert into public.shop_contacts (shop_id, name, email, source) values (v_a, 'Pani Známa', 'znama@example.invalid', 'owner');
+end $$;
+reset role;
+
+-- the shopper (a visitor) leaves a phone
+set role anon;
+do $$
+declare
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+  v_t text := (select v from cb_test where k = 'tok');
+  v jsonb;
+begin
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, 'wrong', null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+    raise exception 'a wrong token passed'; exception when raise_exception then if sqlerrm <> 'not_available' then raise; end if; end;
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '0905 444 555', null, false, 'v1', repeat('s', 32));
+    raise exception 'no consent passed'; exception when invalid_parameter_value then if sqlerrm <> 'consent' then raise; end if; end;
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, null, '  ', true, 'v1', repeat('s', 32));
+    raise exception 'nothing passed'; exception when invalid_parameter_value then if sqlerrm <> 'empty' then raise; end if; end;
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '12', null, true, 'v1', repeat('s', 32));
+    raise exception 'a bad phone passed'; exception when invalid_parameter_value then if sqlerrm <> 'phone' then raise; end if; end;
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, null, 'nope', true, 'v1', repeat('s', 32));
+    raise exception 'a bad e-mail passed'; exception when invalid_parameter_value then if sqlerrm <> 'email' then raise; end if; end;
+  begin perform public.shopper_leave_contact('drogeria-kostolne', v_c, v_t, null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+    raise exception 'another shop''s slug passed'; exception when raise_exception then if sqlerrm <> 'not_available' then raise; end if; end;
+  v := public.shopper_leave_contact('potraviny-centrum', v_c, v_t, ' Ján ', '0905 444 555', null, true, 'v1', repeat('s', 32));
+  assert v = '{"ok": true}'::jsonb, v::text;
+  begin perform 1 from public.shop_contacts; raise exception 'anon read contacts';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+  v_k uuid;
+  v record;
+begin
+  select * into v from public.assistant_conversations where id = v_c;
+  assert v.status = 'new' and v.unanswered and v.callback_at is not null and v.callback_answered_at is null, 'flagged';
+  assert v.shopper_phone = '+421905444555' and v.callback_name = 'Ján' and v.callback_consent_version = 'v1';
+  select id into v_k from public.shop_contacts where shop_id = v_a and phone = '+421905444555';
+  assert v_k is not null and v.contact_id = v_k, 'a new contact joined';
+  assert (select source = 'chat' and name = 'Ján' and phone_verified_at is null from public.shop_contacts where id = v_k), 'never verified';
+  insert into cb_test values ('contact', v_k::text);
+  assert (select count(*) from public.shop_owner_alerts where conversation_id = v_c and sent_at is null) = 1, 'one owner e-mail queued';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'callback_requested'
+                 and details ->> 'conversation_id' = v_c::text and details ->> 'phone' = 'true');
+  -- the e-mail due: owners' addresses, the question in Slovak, only whether a phone / e-mail was left
+  select * into v from public.crm_alerts_due() where conversation_id = v_c;
+  assert v.shop_name is not null and v.question = 'Máte modré obkladačky?' and v.has_phone and not v.has_email, 'due';
+  assert v.recipients @> '[{"email": "owner-a@example.invalid"}]'::jsonb, v.recipients::text;
+  assert v.recipients::text not like '%owner-b%', 'only this shop''s owners';
+  assert v.question || v.recipients::text not like '%905444555%', 'never the number';
+  perform public.crm_alert_result(v.id, false, 'brevo 500');
+  assert not exists (select 1 from public.crm_alerts_due() where conversation_id = v_c), 'waits after a failure';
+  assert (select attempts = 1 and next_try_at > now() from public.shop_owner_alerts where id = v.id);
+  update public.shop_owner_alerts set next_try_at = now() where id = v.id;
+  perform public.crm_alert_result(v.id, true, null);
+  assert (select sent_at is not null from public.shop_owner_alerts where id = v.id), 'sent';
+  assert not exists (select 1 from public.crm_alerts_due() where conversation_id = v_c), 'sent once';
+end $$;
+reset role;
+
+-- the second conversation: only an e-mail the shop already knows → the existing contact, nothing overwritten
+set role anon;
+do $$
+begin
+  perform public.shopper_leave_contact('potraviny-centrum', (select v::uuid from cb_test where k = 'conv2'),
+                                       (select v from cb_test where k = 'tok2'), 'Iné Meno', null, 'ZNAMA@example.invalid',
+                                       true, 'v1', repeat('t', 32));
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select c.contact_id = k.id and k.name = 'Pani Známa' and c.callback_email = 'znama@example.invalid'
+          from public.assistant_conversations c, public.shop_contacts k
+          where c.id = (select v::uuid from cb_test where k = 'conv2') and k.shop_id = v_a and k.email = 'znama@example.invalid'),
+         'joined the known contact by e-mail, its name kept';
+  assert (select count(*) from public.shop_contacts where shop_id = v_a and email = 'znama@example.invalid') = 1;
+end $$;
+reset role;
+
+-- three per conversation at most
+set role anon;
+do $$
+declare
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+  v_t text := (select v from cb_test where k = 'tok');
+begin
+  perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+  perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+  begin perform public.shopper_leave_contact('potraviny-centrum', v_c, v_t, null, '0905 444 555', null, true, 'v1', repeat('s', 32));
+    raise exception 'a fourth time passed'; exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+end $$;
+reset role;
+
+-- the owner: the waiting list and badge, an SMS answer marks it answered, "Vybavené" / back
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+  v_c2 uuid := (select v::uuid from cb_test where k = 'conv2');
+  vq jsonb;
+begin
+  assert (select waiting from public.owner_callbacks_waiting() where shop_id = v_a) = 2,
+    'badge ' || coalesce((select string_agg(waiting::text, ',') from public.owner_callbacks_waiting()), 'none');
+  assert (select count(*) from public.owner_callbacks(v_a)) = 2, 'list';
+  assert (select question = 'Máte modré obkladačky?' and phone = '+421905444555' and name = 'Ján'
+          from public.owner_callbacks(v_a) where conversation_id = v_c),
+    (select row_to_json(x)::text from public.owner_callbacks(v_a) x where conversation_id = v_c);
+  assert (select callback_name = 'Ján' from public.assistant_conversations where id = v_c), 'owners read the callback';
+  vq := public.owner_message_queue((select v::uuid from cb_test where k = 'contact'), 'sms', null, null, 'Dobry den, mame.');
+  insert into cb_test values ('msg', vq ->> 'id');
+  -- "Vybavené" for the second one, then back, then done again
+  assert public.owner_callback_done(v_c2, true);
+  assert (select callback_answered_at is not null from public.assistant_conversations where id = v_c2);
+  assert public.owner_callback_done(v_c2, false);
+  assert (select callback_answered_at is null from public.assistant_conversations where id = v_c2);
+  assert public.owner_callback_done(v_c2, true);
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'callback_reopened');
+  begin insert into public.shop_owner_alerts (shop_id, kind) values (v_a, 'callback'); raise exception 'an owner queued an alert';
+  exception when insufficient_privilege then null; end;
+  begin perform public.crm_alerts_due(); raise exception 'an owner read the alerts';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_c uuid := (select v::uuid from cb_test where k = 'conv');
+begin
+  assert (select callback_answered_at is null from public.assistant_conversations where id = v_c), 'not before it is sent';
+  assert public.crm_message_result((select v::uuid from cb_test where k = 'msg'), 'test', 'test', null, null);
+  assert (select callback_answered_at is not null and callback_answered_by = '00000000-0000-0000-0000-00000000000a'
+          from public.assistant_conversations where id = v_c), 'an answer sent marks it answered';
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert not exists (select 1 from public.owner_callbacks_waiting() where shop_id = v_a), 'B sees no badge of A';
+  begin perform public.owner_callbacks(v_a); raise exception 'B read A''s list';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_callback_done((select v::uuid from cb_test where k = 'conv'), false); raise exception 'B changed A''s';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- without the plan the shopper's form is refused
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_open jsonb;
+begin
+  v_open := public.assistant_open(v_a, 'sk', repeat('x', 32));
+  update public.subscriptions set status = 'canceled', current_period_end = now() - interval '1 day' where shop_id = v_a;
+  begin perform public.shopper_leave_contact('potraviny-centrum', (v_open ->> 'id')::uuid, v_open ->> 'token', null, '0905 444 556', null,
+                                             true, 'v1', repeat('y', 32));
+    raise exception 'left a contact without the plan'; exception when raise_exception then if sqlerrm <> 'not_available' then raise; end if; end;
+  -- tidy up: the subscription exactly as before
+  delete from public.shop_owner_alerts where shop_id = v_a;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  perform public.assistant_forget((select v::uuid from cb_test where k = 'conv'));
+  perform public.assistant_forget((select v::uuid from cb_test where k = 'conv2'));
+  perform public.assistant_forget((v_open ->> 'id')::uuid);
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from cb_test where k = 'sub'))
+  where (select v from cb_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from cb_test where k = 'had_plan');
+end $$;
+reset role;
+drop table cb_test;
+
+\echo '--- update 60: opening hours by SMS — owner phones + code, received SMS, apply only named days, reply quota, Google Business'
+create temporary table hs_test (k text primary key, v text);
+grant all on hs_test to public;
+
+do $$ begin
+  assert public.valid_week_hours('{"mon": [["08:00","17:00"]], "sun": []}');
+  assert public.valid_week_hours('{"fri": [["18:00","02:00"]]}'), 'past midnight is fine';
+  assert not public.valid_week_hours('{"mon": [["08:00","17:00"], ["x","y"]]}') and not public.valid_week_hours('{"monday": []}');
+  assert not public.valid_week_hours('[]') and public.valid_week_hours('{}');
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  insert into hs_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('hours', (select opening_hours::text from public.shops where id = v_a));
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_hs')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_hs');
+  -- only a member gets a code; the number in international form
+  begin perform public.hours_phone_start('00000000-0000-0000-0000-00000000000b', v_a, '0905 600 700'); raise exception 'B got a code';
+  exception when insufficient_privilege then null; end;
+  begin perform public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '12'); raise exception 'bad phone';
+  exception when invalid_parameter_value then if sqlerrm <> 'phone' then raise; end if; end;
+  vj := public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '0905 600 700');
+  assert vj ->> 'phone' = '+421905600700' and vj ->> 'code' ~ '^\d{6}$', vj::text;
+  perform public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '0905 600 700');
+  vj := public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '0905 600 700');
+  insert into hs_test values ('phone', vj ->> 'id'), ('code', vj ->> 'code');
+  begin perform public.hours_phone_start('00000000-0000-0000-0000-00000000000a', v_a, '0905 600 700'); raise exception 'a 4th code';
+  exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+  -- an unverified number is nobody's yet
+  vj := public.hours_sms_receive('+421905600700', 'Po-Pi 8-17', 'twilio', 'SM-0');
+  assert vj ->> 'status' = 'unknown_phone' and jsonb_array_length(vj -> 'shops') = 0, vj::text;
+  assert (select body is null and phone is null and shop_id is null from public.hours_sms_messages where id = (vj ->> 'id')::uuid),
+    'an unknown number keeps no text';
+end $$;
+reset role;
+
+-- the owner types the code
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_id uuid := (select v::uuid from hs_test where k = 'phone');
+  v_code text := (select v from hs_test where k = 'code');
+  vr jsonb;
+begin
+  vr := public.owner_phone_verify(v_id, case when v_code = '000000' then '111111' else '000000' end);
+  assert vr ->> 'reason' = 'wrong_code' and (vr ->> 'attempts_left')::integer = 4, vr::text;
+  vr := public.owner_phone_verify(v_id, ' ' || substr(v_code, 1, 3) || ' ' || substr(v_code, 4));
+  assert (vr ->> 'ok')::boolean, vr::text;
+  assert (select verified_at is not null from public.shop_owner_phones where id = v_id), 'verified';
+  begin perform code_hash from public.shop_owner_phones; raise exception 'an owner read the code hash';
+  exception when insufficient_privilege then null; end;
+  assert exists (select 1 from public.shop_activity where action = 'hours_phone_verified' and details ->> 'phone_id' = v_id::text);
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  assert not exists (select 1 from public.shop_owner_phones), 'B sees no phones of A';
+  begin perform public.owner_phone_verify((select v::uuid from hs_test where k = 'phone'), '123456'); raise exception 'B verified';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_phone_remove((select v::uuid from hs_test where k = 'phone')); raise exception 'B removed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.hours_sms_apply((select id from public.shops where slug = 'potraviny-centrum'), null, '{"mon": []}', null, null);
+    raise exception 'an owner applied hours directly'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- a received SMS from the verified phone; only the named days change
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+  v_hours jsonb;
+  v_m uuid;
+begin
+  update public.shops set opening_hours = '{"mon": [["09:00","18:00"]], "tue": [["09:00","18:00"]], "sat": [["09:00","12:00"]]}' where id = v_a;
+  vj := public.hours_sms_receive('0905600700', 'Pondelok 8-17, nedela zatvorene', 'twilio', 'SM-1');
+  assert vj ->> 'status' = 'unknown_phone', 'a national number without a country is unknown: ' || vj::text;
+  vj := public.hours_sms_receive('+421 905 600 700', 'Pondelok 8-17, nedela zatvorene', 'twilio', 'SM-2');
+  assert vj ->> 'status' = 'received' and jsonb_array_length(vj -> 'shops') = 1 and vj -> 'shops' -> 0 ->> 'shop_id' = v_a::text, vj::text;
+  assert vj -> 'shops' -> 0 ->> 'user_id' = '00000000-0000-0000-0000-00000000000a';
+  insert into hs_test values ('sms', vj ->> 'id');
+  assert public.hours_sms_receive('+421905600700', 'again', 'twilio', 'SM-2') = '{"duplicate": true}'::jsonb, 'a repeat is ignored';
+  begin perform public.hours_sms_apply(v_a, null, '{"mon": [["25:00","08:00"]]}', null, null); raise exception 'bad hours';
+  exception when invalid_parameter_value then if sqlerrm <> 'hours' then raise; end if; end;
+  begin perform public.hours_sms_apply(v_a, null, null, jsonb_build_array(jsonb_build_object('from', current_date - 5, 'closed', true)), null);
+    raise exception 'a past day'; exception when invalid_parameter_value then if sqlerrm <> 'dates' then raise; end if; end;
+  begin perform public.hours_sms_apply(v_a, null, null, jsonb_build_array(jsonb_build_object('from', current_date + 1, 'to', current_date + 90, 'closed', true)), null);
+    raise exception '90 days at once'; exception when invalid_parameter_value then if sqlerrm <> 'dates' then raise; end if; end;
+  begin perform public.hours_sms_apply(v_a, null, null, null, null); raise exception 'nothing to apply';
+  exception when invalid_parameter_value then if sqlerrm <> 'empty' then raise; end if; end;
+  v_hours := public.hours_sms_apply(v_a, '00000000-0000-0000-0000-00000000000a', '{"mon": [["08:00","17:00"]], "sun": []}',
+    jsonb_build_array(jsonb_build_object('from', current_date + 30, 'to', current_date + 31, 'closed', true),
+                      jsonb_build_object('from', current_date + 40, 'closed', false, 'ranges', '[["10:00","12:00"]]'::jsonb)),
+    (select v::uuid from hs_test where k = 'sms'));
+  assert v_hours = '{"mon": [["08:00","17:00"]], "tue": [["09:00","18:00"]], "sat": [["09:00","12:00"]], "sun": []}'::jsonb, v_hours::text;
+  assert (select count(*) from public.shop_special_hours where shop_id = v_a and date in (current_date + 30, current_date + 31) and closed) = 2;
+  assert (select ranges = '[["10:00","12:00"]]'::jsonb from public.shop_special_hours where shop_id = v_a and date = current_date + 40);
+  assert (select count(*) from public.hours_special_days(v_a) where date >= current_date + 30) = 3;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'hours_sms_applied'
+                 and (details ->> 'special_days')::integer = 3);
+  perform public.hours_sms_result((select v::uuid from hs_test where k = 'sms'), v_a, 'applied', '{"x": 1}', 'OK', 'not_connected', null);
+  -- the reply and a code take the owner quota; a code is never kept
+  v_m := public.hours_sms_claim(v_a, '+421905600700', 'phone_code', 'Cacaduu: kod 123456');
+  assert (select body = 'Cacaduu: kod ••••••' and kind = 'phone_code' and status = 'queued' from public.shop_outgoing_messages where id = v_m);
+  assert public.hours_sms_settle(v_m, 'test', 'test', null, null) and not public.hours_sms_settle(v_m, 'sent', 'test', null, null);
+  assert public.sms_quota_used(v_a, 'owner') >= 1, 'the owner quota';
+  begin perform public.hours_sms_claim(v_a, '+421905600700', 'owner', 'x'); raise exception 'a wrong kind';
+  exception when invalid_parameter_value then null; end;
+  -- 10 an hour per phone
+  for i in 1..8 loop perform public.hours_sms_receive('+421905600700', 'x', 'twilio', 'SM-x' || i); end loop;
+  vj := public.hours_sms_receive('+421905600700', 'x', 'twilio', 'SM-11');
+  assert vj ->> 'status' = 'too_many' and jsonb_array_length(vj -> 'shops') = 0, vj::text;
+  -- Google Business: one location per shop, a wrong name refused
+  perform public.business_save(v_a, 'enc-a', 'enc-r', now() + interval '1 hour', 'https://www.googleapis.com/auth/business.manage',
+                               '00000000-0000-0000-0000-00000000000a');
+  begin perform public.business_set_location(v_a, null, 'accounts/1/locations/2', 'X'); raise exception 'a wrong location';
+  exception when invalid_parameter_value then null; end;
+  perform public.business_set_location(v_a, null, 'locations/12345', 'Potraviny Centrum');
+  assert (select location_name = 'locations/12345' from public.business_token(v_a));
+  perform public.business_pushed(v_a, null);
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select count(*) from public.hours_sms_messages where shop_id = v_a and status = 'applied') = 1, 'owners read their SMS';
+  assert (select location_title = 'Potraviny Centrum' and last_push_at is not null from public.business_profile_connections where shop_id = v_a);
+  begin perform access_token_enc from public.business_profile_connections; raise exception 'an owner read the token';
+  exception when insufficient_privilege then null; end;
+  begin perform public.business_token(v_a); raise exception 'an owner called business_token';
+  exception when insufficient_privilege then null; end;
+  assert public.owner_phone_remove((select v::uuid from hs_test where k = 'phone'));
+  assert not exists (select 1 from public.shop_owner_phones where shop_id = v_a);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert not exists (select 1 from public.hours_sms_messages), 'B reads no SMS of A';
+  assert not exists (select 1 from public.business_profile_connections), 'B reads no connection of A';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- tidy up: the hours and the subscription exactly as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (public.hours_sms_receive('+421905600700', 'x', 'twilio', 'SM-gone') ->> 'status') in ('unknown_phone', 'too_many'),
+    'a removed phone is nobody''s';
+  update public.shops set opening_hours = (select v::jsonb from hs_test where k = 'hours') where id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date >= current_date + 30 and date <= current_date + 40;
+  perform public.business_remove(v_a, null);
+  delete from public.hours_sms_messages;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from hs_test where k = 'sub'))
+  where (select v from hs_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from hs_test where k = 'had_plan');
+end $$;
+reset role;
+drop table hs_test;
+
+\echo '--- update 61: the owner MCP — OAuth (register, PKCE, code once, rotating refresh), keys, one door as the owner, previews, scopes'
+create temporary table om_test (k text primary key, v text);
+grant all on om_test to public;
+
+do $$ begin
+  assert public.mcp_s256('dBjftJeZ4CVP-mJ92K9qnBDvz5kXGhWbFMhOeTDE-tOyTlwKZg') = 'x3oksxij2DV0_Rlip7GoIqV3OMDhQr4LMSB58cEqNHg',
+    'PKCE S256 = base64url(sha256) without padding';
+  assert public.mcp_redirect_ok('https://claude.ai/api/mcp/auth_callback') and public.mcp_redirect_ok('http://localhost:7777/oauth/callback')
+    and not public.mcp_redirect_ok('http://evil.example/cb') and not public.mcp_redirect_ok('javascript:alert(1)')
+    and not public.mcp_redirect_ok('https://x.example/cb#frag');
+  assert public.mcp_scopes_ok(array['shop.read']) and not public.mcp_scopes_ok(array['shop.write'])
+    and not public.mcp_scopes_ok(array['shop.read', 'admin']);
+  assert public.mcp_tool_scope('send_anything') is null and public.mcp_tool_scope('update_stock') = 'shop.write';
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_item uuid := (select i.id from public.shop_items i join public.inventory inv on inv.shop_item_id = i.id
+                  where i.shop_id = v_a order by i.source_code limit 1);
+begin
+  insert into om_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('hours', (select opening_hours::text from public.shops where id = v_a)),
+    ('phone_before', (select coalesce(phone, '') from public.shops where id = v_a)),
+    ('item', v_item::text),
+    ('inv', (select to_jsonb(inv)::text from public.inventory inv where shop_item_id = v_item));
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_om')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_om');
+end $$;
+reset role;
+
+-- a client registers itself (anyone), with safe redirect addresses only
+set role anon;
+do $$
+declare
+  vj jsonb;
+begin
+  begin perform public.owner_mcp_register('Evil', array['http://evil.example/cb'], 'caller-hash-0123456789'); raise exception 'http redirect';
+  exception when invalid_parameter_value then if sqlerrm <> 'redirect_uri' then raise; end if; end;
+  vj := public.owner_mcp_register('Claude', array['https://claude.ai/api/mcp/auth_callback'], 'caller-hash-0123456789');
+  assert vj ->> 'client_id' ~ '^cmc_[0-9a-f]{64}$', vj::text;
+  insert into om_test values ('client', vj ->> 'client_id');
+  assert (public.owner_mcp_client(vj ->> 'client_id') ->> 'client_name') = 'Claude';
+  begin perform count(*) from public.owner_mcp_clients; raise exception 'anon read the clients';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the owner says yes on the consent page: a code for their own Pro shop only
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_client text := (select v from om_test where k = 'client');
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_ch text := 'x3oksxij2DV0_Rlip7GoIqV3OMDhQr4LMSB58cEqNHg';
+  v_cb text := 'https://claude.ai/api/mcp/auth_callback';
+  v_all text[] := array['shop.read', 'shop.write', 'messages.send'];
+  i integer;
+begin
+  assert exists (select 1 from public.owner_mcp_shops() where shop_id = v_a and has_plan);
+  begin perform public.owner_mcp_authorize(v_client, 'https://other.example/cb', v_ch, v_all, array[v_a], null); raise exception 'other redirect';
+  exception when invalid_parameter_value then if sqlerrm <> 'redirect_uri' then raise; end if; end;
+  begin perform public.owner_mcp_authorize(v_client, v_cb, v_ch, array['shop.write'], array[v_a], null); raise exception 'no read scope';
+  exception when invalid_parameter_value then if sqlerrm <> 'scope' then raise; end if; end;
+  begin perform public.owner_mcp_authorize(v_client, v_cb, v_ch, v_all, array[v_b], null); raise exception 'B''s shop';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_mcp_authorize(v_client, v_cb, 'short', v_all, array[v_a], null); raise exception 'bad challenge';
+  exception when invalid_parameter_value then if sqlerrm <> 'challenge' then raise; end if; end;
+  for i in 1..4 loop
+    insert into om_test values ('code' || i, public.owner_mcp_authorize(v_client, v_cb, v_ch, v_all, array[v_a], 'https://site.example/mcp/owner'));
+  end loop;
+  insert into om_test values ('code_read', public.owner_mcp_authorize(v_client, v_cb, v_ch, array['shop.read'], array[v_a], null));
+  assert (select v from om_test where k = 'code1') ~ '^cmo_[0-9a-f]{64}$';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the token endpoint: the verifier must match, a code works once, refresh tokens rotate
+set role anon;
+do $$
+declare
+  v_client text := (select v from om_test where k = 'client');
+  v_ver text := 'dBjftJeZ4CVP-mJ92K9qnBDvz5kXGhWbFMhOeTDE-tOyTlwKZg';
+  v_cb text := 'https://claude.ai/api/mcp/auth_callback';
+  vj jsonb;
+begin
+  begin perform public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code1'), repeat('a', 43), v_client, v_cb, null);
+    raise exception 'wrong verifier';
+  exception when invalid_parameter_value then if sqlerrm <> 'invalid_grant' then raise; end if; end;
+  begin perform public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code1'), v_ver, 'cmc_other', v_cb, null);
+    raise exception 'other client';
+  exception when invalid_parameter_value then if sqlerrm <> 'invalid_client' then raise; end if; end;
+  vj := public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code1'), v_ver, v_client, v_cb, null);
+  assert vj ->> 'access_token' ~ '^cma_' and vj ->> 'refresh_token' ~ '^cmr_' and (vj ->> 'expires_in')::integer = 3600
+    and vj ->> 'scope' = 'shop.read shop.write messages.send', vj::text;
+  insert into om_test values ('access1', vj ->> 'access_token');
+  assert public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code1'), v_ver, v_client, v_cb, null)
+    = '{"error": "invalid_grant"}'::jsonb, 'a code twice';
+end $$;
+do $$ begin
+  -- the code used twice revoked what it gave
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access1'), 'list_shops', '{}'); raise exception 'revoked grant works';
+  exception when invalid_authorization_specification then if sqlerrm <> 'invalid_token' then raise; end if; end;
+end $$;
+do $$
+declare
+  v_client text := (select v from om_test where k = 'client');
+  v_ver text := 'dBjftJeZ4CVP-mJ92K9qnBDvz5kXGhWbFMhOeTDE-tOyTlwKZg';
+  v_cb text := 'https://claude.ai/api/mcp/auth_callback';
+  vj jsonb;
+  vr jsonb;
+begin
+  vj := public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code2'), v_ver, v_client, v_cb, null);
+  vr := public.owner_mcp_token('refresh_token', null, null, v_client, null, vj ->> 'refresh_token');
+  assert vr ->> 'access_token' <> vj ->> 'access_token' and vr ->> 'refresh_token' <> vj ->> 'refresh_token';
+  insert into om_test values ('access2', vr ->> 'access_token'), ('refresh2_old', vj ->> 'refresh_token');
+  vj := public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code3'), v_ver, v_client, v_cb, null);
+  insert into om_test values ('access', vj ->> 'access_token'), ('refresh', vj ->> 'refresh_token');
+  vj := public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code_read'), v_ver, v_client, v_cb, null);
+  insert into om_test values ('access_read', vj ->> 'access_token');
+  begin perform public.owner_mcp_token('password', null, null, v_client, null, null); raise exception 'other grant type';
+  exception when invalid_parameter_value then if sqlerrm <> 'unsupported_grant_type' then raise; end if; end;
+end $$;
+do $$ begin
+  -- an old refresh token used again revokes that grant (its new access token stops working)
+  assert public.owner_mcp_token('refresh_token', null, null, (select v from om_test where k = 'client'), null,
+                                (select v from om_test where k = 'refresh2_old')) = '{"error": "invalid_grant"}'::jsonb,
+    'an old refresh token';
+end $$;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access2'), 'list_shops', '{}'); raise exception 'stolen refresh';
+  exception when invalid_authorization_specification then null; end;
+  begin perform public.owner_mcp_call('cma_nonsense', 'list_shops', '{}'); raise exception 'any token';
+  exception when invalid_authorization_specification then null; end;
+  begin perform public.owner_mcp_whoami('cma_nonsense'); raise exception 'whoami any token';
+  exception when invalid_authorization_specification then null; end;
+end $$;
+
+-- the tools, as the owner, through the one door
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_whoami(v_t);
+  assert vj -> 'scopes' = '["shop.read", "shop.write", "messages.send"]'::jsonb and vj -> 'shops' -> 0 ->> 'slug' = 'potraviny-centrum', vj::text;
+  vj := public.owner_mcp_call(v_t, 'list_shops', '{}');
+  assert vj -> 'result' -> 'shops' -> 0 ->> 'slug' = 'potraviny-centrum' and jsonb_array_length(vj -> 'result' -> 'shops') = 1, vj::text;
+  vj := public.owner_mcp_call(v_t, 'get_shop_details', '{}');
+  assert vj ->> 'shop' = 'potraviny-centrum' and vj -> 'result' ? 'stock_source', vj::text;
+  begin perform public.owner_mcp_call(v_t, 'get_shop_details', '{"shop": "drogeria-kostolne"}'); raise exception 'B''s shop';
+  exception when insufficient_privilege then if sqlerrm <> 'shop_not_in_grant' then raise; end if; end;
+  begin perform public.owner_mcp_call(v_t, 'drop_everything', '{}'); raise exception 'unknown tool';
+  exception when invalid_parameter_value then if sqlerrm <> 'unknown_tool' then raise; end if; end;
+end $$;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_call(v_t, 'set_opening_hours', ('{"regular": {"tue": [["09:00","18:00"]], "sun": []},
+    "special": [{"from": "' || (current_date + 50)::text || '", "closed": true, "note": "Inventúra"}]}')::jsonb);
+  assert vj -> 'result' -> 'regular' -> 'tue' = '[["09:00","18:00"]]'::jsonb and vj -> 'result' -> 'regular' -> 'sun' = '[]'::jsonb
+    and (vj ->> 'changed')::boolean, vj::text;
+  assert vj -> 'result' -> 'regular' -> 'mon' is not distinct from ((select v::jsonb from om_test where k = 'hours') -> 'mon'),
+    'days not named stay as they were';
+  assert exists (select 1 from jsonb_array_elements(vj -> 'result' -> 'special_days') d
+                 where (d ->> 'date')::date = current_date + 50 and (d ->> 'closed')::boolean and d ->> 'note' = 'Inventúra');
+end $$;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'set_opening_hours', '{"regular": {"mon": [["25:00","08:00"]]}}');
+    raise exception 'bad hours';
+  exception when invalid_parameter_value then if sqlerrm <> 'hours' then raise; end if; end;
+end $$;
+-- (the checks below read the tables themselves, so they run as the test's own user)
+reset role;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+  v_c uuid;
+begin
+  vj := public.owner_mcp_call(v_t, 'save_contact', '{"name": "MCP Test", "phone": "0905 111 333", "tags": ["vip"]}');
+  v_c := (vj -> 'result' ->> 'contact_id')::uuid;
+  insert into om_test values ('contact', v_c::text);
+  vj := public.owner_mcp_call(v_t, 'save_contact', jsonb_build_object('contact_id', v_c, 'email', 'mcp@example.invalid'));
+  assert (select name = 'MCP Test' and phone = '+421905111333' and email = 'mcp@example.invalid' and tags = array['vip']
+          from public.shop_contacts where id = v_c), 'only the given fields change';
+  vj := public.owner_mcp_call(v_t, 'list_contacts', '{"q": "mcp test"}');
+  assert jsonb_array_length(vj -> 'result') = 1 and vj -> 'result' -> 0 ->> 'id' = v_c::text, vj::text;
+  vj := public.owner_mcp_call(v_t, 'get_contact', jsonb_build_object('contact_id', v_c));
+  assert vj -> 'result' ->> 'email' = 'mcp@example.invalid';
+end $$;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'get_contact',
+                                      jsonb_build_object('contact_id', gen_random_uuid()));
+    raise exception 'any contact';
+  exception when no_data_found then null; end;
+end $$;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  -- a message only after its preview: exactly what was previewed, once
+  vj := public.owner_mcp_call(v_t, 'preview_message', jsonb_build_object('contact_id', (select v from om_test where k = 'contact'),
+                                                                           'channel', 'email', 'subject', 'Ahoj', 'text', 'Váš tovar je tu.'));
+  assert vj -> 'result' -> 'preview' ->> 'recipient' = 'mcp@example.invalid' and vj -> 'result' ->> 'confirmation_id' is not null, vj::text;
+  insert into om_test values ('confirm', vj -> 'result' ->> 'confirmation_id');
+  vj := public.owner_mcp_call(v_t, 'preview_message', jsonb_build_object('contact_id', (select v from om_test where k = 'contact'),
+                                                                           'channel', 'email', 'subject', 'Ahoj', 'text', 'Druhý.'));
+  insert into om_test values ('confirm2', vj -> 'result' ->> 'confirmation_id');
+  assert not exists (select 1 from public.shop_outgoing_messages where body = 'Váš tovar je tu.'), 'a preview writes nothing';
+end $$;
+set role anon;
+do $$ begin
+  begin perform public.owner_mcp_message_queue((select v from om_test where k = 'access'), (select v::uuid from om_test where k = 'confirm'));
+    raise exception 'anon queued a message';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_message_queue(v_t, (select v::uuid from om_test where k = 'confirm'));
+  assert (select body = 'Váš tovar je tu.' and status = 'queued' and sent_by = '00000000-0000-0000-0000-00000000000a'
+          from public.shop_outgoing_messages where id = (vj ->> 'id')::uuid), vj::text;
+  assert exists (select 1 from public.shop_activity where action = 'mcp_message_queued' and details ->> 'message_id' = vj ->> 'id');
+  begin perform public.owner_mcp_message_queue(v_t, (select v::uuid from om_test where k = 'confirm')); raise exception 'sent twice';
+  exception when invalid_parameter_value then if sqlerrm <> 'confirmation' then raise; end if; end;
+  begin perform public.owner_mcp_message_queue((select v from om_test where k = 'access_read'), (select v::uuid from om_test where k = 'confirm2'));
+    raise exception 'read-only grant sent';
+  exception when insufficient_privilege then null; end;
+  -- the contact changed after the preview → refused, nothing written
+  update public.shop_contacts set email = 'other@example.invalid' where id = (select v::uuid from om_test where k = 'contact');
+  begin perform public.owner_mcp_message_queue(v_t, (select v::uuid from om_test where k = 'confirm2')); raise exception 'changed preview';
+  exception when invalid_parameter_value then if sqlerrm <> 'preview_changed' then raise; end if; end;
+  assert not exists (select 1 from public.shop_outgoing_messages where body = 'Druhý.');
+end $$;
+reset role;
+
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  v_item text := (select v from om_test where k = 'item');
+  v_inv jsonb := (select v::jsonb from om_test where k = 'inv');
+  vj jsonb;
+begin
+  -- stock: first the warning and what would change, then (confirm) the change; never the currency
+  vj := public.owner_mcp_call(v_t, 'update_stock', jsonb_build_object('item_id', v_item, 'quantity', 77));
+  assert (vj -> 'result' ->> 'needs_confirmation')::boolean and vj -> 'result' ->> 'warning' like '%overwrite%'
+    and (vj -> 'result' -> 'after' ->> 'quantity')::numeric = 77, vj::text;
+  assert (select quantity from public.inventory where shop_item_id = v_item::uuid) = (v_inv ->> 'quantity')::numeric, 'nothing yet';
+  vj := public.owner_mcp_call(v_t, 'update_stock', jsonb_build_object('item_id', v_item, 'quantity', 77, 'price', 1.5, 'confirm', true));
+  assert (vj -> 'result' ->> 'applied')::boolean and (vj ->> 'changed')::boolean, vj::text;
+  assert (select quantity = 77 and price = 1.5 and currency = v_inv ->> 'currency'
+                 and source_updated_at is not distinct from (v_inv ->> 'source_updated_at')::timestamptz
+          from public.inventory where shop_item_id = v_item::uuid), 'quantity and price only; currency and freshness kept';
+end $$;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'update_stock',
+                                      jsonb_build_object('item_id', (select v from om_test where k = 'item'), 'price', -1, 'confirm', true));
+    raise exception 'negative price';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access_read'), 'update_stock',
+                                      jsonb_build_object('item_id', (select v from om_test where k = 'item'), 'quantity', 1, 'confirm', true));
+    raise exception 'read-only grant wrote';
+  exception when insufficient_privilege then if sqlerrm <> 'scope: shop.write' then raise; end if; end;
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'update_shop_details', '{"address": "Iná 1"}');
+    raise exception 'address via MCP';
+  exception when invalid_parameter_value then null; end;
+end $$;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_call(v_t, 'update_shop_details', '{"phone": "+421 2 1234 5678"}');
+  assert vj -> 'result' ->> 'phone' = '+421 2 1234 5678' and (select name = 'Potraviny Centrum' or name is not null from public.shops
+                                                                  where slug = 'potraviny-centrum');
+  assert (select opening_hours -> 'tue' = '[["09:00","18:00"]]'::jsonb from public.shops where slug = 'potraviny-centrum'),
+    'the rest of the shop is kept';
+  vj := public.owner_mcp_call(v_t, 'delete_contact', jsonb_build_object('contact_id', (select v from om_test where k = 'contact')));
+  assert (vj -> 'result' ->> 'needs_confirmation')::boolean and exists (select 1 from public.shop_contacts
+                                                                        where id = (select v::uuid from om_test where k = 'contact'));
+  vj := public.owner_mcp_call(v_t, 'delete_contact', jsonb_build_object('contact_id', (select v from om_test where k = 'contact'),
+                                                                         'confirm', true));
+  assert not exists (select 1 from public.shop_contacts where id = (select v::uuid from om_test where k = 'contact'));
+  vj := public.owner_mcp_call(v_t, 'search_stock', '{"limit": 3}');
+  assert jsonb_array_length(vj -> 'result' -> 'items') between 1 and 3, vj::text;
+  vj := public.owner_mcp_call(v_t, 'list_conversations', '{}');
+  assert jsonb_typeof(vj -> 'result') = 'array';
+  vj := public.owner_mcp_call(v_t, 'list_bookings', '{}');
+  assert jsonb_typeof(vj -> 'result') = 'array';
+end $$;
+reset role;
+
+-- logged as the owner; 120 calls a minute; without the plan nothing
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select count(*) from public.shop_activity where shop_id = v_a and actor = '00000000-0000-0000-0000-00000000000a'
+          and action in ('mcp_connected', 'hours_changed', 'contact_saved', 'stock_edited', 'shop_details_changed', 'contact_deleted')
+          and at > now() - interval '5 minutes') >= 6;
+  update public.owner_mcp_tokens set window_calls = 120, window_start = now()
+  where access_hash = public.mcp_hash((select v from om_test where k = 'access'));
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'list_shops', '{}'); raise exception 'no limit';
+  exception when program_limit_exceeded then null; end;
+end $$;
+reset role;
+
+-- the owner's screen: personal keys, the list, "Odpojiť"; owner B sees and stops nothing of A's
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_create_key('Grok', array[v_a], array['shop.read']);
+  assert vj ->> 'key' ~ '^cmk_[0-9a-f]{64}$';
+  insert into om_test values ('key', vj ->> 'key'), ('key_id', vj ->> 'id');
+  assert (select count(*) from public.owner_mcp_grants() where active) >= 2;
+  begin perform count(*) from public.owner_mcp_tokens; raise exception 'owner read token hashes';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert not exists (select 1 from public.owner_mcp_grants()), 'B sees none of A''s';
+  begin perform public.owner_mcp_disconnect((select v::uuid from om_test where k = 'key_id')); raise exception 'B disconnected A';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+declare
+  vj jsonb := public.owner_mcp_call((select v from om_test where k = 'key'), 'get_opening_hours', '{}');
+begin
+  assert vj -> 'result' ? 'regular';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  assert public.owner_mcp_disconnect((select v::uuid from om_test where k = 'key_id'));
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'key'), 'list_shops', '{}'); raise exception 'disconnected key';
+  exception when invalid_authorization_specification then null; end;
+  assert public.owner_mcp_revoke((select v from om_test where k = 'refresh'));
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access_read'), 'get_shop_details', '{}');
+  exception when others then raise exception 'the other grant still works: %', sqlerrm; end;
+end $$;
+reset role;
+
+-- tidy up: everything as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_inv jsonb := (select v::jsonb from om_test where k = 'inv');
+begin
+  delete from public.subscriptions where shop_id = v_a;
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access_read'), 'get_shop_details', '{}'); raise exception 'no plan';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_inv jsonb := (select v::jsonb from om_test where k = 'inv');
+begin
+  update public.inventory set quantity = (v_inv ->> 'quantity')::numeric, price = (v_inv ->> 'price')::numeric
+  where shop_item_id = (select v::uuid from om_test where k = 'item');
+  update public.shops set opening_hours = (select v::jsonb from om_test where k = 'hours'),
+                          phone = nullif((select v from om_test where k = 'phone_before'), '') where id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date = current_date + 50;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.owner_mcp_pending;
+  delete from public.owner_mcp_tokens;
+  delete from public.owner_mcp_codes;
+  delete from public.owner_mcp_clients;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from om_test where k = 'sub'))
+  where (select v from om_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from om_test where k = 'had_plan');
+end $$;
+reset role;
+drop table om_test;
 
 \echo 'ALL DATABASE CHECKS PASSED'

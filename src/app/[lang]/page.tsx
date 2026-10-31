@@ -8,13 +8,15 @@ import { createCachedPublicClient } from "@/lib/supabase/public";
 import { getLiveSites, getShopCalendars, getShopsByIds, type PublicShop } from "@/lib/data";
 import { missingSupabaseEnv, supabaseEnv } from "@/lib/supabase/env";
 import { formatPrice } from "@/lib/format";
-import { translatedName } from "@/lib/names";
+import { itemNames } from "@/lib/names";
 import type { StockRow } from "@/lib/stock";
 import { ChatSearch, type ChatLabels } from "@/components/ChatSearch";
-import { LiveStatus } from "@/components/ShopStatus";
+import { ShopStatusLine } from "@/components/ShopStatusLine";
 import type { CalendarDay } from "@/lib/hours";
 import { requestTime } from "@/lib/requestTime";
 import { statusInput } from "@/lib/shopCalendar";
+import { StockDot } from "@/components/StockDot";
+import { STOCK_WORDS, stockState } from "@/lib/stockDot";
 import { StockLine } from "@/components/StockLine";
 
 // The chat input sits above the phone's home bar (env(safe-area-inset-bottom)).
@@ -169,17 +171,20 @@ function ResultRow({
   lang: Locale;
   dict: Dictionary;
 }) {
-  const translated = translatedName(row.item_name, row.item_name_i18n, lang);
+  const names = itemNames(row.item_name, row.item_name_i18n, lang);
   return (
     <li data-shop={row.shop_slug} className="flex flex-col gap-1 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
           <a href={itemHref(sites, lang, row.shop_slug, row.item_id)} className="font-medium hover:underline">
-            {row.item_name}
+            {names.primary}
           </a>
-          {translated && <p className="text-sm text-muted">{translated}</p>}
+          {names.secondary && <p className="text-sm text-muted">{names.secondary}</p>}
         </div>
-        <span className="whitespace-nowrap font-medium">{formatPrice(row.price, lang, row.currency)}</span>
+        <span className="flex items-center gap-2 whitespace-nowrap font-medium">
+                      <StockDot availability={row.availability} label={dict.stock[STOCK_WORDS[stockState(row.availability)]]} />
+                      {formatPrice(row.price, lang, row.currency)}
+                    </span>
       </div>
       <div className="text-sm text-muted">
         <a href={shopHref(sites, lang, row.shop_slug, row.shop_country)} className="hover:underline">
@@ -188,8 +193,8 @@ function ResultRow({
         {[row.shop_address, row.shop_city].filter(Boolean).map((part) => ` · ${part}`)}
       </div>
       <div className="flex flex-wrap gap-x-3 text-sm">
-        <StockLine row={row} timeZone={row.shop_timezone} dict={dict} lang={lang} />
-        {shop && <LiveStatus input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />}
+        <StockLine row={row} timeZone={row.shop_timezone} dict={dict} lang={lang} listing />
+        {shop && <ShopStatusLine input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} />}
       </div>
     </li>
   );

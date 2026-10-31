@@ -24,6 +24,13 @@ export type TranslationKind =
   | "blog_title"
   | "blog_body";
 
+/**
+ * The assistant's button label and welcome text (update 46): a preset of every translation run — kept in every
+ * pre-translated language and in the shop's own language too (the owner may write them in any language), shown like
+ * the page's own texts (no "Preložené automaticky" note).
+ */
+export const PRESET_KINDS: ReadonlySet<TranslationKind> = new Set(["assistant_label", "assistant_welcome"]);
+
 export interface Translation {
   text: string;
   /** 'shop' = from the shop's own file, 'ai' = Claude, 'manual' = the owner. */
@@ -54,6 +61,8 @@ class Texts implements ShopTexts {
     readonly same: boolean,
     readonly original: boolean,
     private readonly rows: Map<string, Translation>,
+    /** The shop's own language: only the preset kinds are translated, the rest stays as written. */
+    private readonly presetOnly = false,
   ) {}
   get(kind: TranslationKind, ref: string) {
     return this.rows.get(`${kind}:${ref}`) ?? null;
@@ -62,12 +71,13 @@ class Texts implements ShopTexts {
   text(kind: TranslationKind, ref: string, original: string | null): string | null;
   text(kind: TranslationKind, ref: string, original: string | null) {
     if (!original || this.same) return original;
+    if (this.presetOnly && !PRESET_KINDS.has(kind)) return original;
     const found = this.get(kind, ref);
     if (!found) {
-      this.missing = true;
+      if (!this.presetOnly) this.missing = true;
       return original;
     }
-    if (found.status === "ai") this.machine = true;
+    if (found.status === "ai" && !PRESET_KINDS.has(kind)) this.machine = true;
     return this.original ? original : found.text;
   }
 }
@@ -89,7 +99,9 @@ export interface TextsWanted {
  * the page was sent; the database decides).
  */
 export async function getShopTexts(slug: string, lang: string, langs: ShopLanguages, original: boolean, wanted: TextsWanted[]): Promise<ShopTexts> {
-  if (lang === langs.main) return noTexts(lang);
+  // The shop's own language: only the assistant's texts (update 46; the owner may write them in another language).
+  const main = lang === langs.main;
+  if (main) wanted = wanted.map((w) => ({ ...w, kinds: w.kinds.filter((k) => PRESET_KINDS.has(k)) }));
   const db = createCachedPublicClient();
   const rows = new Map<string, Translation>();
   if (db) {
@@ -105,8 +117,8 @@ export async function getShopTexts(slug: string, lang: string, langs: ShopLangua
       }
     }
   }
-  if (!langs.preferred.includes(lang as never)) requestTranslation(slug, lang);
-  return new Texts(lang, false, original, rows);
+  if (!main && !langs.preferred.includes(lang as never)) requestTranslation(slug, lang);
+  return new Texts(lang, false, original, rows, main);
 }
 
 /** Asks the translate function to translate a shop into a language, after the response (never delays the page). */

@@ -8,6 +8,7 @@ import { sanitizeHours } from "@/lib/hours";
 import { sectionUrl } from "@/lib/dashboardPages";
 import { LANGUAGE_COLUMN_ROWS, MAPPING_FIELDS, TEXT_FIELDS } from "@/lib/myShops";
 import { refreshShop } from "@/lib/publicCache";
+import { CONTACT_KEYS, widthChoices } from "@/lib/contactButtons";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOGO_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -154,6 +155,25 @@ export async function saveShop(formData: FormData) {
   });
   // A bad e-mail, Facebook or booking link comes back as the message "email" / "facebook" / "booking".
   if (error) fail(error.code === "54000" ? "limit" : error.message);
+  // The company and the PSČ (update 47): their own function; a bad DIČ / PSČ comes back as "dic" / "zip". Not sent before the
+  // database has it (the form always sends the fields; an unknown function = 42883/PGRST202 is ignored).
+  if (formData.has("company_name") || formData.has("dic") || formData.has("zip")) {
+    const { error: companyError } = await session.supabase.rpc("owner_save_company", {
+      p_shop_id: String(data),
+      p_company_name: text(formData, "company_name", 200),
+      p_dic: text(formData, "dic", 20),
+      p_zip: text(formData, "zip", 12),
+    });
+    if (companyError && companyError.code !== "PGRST202" && companyError.code !== "42883") fail(companyError.message);
+  }
+  // "Krátke / Dlhé" next to each contact field (update 51): only the choices that differ from the default are stored.
+  if (CONTACT_KEYS.some((k) => formData.has(`cb_${k}`))) {
+    const { error: widthError } = await session.supabase.rpc("owner_set_contact_buttons", {
+      p_shop_id: String(data),
+      p_widths: widthChoices(Object.fromEntries(CONTACT_KEYS.map((k) => [k, formData.get(`cb_${k}`)]))),
+    });
+    if (widthError && widthError.code !== "PGRST202" && widthError.code !== "42883") fail(widthError.message);
+  }
   const { data: saved } = await session.supabase.from("shops").select("slug").eq("id", String(data)).maybeSingle();
   refreshShop(saved?.slug);
   redirect(

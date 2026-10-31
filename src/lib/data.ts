@@ -3,6 +3,8 @@ import { cache } from "react";
 import { loadLiveSites } from "./customDomain";
 import type { CalendarDay } from "./hours";
 import { missingColumn } from "./missingColumn";
+import { expandQuery, hasCjk } from "./queryExpansion";
+import { searchStem } from "./searchWords";
 import { loadCalendars } from "./shopCalendar";
 import { createCachedPublicClient } from "./supabase/public";
 import type { OpeningHours } from "./hours";
@@ -39,6 +41,11 @@ export interface PublicShop {
   booking_url: string | null;
   /** The own domain's home language (update 40, "Predvolený jazyk na vlastnej doméne"; null before it). */
   site_lang?: string | null;
+  /** The company under the address (database updates 47/48; from shopCompany(), not public_shops). */
+  zip?: string | null;
+  company_name?: string | null;
+  ico?: string | null;
+  dic?: string | null;
 }
 
 /** One row of public.shop_stock(). */
@@ -119,6 +126,70 @@ export async function getShopItems(
   return { items, total: Number(items[0]?.total_count ?? 0) };
 }
 
+/** One row of shop_item_search() (database update 54): the shop's row plus how it was found. */
+export interface ShopSearchRow extends ShopItemRow {
+  category: string | null;
+  score: number;
+  /** exact = every word (or the code / EAN), match = forgiving, similar = nothing matched: the closest names. */
+  kind: "exact" | "match" | "similar";
+  /** The search's word stems this row matched (for marking them; @/lib/searchWords). */
+  matched: string[];
+}
+
+/** Whether a call failed only because the function is not in the database yet. */
+const missingFunction = (error: { code?: string } | null) => error?.code === "PGRST202" || error?.code === "42883";
+
+async function runShopSearch(slug: string, q: string, limit: number, offset: number): Promise<ShopSearchRow[] | null> {
+  const { data, error } = await (await client()).rpc("shop_item_search", {
+    p_slug: slug,
+    p_q: q,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (missingFunction(error)) return null;
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as ShopSearchRow[]).map((r) => ({ ...r, matched: r.matched ?? [] }));
+}
+
+/**
+ * The forgiving search in one shop ("Tovar v obchode", its dropdown): shop_item_search() decides what matches and the
+ * order. When nothing matched (only 'similar' rows) and the search has 4+ letters (or is Chinese), Claude's words for
+ * it (query_expansion(), update 40; cached 30 days) are searched once too, and their matches replace the similar
+ * rows. Before update 54: the exact search of shop_stock(), every row 'exact'.
+ */
+export async function searchShopItems(
+  slug: string,
+  q: string,
+  limit: number,
+  offset = 0,
+): Promise<{ items: ShopSearchRow[]; total: number; kind: ShopSearchRow["kind"] | null }> {
+  const query = q.trim().slice(0, 200);
+  const direct = await runShopSearch(slug, query, limit, offset);
+  if (direct === null) {
+    const { items, total } = await getShopItems(slug, query, Math.floor(offset / limit) + 1, limit);
+    // every word matched in the exact search: all of them are marked
+    const matched = [...new Set(query.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1).map(searchStem))];
+    return { items: items.map((i) => ({ ...i, category: null, score: 0, kind: "exact", matched })), total, kind: items.length ? "exact" : null };
+  }
+  const found = direct.filter((r) => r.kind !== "similar");
+  if (found.length || offset > 0 || (query.replace(/\s/g, "").length < 4 && !hasCjk(query))) {
+    return { items: direct, total: Number(direct[0]?.total_count ?? 0), kind: direct[0]?.kind ?? null };
+  }
+  const words = await expandQuery(query);
+  const seen = new Set<string>();
+  const expanded: ShopSearchRow[] = [];
+  for (const rows of await Promise.all(words.map((w) => runShopSearch(slug, w, limit, 0).catch(() => null)))) {
+    for (const row of rows ?? []) {
+      if (row.kind === "similar" || seen.has(row.item_id)) continue;
+      seen.add(row.item_id);
+      expanded.push(row);
+    }
+  }
+  if (!expanded.length) return { items: direct, total: Number(direct[0]?.total_count ?? 0), kind: direct[0]?.kind ?? null };
+  expanded.sort((a, b) => b.score - a.score);
+  return { items: expanded.slice(0, limit), total: expanded.length, kind: "match" };
+}
+
 /** Whether the shop has the paid plan — the database decides (false until the plan is set up). */
 export async function shopHasPlan(shopId: string): Promise<boolean> {
   const { data, error } = await (await client()).rpc("shop_has_plan", { p_shop_id: shopId });
@@ -153,6 +224,19 @@ export async function shopperPdfAllowed(slug: string): Promise<boolean> {
  * After the owner deleted the whole stock, until the next file is applied: the shop page says "Sortiment sa práve
  * aktualizuje" instead of "no products" (database update 43 decides; false before it).
  */
+/** PSČ, company name, IČO and DIČ for the shop page and its JSON-LD (database update 48; null before it). */
+export async function shopCompany(slug: string): Promise<{ zip: string | null; company_name: string | null; ico: string | null; dic: string | null } | null> {
+  const { data, error } = await (await client()).rpc("shop_company_details", { p_slug: slug });
+  const row = !error && Array.isArray(data) ? data[0] : null;
+  return row ?? null;
+}
+
+/** The owner's short / long choices of the contact buttons (database update 51; {} before it = the defaults). */
+export async function shopContactButtons(slug: string): Promise<unknown> {
+  const { data, error } = await (await client()).rpc("shop_contact_buttons", { p_slug: slug });
+  return !error && data && typeof data === "object" ? data : {};
+}
+
 export async function shopStockResetting(slug: string): Promise<boolean> {
   const { data, error } = await (await client()).rpc("shop_stock_resetting", { p_slug: slug });
   return !error && data === true;

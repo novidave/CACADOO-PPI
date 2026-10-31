@@ -2,6 +2,7 @@ import type { Locale } from "@/i18n/config";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { DAYS, dayName, type DayKey } from "@/lib/hours";
 import type { MyShop } from "@/lib/myShops";
+import { contactWidths, type ContactKey } from "@/lib/contactButtons";
 import { europeanTimeZones } from "@/lib/timezones";
 import { HoursEditor } from "./HoursEditor";
 import { LocationPicker } from "./LocationPicker";
@@ -28,6 +29,9 @@ export function ShopForm({
   const o = dict.owner;
   const zones = europeanTimeZones();
   const timezone = shop?.timezone ?? (zones.includes(defaults.timezone) ? defaults.timezone : "");
+  // "Krátke / Dlhé" for each contact button on the shop page (update 51).
+  const widths = contactWidths(shop?.contact_buttons);
+  const width = (key: ContactKey) => <WidthToggle name={`cb_${key}`} value={widths[key]} labels={dict.contact_buttons} />;
   return (
     <form action={action} className="flex flex-col gap-3">
       <input type="hidden" name="lang" value={lang} />
@@ -40,9 +44,28 @@ export function ShopForm({
         <Field label={o.address}>
           <input name="address" maxLength={200} defaultValue={shop?.address ?? ""} className={inputClass} />
         </Field>
+        <Field label={o.zip}>
+          <input name="zip" maxLength={12} autoComplete="postal-code" defaultValue={shop?.zip ?? ""} className={`${inputClass} w-32`} />
+        </Field>
         <Field label={o.city}>
           <input name="city" required maxLength={100} defaultValue={shop?.city ?? ""} className={inputClass} />
         </Field>
+      </div>
+      {/* The company behind the shop, under the address (update 47; owner data, never shown to visitors). */}
+      <div className="grid gap-3 sm:grid-cols-2" data-shop-company>
+        <div className="sm:col-span-2">
+          <Field label={o.company_name}>
+            <input name="company_name" maxLength={200} autoComplete="organization" defaultValue={shop?.company_name ?? ""} className={inputClass} />
+          </Field>
+        </div>
+        <Field label={o.ico}>
+          <input name="ico" maxLength={40} defaultValue={shop?.ico ?? ""} className={inputClass} />
+        </Field>
+        <Field label={o.dic}>
+          <input name="dic" maxLength={20} defaultValue={shop?.dic ?? ""} className={inputClass} />
+        </Field>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label={o.country} hint={o.country_hint}>
           <input
             name="country"
@@ -63,45 +86,58 @@ export function ShopForm({
             ))}
           </select>
         </Field>
-        <Field label={dict.dashboard.phone}>
-          <input name="phone" type="tel" maxLength={40} defaultValue={shop?.phone ?? ""} className={inputClass} />
-        </Field>
-        <Field label={o.ico}>
-          <input name="ico" maxLength={40} defaultValue={shop?.ico ?? ""} className={inputClass} />
-        </Field>
+        <div className="flex flex-col gap-1">
+          <Field label={dict.dashboard.phone}>
+            <input name="phone" type="tel" maxLength={40} defaultValue={shop?.phone ?? ""} className={inputClass} />
+          </Field>
+          {width("phone")}
+        </div>
       </div>
-      <Field label={dict.dashboard.website}>
-        <input name="website" type="url" placeholder="https://" defaultValue={shop?.website ?? ""} className={inputClass} />
-      </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={dict.dashboard.email}>
-          <input name="email" type="email" maxLength={254} defaultValue={shop?.email ?? ""} className={inputClass} />
+      <div className="flex flex-col gap-1">
+        <Field label={dict.dashboard.website}>
+          <input name="website" type="url" placeholder="https://" defaultValue={shop?.website ?? ""} className={inputClass} />
         </Field>
-        <Field label={dict.dashboard.facebook} hint={dict.dashboard.facebook_hint}>
+        {width("web")}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1">
+          <Field label={dict.dashboard.email}>
+            <input name="email" type="email" maxLength={254} defaultValue={shop?.email ?? ""} className={inputClass} />
+          </Field>
+          {width("email")}
+        </div>
+        <div className="flex flex-col gap-1">
+          <Field label={dict.dashboard.facebook} hint={dict.dashboard.facebook_hint}>
+            <input
+              name="facebook_url"
+              type="text"
+              inputMode="url"
+              autoComplete="url"
+              maxLength={300}
+              placeholder="https://www.facebook.com/"
+              defaultValue={shop?.facebook_url ?? ""}
+              className={inputClass}
+            />
+          </Field>
+          {width("facebook")}
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Field label={dict.dashboard.booking} hint={dict.dashboard.booking_hint}>
           <input
-            name="facebook_url"
+            name="booking_url"
             type="text"
             inputMode="url"
             autoComplete="url"
-            maxLength={300}
-            placeholder="https://www.facebook.com/"
-            defaultValue={shop?.facebook_url ?? ""}
+            maxLength={500}
+            placeholder="https://"
+            defaultValue={shop?.booking_url ?? ""}
             className={inputClass}
           />
         </Field>
+        {width("booking")}
       </div>
-      <Field label={dict.dashboard.booking} hint={dict.dashboard.booking_hint}>
-        <input
-          name="booking_url"
-          type="text"
-          inputMode="url"
-          autoComplete="url"
-          maxLength={500}
-          placeholder="https://"
-          defaultValue={shop?.booking_url ?? ""}
-          className={inputClass}
-        />
-      </Field>
+      <p className="text-xs text-muted">{dict.contact_buttons.width_hint}</p>
 
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 text-sm">{o.location}</legend>
@@ -109,6 +145,11 @@ export function ShopForm({
           initial={{ lat: shop?.lat ?? null, lng: shop?.lng ?? null }}
           labels={{ lat: o.lat, lng: o.lng, hint: o.map_hint, map: o.location }}
         />
+        {/* "Navigovať" leads to this position (else to the address) */}
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span>{dict.shop.directions}</span>
+          {width("navigate")}
+        </div>
       </fieldset>
 
       <div className="flex flex-col gap-1">
@@ -163,5 +204,35 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       {children}
       {hint && <span className="text-xs text-muted">{hint}</span>}
     </label>
+  );
+}
+
+/** "Tlačidlo na stránke: Krátke | Dlhé" — two radios that look like one switch (update 51). */
+function WidthToggle({
+  name,
+  value,
+  labels,
+}: {
+  name: string;
+  value: "short" | "long";
+  labels: { width_label: string; width_short: string; width_long: string };
+}) {
+  return (
+    <fieldset className="flex items-center gap-2 text-sm" data-width-toggle={name}>
+      <legend className="sr-only">{labels.width_label}</legend>
+      <span aria-hidden="true" className="text-muted">
+        {labels.width_label}:
+      </span>
+      <span className="inline-flex overflow-hidden rounded border border-line">
+        {(["short", "long"] as const).map((w) => (
+          <label key={w} className="cursor-pointer">
+            <input type="radio" name={name} value={w} defaultChecked={value === w} className="peer sr-only" />
+            <span className="block px-3 py-1 peer-checked:bg-foreground peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2">
+              {w === "short" ? labels.width_short : labels.width_long}
+            </span>
+          </label>
+        ))}
+      </span>
+    </fieldset>
   );
 }

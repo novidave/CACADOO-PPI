@@ -170,7 +170,7 @@ section 7).
 | `freshness_label(time)`, `freshness_age_minutes(time)`, `freshness_state(shop)` | current < 30 min, recent < 24 h, stale otherwise |
 | `availability_label(quantity, freshness)` | one rule for every shop: `in_stock_count` when the quantity is above 0 ("12 ks na sklade"), `out_of_stock` at 0 or less, NULL when stale. No setting can change it (migration 21 dropped `visibility_mode`, `low_stock_threshold`, `shop_items.is_public` and the functions that set them) |
 | view `public_stock` | the only public read path for stock: every item of an active shop, the quantity exactly as in the file and its label; neither for stale shops |
-| `search_stock(q, lat, lng, radius_km, only_available)` | text search: every word of `q` must appear (`matches_all_words()`, accents/case ignored via `search_text()` = `unaccent` + lower) in the item's names (original + sk/hu/en, `item_names_text()`), brand, EAN, or the shop's name, street, town; candidates come from the trigram indexes (longest word); optional radius for API/MCP callers; available first, fresher, nearer, name; 50 rows with the translations |
+| `search_stock(q, lat, lng, radius_km, only_available)` | without `q`: every item nearby (the update-42 rule, now `search_stock_exact()`, not callable by visitors); with `q` since update 54 the rows of `item_search()` — the forgiving search (see "Update 54"): exact hits first (EAN, every word in the names, brand, EAN or the shop's name, street, town), then close ones; optional radius for API/MCP callers; order by score, then available + current, fresher, nearer, name; 50 rows with the translations |
 | view `public_shops`, `shop_stock(slug, q, limit, offset)` | shop pages and their item lists (same word search, with translations) |
 | index `shop_items_names_search_idx` | trigram index over `item_names_text(name, name_i18n)`: original name and all three translations |
 | `items_to_translate(shop)`, `apply_item_translations(shop, items)` | translation queue and saving — service role only; never touch owner corrections |
@@ -683,7 +683,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   languages, times, end reason, counts, first question, PDF state with up to 3 tries 10/20 minutes apart),
   `assistant_messages` (role, body, `body_owner` = Slovak version, `lang`, `cards`, `attachment_ids`),
   `assistant_attachments` (name, real kind, bytes, storage and preview paths — owners get name, kind and size only),
-  `shop_assistant_settings` (`retention_days` 30/90/365). Database functions for the service role only:
+  `shop_assistant_settings` (`retention_days` 30/90/365; since update 55 null = "Neobmedzene", the default). Database functions for the service role only:
   `assistant_open` (paid plan, active shop, 30 new conversations an hour per caller hash and shop in `api_usage`,
   returns `{id, token}`; the token is 64 hex characters, kept as SHA-256), `assistant_conversation`,
   `assistant_add_attachment` (open conversation, ≤ 10, the five kinds, ≤ 10 MB, path `<shop>/<conv>/files/<id>.<ext>`,
@@ -1602,7 +1602,7 @@ Updates 1–21 are in `supabase/migrations/`; from update 22 on each phase has o
 | 6 | `20261003000001_europe_wide.sql` | country, time zone, search with or without a location |
 | 7 | `20261004000001_public_pages.sql` | `public_shops`, `shop_stock` |
 | 8 | `20261005000001_dashboard_admin.sql` | `owner_items`, `availability_preview`, logos bucket, (legacy) admin functions |
-| 9 | `20261006000001_amenities.sql` | toilet, douchette, card terminal |
+| 9 | `20261006000001_amenities.sql` | toilet, bidet shower (`has_douchette`), card terminal |
 | 10 | `20261007000001_ai_access.sql` | `api_hit`, `town_center` |
 | 11 | `20261008000001_stock_pull.sql` | `apply_stock_file`, Vault credentials, raw-files bucket |
 | 12 | `20261009000001_folder_upload.sql` | `upload_check_in`, `folder_seen_at`, `last_file_name` |
@@ -2212,3 +2212,554 @@ referenced by `aria-describedby` and passed to `SectionZoomViewer` (`data-zoom-t
 `ratio`, i.e. after update 44; `saveContent` sends `p_ratio` only then); `ScaledPreview` draws each preview at its real
 width (390 px with 16 px margins, 768 px) and scales it with `transform` (ResizeObserver), the box taking the scaled
 height.
+
+## Update 45 — review after an upload, translations folder on the shop PC
+
+`supabase/sql/45_export_translations.sql`: `shop_export_settings` (remember, describe_new, private_columns,
+delete_files_at; members read) and `shop_export_marks` (item → md5 of name/description/category last seen; existing
+items marked by the file). Internal (service role only): `export_item_hash()`, `export_new_items()`, `export_mark_seen()`,
+`export_describe_ids()`, `export_new_columns()` (file_columns − mapped − private, only with an approved mapping). Owner
+functions (all `is_shop_member()` first): `owner_export_review()`, `owner_save_export_review(columns, langs, describe,
+remember)` (a column must be new, a field free and used once; langs = preferred languages within
+`translation_limit_for()`; returns the products to describe, then marks everything seen), `owner_export_auto()`
+(remembered choice), `owner_export_info()` (main language, file languages = preferred ∪ inventory − main, approved
+columns, version hash), `owner_export_rows(lang, offset, limit ≤ 1000)` (approved fields + shown description/draft +
+translations and their states), `owner_apply_export_edits(lang, file, rows)` (by code, then a unique EAN; main file:
+`description` only → `item_descriptions`; language files: name/description/category → `content_translations`
+'manual'; never stock), `owner_request_export_files_delete()` / `owner_log_export_files_deleted()`. Activity actions
+`export_review`, `export_edits`, `export_files_deleted`.
+
+Browser: `lib/xlsx.ts` (zip with CRC-32 and deflate-raw via CompressionStream, OOXML writer with text style "@", bold
+frozen header, autoFilter + `_xlnm._FilterDatabase`, `state="veryHidden"`; reader for shared/inline/rich strings,
+numbers without exponents, `_xHHHH_`), `lib/exportFiles.ts` (columns, hidden `_cacaduu` sheet = meta + keys + headers
++ values + EAN, `editsOf()` diff), `components/TranslationFolderSync.tsx` (IndexedDB `trfolder:<shop>`: handle, tracked
+files {lastModified, size, SHA-256}, version, earlier folders; Web Lock per shop; check = delete request → read edits →
+`exportAuto` → write when needed via `createWritable()`; `ppi:stock-sent` from `FolderSync`), `components/ExportReview.tsx`,
+`sync/exportActions.ts` (server actions; `refreshShop`). `folderStore.newestStockFile()` ignores `sklad.<lang>.xlsx`.
+`dashboardPages`: `review`, `trfolder` on `/sync`; `languages`/`columns` → `review`, `files` → `trfolder`.
+
+## Update 49 — inventory software over an API ("Pripojiť skladový program")
+
+`supabase/sql/49_inventory_api.sql`: `inventory_plan_settings` (pro 15 min allowed, free off / 1440 min; only
+`admin_save_inventory_settings()`), `inventory_providers` (code, built, enabled, min_interval_minutes; only built ones can
+be on; `admin_set_inventory_provider()`), `inventory_connections` (one per shop: provider, `key_cipher` — no grant to
+owners —, key_hint, settings, status preview|active|invalid_key|error, fields, 5 sample rows without private fields,
+product_count, has_quantity, mapping + mapping_status, publish_without_quantity, run times, back-off, last error code,
+manual_runs). `stock_imports.source` file|api. Owner: `owner_inventory_api()`, `owner_inventory_can_connect()`,
+`owner_inventory_approve(mapping, without_quantity)` (`inventory_mapping_ok()`: code, name, price and — unless the
+program sends none and the owner agrees — quantity; never a private column), `owner_inventory_sync_now()` (4/hour),
+`owner_inventory_disconnect()` (deletes the row). `upload_check_in()` raises `api_connected` while a connection exists,
+so stock-pull answers 409 and the folder window says so. Service role only: `inventory_save_connection`,
+`inventory_save_preview` (changed fields → back to preview, asked again), `inventory_key`, `inventory_claim` (due,
+active, approved, plan allowed; `for update skip locked`, `running_since`), `inventory_apply` (`apply_stock_file()` for
+a full snapshot; refuses empty and older; without quantities `inventory_apply_prices()` — names and prices, freshness
+never renewed, so no availability), `inventory_finish` (ok/warning → next interval; error → 5 min · 2ⁿ ≤ 6 h or
+Retry-After ≤ 24 h; invalid key stops the runs), `inventory_key_state`, `inventory_record_import`,
+`inventory_alerts_due` / `inventory_alert_sent` (one e-mail after 24 h of an invalid key). Activity actions
+`inventory_api_connected|key_changed|approved|error|recovered|disconnected`. Cron `ppi-inventory-tick` (5 min, header
+`x-ppi-cron` checked by `inventory_cron_ok()`).
+
+`supabase/functions/inventory-connect/index.ts` (one file, Verify JWT off): adapters behind one interface
+(`parse`, `testConnection`, `listProducts` → {rows, complete, total, currency}, `capabilities`, `proposeMapping`):
+SuperFaktúra (`stock_items/index.json/listinfo:1`, SFAPI header, whitelisted fields + computed `price_with_vat`, complete
+when rows = itemCount, stops before the daily limit, ≥ 60 min), WooCommerce (`wc/v3/products` + variations, read-only
+key over HTTPS Basic, `_fields`, complete when parents = X-WP-Total) and "Vlastné API" (one https JSON/CSV document,
+key in the address or a header). Every request: public https host only, forwards checked, 20 MB, time limit; private
+fields (purchase price, supplier, margin, invoice, internal) dropped before anything is stored. Keys: AES-GCM (HKDF of
+`INVENTORY_TOKEN_ENCRYPTION_KEY`), AAD `inventory:<shop>:<provider>`, tested before saving, never logged. Owner actions
+(owner JWT + `is_shop_member`): connect, test, preview, sync_now; cron: tick (100 s budget) + alerts (Brevo). A run
+applies only a complete snapshot that reads with the approved fields (≤ 5 % unreadable), then `apply_file_texts`,
+the import report, revalidate + IndexNow, finish. Website: `components/InventoryConnect.tsx` (forms, preview + mapping,
+status card), `sync/inventoryApiActions.ts` (approve, disconnect), `admin/domains/InventoryAdmin.tsx`; `dashboardPages`
+`api` first on `/sync`.
+
+## Update 50 — Cacaduu Cloud Connection for the POS Sync Agent, phase A
+
+Contract: `docs/CONNECTOR_CLOUD_API.md` (all three phases), `docs/connector-openapi.json`, `docs/connector-client/`
+(a dependency-free TypeScript client to copy into the agent's repository); `npm run test:connector` checks that the
+OpenAPI file lists exactly the function's routes (method, path, phase), the written contract names every path and keeps
+the "Own API ≠ Cloud Connection" sentence, and the client calls every path.
+
+`supabase/sql/50_connector_pairing.sql`: `connector_devices` (shop, name, `token_hash` + `next_token_hash` /
+`next_token_at` for rotation, agent version, OS, source label, last read result, last error ≤ 500, paired/seen/sync
+times, `revoked_at`; owners may select every column except the hashes, members-read policy), `connector_pairing_codes`
+(hash only, 10-minute expiry, single use; no grants), `connector_hits` (rate limits by device id or a daily-salted
+caller hash). Rules: `connector_text()` (plain text, cut), `connector_device_state()` (revoked / offline after 3
+minutes / error / never_synced / online), `connector_hit()`. Owner (membership checked): `owner_connector_create_code()`
+(alphabet without 0 O 1 I L, random bytes from `gen_random_uuid()`, ≤ 10 an hour), `owner_connector_devices()` (no
+hashes), `owner_connector_rename()`, `owner_connector_revoke()`. Service role only: `connector_pair()` (5 wrong codes
+per 15 minutes per caller → locked; expired / used / unknown = the same 'invalid'), `connector_auth()` (token hash →
+device + shop; the new token replaces the old one when first used, the old one at most 24 h), `connector_heartbeat()`
+(4 a minute), `connector_rotate()` (5 an hour), `connector_status()`. Activity log `connector_paired`,
+`connector_revoked`.
+
+`supabase/functions/connector/index.ts` (one file, Verify JWT off): routes `ROUTES` (phase A served; since update 52 also
+B, since update 53 also C), path after `/connector`, `Cacaduu-Agent-Version` required (`426` below
+`CONNECTOR_MIN_AGENT_VERSION`), bodies ≤ 64 KB, `Authorization: Bearer cdt_<43>` (SHA-256 to `connector_auth`; the shop
+only from the token), tokens of 32 random bytes made in the function and returned once, every answer with
+`api_base_url` (`CONNECTOR_API_BASE_URL` or `<SUPABASE_URL>/functions/v1/connector`), `next_poll_seconds` (60),
+`min_agent_version`, `server_time`. Logs only the failing step, never a token, code or body.
+
+Website: `/sync` section `pos` (after `api`; `@/lib/dashboardPages`) = `@/components/PosAgentPanel` +
+`sync/connectorActions.ts` (server actions → owner functions; no service role). Texts `pos_agent`. Test stand-in:
+`scripts/connector-test-agent.mjs` (pair / heartbeat / status / rotate).
+
+## Update 51 — contact buttons on the shop page (press and hold, short / long)
+
+`supabase/sql/51_contact_buttons.sql`: `shops.contact_buttons jsonb` (default `{}`; only the owner's choices that differ
+from the defaults; check `contact_buttons_valid()` — keys facebook / booking / web / email / navigate / phone, values
+"short" / "long"), `owner_set_contact_buttons(shop, widths)` (membership checked; bad input → `contact_buttons`),
+`shop_contact_buttons(slug)` (active shops; anon; in `CACHED_RPCS`, refreshed by `refreshShop()` after saving),
+`my_shops()` + `contact_buttons`. Page layout only, never shop or stock data.
+
+`@/lib/contactButtons` (shared with `contactButtons_test.ts`, `npm run test:site`): order, colours, default widths,
+which buttons a shop shows (empty → hidden), the links (`tel:` without spaces, `mailto:`, directions to lat,lng or else
+to the written address), `gridPlaces()` (the grid's normal flow: a short button before a long one stays in the left
+column). `@/components/ContactButtons` (client): one `<button>` per contact (`aria-label` = the idle label); pointer down
+(primary only, capture released so sliding off = `pointerleave`) or Space/Enter starts 1200 ms; `pointerup` / leave /
+cancel / blur / keyup before that cancels; at completion the action runs with a mouse or keyboard (still inside the
+press's user activation; a mouse without activation left opens on its `pointerup`). A finger or pen hold loads the
+link in the **same tab** at completion (`location.assign`): a new tab is a pop-up, phones allow it only inside a
+gesture, a long press gives none (no activation on touchstart, no `click` afterwards) and whether a late `touchend`
+counts differs between phones; navigating the own tab is never blocked. `pageshow` (back-forward cache) resets the
+button to idle. A non-passive `touchstart` listener calls `preventDefault()`: no phone long-press menu, callout or
+cancelled pointer. Labels roll (two layers, 200 ms); fill, pop and ring are CSS (`.ppi-cb*` in globals.css, `--c` = the colour,
+`color-mix`); `prefers-reduced-motion` = no pop, ring or roll and an instant drain; a label too wide at 15 px →
+`data-fit="small"` (12.5 px), measured on hidden copies of all three texts. `@/components/CheckLoop` = the owner's
+orange check (inline SMIL), remounted and reset on each appearance. `ShopView` renders the grid (Cacaduu address and own
+domain) + `<noscript>` links; `ContactLinks` is gone. Môj obchod: `ShopForm` `WidthToggle` radios `cb_<key>` →
+`saveShop` → `owner_set_contact_buttons(widthChoices(...))` (unknown function before update 51 ignored). Texts
+`contact_buttons`. The amenity reads "Bidetová sprška" (the column stays `has_douchette`, the API field
+`facilities.douchette`). e2e: `e2e/contacts.spec.ts` and the owner test "contact buttons".
+
+### Shop page item search keeps its place (28 October 2026)
+
+(Replaced on 29 October 2026 by the live search of "Produkty" — see "Shop page Produkty / Zoznam" at the end.)
+
+`@/components/ItemSearch` (client) replaces the plain GET form of "Tovar v obchode": with JavaScript it calls
+`router.replace(path?q=…, { scroll: false })` — the server component re-renders only with the new results — after
+giving `#items` a `min-height` of its current height (fewer results would shorten the page and pull the view up) and
+closing the phone's keyboard. Without JavaScript the form's action and the list's page links end in `#items`, so the
+reload lands on the list. e2e `e2e/shop-search.spec.ts` (the scroll position stays within 4 px).
+
+## Update 52 — POS Sync Agent, phase B: inventory snapshots and one stock source
+
+`supabase/sql/52_connector_snapshots.sql`:
+- `shop_stock_source` (one row per shop: `source` file|agent, who/when changed, the last applied snapshot's id, hash,
+  product count, `source_time`, applied time; members read, written only by functions). `stock_source_of(shop)`
+  (service role) = `api` (an `inventory_connections` row) > `agent` (chosen and an unrevoked device) > `file`.
+  `owner_stock_source()` / `owner_set_stock_source()` (errors `source`, `api_connected`, `no_device`; activity
+  `stock_source_changed`). `upload_check_in()` now also raises `agent_connected` (stock-pull answers 409, FolderSync
+  and the upload show the lock); `owner_inventory_can_connect()` returns `agent` while the agent is the source.
+- `connector_snapshots` (pk shop + id; device, source id/time, count, hash, command id; state awaiting_upload →
+  processing → applied | held | test_ok | rejected | discarded; error, message, result, a 5-row preview; `held_rows` /
+  `held_keep` never granted; owners select the other columns; 50 kept per shop). Private bucket `connector-staging`
+  (50 MB; no policies — only the service role signs uploads and reads).
+- Service role: `connector_snapshot_announce()` (revoked / existing / clock_ahead / stale / rate_limited — complete
+  snapshots only, 5 min — / new; incomplete → rejected), `connector_snapshot_get()`, `_begin()` (→ processing; a
+  stuck one may restart after 5 min), `_wait()`, `_reject()`, `_apply()` → `connector_snapshot_settle()` under
+  `pg_advisory_xact_lock` per shop: stale (older `source_time` than the last applied) → rejected; source ≠ agent →
+  test_ok; not decided and (0 products or < half the last count) → held (rows kept for the owner); else
+  `connector_apply_rows()` (same rules as files: upsert by `source_code`, missing → 0 except `p_keep` = codes of skipped
+  rows; freshness = least(source_time, received)), a `stock_imports` report (`source = 'agent'`), device
+  `last_sync_at`. `connector_confirm()` (4 a minute per device, `connector_hits.kind` confirm; only the last applied
+  hash; freshness only forward). Owner: `owner_connector_snapshots()` (last 10), `owner_connector_decide(shop, id, use)`
+  (held only; use → settle with decided = true; activity `connector_snapshot_approved` / `_discarded`).
+- `connector/index.ts`: phase B routes — announce (201 + a signed upload URL from `createSignedUploadUrl` +
+  `max_bytes`), `GET` state (202 while processing), complete (size ≤ `CONNECTOR_MAX_MB` (default 20) → gunzip with a
+  10× cap → SHA-256 of the uncompressed bytes → `cacaduu.inventory.v1` with the announced id/source/time → count →
+  `checkRows()` (> 5 % bad → rejected `invalid_rows`) → apply; the staged file is deleted), confirm. After `applied`,
+  in the background: `/api/revalidate` (`SITE_URL`, `REVALIDATE_SECRET`) and IndexNow (`INDEXNOW_KEY`) like stock-pull.
+  Tests `connector/snapshots_test.ts` (in-memory storage). Contract: `docs/CONNECTOR_CLOUD_API.md` phase B, the
+  OpenAPI file without 501 on B paths, the client's `max_bytes` / `x-upsert`.
+- Website: `/sync` section `source` first (`@/components/StockSourcePanel`); `PosAgentPanel` lists snapshots with
+  held "Áno, použiť tento stav" / "Zahodiť" (`loadSnapshots`, `decideSnapshot` → `refreshShop`); the API section says
+  `api_blocked` while the agent is the source; FolderSync knows `agent_connected`. Texts `stock_source`, `pos_agent`.
+  Test stand-in: `connector-test-agent.mjs snapshot` (`--csv` / `--json` / `--generate`) and `confirm`.
+
+## Update 53 — POS Sync Agent, phase C: "Synchronizovať teraz" (Sync Now commands)
+
+`supabase/sql/53_connector_commands.sql`:
+- `connector_commands` (shop, `type` sync_inventory | ping only, `state` pending → claimed → running → completed |
+  failed | expired, requested_by, `expires_at` (10 min unclaimed), claimed_by device, lease, `attempt`, `confirmed_at`,
+  `snapshot_id`, `error` lease_expired | agent + the agent's plain-text `reason` ≤ 500, finished_at; members read; 50
+  kept per shop). `connector_hits.kind` + commands / command; activity `connector_sync_requested`.
+- `connector_commands_tidy(shop)` moves states on with time (no job): a lapsed lease → pending again (+10 min) or
+  failed (`lease_expired`) after the 3rd attempt; an unclaimed one past `expires_at` → expired. Called by every
+  command function.
+- Owner: `owner_connector_sync_now(shop)` (member; `no_device` / `not_agent` / `too_many` — 4 an hour; an open one is
+  returned as `existing`), `owner_connector_commands(shop)` (last 5 with the device name). `owner_connector_devices()`
+  and `connector_status()` now say `syncing` while a device holds a live lease (`connector_device_syncing()`).
+- Service role: `connector_commands_list(device, count)` (pending ones of the device's shop; GET counts 6 a minute,
+  the heartbeat's listing does not), `connector_command_claim()` (one UPDATE … WHERE state = 'pending' → claimed +
+  2-minute lease, attempt + 1; else already_claimed / not_found), `connector_command_result()` (holder only:
+  running renews; failed keeps cut plain text; completed for sync_inventory needs a snapshot of the shop
+  applied/held after the command with its command_id or none, or `confirmed_at`), `connector_command_confirmed()`
+  (confirm with a command_id), `connector_command_active()` (update 52's `connector_snapshot_announce()` redefined: the
+  lease holder's snapshot skips the 5-minute limit).
+- `connector/index.ts`: `SERVED_PHASES` A, B, C; heartbeat answers carry `commands` (a failing listing never fails
+  the heartbeat) and `next_poll_seconds` 15 while one waits (`COMMAND_POLL_SECONDS`); `GET /v1/commands`,
+  `POST /v1/commands/{id}/claim` (409 already_claimed), `POST /v1/commands/{id}/result` (409 not_claimed /
+  snapshot_not_applied, 400 for a bad body); confirm accepts `command_id`. Tests `connector/commands_test.ts`.
+  Contract: `docs/CONNECTOR_CLOUD_API.md` phase C live, OpenAPI without 501, client notes.
+- Website: `PosAgentPanel` "Synchronizovať teraz" box (button only while the agent is the stock source, the last
+  request in words, 5 s refresh while open), `connectorActions.ts` `syncNow` / `loadCommands`, `/sync` loads
+  `owner_connector_commands`. Texts `pos_agent.sync_*`, `cmd_*`. Test stand-in: `connector-test-agent.mjs sync`
+  (`--csv` / `--generate` / `--unchanged` / `--fail`; honours 429 Retry-After).
+
+## Update 54 — forgiving product search ("Tovar v obchode" dropdown, the main search)
+
+`supabase/sql/54_forgiving_search.sql` (one file; drops and re-adds its stored columns on every run):
+- Word rules (immutable SQL): `search_stem(word)` (the longest of ~45 Slovak/Czech/Hungarian/English endings cut, ≥ 4
+  letters kept, then ph→f, ck→k, c→k, y→i, q→k, w→v; numbers unchanged), `search_sizes(text)` (`ml:500` for l/dl/cl/ml,
+  `g:` kg/g, `mm:` m/cm/mm, `ks:`), `search_without_sizes`, `search_tokens` / `search_stems_text` (" a b c "),
+  `search_generic(stem)` (farba, paint, festék, náter, barva, Farbe, color, produkt, tovar …: weight 0.34),
+  `search_word_match(word, tokens)` (1 / 0.85 prefix / 0.8 / 0.6 edit distance ≤ 1, ≤ 2 from 7 letters / 0.5 typo in a
+  prefix), `search_query(q)` (≤ 8 longest stems, weights, typed words, sizes, `starts` = first 3 letters).
+- Stored: `shop_items.search_stems` (every name in every language + brand + category + code + EAN; GIN trigram index),
+  `shop_items.search_sizes` (GIN), `shops.search_words` (`search_text(name address city)`), `shops.search_stems`.
+- Fast pass (inlined, no SET): `search_quick_match(word, stems, typos)` (same 1, prefix 0.85, trigram ≥ 0.5 = 0.6 only
+  when the first two letters appear), `search_quick_hits(stems, words, weights)` (8 values; generic words without the
+  typo check), `search_quick_cov`, `search_quick_spec`, `search_quick_missing` / `search_quick_ok` (every specific word
+  hit; one may miss of 3+).
+- `shop_item_search(slug, q, limit 8, offset 0)` (security definer, anon): every item of the shop through the fast
+  pass (prefilter `like any(starts)`), the window offset + limit + 40 re-scored precisely, `public_stock` read last by
+  id (lateral `offset 0`); `kind` exact (code/EAN hit +100, every word +10) / match / similar (none matched:
+  `word_similarity` of the names > 0.15, top 50); `score` (+0.05 in stock), `matched` stems, `total_count`.
+  `shop_stock(slug, q, …)` keeps its output and returns these rows when `q` has words.
+- `item_search(q, lat, lng, radius 10, only_available, limit 50)` (security definer, anon): candidates = items with a
+  word beginning like a specific search word (trigram index, ≤ 3 000) ∪ trigram `<%` neighbours when those are < 300
+  (typos) ∪ the update-42 candidates (longest word in the names or the shop's words) ∪ items of a shop whose words
+  match a search word and that begin like another of its words ("farba v Budinciach") ∪ EAN (item or product);
+  materialized with their search texts; a cheap pass without typo checks over all, the full fast pass on the best 600
+  (+ every code/EAN/every-word hit), the top 100 re-scored precisely, `public_stock` last. Shops outside the radius
+  never reach the candidates' checks. Order: score, (available and current/recent), freshness, distance, name — never a
+  plan. `search_stock(q, …)` keeps its output: no words → `search_stock_exact(null, …)`, words → `item_search` rows.
+- DB tests (block "update 54"): stems, sizes, generic words; a Davide-like fixture shop in Budince ("akril paint 0.5l",
+  EN "glossy acrylic medium", HU "akril médium fényes", typos "akrylvé farby" / "mercedez 775", word order, "0,5 l" =
+  "500 ml", code AUTO-0035 and EAN exact first, nonsense → only similar, "v Budinciach" only that town, mixed SK/HU/EN,
+  "kava budapest"), anon only, same rows as `public_stock`, ranking unchanged by a subscription, inactive shop hidden.
+  Older checks changed with the rule: "kave" near Michalovce now finds "Káva" (never the Budapest shop); the update-42
+  "every word" checks count the `exact` rows.
+- Website: `@/lib/data` `searchShopItems()` (shop_item_search; when only similar rows and 4+ letters, Claude's words via
+  `expandQuery()` once; before update 54 `shop_stock`), `ShopView` (the list with words → "Výsledky pre „…“ (N)" +
+  "Zrušiť", similar → "Nenašli sme presnú zhodu – podobné produkty:"), `/api/shops/[slug]/search?q=&lang=` (anon,
+  `rateLimit(…, 120)`, 8 suggestions written on the server: names via `itemNames()`, `formatPrice`, availability text,
+  stock dot state, category, matched stems), `@/components/ItemSearch` (combobox + listbox, 2 characters, 200 ms
+  debounce, `AbortController` per request and a check that the answer is the newest, ↑ ↓ Enter Esc, `<mark>` via
+  `@/lib/searchWords` `highlightParts()`), `CACHED_RPCS` + `item_search`, `shop_item_search`. `shopChat` `search_items`
+  → `shop_item_search` (each item's `match`: exact / close / similar, a note when only similar). `searchAcrossLanguages`
+  asks Claude's words when fewer than `FEW_RESULTS` (3) rows. Tests: `npm run test:search`, e2e
+  `e2e/shop-search.spec.ts` (suggestions, keyboard, newest answer only with a slow stand-in, no-JS form).
+
+## Shop page "Produkty / Zoznam" and stock text only on product pages (29 October 2026)
+
+No database change. **Stock sentence:** `StockLine` (product page) keeps "12 ks na sklade · …"; with `listing` it shows
+only the freshness (nothing when stale). Listings pass `label` to `StockDot` (role img, "na sklade" / "vypredané" /
+"zásoba neznáma" from `stock.dot_*` via `STOCK_WORDS`): main page plain results, `ItemView`'s other shops, chat cards
+(`ChatCard.stockLabel`, the freshness badge only when not stale; `availability` stays in the protocol, not shown), the
+shop assistant (`stockLabel`, freshness empty when stale; its copied list without availability). New dot colours
+(fill + darker ring) in `STOCK_COLORS` / `STOCK_BORDERS`.
+
+**Rows:** `@/lib/shopRows` `productRow()` writes a row on the server (names by `itemNames()`, `formatPrice`, stock
+state, search marks cut by `highlightParts()` into plain/marked pieces — the browser never loads the stem rule).
+`ShopView` passes the first page (or the search's page) as `initial`; `/api/shops/[slug]/search?q=&lang=` now returns
+`{q, kind, total, rows}` (50 rows, the forgiving search; without words the shop's first page; `rateLimit` 120/min).
+
+**Client:** `ShopProducts` (first load): tabs as radio inputs, the search form (GET `#items` without JavaScript), rows
+with the dot button and counters, pagination, the live region. `@/lib/shopProductsEngine` (loaded in an effect right
+after hydration, and on the first key or tap if earlier): `listStore()` (localStorage `ppi.list.<shop id>`, try/catch,
+`storage` event), `addOne`, the movements (`@/lib/listMotion`, Web Animations; nothing with reduced motion) and
+`searcher()` (200 ms debounce, `AbortController`, newest answer only, `replaceState`, keeps the rows' height).
+Counters lag behind a flying ball (`flying` per id) so they change when it lands. `ShopList` (next/dynamic, loaded on
+the tab's hover/focus, on open or after the first add): `useSyncExternalStore` on the same store, stepper, swipe
+(pointer events with capture after 8 px of horizontal movement, vertical first = scroll, `touch-action: pan-y`, never
+from a button; a swipe that started on the name drops its click), removal animation then `setQty(…, 0)`, "Spolu" per
+currency, copy (`navigator.clipboard` → hidden textarea + `execCommand` → visible read-only textarea, selected).
+
+**Budget:** the shop page's first-load JS was 151.4 kB with the new tabs; the status line on server pages is now
+`ShopStatusLine` (computes the first status on the server) → `LiveStatusLazy` (loads `@/lib/hours` after the page
+appears, then refreshes every minute); `StatusDot` and `STATUS_COLORS` (`@/lib/statusColors`) moved out of the hours
+module. Result: 149.1 kB locally. Client components keep `LiveStatus`.
+
+**Tests:** `npm run test:list` (`src/lib/shoppingList_test.ts`), e2e `e2e/shop-list.spec.ts` (Pixel 7 and an
+iPhone-sized project in `playwright.config.ts`: round 20 px dot in a reset 32 px button, one search border, Quicksand,
+no stock sentence in rows, counters after reload, "9+", stepper and bin, short / long swipe by touch, copy text and
+the manual fallback, reduced motion, blocked storage) and the rewritten `e2e/shop-search.spec.ts` (live filter keeps
+the page still, ×, Esc, nothing found, typo, newest answer only, no-JS form).
+
+## Update 55 — "Konverzácie" for Pro shops (CRM phase 1, 30 October 2026)
+
+`supabase/sql/55_conversations.sql` (one file, safe to run again):
+- Keep time: `shop_assistant_settings.retention_days` nullable without a default (null = "Neobmedzene"), check
+  `null or in (30, 90, 365)`, `retention_chosen_at`; rows still on the old default 90 (never chosen) become null, 30 and
+  365 keep their value. `assistant_expired()` only joins shops with a limit. `owner_set_assistant_retention(shop, days)`
+  takes null and logs `conversation_retention`.
+- `assistant_conversations`: `status` new|read|archived (existing rows `read`, new ones `new`), `starred`,
+  `owner_note` (≤ 2000), `unanswered` / `access_key_used` (null = before the update), `item_ids uuid[]` (suggested
+  products of this shop, once each, in order), `search_doc` (`search_text` of every message and its Slovak version;
+  GIN trigram index; owners have no grant on it), `read_at`; index `(shop_id, status, started_at desc)`.
+  `assistant_messages.unanswered`. Owners read the new columns (column grants); only the functions write.
+- `assistant_card()` keeps `item_id`; `assistant_add_turn()` (same signature) reads `p_assistant.unanswered` and
+  `p_shopper.access_key`, ORs the flags, adds the item ids (only `shop_items` of that shop), appends `search_doc` and
+  sets the conversation `new` again.
+- Owner functions (security definer, `is_shop_member`, revoked from anon): `owner_conversations(shop, q, from, to,
+  status, starred, unanswered, attachments, lang, limit, offset)` (the old columns + status, starred, unanswered,
+  access_key_used, has_note, item_count, total_count; `matches_all_words` over `search_doc` + the note; status null =
+  not archived), `owner_conversation_languages()`, `owner_conversations_new()` (the tab's badge),
+  `owner_conversations_mark(shop, ids ≤ 500, read|new|archive|unarchive|star|unstar, log)` (other shops' ids ignored;
+  `log = false` for opening), `owner_conversation_note(id, note)`, `owner_conversations_log(shop,
+  conversations_deleted|conversations_exported, details)`, `owner_conversations_export(shop, from, to)` (one row per
+  message, ≤ 50 000, range checked, logs `conversations_exported`). `shop_activity` gets the five new actions.
+- Website: `shopChat` `ArchiveCard.item_id`, `ChatArchive.unanswered` (= `call_shop`) and `.accessKey` (a non-public
+  document was in the exchange), passed by `/api/shops/[slug]/chat` → assistant-archive `record` (unchanged: it passes
+  the objects through). Asistent page (`dashboard/assistant/page.tsx`): three tabs from `?at=` (assistant /
+  conversations + cloud / docs), only the open tab loads its data; `Conversations.tsx` (filters `cstatus cstar cna
+  cfiles clang` + `cq cfrom cto cpage`, `filterQuery()`, `loadConversations()` falls back to
+  `owner_assistant_conversations` on PGRST202/42883, one tick form `conversation-ticks` shared by
+  `ConversationDownloadBar` and the bulk form), `conversationActions.ts` (`bulkConversations`, `starConversation`,
+  `saveConversationNote`, `markConversation`, deletions through assistant-archive `owner_delete` then
+  `owner_conversations_log`), the detail page (marks read with `p_log = false`, note, marks, item links via
+  `public_stock`, TXT link). Exports: `@/lib/conversationExport` (`localStamp`, `csvCell` with formula guard, `toCsv`
+  BOM + ";" + CRLF, `exportCsv`, `conversationTxt`, `exportName`; `npm run test:conversations`),
+  `/api/owner/conversations/[id]/txt`, `/api/owner/conversations/export?shop=&from=&to=&lang=`.
+- DB tests (block "update 55"; the update-22 block now checks "kept forever when nothing is set"): no default keep
+  time, flags and item ids from turns (other shops' ids and broken ids dropped), filters, accents, note search, marks
+  (no log on opening), archive hidden from the default list, export rows and range, log actions, owner B and anon
+  refused, a refused turn changes nothing, Neobmedzene keeps 400-day-old conversations, 365 days deletes them.
+
+## Update 56 — "Kontakty" for Pro shops (CRM phase 2, 30 October 2026)
+
+`supabase/sql/56_contacts.sql` (one file, safe to run again):
+- `crm_calling_code(country)` (European countries) and `crm_phone(raw, country)` (immutable): drop spaces . - / ( ),
+  "00…" → "+…", a national number → the country code after dropping the trunk 0 (HU "06"; IT, SM, VA keep the 0);
+  E.164 `^\+[1-9][0-9]{6,14}$` or null.
+- `shop_contacts` (RLS: members read; written only by the functions): name ≤ 120, phone E.164 (unique per shop),
+  `phone_verified_at` (system only), email (lower case), address ≤ 300, tags ≤ 20 (`crm_tags()`: trimmed, ≤ 40, once,
+  case ignored), note ≤ 4000, source owner|chat|booking, `created_by`.
+- `assistant_conversations.contact_id` (set null on delete) + `shopper_phone` (E.164); triggers
+  `crm_contact_phone_link` (a contact's new number takes the shop's conversations with that number and no contact) and
+  `crm_conversation_phone_link` (a conversation getting a number joins that contact). Column grants for owners.
+- `shop_email_templates` (≤ 50 per shop, name unique per shop case-insensitively) and `shop_outgoing_messages`
+  (channel sms|email, recipient, subject, body as sent, template_id, status queued|sent|failed|test, provider,
+  provider_ref, error, sent_by, sent_at). Owners read both (RLS); only the functions write.
+- Owner functions: `crm_owner_check(shop)` (member + `shop_has_plan`, else `no_plan`), `owner_contacts(shop, q, tag,
+  limit, offset)` (counts of conversations and messages, last message; search = `matches_all_words(search_text(…))` or
+  the digits of a number), `owner_contact_tags()`, `owner_save_contact(…, conversation_id)` (errors phone / phone_taken
+  / email / empty), `owner_delete_contact()`, `owner_link_conversation(conversation, contact|null)`,
+  `owner_save_email_template()` / `owner_delete_email_template()`, `owner_message_preview()` and `owner_message_queue()`
+  (both through `crm_message_draft()`: the contact's own number / address, template or own text, `crm_render()`
+  variables, SMS ≤ 480, e-mail ≤ 10 000 / subject ≤ 200; queue: ≤ 100 per channel and shop in 24 h, returns the shop's
+  name and e-mail), `crm_message_result(id, status, provider, ref, error)` (service role, once, logs `message_sent`).
+  `shop_activity` gets six actions.
+- `supabase/functions/crm-messages` (Verify JWT off; owner JWT): `config` → {email, sms, sms_live}; `send` →
+  `owner_message_queue` as the caller → Brevo `smtp/email` (sender name = shop, `replyTo` = shop e-mail) or
+  `SmsProvider.send` (`smsProvider(SMS_PROVIDER)`: unset/"test" = `testSms`, `live` false → status `test`; an unknown
+  name fails) → `crm_message_result`. Never logs numbers, addresses or texts. Tests `crm-messages/index_test.ts`.
+- Website: `dashboard/contacts/page.tsx` (list, search, tag filter, new contact — `?conversation=` links it —, the
+  templates tab), `contacts/[id]/page.tsx` (tabs `?tab=overview|conversations|bookings|messages`), `contacts/actions.ts`
+  (`saveContact`, `deleteContact`, `saveTemplate`, `deleteTemplate`, `linkConversation`, `previewMessage`,
+  `sendMessage` → `functions.invoke("crm-messages")`), `contacts/parts.tsx`, `@/components/MessageComposer` (edit →
+  preview → send in one `useActionState`), the conversation page's "Kontakt" box, the menu link. `@/lib/crm`:
+  `smsParts()`, `splitTags()`, `TEMPLATE_VARIABLES`, error keys (`npm run test:crm`).
+- DB tests (block "update 56"): phones of SK/HU/IT/DE, international, too short, no country; tags; link by phone both
+  ways and by hand; one contact per number; bad phone / e-mail / empty; search with accents, the number as typed, tags;
+  templates (unique name); preview fills variables and writes nothing; no SMS without a phone; SMS length; queue
+  written down with the sender; owners never write the log or contacts directly nor report a result; result once +
+  activity; "overené" kept for the same number and lost for a new one; owner B and visitors refused; without the plan
+  reading stays, sending and saving refused, deleting keeps the log line.
+
+## Update 57 — "Rezervácie" for Pro shops (CRM phase 3, 30 October 2026)
+
+`supabase/sql/57_bookings.sql` (one file, safe to run again; needs updates 55 and 56):
+- `btree_gist`; `shop_booking_settings` (enabled false, service_name, duration 5–480 = 30, step 5–240 = 30, buffer
+  0–120, lead_minutes 120, horizon_days 1–180 = 30, reminder false); `booking_google_connections` (tokens AES-GCM
+  encrypted by the function; owners get only status, last_error, connected_at) + `booking_oauth_states` (SHA-256,
+  single use, 10 minutes); `shop_bookings` (pending|confirmed|cancelled|no_show|expired, end_reason, name, phone E.164,
+  email, address, note, lang, consent_at + consent_version, token_hash, code_hash, code_expires_at, code_attempts,
+  code_sends, caller_hash, verified_at, conversation_id, contact_id, google_event_id, google_status none|created|failed,
+  reminder_sent_at) with **`exclude using gist (shop_id with =, tstzrange(starts_at, ends_at) with &&) where status in
+  (pending, confirmed)`**; owners get column grants without the hashes. `shop_outgoing_messages.kind`
+  owner|booking_code|booking_reminder + `booking_id`. Five new `shop_activity` actions.
+- Free times: `booking_day_ranges(shop, day)` (special day > holiday shops_closed (cut at closed_from) / day_off (none)
+  > `opening_hours`, past midnight kept), `booking_free_slots(shop, from, to)` (≤ 300; lead, horizon, step, buffer;
+  confirmed + pending with a live code block), `booking_shop(slug)` (active + `shop_has_plan` + enabled),
+  `shop_takes_bookings(slug)` (anon: service name + duration), `booking_slots(slug, from, days ≤ 14)` (service role).
+- Flow (service role only): `booking_start(…)` (errors not_available / consent / name / phone / email / too_many — 3 per
+  phone and 5 per caller an hour, 100 per shop a day — / slot_taken; returns id, token, code once), `booking_resend`
+  (≤ 3 sends, attempts reset), `booking_verify` (wrong_code + attempts_left; the 5th → too_many_attempts and expired;
+  expired; not_pending), `booking_confirm(id, event, google_status)` (contact by `crm_phone` found or made — source
+  booking —, `phone_verified_at`, empty fields filled, conversation's `shopper_phone` + contact, activity),
+  `booking_release`, `booking_log_sms` (6-digit numbers masked "••••••"), `booking_reminders_due` (tomorrow in the
+  shop's time zone, after 09:00 there), the Google helpers (`booking_oauth_begin/take`, `booking_google_save/token/
+  refreshed/failed/remove`).
+- Owners: `owner_save_booking_settings()` (`crm_owner_check`), `owner_bookings(shop, from, to, status, limit, offset)`,
+  `owner_set_booking_status(id, confirmed|cancelled|no_show)`. Job `ppi-bookings-tick` (`'11 * * * *'`, Vault
+  `ppi_project_url` + `ppi_bookings_cron`, `bookings_cron_ok()`).
+- `supabase/functions/bookings` (Verify JWT off): website actions with `x-ppi-website` = `ASSISTANT_ARCHIVE_SECRET`
+  (`slots` = database slots minus Google freeBusy, `start` (Google busy check again) → SMS code via `SmsProvider`,
+  `resend`, `verify` → Google event `primary/events?sendUpdates=none`, no attendees → `booking_confirm`); owner JWT
+  `google_connect` (PKCE S256, `access_type=offline`, `prompt=consent`, scopes `calendar.freebusy` +
+  `calendar.events.owned`; return URL https only, path `/dashboard/bookings`) and `google_disconnect` (revoke at Google);
+  `GET /oauth` (both scopes must be granted); cron `tick` (reminders). Tokens bound to `<shop>:google:access|refresh`
+  (`BOOKING_TOKEN_ENCRYPTION_KEY`, else `EXPORT_TOKEN_ENCRYPTION_KEY`); `invalid_grant` → connection expired, bookings
+  go on without Google. `BOOKING_TEST_CODES=on` returns the code only while the SMS provider is the test one. Never
+  logs phones, codes, names or tokens. Tests `bookings/index_test.ts`.
+- Website: `@/lib/bookings` (`bookingsCall`, `findSlots`, `CONSENT_VERSION`), `/api/shops/[slug]/booking` (start /
+  verify / resend; `rateLimit` 20/min; caller hash, archive conversation, consent version added on the server),
+  `@/lib/shopChat` (tool `find_slots` {from, days} only when `shop_takes_bookings`; prompt: terms from the documents
+  first, never personal data in the chat, never claims a booking; answer field `booking_slots` → `reply.booking` from
+  the tool's own slots only, ≤ 8), `@/components/BookingPanel` (pick → form → code → done; in `ShopChat`'s answer),
+  `dashboard/bookings` (`?view=list|calendar|settings`, `?week=`; `actions.ts`), the contact card's Rezervácie tab,
+  the menu link, the assistant privacy page `#rezervacie`. Texts `chat.booking_*`, `bookings`.
+- DB tests (block "update 57"): settings rules; slots inside the hours only, lead time, special day, holidays both
+  kinds, buffer; no overlap (exclusion constraint); consent / phone / name refused; rate limits; wrong code with tries
+  left, the 5th ends it; expired code; resend limit; confirm makes or finds the contact (verified), links the
+  conversation, logs; owner status changes; reminders due; owner B and visitors refused; no plan → nothing new.
+
+## Update 58 — SMS quotas and the SMS provider (CRM phase 4, 30 October 2026)
+
+`supabase/sql/58_sms_quotas.sql` (one file, safe to run again; needs 56 and 57 — run it again after re-running 57,
+which replaces three of its functions):
+- `sms_quota_limits` (quota booking|owner, monthly 0–100 000, default 100; service role only; admin through
+  `admin_sms_quotas()` (limits, this month's parts of all shops, shops at a limit) and `admin_save_sms_quotas()`).
+- `shop_outgoing_messages.parts` (+ partial index `(shop_id, created_at) where channel = 'sms'`; old rows filled once).
+  `crm_sms_parts(text)` (immutable: GSM 03.38 basic + extension ×2 → 160/153, else Unicode 70/67, astral ×2).
+- Counting: `sms_quota_of(kind)`, `sms_month(shop)` (shop's time zone), `sms_quota_used/limit/left`, `sms_quota_take(shop,
+  quota, parts)` (`pg_advisory_xact_lock` per shop + quota, raises `sms_quota` / 54000), `sms_quota_state(shop)` →
+  `owner_sms_usage(shop)` (members; also without the plan).
+- `owner_message_queue()` (as 56 + the owner quota and `parts`); `booking_sms_claim(booking, kind, body)` (queued, code
+  masked, the booking quota) and `booking_sms_settle(id, status, provider, ref, error)` (once; a reminder marks
+  `reminder_sent_at`); `shop_takes_bookings()`, `booking_resend()` (reason `sms_quota`) and `booking_reminders_due()`
+  as 57 plus the booking quota. `booking_log_sms()` stays for an older bookings function.
+- The SMS providers block (crm-messages and bookings, kept identical by `sms_providers_test.ts`): `SmsProvider`
+  {name, live, send}, `smsProvider(name, env, fetch)` → `testSms` | Brevo (`/v3/transactionalSMS/send`, `api-key`,
+  `{sender, recipient (no +), content, type: "transactional", tag: "cacaduu", unicodeEnabled: !isGsm}`, ref =
+  `messageId`) | Twilio (`/2010-04-01/Accounts/<sid>/Messages.json`, Basic auth, form To/Body/From or
+  MessagingServiceSid, ref = `sid`) | failing (missing secrets or unknown name); `smsSender()` (accents dropped,
+  letters/digits ≤ 11, or a number ≤ 15 digits, default "Cacaduu"). Errors: status + provider code only.
+- bookings: `sendSms(deps, booking, kind, phone, text)` = claim → send → settle; `quota` → start releases the time and
+  answers 429 `sms_quota`, resend 429, the tick skips. crm-messages: `sms_quota` passed on (400), nothing sent.
+- Website: `@/lib/smsUsage` (`loadSmsUsage`, `quotaLeft`), `@/components/SmsUsage` (server; both quotas or `only`),
+  Kontakty header, contact Správy tab (owner), Rezervácie settings (booking) + `data-booking-paused` banner,
+  `messageError("sms_quota")` → `contacts.err_sms_quota`, `chat.booking_err_sms_quota`, admin `SmsAdmin` (+ the
+  provider from crm-messages `config`), action `saveSmsQuotas`. Texts `sms_usage`, `admin_sms`.
+- DB tests (block "update 58"): parts (GSM, extension, new line, Unicode, boundaries); last month never counts; owner
+  parts, refusal at the limit writes nothing, e-mail free, a failed SMS gives its parts back; booking claim/settle
+  once, codes masked, quotas apart, reminder marked, refusal at the limit, nothing offered, resend refused, reminders
+  wait, wrong kind/status; owner B, owners and anon refused; admin limits and totals.
+
+## Update 59 — unanswered questions: the shopper leaves a contact (CRM phase 5, 30 October 2026)
+
+`supabase/sql/59_unanswered.sql` (one file, safe to run again; needs 55, 56 and 58):
+- `assistant_conversations.callback_at / callback_name / callback_email / callback_consent_version /
+  callback_answered_at / callback_answered_by / callback_caller` (owners read at, name, e-mail, answered_at).
+- `shop_owner_alerts` (kind callback, conversation, sent_at, attempts, last_error, next_try_at; service role only).
+- `shopper_leave_contact(slug, conversation, token, name, phone, email, consent, consent_version, caller)` (anon:
+  token hash, ≤ 24 h, `shop_has_plan`; refusals not_available / consent / empty / phone / email / name / too_many;
+  contact by phone → e-mail → new, fills empty fields, phone never verified; conversation flagged + joined; alert +
+  activity `callback_requested`; `crm_alerts_kick()` = pg_net to crm-messages when pg_net and Vault are there).
+- `crm_cron_ok()` (Vault `ppi_crm_cron`, made by the file), `crm_alerts_due()` (shop, conversation, last shopper
+  message — `body_owner` first —, has_phone / has_email, owners' e-mails + `profiles.language` from `shop_members` +
+  `auth.users`), `crm_alert_result()` (once; 5 min · 2ⁿ ≤ 6 h; ≤ 10 tries), job `ppi-crm-alerts-tick` (*/5).
+- Owners: `owner_callbacks(shop, limit)` (waiting first, answered of 30 days), `owner_callbacks_waiting()` (per shop of
+  the caller), `owner_callback_done(conversation, done)` (activity `callback_done` / `callback_reopened`).
+- `crm_message_result()` as 56 + a sent/test owner message marks the contact's waiting conversations answered.
+- crm-messages: `x-ppi-cron` → `action: alerts` → `alertMail(row, lang, SITE_URL)` (sk / hu / en; question, what was
+  left, link; never the number) → Brevo `smtp/email` per owner → `crm_alert_result`. Tests in `index_test.ts`.
+- Website: `ChatReply.askContact`, `@/components/CallbackPanel`, `/api/shops/[slug]/callback` (rateLimit 10/min,
+  `cleanConversation`, anon `createPublicClient().rpc`), `dashboard/Callbacks.tsx` + `callbackActions.ts`
+  (`markCallback`), the conversation page's box, `AccountNav` badge, privacy `#kontakt`. Texts `chat.callback_*`,
+  `callbacks`.
+- DB tests (block "update 59"): wrong token / no consent / nothing / bad phone / bad e-mail / another shop refused;
+  new contact by phone, never verified, conversation flagged and joined, alert queued with the Slovak question and only
+  this shop's owners, never the number; retry and once; a known contact by e-mail (case ignored) keeps its name; 3 per
+  conversation; badge, list, an answer marks it answered only when sent, "Vybavené" / back; owner B and owners writing
+  alerts refused; without the plan refused.
+
+## Update 60 — opening hours by SMS and the Google Business Profile (CRM phase 6, 30 October 2026)
+
+`supabase/sql/60_hours_sms.sql` (one file, safe to run again; needs 56, 57, 58 and 59):
+- `shop_owner_phones` (shop, user, phone E.164 unique per shop, verified_at, code hash / expiry / attempts / sends;
+  members read id, phone, verified_at — never the hash), `hours_sms_messages` (shop, phone + SHA-256 hash, body, provider
+  + ref unique, status received|applied|unclear|not_hours|unknown_phone|which_shop|no_plan|too_many|failed, parsed,
+  reply, google none|pushed|failed|not_connected, error; members read body, status, reply, google, time),
+  `business_profile_connections` (encrypted access/refresh token, status, `locations/<id>`, title, last error / push;
+  members read everything but the tokens), `business_oauth_states` (state hash, verifier, return URL, 10 minutes).
+- `shop_outgoing_messages.kind` + `hours_reply`, `phone_code` (both in the owner quota of update 58); activity actions
+  `hours_phone_verified`, `hours_phone_removed`, `hours_sms_applied`, `business_connected`, `business_disconnected`,
+  `business_location_set`, `business_pushed`.
+- Service role: `hours_phone_start(user, shop, phone)` (member + plan; `crm_phone` with the shop's country; 3/hour/phone,
+  10/day/shop; `{id, phone, code}`, verified rows keep their owner), `hours_sms_receive(phone, body, provider, ref)`,
+  `hours_sms_result`, `hours_sms_apply(shop, user, regular, special, sms)` (merge only the named weekdays; special
+  dates upserted per day; refusals hours / dates / ranges / empty), `hours_sms_claim` / `hours_sms_settle` (codes
+  masked), `hours_special_days`, `business_oauth_begin/take`, `business_save`, `business_token`, `business_refreshed`,
+  `business_failed`, `business_pushed`, `business_set_location`, `business_remove`. Owners: `owner_phone_verify(id,
+  code)` (wrong_code + attempts_left / expired / too_many_attempts), `owner_phone_remove(id)`. `valid_week_hours(jsonb)`.
+- `supabase/functions/hours-sms/index.ts`: `POST /inbound/twilio` (signature with `TWILIO_AUTH_TOKEN` against
+  `<SUPABASE_URL>/functions/v1/hours-sms/inbound/twilio`) and `/inbound/generic` (`INBOUND_SMS_SECRET`) →
+  `handleSms`: receive → Claude (`claudeParser`, `PARSE_SCHEMA`, input: today + weekday in the shop's zone, shop
+  names, current week, the SMS) → shop choice → `checkParsed` → `hours_sms_apply` → `/api/revalidate` → `pushToGoogle`
+  (`googleRegular` / `googleSpecial`) → reply (`describeChange`, `replyText` sk/hu/en) through the SMS providers block →
+  `hours_sms_result`. Owner actions with the caller's login: `config`, `phone_start`, `google_connect` (PKCE,
+  `business.manage`, return only to `…/dashboard/hours-sms`), `google_locations` (Account Management `accounts` →
+  Business Information `locations?readMask=name,title,storefrontAddress`), `google_select`, `google_push` (the saved
+  week via `my_shops`), `google_disconnect` (revoke + delete); `GET /oauth`. Tests in `index_test.ts` (signatures,
+  unknown/duplicate, apply path with the Google body, unclear / not hours / which shop, quota, the rules, overnight
+  periods, codes never returned, OAuth) and `sms_providers_test.ts` (the block identical in three functions).
+- Website: `dashboard/hours-sms/page.tsx` (number + examples, phones with code form, owner SMS usage, Google status /
+  location radio / push / change / disconnect, last 20 SMS) + `actions.ts`; menu `account.hours_sms_page`; link in
+  Môj obchod's "Sviatky" section. Texts `hours_sms`.
+- DB tests (block "update 60"): week hours (past midnight fine); a code only for members, a bad phone, ≤ 3 codes an
+  hour; wrong code with attempts left, verified + logged, the hash never readable; another owner sees, verifies,
+  removes nothing and no owner applies hours directly; an unknown number keeps no text; a repeated ref; ≥ 10 an hour →
+  too_many; apply merges only the named days, bad hours / a past day / 90 days / nothing refused, special days per
+  day; the code masked, settled once, the owner quota; the Google location format, tokens and `business_token`
+  hidden from owners; a removed phone is unknown again.
+- Not verified here: the Google Business Profile endpoints (written from Google's published API shape; the project
+  needs the Business Profile API access approved) and a real Twilio number.
+
+## Update 61 — the owner's MCP server: AI assistants work for the shop owner (CRM phase 7, 31 October 2026)
+
+`supabase/sql/61_owner_mcp.sql` (one file, safe to run again; needs 55–60):
+- Tables (RLS on, no grants; functions only): `owner_mcp_clients` (DCR: client_id `cmc_…`, name, redirect_uris, caller
+  hash), `owner_mcp_codes` (code hash, client, user, shops, scopes, redirect, S256 challenge, resource, 10 min, used,
+  token_id), `owner_mcp_tokens` (kind oauth|personal, user, client, name, shop_ids, scopes, access hash + expiry, refresh
+  hash + previous hash + expiry, rate window, last used, revoked), `owner_mcp_pending` (preview_message: grant, shop,
+  args, hash of the rendered draft, 10 min, used).
+- Helpers (no grants): `mcp_hash` (SHA-256, prefix), `mcp_random` (two v4 UUIDs), `mcp_s256`, `mcp_scopes_ok`,
+  `mcp_redirect_ok` (https of a real host or http://localhost/127.0.0.1/[::1]; no fragment), `mcp_act_as(user)` (sets
+  `request.jwt.claim.sub`, `.role` and `request.jwt.claims` for the rest of the request), `mcp_grant` (token checked,
+  ≤ 120/min), `mcp_shop` / `mcp_own` (shop in the grant, member, plan), `mcp_tool_scope`, `mcp_hours_of`,
+  `mcp_set_hours`, argument readers.
+- OAuth (anon): `owner_mcp_register(name, uris, caller)` (10/caller/hour), `owner_mcp_client`, `owner_mcp_token(grant,
+  code, verifier, client, redirect, refresh)` (code once — reuse returns `{"error":"invalid_grant"}` and revokes; refresh
+  rotates — an old one returns invalid_grant and revokes), `owner_mcp_revoke`. Owner (authenticated):
+  `owner_mcp_shops()`, `owner_mcp_authorize(client, redirect, challenge, scopes, shops, resource)` → code,
+  `owner_mcp_create_key`, `owner_mcp_grants()`, `owner_mcp_disconnect(id)`. The door (anon): `owner_mcp_whoami(token)`,
+  `owner_mcp_call(token, tool, args)`; service role: `owner_mcp_message_queue(token, confirmation)`.
+- Activity actions: `mcp_connected`, `mcp_disconnected`, `mcp_key_created`, `mcp_message_queued`, `hours_changed`,
+  `shop_details_changed`, `stock_edited`.
+- crm-messages: header `x-ppi-mcp` + `{action: "mcp_send", confirmation_id}` → `owner_mcp_message_queue` → `deliver()`
+  (the same provider / Brevo code as "send") → `crm_message_result`; refusals passed on (`MCP_REASONS`).
+- Website: `/mcp/owner` (Streamable HTTP, stateless, JSON; Bearer → `owner_mcp_whoami` → 401 + `WWW-Authenticate`
+  resource_metadata; tools registered per scope with read-only / destructive hints; send_message → crm-messages),
+  `/.well-known/oauth-protected-resource` (+ `/mcp/owner`), `/.well-known/oauth-authorization-server`,
+  `/api/oauth/register` (RFC 7591, public clients), `/api/oauth/authorize` (checks the request and the registered
+  redirect, never redirects to an unknown one, → `/[lang]/oauth/authorize` in the `ppi_lang` language),
+  `/api/oauth/token` (form or JSON), `/api/oauth/revoke`; consent page + `approveMcp` / `denyMcp` (redirect with code,
+  state, iss); `dashboard/ai` + `createMcpKey` (useActionState, key shown once) / `disconnectMcp`; login keeps `next`
+  (`safeNextPath`). No secret in the web app: every decision is in SQL.
+- DB tests (block "update 61"): S256 vector, redirect and scope rules; registration (bad redirect refused, anon cannot
+  read clients); consent (other redirect, no read scope, another owner's shop, bad challenge refused); token endpoint
+  (wrong verifier, other client, code twice → revoked, refresh rotation, old refresh → revoked, unknown grant type);
+  tools as the owner (shops, details, another shop refused, unknown tool, hours merged / bad hours refused, contact
+  saved and patched, list/get, another shop's contact not found); preview → queue once (anon refused, read-only grant
+  refused, a changed contact → preview_changed, nothing written); stock (warning first, then quantity and price only —
+  currency and freshness kept; negative price and read-only grant refused); details (address refused, the rest kept);
+  delete with confirm; search, conversations, bookings; activity as the owner; 120/min; personal keys, the list, owner B
+  sees and disconnects nothing, a disconnected key stops, revoke by refresh token; no plan → no_plan; everything tidied.
+- Also checked: the MCP route against the database through a stand-in for Supabase's REST API (initialize, tools/list
+  per scope, list_shops, set_opening_hours, input validation, save_contact, preview_message with a variable,
+  search_stock, update_stock warning, another shop refused, unknown key → 401). Not tried with the real Claude,
+  ChatGPT, Gemini or Grok apps yet.

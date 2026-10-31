@@ -222,6 +222,13 @@ Deno.test("Rich Results checks pass for a product page on the own domain, fresh 
   assertEquals(store.email, "obchod@example.invalid", "the shop's e-mail");
   const withFacebook = storeJsonLd({ ...SHOP, facebook_url: "https://www.facebook.com/potravinycentrum" }, "sk", "potraviny.sk", input, "https://ppi.example") as Record<string, unknown>;
   assert((withFacebook.sameAs as string[]).includes("https://www.facebook.com/potravinycentrum"), "sameAs: its Facebook page");
+  // The company under the address (update 48): postal code, registered name and tax number; nothing when not given.
+  const withCompany = storeJsonLd({ ...SHOP, zip: "040 01", company_name: "Potraviny s.r.o.", dic: "2020123456" }, "sk", "potraviny.sk", input, "https://ppi.example") as Record<string, unknown>;
+  assertEquals((withCompany.address as Record<string, unknown>).postalCode, "040 01");
+  assertEquals(withCompany.legalName, "Potraviny s.r.o.");
+  assertEquals(withCompany.taxID, "2020123456");
+  assertEquals(richResultsProblems([withCompany]), []);
+  assert(!("legalName" in store) && !("taxID" in store) && !("postalCode" in (store.address as Record<string, unknown>)), "nothing invented");
   const special = storeJsonLd(SHOP, "sk", "potraviny.sk", {
     ...input,
     days: [{ date: "2026-10-16", special: { closed: true, ranges: [], note: null }, holiday: null }],

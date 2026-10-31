@@ -29,9 +29,12 @@ Setup steps for humans are in `SETUP.md`.
   Add a check to `supabase/tests/database_test.sql` for every rule you add.
 - **Europe-wide, no home town.** Never hard-code a city, country, currency or time zone.
   **No location services**: the website never asks for or guesses the visitor's location (no device location,
-  no IP lookup). Search is text only — item name (original or its sk/hu/en translation), brand, EAN, shop name, street
-  or town — across all shops; every word must match (`matches_all_words`, `item_names_text` + trigram index).
-- Show the item name as the shop wrote it, plus `translatedName()` (`@/lib/names`) in the page language under it.
+  no IP lookup). Search is text only — item name (original or any translation), brand, category, code, EAN, shop name,
+  street or town — and **forgiving since update 54** (below): exact hits first (code/EAN, then every word), then close
+  ones (any order, typos, stems, sizes, generic words weighted less), never decided outside SQL.
+- Item names (at the owner's request, 2026-10-27): the name **in the page language first** (dark), the name as the shop
+  wrote it **under it** (light) — `itemNames()` (`@/lib/names`) on the shop's list, the product page, the search results
+  and the chat cards; without a translation only the shop's name. The shop's text itself is never changed.
 - Times stored in UTC, shown in the **shop's** time zone (`shops.timezone`) via `@/lib/format`.
   Prices via `formatPrice(value, locale, currency)` with the item's own currency.
 - All visible text comes from `src/i18n/messages/{sk,hu,en}.json`; add every new key to all three (Slovak is the source;
@@ -44,16 +47,31 @@ Plain white background, black text, thin light-grey lines (`border-line`, `text-
 on the website (at the owner's request, 2026-10-20): `src/app/fonts.ts` (`next/font/google`, latin + latin-ext,
 self-hosted at build — no browser request to Google), its variable on `<html>` in both root layouts, used by `body`,
 `--font-sans` and MapLibre's map/tooltips in `globals.css` (with its own width-matched fallback faces Arial / Liberation
-Sans / Roboto, `adjustFontFallback: false`: no line re-wraps when Quicksand arrives); code-like values (DNS records, keys) keep `font-mono`. The
+Sans / Roboto, `adjustFontFallback: false`: no line re-wraps when Quicksand arrives); code-like values (DNS records, keys) keep `font-mono`. **Blog pages (2026-10-27, at the owner's request):** the
+article text is **Lora Regular** 17–19 px (`lora` in `fonts.ts`, only on the blog list/post, `.ppi-blog-body`), headings
+Quicksand Bold 36–48 (`.ppi-blog-h1`) / Semibold 24–30 (`.ppi-blog-h2`), navigation and buttons Quicksand Medium
+14–16 (`.ppi-blog-nav`), captions Medium 13–14 (`.ppi-blog-caption`) — globals.css, sizes grow with the screen. The
 conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 **No colours** (only exceptions, at the owner's request: the Cacaduu PPI logo in the header, `public/brand/cacaduu-ppi.svg`
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
-the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
-the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
+the **stock dot before every price** (`@/components/StockDot`, `@/lib/stockDot`: a solid fill with a darker ring of the
+same hue — green #22C55E / #15803D in stock, red #EF4444 / #B91C1C sold out, yellow #F5B70A / #B7860B no
+information/stale; 2026-10-27, colours 2026-10-29). **The stock sentence ("12 ks na sklade", "Vypredané", "Informácia o
+zásobe momentálne nie je dostupná") only on the product page** (at the owner's request, 2026-10-29): every listing —
+the shop page's products and its Zoznam, the main page's plain results and chat cards, the product page's other shops,
+the shop assistant's cards and its copied list — shows only the dot, whose `label` gives screen readers the status
+("na sklade" / "vypredané" / "zásoba neznáma", `stock.dot_*`; `STOCK_WORDS`); in listings `StockLine listing` shows
+only how fresh the data are and nothing for stale data. The API/MCP `availability_text` and the AI's tool data keep it.
+The **shop page's "Produkty / Zoznam"** colours (below), the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
+the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), the blue "GDPR" link of the shop assistant (`AssistantHeading`), the **contact buttons' colours** and their orange
+check (`CONTACT_COLORS` in `@/lib/contactButtons`, `@/components/CheckLoop`; pale backgrounds, no shadows; 2026-10-28),
+and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap "positron", no API key), pins in the status colour
-with the status in words in each pin's tooltip (no legend under the map, at the owner's request); always an extra — every page must work and show its data without it.
+with the status in words in each pin's tooltip (no legend under the map, at the owner's request; the map data's credit
+OpenMapTiles/OpenStreetMap — required by their licences, never removed — stays closed behind MapLibre's small "i"
+button, the text only after a tap, 2026-10-27); always an extra — every page must work and show its data without it.
 
 ## Commands
 
@@ -72,6 +90,21 @@ with the status in words in each pin's tooltip (no legend under the map, at the 
 - `npm run test:i18n` — unit tests (Deno) of the languages (update 40): the list, the browser's language, the picker's
   search and links, the fallback of interface texts, the same keys and placeholders in sk/hu/en
 - `npm run test:strings` — fails on a visible text written into a `.tsx` file instead of the message files
+- `npm run test:export` — unit tests (Deno) of the translations folder's files (`src/lib/exportFiles_test.ts`): the
+  built-in .xlsx writer/reader (also files as Excel saves them), the files' columns, the owner's edits read back
+  (empty cells, read-only columns, unknown rows, Kód then EAN)
+- `npm run test:conversations` — unit tests (Deno) of the owner's conversation exports (`src/lib/conversationExport_test.ts`):
+  times in the shop's time zone, CSV cells (quotes, ";", new lines, formulas written as text), BOM + CRLF, TXT lines
+- `npm run test:crm` — unit tests (Deno) of "Kontakty" (`src/lib/crm_test.ts`): SMS parts (GSM-7 160/153, Unicode
+  70/67), tags from one field, refusals as texts
+- `npm run test:list` — unit tests (Deno) of the shop page's Zoznam (`src/lib/shoppingList_test.ts`): add / set / remove,
+  "9+", totals in cents per currency, Slovak plurals, the copied text, broken stored lists, blocked storage
+- `npm run test:search` — unit tests (Deno) of the forgiving search's word rules (`src/lib/searchWords_test.ts`): the
+  same stems as `search_stem()`, accents, typo and prefix marks for highlighting
+- `npm run test:mcp` — unit tests (Deno) of the owner MCP's shared rules (`src/lib/ownerMcpRules_test.ts`): scopes, the
+  OAuth metadata, the 401 header, bearer tokens, the authorization request, the error texts for the AI
+- `npm run test:connector` — the POS agent contract (`src/lib/connectorContract_test.ts`): the OpenAPI file has exactly
+  the connector function's routes, the written contract names every path, the client calls every path
 - `npm run test:items` — unit tests (Deno) of Môj obchod's "Tovar" list (`src/lib/ownerItems_test.ts`): each state of
   "Čo vidí zákazník" (stale → hidden with the reason, sold out, in stock), the filters and the last file's status line
   (also "Žiadny nahraný súbor" after the files were deleted), and the inventory reset's helpers (update 43)
@@ -94,7 +127,7 @@ and the MCP server (`/mcp`, stateless Streamable HTTP, tools `search_stock`, `ge
 anon client without cookies (`@/lib/supabase/public`), every result carries `source_url`, the database
 decides availability/quantity. Every API/MCP request goes through `rateLimit` (`api_hit`: 60/min, daily-salted
 IP hash). Items carry `name`, `name_translated` (in `lang`) and `name_lang`. `robots.ts`, `sitemap.ts` and
-`llms.txt` live at the app root.
+`llms.txt` live at the app root. The shop owner's own MCP server is a different one: `/mcp/owner` (update 61, below).
 
 ## AI search (the main page is one chat, Prompt 10)
 
@@ -160,6 +193,60 @@ unpacked) into 4 MB parts in private `partner-feeds` (`imports/<import>/`), over
 real host only, forwards checked, never logged. Admin uploads go browser → storage (policy: admin + name pattern).
 Admin texts `admin_partners`.
 
+## Forgiving product search (update 54)
+
+`supabase/sql/54_forgiving_search.sql` + `@/lib/searchWords` (the stem rule mirrored for highlighting only;
+`searchWords_test.ts`, `npm run test:search`) + `@/components/ShopProducts` (the shop page's live search, below) + `/api/shops/[slug]/search` + `@/lib/data`
+`searchShopItems()`. **One rule in SQL for every place that searches:** `shop_item_search(slug, q, limit, offset)` (one
+shop: "Produkty" on the shop page, the assistant's `search_items`; `shop_stock` with words returns its rows) and
+`item_search(q, lat, lng, radius, only_available, limit)` (all shops: `search_stock` with words returns its rows → page,
+API, MCP, the chat's tool and the plain fallback; `search_stock(null, …)` = the old nearby list, `search_stock_exact`
+not callable by visitors). Per word: same word 1, beginning 0.85, typo 0.6 (trigram finds, edit distance decides);
+`search_stem()` (endings cut, c/k y/i w/v ph/f alike), `search_sizes()` ("0,5 l" = "500 ml"; same size +, never
+excludes), `search_generic()` (farba/paint/festék… weigh ⅓, no typo check in the fast pass); every specific word must
+hit (one may miss of 3+): "white chocolate" never finds a white paint. `kind` exact (code/EAN +100, every word +10) /
+match / similar (nothing matched: closest names, "Nenašli sme presnú zhodu – podobné produkty:"). Across shops the
+shop's words (`shops.search_stems`) count, so "farba v Budinciach" = only Budince; a typed town is never a location.
+Order: score, then in stock + current, freshness, distance only with a point, name — **never a plan or payment**.
+Stored columns `shop_items.search_stems` / `search_sizes` (+ trigram/GIN index), `shops.search_words` / `search_stems`
+are dropped and made again on every run of the file. Speed: < 150 ms for a 5 000-item shop, < 300 ms for 100 000 items
+(cheap pass without typos over ≤ 3 000 candidates, full check on the best 600, precise re-score on the top 100,
+`public_stock` last by id). Claude's words (`query_expansion()`) only when fewer than 3 rows (`FEW_RESULTS`) or nothing
+matched in a shop (4+ letters). The shop page's search filters the rows live (below; `rateLimit` 120/min per caller);
+without JavaScript the plain GET form `?q=#items`. e2e `e2e/shop-search.spec.ts`.
+
+## Shop page "Produkty / Zoznam" (2026-10-29, at the owner's request)
+
+`@/components/ShopProducts` (first load) + `@/components/ShopList` (the Zoznam tab, loaded when opened or after the
+first add) + `@/lib/shopProductsEngine` (the list's store, the movements and the live search, loaded right after the
+page appears) + `@/lib/shoppingList` (rules + store, `shoppingList_test.ts`, `npm run test:list`) + `@/lib/listMotion` +
+`@/lib/shopRows` (rows written on the server: names, price, dot state, search marks) + `.ppi-list*` in globals.css.
+Replaces "Tovar v obchode" (heading kept for screen readers; the "Zásoby: …" line about the whole file stays above).
+**Tabs** "Produkty" / "Zoznam" = real radio inputs, visually hidden (`sr-only`); #EEF1F5 box, active white, bold,
+#1D4ED8, soft shadow, scale 0.95 → 1.05 → 1 on change; the Zoznam counter (pieces, "99+") on the icon's corner, the
+icon keeps room for it (never over the label); switching tabs never moves the page and is never endless: below the tabs
+there is exactly one screen of room (`calc(100lvh - …)`, measured before the switch) — scrolled to the end, the tabs
+touch the top of the screen on a phone, a notebook or a PC; without JavaScript the tabs are hidden (`<noscript>` style) and only
+Produkty shows. **Produkty:** "Hľadať v tomto obchode" with one border (on the wrapper; the input reset, 16 px so
+iPhone does not zoom) filters live through `/api/shops/[slug]/search` (200 ms, only the newest answer, `replaceState`
+`?q=`, the rows keep their height while searching), marks #FEF3C7 (cut on the server), × and Esc clear, "Nájdené: N
+produktov" (Intl plurals: 1 produkt, 2–4 produkty, 5+ produktov), "Pre „…“ sme nič nenašli" (+ the similar note).
+Row: name 15 px / 500 (link to the product; the shop's own name under a translation), the dot as a **reset button**
+(32 × 32, 20 px circle, `aria-label` "Pridať do zoznamu: <name>, <status>"), the price as in the file; **no stock
+sentence**. A tap adds one piece: a 12 px #2563EB ball arcs to the Zoznam icon (~820 ms, one bounce), the icon wiggles,
+the counters pop (18 px #2563EB, white 10 px bold, 1.5 px white ring, "9+" on the dot). **Zoznam:** name, quantity ×
+price, stepper − / qty / + (minus #EA580C on #FFF1E6, a bin at 1); swipe left or right (pointer events, `touch-action:
+pan-y`, never from a button; past 35 % solid #F97316 with white bins, before #FFEDD5) → slides out and closes, shorter
+springs back; removal: a #F97316 ball from the icon to the row, the icon shakes, the counter dips with an orange flash,
+hidden at 0; "Spolu" per currency; "Zoznam je prázdny". **"Kopírovať zoznam"** (48 px, #EFF5FF / #BFD5FB / #1D4ED8):
+"Nákupný zoznam – <shop>", its address (never shown in this section), "2× <name> – 19,80 €" (the shop's own name in
+brackets after a translation), "Spolu: …"; `navigator.clipboard` → `execCommand` → the text selected in a read-only
+box; success = solid blue, drawn check, "Skopírované" 2.2 s. **State:** localStorage `ppi.list.<shop id>` (try/catch:
+blocked storage keeps the list for the visit), names and prices as shown when added; never sent anywhere; no shop data
+changed. `aria-live` announcements (`shop.said_*`); `prefers-reduced-motion`: no balls or bounces, instant counters.
+First-load JS: the shop page stays < 150 kB (its status line is `ShopStatusLine` → `LiveStatusLazy`: the hours rule
+loads after the page appears). e2e `e2e/shop-list.spec.ts` (Pixel 7 + an iPhone-sized project).
+
 ## Paid plan (Stripe)
 
 One monthly subscription per shop; test mode first. `public.subscriptions` (one row per shop, owners read their own) is
@@ -178,7 +265,7 @@ plan still renews cannot be deleted (`owner_delete_shop`).
 Shop page only, only when `shop_has_plan(shop)` is true and `ANTHROPIC_API_KEY` is set: `@/components/ShopChat`
 (always open since update 27; the page stays server-rendered without it) → `POST /api/shops/[slug]/chat` → `@/lib/shopChat` (Claude
 `AI_MODEL`, default Haiku `claude-haiku-5-5`; strict tools bound to that shop on the server: `search_items` →
-`shop_stock`, `get_item` → `public_stock` filtered by the shop, and `search_shop_docs` when the shop has documents;
+`shop_item_search` (update 54; each row's match exact/close/similar), `get_item` → `public_stock` filtered by the shop, and `search_shop_docs` when the shop has documents;
 never other shops; structured answer: answer, item_refs, shopping_list, photo read/match, sources, pictures,
 document_prices, call_shop). Cards, the list, sources and pictures only from tool results; a document price only if
 the excerpt contains it; availability from the database. Every message passes
@@ -220,7 +307,8 @@ conversation's token (kept as SHA-256): real type by content (JPEG/PNG/WebP/HEIC
 (their JWT + RLS) get 10-minute links and delete. Ends after 30 minutes idle (pg_cron tick every 5 minutes, Vault
 `ppi_project_url` + `ppi_assistant_cron`) or when the shopper closes the box / starts a new one / leaves the page;
 then one PDF (pdf-lib + DejaVu Sans subset in the file: `<YYYY-MM-DD>_<HH-MM>_<short id>.pdf`, footer "Vytvorené
-Cacaduu PPI · konverzácia <id> · strana X/Y"). Keep time 30/90/365 days (default 90), daily job. "Konverzácie asistenta"
+Cacaduu PPI · konverzácia <id> · strana X/Y"). Keep time "Neobmedzene" (null, the default since update 55) or
+30/90/365 days; the nightly job deletes only for shops that chose a limit. "Konverzácie asistenta"
 (dashboard `Conversations.tsx`, page `dashboard/conversations/[id]`): read, delete and, since 2026-10-14, **"Stiahnuť
 PDF"** (finished conversations only; `owner_pdfs` in the function, RLS decides; `/api/owner/conversations/[id]/pdf`) and
 ticks + "Stiahnuť vybrané" (`ConversationDownloadBar`, each conversation its own PDF, no ZIP); the PDF shows the
@@ -230,6 +318,165 @@ other shops' data into conversations, PDFs or exports. "Konverzácie do počíta
 request): the shop PC's `/sync` window saves each finished conversation's PDF into a folder it picked
 (`@/components/ConversationFolderSync`, File System Access `readwrite`, every 5 min, `<YYYY-MM>/<pdf_name>`, never
 replaces or deletes a file, state only in that browser); the cloud folder (below) stays a push from our server.
+
+## "Konverzácie" (paid, update 55, CRM phase 1)
+
+`supabase/sql/55_conversations.sql` + `dashboard/Conversations.tsx` / `conversationActions.ts` / `conversations/[id]` +
+`@/lib/conversationExport` + `/api/owner/conversations/[id]/txt` and `/export`. The Asistent page is **three tabs**
+(plain links from `?at=`: assistant · conversations (+ cloud) · docs; the "Konverzácie" tab shows the number of new
+ones, `owner_conversations_new()`); only the open tab loads its data; old addresses keep working (`dashboardPages`).
+Every conversation: `status` new|read|archived (a new message → new; opening → read via
+`owner_conversations_mark(…, 'read', p_log => false)`), `starred`, `owner_note` (private, ≤ 2000), `unanswered`
+(the assistant's `call_shop`), `access_key_used` (a non-public document in the exchange), `item_ids` (cards' `item_id`,
+only this shop's items), `search_doc` (never granted to owners). **Only the owner_* functions read the list and write**
+(`owner_conversations` with filters q/days/status/star/no answer/files/language, `_mark`, `_note`, `_log`, `_export`);
+deletions stay in assistant-archive `owner_delete` and are logged with `owner_conversations_log`. Every owner action
+goes to `shop_activity` (`conversation_retention`, `conversations_marked`, `conversation_note`, `conversations_deleted`,
+`conversations_exported`). Exports: PDF (as before), TXT per conversation, CSV per date range (BOM, ";", formula
+guard, ≤ 50 000 rows, shop's time zone). Before update 55 the list falls back to `owner_assistant_conversations`.
+
+## "Kontakty" (paid, update 56, CRM phase 2)
+
+`supabase/sql/56_contacts.sql` + `supabase/functions/crm-messages` (one file, Verify JWT off) + `dashboard/contacts`
+(`page.tsx` list + "E-mailové šablóny", `[id]/page.tsx` tabs Prehľad · Konverzácie · Rezervácie · Správy, `actions.ts`,
+`parts.tsx`) + `@/components/MessageComposer` + `@/lib/crm` (`crm_test.ts`). `shop_contacts` (name, `phone` **E.164 only,
+one per shop and number** — `crm_phone(raw, shops.country)`: "00"/"+" international, trunk 0 (HU "06"; IT/SM/VA keep the
+0) + `crm_calling_code()`; `phone_verified_at` **set only by the system** (the booking's SMS code, phase 3), a changed
+number loses it; email, address, tags ≤ 20, note, source owner|chat|booking). Conversations join a contact **by the
+phone** (`assistant_conversations.shopper_phone` + `contact_id`, both triggers) or by hand (`owner_link_conversation`).
+`shop_email_templates` (≤ 50 per shop) with `{{name}} {{first_name}} {{shop}} {{shop_phone}} {{shop_email}}
+{{shop_address}} {{shop_web}}` filled only by `crm_render()`. **Every outgoing message is written down first**
+(`shop_outgoing_messages`: recipient, text as sent, status queued|sent|failed|test, who): the page's "Náhľad" =
+`owner_message_preview()` (nothing written), "Odoslať" → crm-messages `send` → `owner_message_queue()` with the owner's
+login (members + `shop_has_plan`, ≤ 100 per channel and shop in 24 h, SMS ≤ 480) → Brevo (sender name = the shop,
+`replyTo` = the shop's e-mail, from `ALERT_EMAIL_FROM`) or the `SmsProvider` (`SMS_PROVIDER` unset/"test" = written down
+as `test`, never sent; `brevo` / `twilio` since update 58, below) → `crm_message_result()` once (service role).
+Owners read contacts, templates and the log (RLS); every write only through `owner_*` (activity log: `contact_saved`,
+`contact_deleted`, `contact_linked`, `email_template_saved`, `email_template_deleted`, `message_sent`). Without the plan
+reading stays, changes and messages are refused (`no_plan`). Never log numbers, addresses or texts.
+
+## "Rezervácie" (paid, update 57, CRM phase 3)
+
+`supabase/sql/57_bookings.sql` + `supabase/functions/bookings` (one file, Verify JWT off) + `@/lib/bookings` +
+`/api/shops/[slug]/booking` + `@/components/BookingPanel` (in `ShopChat`) + `dashboard/bookings` (`page.tsx` Zoznam ·
+Kalendár · Nastavenia, `actions.ts`). Booking happens **in the shop assistant**: tool `find_slots` only when
+`shop_takes_bookings(slug)` (active, `shop_has_plan`, "Prijímať rezervácie" on — default off); the AI reads the terms
+from the shop's documents first, offers times (`booking_slots` → `reply.booking`, only the tool's own slots, ≤ 8) and
+**never asks for or receives personal data** — the page's own form does (name, mobile, optional e-mail / address /
+note, consent + `CONSENT_VERSION`). **Free times only in SQL** (`booking_day_ranges` / `booking_free_slots`: special day
+> holiday > `opening_hours`, lead, horizon, step, buffer, live bookings) minus the shop's Google freeBusy; **no overlap**
+= the `exclude using gist` constraint on pending + confirmed. SMS code: 6 digits, hash only, 10 minutes, 5 tries, ≤ 3
+sends, 3/phone + 5/caller per hour, 100/shop per day; the SMS log masks it "••••••"; `BOOKING_TEST_CODES=on` shows it in
+the chat only while `SMS_PROVIDER` is test. Right code → `booking_confirm()` at once (**no confirmation SMS**): contact
+by `crm_phone` found or made, `phone_verified_at` (the only place it is set), conversation linked, Google event
+(`calendar.events.owned`, `sendUpdates=none`, no attendees). Google: OAuth PKCE, scopes **only** `calendar.freebusy` +
+`calendar.events.owned`, tokens AES-GCM (`BOOKING_TOKEN_ENCRYPTION_KEY`), owners see only the status; expired →
+bookings go on without it. Reminder the day before (off by default, after 09:00 shop time, no cancel link;
+`ppi-bookings-tick`). Owners: `owner_save_booking_settings`, `owner_bookings`, `owner_set_booking_status` (Potvrdená /
+Zrušená / Neprišiel), activity log. The website reaches the function with `ASSISTANT_ARCHIVE_SECRET` (`x-ppi-website`).
+Never log phones, codes, names or tokens. Texts `chat.booking_*`, `bookings`.
+
+## SMS quotas and the SMS provider (paid, update 58, CRM phase 4)
+
+`supabase/sql/58_sms_quotas.sql` + the **SMS providers block** (identical in `crm-messages/index.ts`,
+`bookings/index.ts` and, since update 60, `hours-sms/index.ts`, between "SMS providers (the same block…" and "end of the
+SMS providers"; `sms_providers_test.ts` fails when the copies differ — edit all three) + `@/lib/smsUsage` + `@/components/SmsUsage` + `admin/domains/SmsAdmin.tsx`.
+**Two monthly quotas per shop, kept apart:** `booking` (kinds booking_code + booking_reminder) and `owner` (kind owner),
+limits only in `sms_quota_limits` (default 100 each; only `admin_save_sms_quotas()`, admin "SMS"). A quota counts **SMS
+parts** (`crm_sms_parts()` = `smsParts()` in `@/lib/crm` = `isGsm()` in the providers: GSM-7 160/153, Unicode 70/67) of
+every SMS in the log except `failed` (queued, sent and test count), in the **shop's calendar month** (`sms_month()`).
+**Nothing is sent over a limit, and every SMS is written down before it leaves:** owner → `owner_message_queue()`
+(`sms_quota_take()`: one advisory lock per shop and quota, raises `sms_quota`, keeps `parts`); booking → the function's
+`booking_sms_claim()` (queued, code masked "••••••", `sms_quota` → the time is released, 429) → send →
+`booking_sms_settle()` once. At the booking limit `shop_takes_bookings()` offers nothing, `booking_resend()` refuses
+(old code kept) and `booking_reminders_due()` waits. Owners see "SMS tento mesiac" (`owner_sms_usage()`, members) on
+Kontakty, the contact's Správy (owner quota) and Rezervácie → Nastavenia (booking quota) + a banner when bookings
+pause. Providers by `SMS_PROVIDER`: unset/`test` (written down, never sent), `brevo` (POST
+`https://api.brevo.com/v3/transactionalSMS/send`, `BREVO_API_KEY`, `type: transactional`, `unicodeEnabled` only for
+non-GSM text, 402 = no credits), `twilio` (`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` or
+`TWILIO_MESSAGING_SERVICE_SID`); `SMS_SENDER` letters/digits ≤ 11 (default "Cacaduu"); a provider without its secrets
+fails every SMS (never pretends). Errors keep only the provider's status/code — **never a number or text in a log**.
+`BOOKING_TEST_CODES` is ignored while a real provider is set. Texts `sms_usage`, `admin_sms`.
+
+## Unanswered questions: the shopper leaves a contact (paid, update 59, CRM phase 5)
+
+`supabase/sql/59_unanswered.sql` + `@/components/CallbackPanel` (in `ShopChat`, after an answer with `askContact` =
+the assistant's `call_shop`) + `/api/shops/[slug]/callback` + crm-messages `alerts` + `dashboard/Callbacks.tsx` /
+`callbackActions.ts` + the conversation page's callback box + the menu badge (`AccountNav` `badge`). **The page's own
+form, never the AI**: phone or e-mail (at least one), optional name, consent (`CALLBACK_CONSENT` in the route). Only
+`shopper_leave_contact()` decides (anon, the conversation's own token, ≤ 24 h old, `shop_has_plan`; 3 per conversation,
+5 per caller an hour, 100 per shop a day; returns only `{ok}`): contact by `crm_phone` else by e-mail else new (source
+chat; fills only empty fields; **never "overené"**), conversation joined (`shopper_phone`, `contact_id`), `unanswered`,
+status new, `callback_*` kept, one row in `shop_owner_alerts`, activity `callback_requested`, `crm_alerts_kick()` (pg_net
+right away when there, else the job `ppi-crm-alerts-tick` every 5 min, Vault `ppi_crm_cron`). crm-messages `alerts`
+(x-ppi-cron → `crm_cron_ok`): `crm_alerts_due()` → one Brevo e-mail per owner of the shop in the owner's
+`profiles.language` (sk / hu / else en) "Nový zákazník, prosím odpovedzte – <shop>" with the unanswered question (Slovak
+when archived) and the link `SITE_URL/<lang>/dashboard/conversations/<id>` — **never the shopper's number or address**
+— → `crm_alert_result()` (once; back-off ≤ 6 h, 10 tries). Owners: `owner_callbacks()` ("Čakajú na odpoveď" on the
+Konverzácie tab), `owner_callbacks_waiting()` (the "Asistent" menu badge), `owner_callback_done()` ("Vybavené" / back,
+logged `callback_done` / `callback_reopened`); a reply = the contact's Správy (SMS / e-mail, phase 2 + 4 rules) — a sent
+or test owner message to that contact marks its waiting conversations answered (`crm_message_result`). Texts
+`chat.callback_*`, `callbacks`, `privacy_assistant.callback*` (#kontakt).
+
+## Opening hours by SMS (paid, update 60, CRM phase 6)
+
+`supabase/sql/60_hours_sms.sql` + `supabase/functions/hours-sms` (one file, Verify JWT off; `index_test.ts`) +
+`dashboard/hours-sms` ("Hodiny cez SMS": `page.tsx`, `actions.ts`; menu after Rezervácie, a link in "Sviatky"). An SMS
+**changes only opening hours** — never prices, stock, messages or anything else. **Only from an owner's verified phone**
+(`shop_owner_phones`, one per shop and number, E.164 by `crm_phone`): the code comes only from the function
+(`hours_phone_start`, service role, the caller's login + member + `shop_has_plan`; 6 digits from `booking_new_code()`,
+hash only, 10 minutes, 5 tries, 3 codes/hour/phone, 10/shop/day; the SMS log masks it) and is typed into
+`owner_phone_verify()`; the website never sees a code (except `BOOKING_TEST_CODES=on` while `SMS_PROVIDER` is test).
+Inbound: Brevo cannot receive SMS, so `POST /hours-sms/inbound/twilio` (`X-Twilio-Signature` = HMAC-SHA1 of the
+webhook address + sorted fields with `TWILIO_AUTH_TOKEN`; TwiML answer) or `/inbound/generic` (`x-ppi-inbound` =
+`INBOUND_SMS_SECRET`, ≥ 32; `{from, text, id?}`); anything unsigned → 403. `hours_sms_receive()` writes every SMS
+down (`hours_sms_messages`; an unknown number keeps no text, only a hash; provider ref once → duplicate; ≤ 10/hour per
+phone) and returns the shops of that verified phone (active, plan, owner still a member) — unknown numbers get **no
+reply**. Claude (`AI_MODEL`, structured output `PARSE_SCHEMA`; the SMS is data) reads intent hours|other|unclear,
+the named shop, the language, the named weekdays and the special dates (resolved in the shop's time zone); the function
+(`checkParsed`) and the database (`hours_sms_apply`: `valid_week_hours` / `valid_hour_ranges`, yesterday … +400 days,
+≤ 62 days a row, ≤ 10 rows) check again; **only the named days change** (regular → `shops.opening_hours`, dates →
+`shop_special_hours`; activity `hours_sms_applied`); the page is refreshed (`/api/revalidate`); Google gets the whole
+week + the coming special days; one reply SMS in sk/hu/en (cs → sk, else sk): "otváracie hodiny … zmenené: Po–Pi 8–17,
+Ne zatvorené." (+ Google line), or "nerozumel som…" / "len otváracie hodiny" / "pre ktorý obchod?" (several shops: the
+SMS names one). Replies and codes take the shop's **owner** SMS quota (`hours_sms_claim` → `sms_quota_take`, kinds
+`hours_reply` / `phone_code`; over it the hours still apply, no reply). **Google Business Profile:** OAuth PKCE, scope
+**only** `business.manage`, redirect `…/functions/v1/hours-sms/oauth`, tokens AES-GCM (`BOOKING_TOKEN_ENCRYPTION_KEY`,
+bound to shop + kind) in `business_profile_connections` (owners: status, location, last error/push only); one
+location per shop (`locations/<id>`); `PATCH {INFO_API}/locations/<id>?updateMask=regularHours,specialHours`
+(overnight closes the next day); "Poslať hodiny do Google teraz" for changes made on the website; 401 → expired;
+"Odpojiť" revokes and deletes. The Business Profile APIs need Google's approval for the project. Never log numbers,
+SMS texts, codes or tokens. Texts `hours_sms`.
+
+## The owner's MCP server (paid, update 61, CRM phase 7)
+
+`supabase/sql/61_owner_mcp.sql` + `src/app/mcp/owner/route.ts` + `@/lib/ownerMcp` (server) / `@/lib/ownerMcpRules` (shared,
+`ownerMcpRules_test.ts`, `npm run test:mcp`) + `/.well-known/oauth-protected-resource[/mcp/owner]`,
+`/.well-known/oauth-authorization-server`, `/api/oauth/{register,authorize,token,revoke}` + the consent page
+`/[lang]/oauth/authorize` + `dashboard/ai` ("AI asistenti": address, how to connect Claude / ChatGPT / Gemini / Grok,
+connected grants with "Odpojiť", personal keys via `@/components/McpKeyForm`) + crm-messages `mcp_send`. **The shopper
+MCP (`/mcp`) is unchanged.** Access: OAuth 2.1 — dynamic client registration (public clients, redirect https or
+http://localhost only, 10/caller/hour), code + PKCE **S256 only**, code once (a second use revokes its grant), access
+1 h, refresh 60 days **rotating** (an old refresh token used again revokes the grant), RFC 9728/8414 metadata, 401 with
+`WWW-Authenticate: Bearer resource_metadata=…` — or a **personal key** (`cmk_…`, 1 year, ≤ 10) for clients that only take
+a bearer header. Tokens are random, returned once, kept as SHA-256 only; tables `owner_mcp_clients/_codes/_tokens/_pending`
+have no grants (functions only). Scopes `shop.read` (always) · `shop.write` · `messages.send`, shops ticked on the consent
+page — **Pro shops only**. **One door:** `owner_mcp_call(token, tool, args)` (anon may call it; the website holds no
+secret): token → scope of the tool → the shop (in the grant, the owner still a member, `shop_has_plan`) → 120 calls/min
+per grant → `mcp_act_as()` sets the request's JWT claims to the owner so **every owner_* function and its checks run as on
+the website** → result `{shop, result, changed}` (changed → `refreshShop`). `owner_mcp_whoami(token)` = the route's first
+check (tools listed only for the grant's scopes). Tools: list_shops, get_shop_details, get_opening_hours,
+list_conversations, get_conversation, list_contacts, get_contact, list_bookings, list_email_templates, get_sms_usage,
+search_stock · update_conversations, save_contact (only the given fields change), delete_contact (confirm),
+set_booking_status, set_opening_hours (`mcp_set_hours`: only the named days, the 60's rules, activity `hours_changed`),
+update_shop_details (name, phone, e-mail, website, Facebook, booking link only → `owner_save_shop` with the rest as is),
+update_stock (one item: quantity/price, **never the currency or the freshness**; without `confirm` only before/after and
+the warning that the next stock file / POS agent / inventory program overwrites it; activity `stock_edited`) ·
+preview_message (exactly what would go + a confirmation id, 10 min, `owner_mcp_pending`) → send_message (crm-messages
+with `x-ppi-mcp` → `owner_mcp_message_queue()`: same grant, once, refused `preview_changed` when the rendered message
+differs, then `owner_message_queue` as the owner — quota, 100/day, log). Every write is in `shop_activity` as the owner
+(`mcp_connected`, `mcp_disconnected`, `mcp_key_created`, `mcp_message_queued`, `hours_changed`,
+`shop_details_changed`, `stock_edited` + the owner_* functions' own). The consent page is never framed (`next.config.ts` headers). Texts `owner_mcp`; login keeps a safe `next`.
 
 ## Cloud folder (paid, update 23)
 
@@ -330,26 +577,42 @@ PPI's sitemap leaves those pages out.
   `getOtherOffers`). Only SQL decides: `shop_stands_alone(shop)` (`shopStandsAlone()`; before update 26 it falls back
   to `shop_has_plan`). Free shops and the main search keep it. The shop assistant never names other shops.
 - Shop e-mail and Facebook page (`shops.email`, `facebook_url`; validated in `owner_save_shop()` and by checks:
-  facebook.com / fb.com only) next to the website on the shop page (`@/components/ContactLinks`, mailto; Facebook in a
-  new tab, `rel="noopener"`), in the JSON-LD (`email`, `sameAs`) and in the API's shop.
+  facebook.com / fb.com only) as contact buttons on the shop page (update 51, below: mailto; Facebook in a
+  new tab, `noopener`), in the JSON-LD (`email`, `sameAs`) and in the API's shop.
 - Booking link, every shop (`supabase/sql/26_booking_link.sql`, `shops.booking_url`: https of a real host, ≤ 500;
   `clean_contact('booking', …)` in `owner_save_shop()`, error `booking`; kept when the form does not send it): the shop
-  page's "Rezervovať termín" link in the contact row, same style as e-mail/Facebook (`@/components/ContactLinks`,
-  calendar icon, new tab, `rel="noopener"`), JSON-LD `potentialAction` `ReserveAction`, the API/MCP shop (`booking_url`), llms.txt, and one line
+  page's "Rezervovať termín" contact button (update 51, new tab, `noopener`), JSON-LD `potentialAction` `ReserveAction`, the API/MCP shop (`booking_url`), llms.txt, and one line
   in the shop assistant's prompt (points to that link; never promises a time). PPI only links; nothing is booked here.
   Reads of `public_shops` fall back without `booking_url` on 42703 (`@/lib/missingColumn`).
 - Assistant button label (≤ 40) and welcome text (≤ 300), paid plan: `owner_set_assistant_texts()`; the database keeps
   plain text only (`plain_text()`: no HTML, links or e-mail addresses); empty = NULL = the i18n default (`chat.title`,
-  `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`).
-- Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Priečinok s exportom ·
+  `chat.intro`) in the page language; shown as written (`ShopChat` `buttonLabel` / `welcome`). **Update 46
+  (`supabase/sql/46_assistant_texts.sql`):** both are a preset of every translation run (`preset_translation_kind()`):
+  kept in every pre-translated language (`languages.indexed`), the shop's preferred and asked-for languages **and the
+  shop's own language** (the owner may write them in any language; source_lang `auto` → the translate function lets
+  Claude see the language); the page shows them like its own texts (`PRESET_KINDS` in `@/lib/contentTranslations`, no
+  "Preložené automaticky" note). The small print (what is stored for the shop + "Viac", file limits, "Odpovede píše
+  AI") sits behind the blue "GDPR" link in the assistant heading's right corner (`@/components/AssistantHeading`,
+  `<details>`, closed by default).
+- The shop's company in Môj obchod's details (update 47, `supabase/sql/47_shop_company.sql`, at the owner's request):
+  under the street the PSČ, then "Obchodné meno firmy", IČO (`shops.ico`, as before) and DIČ — no IČ DPH. PSČ, company
+  name and DIČ live in `shop_company` (RLS: members read; no grants to visitors — anon reads every column of `shops`, so
+  never put owner-only data there), written only by `owner_save_company()` (plain text, empty clears, bad DIČ/PSČ →
+  `dic`/`zip`), read through `my_shops()`. **Shown on the shop page since update 48** (`supabase/sql/48_shop_company_public.sql`,
+  at the owner's request): visitors read only `shop_company_details(slug)` (active shops; company name, IČO, DIČ, PSČ;
+  never the table) → `shopCompany()`; the address line "Ulica, PSČ Mesto" and under it "Firma · IČO … · DIČ …"
+  (`data-shop-company`, Cacaduu address and own domain); JSON-LD `postalCode`, `legalName`, `taxID` (DIČ). Not in the
+  API/MCP or the assistant.
+- Môj obchod is five pages (menu: Môj obchod · Obsah stránky · Novinky / Blog · Asistent · Kontakty (update 56) · Priečinok s exportom ·
   Predplatné a doména · Heslo; the menu keeps `?shop=`): `/dashboard` (details, logo, header logo, plan,
   delete), `/dashboard/content` "Obsah stránky" (update 38, below), `/dashboard/blog`, `/dashboard/assistant`
-  "Asistent" (update 38: **three sections, each once, in this order** — "Nastavenia asistenta", "Konverzácie asistenta"
-  with the cloud folder as its part `#cloud`, "Súkromné priečinky" = `ShopDocuments` (documents, folders, access keys,
+  "Asistent" (update 38: **three sections, each once, in this order** — since update 55 **three tabs** — "Nastavenia
+  asistenta", "Konverzácie asistenta" with the cloud folder as its part `#cloud`, "Súkromné priečinky" = `ShopDocuments` (documents, folders, access keys,
   "Len zobraziť" / "Zobraziť a stiahnuť"); "Posledné nahrané súbory" = `@/components/RecentImports` moved to `/sync` in
   update 43; a free shop sees
   `ProOnly` "Dostupné v Pro" where it has nothing yet, what it has stays reachable) and `/sync` "Priečinok s exportom"
-  (export folder + `FolderSync`, "Posledné nahrané súbory", conversations to the PC, "Nebezpečná zóna – sklad"). **Which page holds a section: only `@/lib/dashboardPages`**
+  (export folder + `FolderSync`, update 45's "Po nahratí súboru" and "Preklady v priečinku", "Posledné nahrané súbory",
+  conversations to the PC, "Nebezpečná zóna – sklad"). **Which page holds a section: only `@/lib/dashboardPages`**
   (`sectionUrl(lang, at, query)` for every form's way back; `movedFrom()` / `forwardUrl()` forward old addresses with
   their query, old names merged: `private` → `docs`, `sections` → `content`; `/dashboard/sections/[id]` → the library).
   Never put a section on two pages. Shared messages/switcher/form parts: `dashboard/shared.tsx`. Sections are
@@ -357,6 +620,22 @@ PPI's sitemap leaves those pages out.
   in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). `RecentImports`: the last 10 `stock_imports` rows as
   cards; a tap opens the quick view (a `<dialog>` slideshow of the full reports, "Súbor n z 10", Novší/Starší, ← → keys,
   swipe, Esc).
+
+## Contact buttons on the shop page (update 51)
+
+`supabase/sql/51_contact_buttons.sql` + `@/lib/contactButtons` (order, colours, links, widths; `contactButtons_test.ts`
+in `npm run test:site`) + `@/components/ContactButtons` / `CheckLoop` + `.ppi-cb*` in globals.css. Under the amenities
+("Bidetová sprška" — the column stays `has_douchette`), two columns (gap 12 px): Facebook · Rezervovať termín / Web ·
+e-mail / Navigovať · phone; an empty link or value hides its button. **Press and hold 1.2 s** (real `<button>`s,
+pointer or Space/Enter): a tap does nothing, early release / sliding off / blur cancels; done → the action (new tab,
+`mailto:`, `tel:`; **a finger hold loads the link in the same tab at completion** — a new tab is a pop-up that phones allow only inside a gesture, and a long press has none; touchstart is `preventDefault`ed, so no phone long-press menu; `pageshow` from the back-forward cache resets the button), "Otvorené"-style label with the
+check, back after 2.3 s, announced in an `aria-live` region; `prefers-reduced-motion` respected; `touch-action: none`,
+`-webkit-touch-callout: none`, no selection, no shadows; labels never cut or wrapped (12.5 px when too wide).
+Navigovať = Google Maps directions to the shop's lat,lng, else to its written address. Short / long per button: only
+`owner_set_contact_buttons()` (Môj obchod "Údaje obchodu", "Krátke / Dlhé" next to each field; defaults e-mail long,
+the rest short; `shops.contact_buttons` keeps only differences), read by `shop_contact_buttons(slug)` (cached, refreshed
+on save). Page layout, never shop data. `<noscript>` shows plain links. e2e `e2e/contacts.spec.ts`. Texts
+`contact_buttons`.
 
 ## Shop status and Pro page layout (update 27)
 
@@ -550,7 +829,9 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   trigger; the search index covers every language). Pre-translated = the shop's main + preferred languages (plan limit
   `translation_limits`: free 2, Pro 6) + item names in sk/hu/en; any other language → `request_translation()` (anon,
   once in 10 min) → the function translates while the page shows the original + "Prekladáme…". Machine texts show
-  "Preložené automaticky · Zobraziť originál" (`?original=1`). Never translated: brands, codes, EAN, prices,
+  "Preložené automaticky · Zobraziť originál" (`?original=1`) — not on the product page (removed at the owner's request,
+  2026-10-27; one framed box holds the names and the data with bullet points: price with the stock dot, Dostupnosť, Značka, EAN,
+  Kategória, then Popis). Never translated: brands, codes, EAN, prices,
   quantities, units, URLs, e-mails, phones, colour codes, `{placeholders}`.
 - **SEO:** hreflang/sitemaps only for pre-translated languages (PPI: admin's "preložený vopred"; a shop: its indexed
   languages — shop/item/blog pages set `robots` themselves); others `noindex`.
@@ -558,8 +839,9 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   (`item_description_facts()`: name, brand, EAN, category, the shop's own description), never invented; the owner edits
   → "Uložiť a zverejniť" / "Zahodiť"; "Zverejniť vygenerované popisy automaticky" (default off); the shop's own
   description wins unless the owner picks "Popis (Cacaduu)" (`item_description_shown()`).
-- **Owner screens:** Môj obchod → "Jazyky a inventár" (`/dashboard/translations`: Jazyky, Stĺpce súboru so skladom,
-  Súbory so skladom v jazykoch, Tovar, Preklady; columns and items moved here from `/dashboard`, old `?at=` forwarded;
+- **Owner screens:** Môj obchod → "Jazyky a inventár" (`/dashboard/translations`: Tovar, Preklady; since update 45 the
+  languages, the stock file's columns and the stock files in other languages are on `/sync` — see below —, old `?at=`
+  forwarded;
   **"Tovar" since update 41** (`supabase/sql/41_items_list.sql`, `@/lib/ownerItems`): one short line + "Viac", the
   status line "Posledný súbor: … · aktuálny / starší / zastaraný" (`shops.freshness_state`), filters Všetko / Na sklade /
   Vypredané / Bez popisu / Chýba preklad decided only in SQL (`owner_items(…, p_filter)`, `owner_item_counts()`; stock
@@ -599,7 +881,9 @@ list (`LanguagePickerDialog`), the picture viewer (`SectionZoomViewer`), Vercel 
 sections open before the first paint (`DashboardSection`'s inline script); no `loading.tsx` there (it turns the pages'
 `redirect()` into a client redirect) — the tapped menu link shows `useLinkStatus`. Taps: `TapFeedback` (server-action
 forms: busy at once, never sent twice), pressed states and 44 px touch areas in `globals.css`. Lists that load on a
-filter keep only the newest answer. Errors: `src/instrumentation.ts` → `@/lib/errorLog` (route file path + cleaned
+filter keep only the newest answer. The shop page's "Produkty" search (`@/components/ShopProducts`) changes the list
+in place — no navigation, `replaceState`, the list keeps at least its height, Enter closes the keyboard — so the page
+never moves; without JavaScript the form and the list's page links land on `#items`. Errors: `src/instrumentation.ts` → `@/lib/errorLog` (route file path + cleaned
 message only, never the address, IP or personal data) → `log_server_error()` → admin "Chyby za posledných 7 dní";
 Sentry too when `SENTRY_DSN` is set. Budget: `.github/workflows/performance.yml` (Lighthouse CI `lighthouserc.cjs` +
 `scripts/first-load-js.mjs` + `npm run test:e2e` on every Vercel preview, throttling applied while loading); first-load JS
@@ -623,11 +907,113 @@ removal exists. Translations/descriptions return by code through the `shop_items
 assistant, private folders and their files, contacts, domain, subscription or opening hours. There are no customer alerts
 ("Upozorniť ma") and no Pomocník yet — the activity log and `owner_inventory_state()` are what they will read.
 
+## Priečinok s exportom: review after an upload, translations folder (update 45)
+
+`supabase/sql/45_export_translations.sql` + `/sync` page + `@/components/ExportReview` + `@/components/TranslationFolderSync`
++ `@/lib/exportFiles` / `@/lib/xlsx` (shared with `exportFiles_test.ts`) + `sync/exportActions.ts` +
+`dashboard/LanguagesForm.tsx`, `Inventory.tsx` `ColumnsForm`. **Page order** (only `@/lib/dashboardPages`):
+"Priečinok so skladom" (`export`, read only) · "Po nahratí súboru" (`review`: the card, "Jazyky", "Stĺpce súboru so
+skladom"; old `languages`/`columns` forwarded) · "Preklady v priečinku" (`trfolder`: the folder, the ZIP/upload, "Súbory
+so skladom v jazykoch"; old `files` forwarded) · "Posledné nahrané súbory" · (Pro) conversations to the PC · "Nebezpečná
+zóna – sklad". **"Nový súbor – skontrolujte"** only when something waits (`owner_export_review()`): columns of the last
+file neither approved nor private (`export_new_columns()`) → a free field or "Súkromné – nezobrazovať" (default; never
+approved by itself; `shop_export_settings.private_columns`), new or changed products (`shop_export_marks` = md5 of name,
+description, category the owner last saw; existing products were marked by the SQL) → languages = the shop's preferred
+languages within `translation_limits`, "Vygenerovať popisy" (only new/changed without any description,
+`export_describe_ids()`, the translate function's `describe`, 20 per call), "Zapamätať a už sa nepýtať" (`remember`:
+`owner_export_auto()` on each check of the PC window; new columns are always asked). Every write via
+`owner_save_export_review()` / server actions (`refreshShop`). **Translations folder** (Edge/Chrome, its own `readwrite`
+handle in IndexedDB `trfolder:<shop>`, never the stock folder — `isSameEntry` refused; stock folder's watcher ignores
+`sklad.<lang>.xlsx`): `sklad.<main>.xlsx` (approved columns as the file names them + "Popis" + "Stav popisu"; only Popis
+editable → `item_descriptions` published, show 'cacaduu' over the shop's own, its AI translations stale) and
+`sklad.<lang>.xlsx` per `owner_export_info().langs` (preferred ∪ inventory − main: Kód, Pôvodný názov, Názov, Popis,
+Kategória, Stav; Názov/Popis/Kategória → `content_translations` 'manual'). **Only the approved columns** ever (rows from
+`owner_export_rows()`, 1 000 per call; private columns are never stored). Every cell text ("@", also new cells), bold
+frozen header + filter, a "Návod" sheet, a **very hidden `_cacaduu` sheet** with what was written (keys, headers, values,
+EAN) — an edit = a non-empty cell that differs from it (empty = no change; other columns and unknown rows only listed;
+rows by Kód, then EAN; columns by header) → `owner_apply_export_edits()` (matched again by Kód then EAN in SQL; the stock,
+quantities, prices and names never change). **Each check** (15 min, window start, "Skontrolovať teraz", after the stock
+folder sent a file — `ppi:stock-sent`): 1. a "Vymazať celý sklad" request (`delete_files_at`) → delete only Cacaduu's
+files (also in folders used before) → `owner_log_export_files_deleted()`; 2. read Cacaduu's files whose mtime/size
+changed, untouched ≥ 60 s, SHA-256 differs (locked by Excel → read later, never written over); 3. `owner_export_auto()`;
+4. write again only when `owner_export_info().version` changed, a file is missing, an edit was applied or "Zapísať teraz":
+`createWritable()` (a temporary file replacing the old one on close; locked → pending "… je otvorený v Exceli"), never a
+file Cacaduu did not write ("nevytvorilo Cacaduu – nechávam ho tak"), nothing while the stock is empty. One window per
+shop (Web Locks). Any browser: "Stiahnuť preklady (.xlsx, ZIP)" and "Nahrať upravený súbor" (same diff). Danger zone B
+ticks "Vymazať aj súbory s prekladmi" (`owner_request_export_files_delete()`); the backup CSV of update 43 already holds
+descriptions and translations. Activity log actions `export_review`, `export_edits`, `export_files_deleted`. No customer
+alerts exist yet (nothing to cancel). Tests: `npm run test:export`, DB block "update 45", e2e owner test (OPFS folder).
+
+## Pripojiť skladový program (API) (update 49)
+
+`supabase/sql/49_inventory_api.sql` + `supabase/functions/inventory-connect` (one file, Verify JWT off) +
+`@/components/InventoryConnect` + `sync/inventoryApiActions.ts` + `admin/domains/InventoryAdmin.tsx`. First section of
+"Priečinok s exportom" (`api` in `@/lib/dashboardPages`). **The only place PPI pulls stock:** a read-only key, adapters
+behind one interface (`testConnection`, `listProducts` → {rows, complete, total}, `capabilities`, rate limits), built
+only from official docs: SuperFaktúra, WooCommerce, "Vlastné API" (https JSON/CSV); anything unverified (Shoptet,
+Dotykačka) is `built = false` → "Pripravujeme". Plan rule only in SQL (`inventory_plan_settings`: Pro 15 min, Free off
+unless the admin allows it; provider minimum, SuperFaktúra 60). **Key:** browser → function (owner JWT,
+`is_shop_member`), tested first (a failed key is never stored), AES-GCM with `INVENTORY_TOKEN_ENCRYPTION_KEY` bound to
+shop + provider in `inventory_connections.key_cipher` (no owner grant), never logged or shown again ("••••1234" + date);
+"Odpojiť" deletes the row. **One source:** while connected `upload_check_in()` raises `api_connected` (stock-pull 409;
+folder and uploads show "Sklad sa aktualizuje cez <program>"). **Nothing before approval:** preview (5 rows, count,
+fields) → `owner_inventory_approve()`; changed fields → preview again. **Runs** (pg_cron `ppi-inventory-tick` 5 min,
+`inventory_claim` skip locked): only a complete snapshot that reads with the approved fields goes through
+`inventory_apply` → `apply_stock_file()`; partial / empty / older / error never zero the stock; no quantities → names
+and prices only with the owner's consent, freshness never renewed (no availability); back-off 5 min · 2ⁿ ≤ 6 h,
+Retry-After; invalid key → stopped, "Kľúč neplatný", one Brevo e-mail after 24 h; reports `stock_imports.source = 'api'`;
+activity log. Private fields (purchase price, supplier, margin, invoice, internal) are never requested where the API
+lets us choose fields and are dropped before storing otherwise. Only public https hosts, forwards checked, 20 MB.
+Texts `inventory_api`, `admin_inventory`. "Synchronizovať teraz" ≤ 4/hour.
+
+## Cacaduu Cloud Connection for the POS Sync Agent (Prompt 13; phase A = update 50, B = update 52, C = update 53)
+
+`supabase/sql/50_connector_pairing.sql` + `supabase/functions/connector` (one file, Verify JWT off) +
+`@/components/PosAgentPanel` + `sync/connectorActions.ts` + **the contract `docs/CONNECTOR_CLOUD_API.md`,
+`docs/connector-openapi.json`, `docs/connector-client/`** (keep all three in step with the function's `ROUTES`:
+`npm run test:connector`). The POS Sync Agent is an optional desktop app in its own repository; it only makes
+outbound HTTPS requests. A THIRD way for stock to arrive (the PPI window and "Upload file" stay). The agent's "Own API"
+POS source is not the Cloud Connection. Device endpoints only in the `connector` Edge Function (`/v1/...`,
+`Cacaduu-Agent-Version` on every request, 426 below `CONNECTOR_MIN_AGENT_VERSION`), never Next.js routes. Pairing code:
+8 characters without 0 O 1 I L, single use, 10 minutes, hash only; device token `cdt_` + 32 random bytes, returned once,
+SHA-256 only, one shop per token — **the shop always comes from the token, never from the request**; rotation (old token
+until the new one is used, ≤ 24 h); revoke at once. State only from heartbeat times (`connector_device_state()`), never
+a stored "connected" flag. Owners act only through `owner_connector_*`; hashes are never granted.
+
+**Phase B (update 52, `supabase/sql/52_connector_snapshots.sql`, `connector/snapshots_test.ts`,
+`@/components/StockSourcePanel`):** **one active stock source** — only `stock_source_of()` decides: a connected inventory
+program (api) > POS agent (owner chose it in "Zdroj zásob", `owner_set_stock_source()`, and an unrevoked device) >
+files; while the agent is the source `upload_check_in()` raises `agent_connected` (stock-pull 409). Snapshot = announce
+(signed upload URL to the private `connector-staging` bucket, `max_bytes` = `CONNECTOR_MAX_MB`) → the agent PUTs the
+gzipped `cacaduu.inventory.v1` JSON → complete (count + SHA-256 of the uncompressed bytes must match; > 5 % bad rows →
+rejected, else bad rows skipped and **their products keep their stock** (`p_keep`); fields outside the contract never
+stored; the staged file deleted). Applied only through `connector_snapshot_settle()` under a per-shop lock: older
+`source_time` → rejected; source not the agent → `test_ok` (checked, never applied); **0 products or fewer than half
+the last applied count → `held`, never automatic** (`owner_connector_decide()`); else `connector_apply_rows()` (missing
+→ 0) + a `stock_imports` report (`source = 'agent'`) + revalidate / IndexNow. `confirm` = same hash as the last
+applied → only the freshness time moves forward. 1 full snapshot / 5 min / shop. Never claim POS sync works end to end
+until tested with the real desktop agent.
+
+**Phase C (update 53, `supabase/sql/53_connector_commands.sql`, `connector/commands_test.ts`):** "Synchronizovať
+teraz" = `owner_connector_sync_now()` (only while `stock_source_of()` = agent; one open per shop, else the same one;
+≤ 4/hour/shop) → one row in `connector_commands` (types **only** `sync_inventory` | `ping`; never code, paths or POS
+settings). The agent gets pending ones in the heartbeat answer (`next_poll_seconds` 15 while one waits) or
+`GET /v1/commands`; claim = one atomic UPDATE (pending → claimed, 2-minute lease; `409 already_claimed` for anyone
+else); `running` renews; `connector_commands_tidy()` (run before every read/write, no cron) puts a lapsed lease back to
+pending (+10 min) or `failed`/`lease_expired` after 3 attempts, and an unclaimed one past 10 minutes to `expired`.
+`completed` for sync_inventory only with a snapshot of the shop applied/held after the command (its `command_id` or
+none) or after `confirm` with the `command_id` (`connector_command_confirmed()`); otherwise `409 snapshot_not_applied`;
+only the holder reports (`409 not_claimed`). The holder's announce skips the 5-minute snapshot limit
+(`connector_command_active()`). Device state `syncing` from a live lease (`connector_device_syncing()`). Dashboard: the
+"Synchronizovať teraz" box in `PosAgentPanel` (`syncNow` / `loadCommands`, 5 s refresh while open). Test stand-in:
+`connector-test-agent.mjs sync`.
+
 ## Stock upload
 
 `supabase/functions/stock-pull/index.ts` (single file, paste-deployable) only receives uploads:
 `POST ?shop_id=&file_time=&file_name=[&gzip=1]` with the owner's (or legacy admin's) JWT, checked by `upload_check_in()`.
-It downloads nothing and runs on no schedule (cloud links and the cron pull were removed on 2026-10-08, migration 16).
+It downloads nothing and runs on no schedule (cloud links and the cron pull were removed on 2026-10-08, migration 16;
+the only pull is the inventory API above), and refuses files (409 `api_connected`) while a program is connected.
 A file not newer than `latest_file_time` is skipped; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping proposals
 (Claude with structured outputs, else `guessMapping`) are never auto-approved; `apply_stock_file()` writes a full file
 in one transaction (missing items → quantity 0). >5 % unreadable rows → keep old stock, propose a new mapping.

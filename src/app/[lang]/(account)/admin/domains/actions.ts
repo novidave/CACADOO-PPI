@@ -144,6 +144,42 @@ export async function saveBlogLimits(formData: FormData) {
   back({ ok: "blog_limits" }, "blog");
 }
 
+/** "SMS" (database update 58): the two monthly quotas of every shop; admin_save_sms_quotas checks is_admin() itself. */
+export async function saveSmsQuotas(formData: FormData) {
+  const { session, back } = await start(formData);
+  const booking = Number(formData.get("booking"));
+  const owner = Number(formData.get("owner"));
+  if (![booking, owner].every((n) => Number.isInteger(n) && n >= 0 && n <= 100_000)) back({ err: "sms" }, "sms");
+  const { error } = await session.supabase.rpc("admin_save_sms_quotas", { p_booking: booking, p_owner: owner });
+  if (error) back({ err: "sms" }, "sms");
+  back({ ok: "sms" }, "sms");
+}
+
+/** "Skladové programy (API)" (database update 49): the intervals per plan and whether Free may connect. */
+export async function saveInventorySettings(formData: FormData) {
+  const { session, back } = await start(formData);
+  const pro = Number(formData.get("pro_interval"));
+  const free = Number(formData.get("free_interval"));
+  if (![pro, free].every((n) => Number.isInteger(n) && n >= 5 && n <= 10_080)) back({ err: "inventory" }, "inventory");
+  const { error } = await session.supabase.rpc("admin_save_inventory_settings", {
+    p_pro_interval: pro,
+    p_free_allowed: formData.get("free_allowed") === "on",
+    p_free_interval: free,
+  });
+  if (error) back({ err: "inventory" }, "inventory");
+  back({ ok: "inventory" }, "inventory");
+}
+
+/** A built program on or off (a program that is not built stays off; the SQL decides). */
+export async function setInventoryProvider(formData: FormData) {
+  const { session, back } = await start(formData);
+  const code = String(formData.get("code") ?? "");
+  if (!/^[a-z]{2,30}$/.test(code)) back({ err: "inventory" }, "inventory");
+  const { error } = await session.supabase.rpc("admin_set_inventory_provider", { p_code: code, p_enabled: formData.get("enabled") === "1" });
+  if (error) back({ err: "inventory" }, "inventory");
+  back({ ok: "inventory" }, "inventory");
+}
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**

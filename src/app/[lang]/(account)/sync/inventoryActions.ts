@@ -70,6 +70,11 @@ export async function resetInventory(formData: FormData) {
   refreshShop(slug);
   const query = { ok: mode === "all" ? "reset_all" : "reset_missing", n: String(result.items ?? 0), backup: String(result.backup_id ?? "") };
   if (mode === "all") {
+    // update 45: the files Cacaduu wrote into the translations folder go too (the shop PC deletes them on its next check)
+    if (formData.get("delete_tr_files") === "on") {
+      const { error: filesError } = await session.supabase.rpc("owner_request_export_files_delete", { p_shop_id: shopId });
+      if (filesError && filesError.code !== "PGRST202") console.error(`inventory reset: translation files not asked for (${filesError.message})`);
+    }
     const storage = await deleteStoredFiles(session, shopId);
     if (storage) back({ ...query, ok: "", err: `reset_storage:${storage}` });
   }

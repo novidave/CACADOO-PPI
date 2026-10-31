@@ -96,7 +96,8 @@ ever replaced or deleted.
 
 ### S5. Approve the columns (the owner, once per shop)
 
-**Môj obchod** → **Stĺpce súboru so zásobami**:
+**Priečinok s exportom** → **Po nahratí súboru** → **Stĺpce súboru so skladom** (moved here from "Jazyky a inventár"
+in update 45):
 
 1. Each field (item code, name, quantity, price, …) shows the column PPI suggests, next to the file's first rows.
    Correct a drop-down if needed → **Schváliť stĺpce**.
@@ -105,6 +106,27 @@ ever replaced or deleted.
 3. **Zobraziť stránku obchodu** shows the items with fresh stock. From now on every new export arrives by itself.
 
 If the export layout changes later, PPI keeps the previous stock and suggests new columns; approve them the same way.
+When a later file only **adds** a column, the box **"Nový súbor – skontrolujte"** asks once: give it a field or leave
+it **"Súkromné – nezobrazovať"** (until then it is private: never read, never shown). The same box asks about new or
+changed products: the languages they are translated into, **"Vygenerovať popisy"** and **"Zapamätať a už sa
+nepýtať"**.
+
+### S6. Translations in a folder (optional, Edge or Chrome on the shop PC)
+
+**Priečinok s exportom** → **Preklady v priečinku** → **Vybrať priečinok pre preklady** → e.g. `C:\Cacaduu-preklady`
+(never the export folder: Cacaduu refuses it) → allow **editing**. Within a minute Cacaduu writes there:
+
+- `sklad.sk.xlsx` (the shop's language): the approved columns as your export names them + **Popis** + **Stav popisu**;
+  only **Popis** can be changed (it is published as your description and translated again);
+- `sklad.hu.xlsx`, `sklad.en.xlsx`, … (one per language of the shop): **Kód, Pôvodný názov, Názov, Popis, Kategória,
+  Stav**; **Názov, Popis, Kategória** can be changed (saved as "upravené ručne", never overwritten by a machine
+  translation).
+
+Edit in Excel, **save and close** the file. At the next check (every 15 minutes, when the window opens, or
+**Skontrolovať teraz**) Cacaduu reads the changed cells — a file saved less than a minute ago or still open in Excel
+waits —, applies them and writes the files again ("Naposledy zapísané …", **Zapísať teraz**). An empty cell changes
+nothing; changes in other columns and unknown rows are listed and ignored. Cacaduu only ever writes, reads or deletes
+the files it wrote itself. Without Edge/Chrome: **Stiahnuť preklady (.xlsx, ZIP)** and **Nahrať upravený súbor**.
 
 ---
 
@@ -128,7 +150,7 @@ If the export layout changes later, PPI keeps the previous stock and suggests ne
   "Názov HU" = the name in Hungarian (from the column name); approve it once in Môj obchod → columns. Sample:
   `/samples/stock-sample-2lang.csv`.
 - **A second file per language:** keep exporting the main file as before (the PPI window sends it); upload the other
-  language's file by hand in Môj obchod → **Jazyky a inventár → Súbory so skladom v jazykoch** (Súbor: e.g. Magyar). It
+  language's file by hand in **Priečinok s exportom → Preklady v priečinku → Súbory so skladom v jazykoch** (Súbor: e.g. Magyar). It
   is matched by **Kód**, then by **EAN**; its quantities and prices are never used (differences are listed). Samples:
   `/samples/stock-sample-sk.csv` + `/samples/stock-sample-hu.csv`.
 - The shop's own texts show as **"Od obchodu"** and are never changed or replaced by a machine translation.
@@ -147,5 +169,8 @@ If the export layout changes later, PPI keeps the previous stock and suggests ne
 | "Odoslanie zlyhalo: …" | Internet down, or PPI being updated. It tries again at the next check. |
 | "PPI už sleduje tento priečinok v inom okne" | PPI is open twice. Close the extra window or tab. |
 | Dashboard: "Okno PPI … naposledy aktívne" is old | The PC is off or asleep, or the PPI window was closed. |
+| "… je otvorený v Exceli – prečítam/zapíšem ho, keď ho zatvoríte" | Save and close the file in Excel; the next check finishes. |
+| "… tento súbor nevytvorilo Cacaduu – nechávam ho tak" | A file of that name was already in the folder: rename or move it, or pick an empty folder. |
+| "Toto je priečinok so skladom" | Choose another folder for the translations (the export folder stays read-only). |
 
 **Moving to another PC:** do S3 and S4 on the new PC, then close PPI on the old one.

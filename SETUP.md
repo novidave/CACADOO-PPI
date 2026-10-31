@@ -1655,6 +1655,316 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    slidera" and "Výrez" per picture/PDF change the previews at once; the computer preview is under the phone preview;
    "Uložiť" keeps them.
 
+## Part AQ — "Priečinok s exportom": check after an upload, translations in a folder on the shop PC (27 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/45_export_translations.sql` → Run → "Success". Safe to
+   run again. No Edge Function to deploy, no new secrets.
+2. **On the shop PC (Edge or Chrome), Davide Paint shop → Priečinok s exportom:**
+   - The order is: Priečinok so skladom · Po nahratí súboru · Preklady v priečinku · Posledné nahrané súbory ·
+     Nebezpečná zóna. The languages and the columns are now under "Po nahratí súboru" (old links still work).
+   - After the next stock file, "Nový súbor – skontrolujte" asks about new columns (leave a purchase price as
+     "Súkromné – nezobrazovať") and new products (languages, "Vygenerovať popisy", "Zapamätať a už sa nepýtať").
+   - "Preklady v priečinku" → **Vybrať priečinok pre preklady** → a new empty folder, e.g. `C:\Cacaduu-preklady`
+     (not the export folder) → allow editing. `sklad.sk.xlsx`, `sklad.hu.xlsx`, … appear within a minute.
+   - Open `sklad.hu.xlsx` in Excel, change a "Názov", save and close. Within 15 minutes (or **Skontrolovať teraz**
+     after a minute) the line says "uložené zmeny: 1" and the shop page shows the new Hungarian name. Change "Popis" in
+     `sklad.sk.xlsx` the same way → it is the product's description.
+   - Leave a file open in Excel and click **Zapísať teraz** → "… je otvorený v Exceli"; close it → written.
+   - Then "Vymazať všetky nahrané súbory", danger zone A and B (B with "Vymazať aj súbory s prekladmi" → the files
+     disappear from the folder) and "Obnoviť sklad" as in Part AO.
+
+## Part AR — "Pripojiť skladový program (API)": the stock straight from the shop's program (27 October 2026)
+
+1. **Database:** switch on `pg_cron` and `pg_net` (Database → Extensions; already on from earlier parts), then SQL
+   Editor → paste the whole file `supabase/sql/49_inventory_api.sql` → Run → "Success". Safe to run again. It adds the
+   job `ppi-inventory-tick` (every 5 minutes) and its Vault secret `ppi_inventory_cron` by itself.
+2. **Secret** (Edge Functions → Secrets → Add): `INVENTORY_TOKEN_ENCRYPTION_KEY` = a long random text, e.g. the output
+   of `openssl rand -base64 48`. Keep it: changing it makes every stored key unreadable (the shops then see
+   "Kľúč neplatný" and enter their key again). `BREVO_API_KEY` and `ALERT_EMAIL_FROM` are already there (cloud folder);
+   `SITE_URL`, `REVALIDATE_SECRET` and `INDEXNOW_KEY` too (optional here: the page refreshes within a minute anyway).
+   Never put this key in Vercel or `.env*`.
+3. **Edge Function:** Edge Functions → Deploy a new function → name **`inventory-connect`** → paste the whole file
+   `supabase/functions/inventory-connect/index.ts` → Deploy. Then its **Settings → Verify JWT: off** (the function checks
+   the owner's login and the cron secret itself).
+4. **Admin** (`/sk/admin/domains#inventory`, "Skladové programy (API)"): Pro every 15 minutes (default); Free is off —
+   tick "Povoliť aj bez Pro" to allow it with its own interval (default 24 h). SuperFaktúra, WooCommerce and "Vlastné API"
+   are on; Shoptet and Dotykačka say "Pripravujeme".
+5. **Try it — Davide Paint shop → Priečinok s exportom → "Pripojiť skladový program (API)":**
+   - Pick your program and follow the hint (WooCommerce: a key with "Čítať / Read"; SuperFaktúra: Nástroje → API).
+     For a quick test use **Vlastné API** with any https address that returns your product list as JSON or CSV.
+   - A wrong key → "Kľúč neplatný", nothing is stored. A good key → the preview (first rows, number of products, the
+     fields). Check the fields ("Kód tovaru", "Názov", "Predajná cena", "Množstvo") → **Schváliť a spustiť**.
+   - Within 5 minutes (or **Synchronizovať teraz**, at most 4× an hour) "Posledná úspešná synchronizácia" shows
+     "X produktov, Y zmien"; then every 15 minutes. The folder and the upload now say "Sklad sa aktualizuje cez …".
+   - **Odpojiť** deletes the key at once; the folder and the upload work again; the products stay.
+
+## Part AS — POS Sync Agent, phase A: pairing and heartbeats (27 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/50_connector_pairing.sql` → Run → "Success". Safe to run
+   again.
+2. **Secrets** (Edge Functions → Secrets), all optional:
+   - `CONNECTOR_MIN_AGENT_VERSION` — e.g. `1.0.0`; older agents get "update required" (default `0.0.0` = all allowed).
+   - `CONNECTOR_API_BASE_URL` — only when the API moves (e.g. `https://api.cacaduu.com`); default
+     `https://<project-ref>.supabase.co/functions/v1/connector`.
+   - `API_HASH_SALT` — the same value as in Vercel (it salts the hashed caller IPs for the wrong-code limit).
+   - `CONNECTOR_MAX_MB` is used from phase B on.
+3. **Edge Function:** Edge Functions → Deploy a new function → name **`connector`** → paste
+   `supabase/functions/connector/index.ts` → Deploy → its **Settings → Verify JWT: off**.
+4. **Try it** (Davide Paint shop → Priečinok s exportom → "Prepojenie s pokladňou (POS agent)"):
+   - **Pridať POS agenta** → a code like `K7QM-4WXP` (10 minutes).
+   - On any computer with Node 18+:
+     `node scripts/connector-test-agent.mjs pair --url https://<project-ref>.supabase.co/functions/v1/connector --code K7QM-4WXP --token-file agent.json`
+     then `node scripts/connector-test-agent.mjs heartbeat --token-file agent.json --count 3 --every 60`.
+   - Reload the page: "Online · Ešte nesynchronizované". Stop the script: after 3 minutes "Offline".
+   - **Odpojiť** → the next heartbeat says 401. Delete `agent.json` afterwards (the real agent keeps its token in the
+     system's secure storage).
+
+## Part AT — Contact buttons on the shop page (28 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/51_contact_buttons.sql` → Run → "Success". Safe to run
+   again. Every existing shop keeps the defaults (e-mail long, the rest short); nothing else changes.
+2. No secrets, no Edge Function.
+3. **Try it:** Davide Paint shop → Môj obchod → "Údaje obchodu": next to the phone, website, e-mail, Facebook, booking
+   link and the map position there is "Tlačidlo na stránke: Krátke / Dlhé". Pick "Dlhé" for the phone → Uložiť → the
+   shop page shows the phone across both columns at once (no redeploy).
+4. On the phone (iPhone Safari): a quick tap on a contact button does nothing; hold it ~1 second → "Držte stlačené" with
+   a filling bar → it opens (Facebook / web / booking / directions in the same tab — back returns to the shop —, e-mail
+   in the mail app, phone → call; on a computer the links open in a new tab).
+   Letting go early or sliding the finger off cancels. No menu or text selection appears while holding.
+
+## Part AU — POS Sync Agent, phase B: stock snapshots and "Zdroj zásob" (28 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/52_connector_snapshots.sql` → Run → "Success". Safe to
+   run again. It makes the private bucket `connector-staging`; every shop's stock source stays "Súbory".
+2. **Secrets** (Edge Functions → Secrets): nothing new is needed. Supabase secrets are shared by every function, so
+   `connector` already reads `SITE_URL`, `REVALIDATE_SECRET` and `INDEXNOW_KEY` (set in Parts AG and AQ) and refreshes
+   the pages after an applied snapshot. Only if you want a different size limit: `CONNECTOR_MAX_MB` (the largest
+   gzipped snapshot, default 20).
+3. **Edge Functions** (paste the whole file → Deploy; Verify JWT stays as it was):
+   - `connector` ← `supabase/functions/connector/index.ts`
+   - `stock-pull` ← `supabase/functions/stock-pull/index.ts` (refuses files while the POS agent is the source)
+   - `inventory-connect` ← `supabase/functions/inventory-connect/index.ts` (new message "agent")
+4. **Try it** with the test stand-in (an agent paired as in Part AS, `agent.json`):
+   - `node scripts/connector-test-agent.mjs snapshot --token-file agent.json --generate 25` → "test_ok": checked, not
+     used, listed under "Posledné stavy skladu z POS agenta".
+   - Priečinok s exportom → **Zdroj zásob** → "POS agent" → Uložiť. Wait 5 minutes (one snapshot per 5 minutes), run the
+     same command again → "applied"; the shop page shows the 25 test products.
+   - `node scripts/connector-test-agent.mjs confirm --token-file agent.json` → "confirmed" (only the time moves).
+   - After 5 minutes `… snapshot --token-file agent.json --generate 5` → "held": the dashboard asks "Áno, použiť tento
+     stav" / "Zahodiť".
+   - **Zdroj zásob → Súbory** → Uložiť to go back; then upload the real file (it replaces the test products).
+   - A CSV of your own: `--csv stock.csv` with the header `source_code;name;ean;brand;price;currency;quantity`.
+
+## Part AV — POS Sync Agent, phase C: "Synchronizovať teraz" (29 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/53_connector_commands.sql` → Run → "Success". Safe to
+   run again. (Update 52 must be in first.)
+2. **Edge Function:** `connector` ← paste `supabase/functions/connector/index.ts` → Deploy (Verify JWT stays off). No new
+   secrets.
+3. **Try it** with the test stand-in (`agent.json` from Part AS; the shop's "Zdroj zásob" = POS agent, Part AU):
+   - Priečinok s exportom → "Prepojenie s pokladňou (POS agent)" → **Synchronizovať teraz** → "Čaká na agenta…".
+   - `node scripts/connector-test-agent.mjs sync --token-file agent.json --generate 25` → it picks the request up,
+     sends a snapshot and reports it; the page shows "Hotovo – nový stav skladu prijatý".
+   - Again with `--unchanged 1` → "Hotovo – sklad sa nezmenil"; with `--fail "POS nie je dostupný"` → "Nepodarilo sa: …".
+   - Press it and run nothing: after 10 minutes "Agent je offline – zapnite počítač s POS agentom".
+   - A 5th press within an hour → "Najviac 4 synchronizácie za hodinu".
+
+## Part AW — forgiving product search and the "Tovar v obchode" dropdown (29 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/54_forgiving_search.sql` → Run → "Success". It adds
+   the `fuzzystrmatch` extension and rebuilds the search columns of every product (a few seconds for 100 000 products).
+   Safe to run again.
+2. **No Edge Function, no new secret, no Vercel setting.** The website change goes live with the merge.
+3. **Try it** on your shop page (e.g. davide.sk → "Tovar v obchode"):
+   - type `akril paint 0.5l` → the list under the field shows the acrylic products within a moment;
+   - ↓ ↓ Enter opens the second one; Esc closes the list;
+   - "Zobraziť všetky výsledky (N)" (or Enter in the field) → the whole list is filtered: "Výsledky pre „akril paint
+     0.5l“ (N)" with "Zrušiť";
+   - typos and other languages: `akrylvé farby`, `mercedez 775`, `glossy acrylic medium`, `akril médium fényes`,
+     `lesklé médium akrylové`; the code `AUTO-0035` or an EAN comes first;
+   - nonsense (`xqzw blorf`) → "Nenašli sme presnú zhodu – podobné produkty:".
+   - Main page (plain results): `farba v Budinciach` → only shops in Budince.
+
+## Part AX — "Konverzácie" for Pro shops (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/55_conversations.sql` → Run → "Success". Safe to run
+   again. Shops that never chose a keep time (the old default of 90 days) become **Neobmedzene**: nothing is deleted
+   automatically for them any more; shops that chose 30 or 365 days keep it.
+2. **No Edge Function, no new secret, no Vercel setting.** The website change goes live with the merge.
+3. **Try it** (a shop with Pro):
+   - Môj obchod → Asistent: three tabs **Nastavenia · Konverzácie · Súkromné priečinky**; old links (`?at=cloud`,
+     `?at=private`) open the right tab.
+   - Write to the shop's assistant on its page; ask something it cannot answer (e.g. "Kedy dostanete nový tovar?").
+     Konverzácie shows the conversation as **Nové** with "Bez odpovede"; the tab shows "1".
+   - Open it: it becomes Prečítané; write a private note → "Poznámka uložená"; the suggested products link to their
+     pages; **Stiahnuť TXT**.
+   - In the list tick two conversations → Archivovať → they leave the list (Stav: Archivované shows them) → Vrátiť z
+     archívu. Vymazať vybrané asks for the confirmation tick.
+   - Export: Od / Do → **Stiahnuť CSV** → opens in Excel with Slovak letters.
+   - "Uchovávať konverzácie": **Neobmedzene** is selected by default; 30 / 90 / 365 days are still there.
+
+## Part AX2 — "Kontakty" for Pro shops (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/56_contacts.sql` → Run → "Success". Safe to run again.
+   (Update 55 must be in first.)
+2. **Edge Function:** Edge Functions → Deploy a new function → Via Editor → name **`crm-messages`** → paste
+   `supabase/functions/crm-messages/index.ts` → Deploy → switch **OFF "Verify JWT"**. No new secret: it uses
+   `BREVO_API_KEY` and `ALERT_EMAIL_FROM` (already set for the other functions). Leave `SMS_PROVIDER` unset: SMS are only
+   written down as "test" until Part AX4.
+3. **Try it** (a shop with Pro):
+   - Môj obchod → **Kontakty** → "Nový kontakt": name, phone `0905 123 456`, your own e-mail, tags `VIP, test` → Uložiť
+     → the card shows `+421905123456 · neoverené`.
+   - Tab **Správy** → E-mail → text `Dobrý deň {{first_name}}, {{shop}}` → **Náhľad** (your name and the shop's name
+     filled in) → **Odoslať** → "Odoslané." and the e-mail arrives with the shop's name; replying goes to the shop's
+     e-mail. The message is listed under "Odoslané správy".
+   - SMS → Náhľad → Odoslať → "Zapísané v testovacom režime" (nothing is sent).
+   - Tab "E-mailové šablóny" → a template with `{{name}}` → use it from the card.
+   - A conversation (Asistent → Konverzácie → open one) → "Kontakt" → assign it → the contact's "Konverzácie" tab
+     lists it.
+
+## Part AX3 — "Rezervácie" for Pro shops (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/57_bookings.sql` → Run → "Success". Safe to run again.
+   (Updates 55 and 56 must be in first.) It also makes the hourly job `ppi-bookings-tick` (reminders); it needs the
+   Vault secret `ppi_project_url` that is already there for the other jobs.
+2. **Edge Function:** Edge Functions → Deploy a new function → Via Editor → name **`bookings`** → paste
+   `supabase/functions/bookings/index.ts` → Deploy → switch **OFF "Verify JWT"**. It uses `ASSISTANT_ARCHIVE_SECRET`
+   (already set in Vercel and Supabase) to trust the website.
+3. **Google Calendar (optional — bookings work without it):**
+   - console.cloud.google.com → your project → APIs & Services → Library → enable **Google Calendar API**.
+   - OAuth consent screen: External, app name "Cacaduu", your support e-mail, the privacy page
+     `https://cacaduu.com/sk/sukromie-asistent`; scopes **`.../auth/calendar.freebusy`** and
+     **`.../auth/calendar.events.owned`** (nothing else). While the app is in "Testing", add your own Google account as
+     a test user; before shops use it, send the app for Google's verification (these are sensitive scopes).
+   - Credentials → Create credentials → OAuth client ID → Web application → Authorized redirect URI
+     **`https://<your project>.supabase.co/functions/v1/bookings/oauth`** → Create.
+   - Supabase → Edge Functions → Secrets: **`GOOGLE_CALENDAR_CLIENT_ID`**, **`GOOGLE_CALENDAR_CLIENT_SECRET`** (from that
+     client) and **`BOOKING_TOKEN_ENCRYPTION_KEY`** (a new long random text, e.g. `openssl rand -base64 32`; never change
+     it later, or shops must connect again). Without the key the function uses `EXPORT_TOKEN_ENCRYPTION_KEY`.
+4. **Testing without real SMS:** leave `SMS_PROVIDER` unset and add the secret
+   **`BOOKING_TEST_CODES` = `on`** — the code then shows in the chat instead of arriving by SMS. Remove it (or it stops
+   by itself) as soon as a real SMS provider is set (Part AX4).
+5. **Try it** (a shop with Pro):
+   - Môj obchod → **Rezervácie** → Nastavenia → tick "Prijímať rezervácie cez asistenta", service `Konzultácia`, 30 min → Uložiť.
+     Optional: "Pripojiť Google Kalendár" → allow both permissions → back with "Google Kalendár je pripojený".
+   - Optional: Asistent → Súkromné priečinky → a PDF in the public folder with your booking terms.
+   - The shop page → the assistant → "Chcem sa objednať na zajtra" → it says the terms and offers times as buttons
+     (only inside the opening hours; busy times in your Google Calendar are missing).
+   - Tap a time → name, your mobile, tick the consent → "Poslať kód" → the code (shown in test mode) → "Potvrdiť rezerváciu" →
+     "Rezervácia je potvrdená". The event is in your Google Calendar; Kontakty has the contact with "overené".
+   - Môj obchod → Rezervácie → Zoznam and Kalendár show it; "Neprišiel" / "Zrušiť" change the status.
+   - Try the same time again in another browser: it is no longer offered.
+
+## Part AX4 — SMS quotas and real SMS (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/58_sms_quotas.sql` → Run → "Success". Safe to run
+   again. (Updates 56 and 57 must be in first; if you ever paste 57 again, paste 58 again after it.)
+2. **Edge Functions:** paste the updated `supabase/functions/crm-messages/index.ts` into the function **`crm-messages`**
+   and `supabase/functions/bookings/index.ts` into **`bookings`** → Deploy (both keep "Verify JWT" OFF).
+3. **SMS provider — Brevo (recommended; the same account as the e-mails):**
+   - app.brevo.com → **SMS** → buy SMS credits for Slovakia (and the other countries your shops are in). Brevo sends
+     only while the account has credits.
+   - In Brevo's SMS settings check that sending to Slovakia is enabled and an alphanumeric sender is allowed (Brevo
+     may ask to approve the sender name first).
+   - Supabase → Edge Functions → Secrets: **`SMS_PROVIDER` = `brevo`** and **`SMS_SENDER` = `Cacaduu`** (letters and
+     digits, at most 11; accents are dropped). `BREVO_API_KEY` is already there.
+   - Remove **`BOOKING_TEST_CODES`** (it is ignored now anyway).
+   *Twilio instead:* `SMS_PROVIDER` = `twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` (a Twilio
+   number or an alphanumeric sender allowed for Slovakia) or `TWILIO_MESSAGING_SERVICE_SID`.
+4. **Quotas:** Predplatné a domény (admin) → **SMS** shows the provider ("SMS posiela: brevo") and both limits (100 /
+   100). Change them there if needed.
+5. **Try it** (a shop with Pro, your own mobile):
+   - Kontakty → a contact with your number → Správy → SMS → Náhľad → Odoslať → "Odoslané" and the SMS arrives from
+     "Cacaduu". "SMS tento mesiac" shows "Vaše SMS zákazníkom: 1 zo 100 SMS" (a text with accents over 70 characters
+     counts 2).
+   - The shop page → the assistant → book a time with your number → the code arrives by SMS → confirm.
+     Rezervácie → Nastavenia shows "Rezervácie (kódy a pripomienky): 1 zo 100 SMS".
+   - Optional: admin → SMS → set the booking quota to 1 → the assistant offers no times and Rezervácie shows the
+     banner; set it back to 100.
+
+## Part AX5 — unanswered questions: the shopper leaves a contact (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/59_unanswered.sql` → Run → "Success". Safe to run
+   again. (Updates 55, 56 and 58 must be in first.) It makes the job `ppi-crm-alerts-tick` (every 5 minutes) and the
+   Vault secret `ppi_crm_cron`; it uses the `ppi_project_url` secret that is already there.
+2. **Edge Function:** paste the updated `supabase/functions/crm-messages/index.ts` into **`crm-messages`** → Deploy
+   ("Verify JWT" stays OFF). It uses `BREVO_API_KEY`, `ALERT_EMAIL_FROM` and `SITE_URL` (all already set).
+3. **Try it** (a shop with Pro):
+   - The shop page → the assistant → ask something the shop's stock and documents cannot answer → under the answer
+     "Nechajte nám kontakt – obchod vám odpovie" → your e-mail or mobile, tick the consent → "Odoslať obchodu" →
+     "Ďakujeme…".
+   - Within a few minutes the shop owner's mailbox has "Nový zákazník, prosím odpovedzte – <shop>" with the question
+     and a link.
+   - Môj obchod: "Asistent" shows a badge (1); Asistent → Konverzácie shows "Čakajú na odpoveď"; Kontakty has the new
+     contact.
+   - "Odpovedať" → SMS or e-mail → Náhľad → Odoslať → back on Konverzácie the shopper is "Odpovedané" and the badge is
+     gone. "Vybavené" does the same by hand.
+
+## Part AX6 — opening hours by SMS and the Google Business Profile (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/60_hours_sms.sql` → Run → "Success". Safe to run
+   again. (Updates 56–59 must be in first.)
+2. **Edge Function:** Supabase → Edge Functions → Deploy a new function → Via Editor → name **`hours-sms`** → paste
+   `supabase/functions/hours-sms/index.ts` → Deploy → switch **OFF "Verify JWT"**. It uses `ANTHROPIC_API_KEY`,
+   `SMS_PROVIDER` + its secrets (Part AX4), `SITE_URL`, `REVALIDATE_SECRET` and `BOOKING_TOKEN_ENCRYPTION_KEY` (all
+   already set).
+3. **The number owners text — LATER (not set up yet).** The owner decided on 2026-10-31 not to use Twilio and to pick
+   a cheaper EU provider later. Until then skip this step: the rest works (phones can be verified, the codes go out
+   through `SMS_PROVIDER`), "Hodiny cez SMS" says the number is not set up yet, and nothing changes hours by SMS.
+   When a provider is chosen: it must give an EU number that can **receive** SMS and forward each one to a web
+   address; unless it can post the generic JSON below, Claude adds a small adapter for it in `hours-sms` first.
+   For reference, the two ways that work today (Brevo cannot receive SMS):
+   - Twilio → Phone Numbers → buy a number that can **receive SMS** in your country → its "Messaging" settings →
+     "A message comes in" = Webhook, **HTTP POST**, address
+     `https://<project>.supabase.co/functions/v1/hours-sms/inbound/twilio` (exactly this; the signature is checked
+     against it) → Save.
+   - Supabase → Edge Functions → Secrets: `TWILIO_AUTH_TOKEN` = the account's Auth Token (Twilio Console → Account
+     info), `HOURS_SMS_NUMBER` = that number as shown to owners (e.g. `+421 2 1234 5678`).
+   - Another SMS gateway instead: it must POST JSON `{"from": "+421…", "text": "…", "id": "…"}` to
+     `…/hours-sms/inbound/generic` with the header `x-ppi-inbound` = a secret of 32+ characters you put into
+     `INBOUND_SMS_SECRET`.
+4. **Google Business Profile (optional):**
+   - Google Cloud → the project with the OAuth client of the bookings (Part AX3) → APIs & Services → Library → enable
+     **My Business Account Management API** and **My Business Business Information API**. Google lets a project use
+     them only after its access request is approved (Business Profile APIs → "Request access"); until then
+     "Pripojiť" works but Google refuses the calls.
+   - OAuth consent screen → add the scope `https://www.googleapis.com/auth/business.manage`.
+   - Credentials → the OAuth client → Authorized redirect URIs → add
+     `https://<project>.supabase.co/functions/v1/hours-sms/oauth`.
+   - Secrets (only if you use a separate client): `GOOGLE_BUSINESS_CLIENT_ID`, `GOOGLE_BUSINESS_CLIENT_SECRET`;
+     otherwise the function uses `GOOGLE_CALENDAR_CLIENT_ID` / `_SECRET`.
+5. **Try it** (a shop with Pro):
+   - Môj obchod → "Hodiny cez SMS" → your mobile → "Poslať kód" → type the code → "Overené".
+     (Test mode: with `SMS_PROVIDER` unset and `BOOKING_TEST_CODES=on` the code is shown on the page.)
+   - Text the number: `Po-Pi 8-17, So 8-12, Ne zatvorené` → within seconds the reply "Cacaduu: otváracie hodiny …
+     zmenené: …" and the shop page shows the new hours; "Posledné SMS" lists it.
+   - Text `Aká je cena mlieka?` → "len otváracie hodiny"; text `hmm` → "nerozumel som"; from another phone → nothing.
+   - "Pripojiť profil firmy na Google" → allow → choose the location → "Poslať hodiny do Google teraz" → the hours in
+     Google Maps (Google may take a while to show them).
+
+## Part AX7 — the owner's own AI assistant (MCP) (31 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/61_owner_mcp.sql` → Run → "Success". Safe to run
+   again. (Updates 55–60 must be in first.)
+2. **Edge Function:** paste the updated `supabase/functions/crm-messages/index.ts` into **`crm-messages`** → Deploy
+   ("Verify JWT" stays OFF). It now also sends the messages an AI assistant previewed for the owner.
+3. **Vercel:** nothing new. `NEXT_PUBLIC_SITE_URL` must be the public https address (e.g. `https://cacaduu.com`) —
+   the OAuth addresses the assistants use are built from it.
+4. **Try it** (an owner of a Pro shop):
+   - Môj obchod → **AI asistenti** → copy the address `https://<site>/mcp/owner`.
+   - **Claude** (claude.ai, a plan with custom connectors): Settings → Connectors → Add custom connector → the address →
+     Connect → Cacaduu's login → tick the shop and what it may do → Povoliť → back in Claude. Ask: "Aké mám dnes
+     rezervácie?", "Zmeň sobotu na 8–12", "Pošli Jane SMS, že tovar je pripravený" (Claude shows the preview first).
+   - **ChatGPT** (developer mode for connectors, where your plan offers it): Settings → Apps & Connectors → Advanced →
+     Developer mode → Create → the address, OAuth → the same consent page.
+   - **Gemini CLI:** `~/.gemini/settings.json` → `"mcpServers": {"cacaduu": {"httpUrl": "https://<site>/mcp/owner"}}` →
+     `/mcp auth cacaduu`.
+   - **Grok (xAI API) or any client without OAuth:** AI asistenti → "Kľúč pre AI asistenta" → name, shops, permissions →
+     copy the key (shown once) → the client's remote MCP server with header `Authorization: Bearer <key>`.
+   - Back on AI asistenti the connection is listed; **Odpojiť** stops it at once.
+   The menus of these apps change often; the steps above are how they described adding a custom MCP server at the time
+   of writing and have not been tried end to end with each app yet.
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1705,3 +2015,10 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 32. Quicksand font; the Cacaduu PPI logo and icons; the name Cacaduu everywhere; cacaduu.com as the main domain | ✅ built — set up Part AH |
 | 33. Shop blog "Novinky": posts with photos written in Môj obchod (now or scheduled), the shop's Facebook Page connected once (all past posts imported, a daily sync, "Zverejniť aj na Facebooku?" before each post), `/blog` pages with RSS, sitemap, llms.txt, IndexNow and JSON-LD on Cacaduu and own domains; free shops show the 10 newest; privacy and data deletion pages | ✅ built — set up Part AI |
 | 34. Every language: a language picker (all EU languages and more, Chinese and Vietnamese), interface texts per language, the shops' pages translated (original always kept, "Preložené automaticky"), product descriptions from the shop's own data, translations per product, the shop's languages, two-language stock files with encoding preview | ✅ built — set up Part AL |
+| 35. "Konverzácie" for Pro shops: the Asistent page in three tabs; every conversation Nové / Prečítané / Archivované with a star, a private note and the marks "Bez odpovede" / "Prístupový kľúč"; filters, search and bulk actions; one conversation as PDF or TXT, a date range as CSV; keep time "Neobmedzene" (default) or 30 / 90 / 365 days; every owner action logged | ✅ built — set up Part AX |
+| 36. "Kontakty" for Pro shops: contacts with an international phone (one per number, "overené" after an SMS code), e-mail, address, tags and a note; conversations join a contact by the phone or by hand; SMS and e-mail from the contact card with a preview first; e-mail templates; every outgoing message written down (real SMS since Part AX4) | ✅ built — set up Part AX2 |
+| 37. "Rezervácie" for Pro shops: free times in the shop assistant (opening hours, holidays, special days, no overlap, optional Google Calendar), the page's own form with the consent, a 6-digit SMS code that confirms at once, the contact found or made by the phone ("overené"), optional reminder the day before; Môj obchod → Rezervácie with a list, a week calendar and statuses | ✅ built — set up Part AX3 (real SMS: Part AX4) |
+| 38. SMS quotas and real SMS: two monthly quotas per shop (100 booking SMS, 100 owner SMS, counted in SMS parts; the admin may change them), nothing sent over a limit, "SMS tento mesiac" on Kontakty and Rezervácie, SMS through Brevo (or Twilio) | ✅ built — set up Part AX4 |
+| 39. Unanswered questions: "Nechajte nám kontakt" in the shop assistant (phone or e-mail + consent), the contact made or found, the conversation flagged, an e-mail "Nový zákazník, prosím odpovedzte" to the owners, a badge and "Čakajú na odpoveď" in Môj obchod, the reply by SMS or e-mail marks it answered | ✅ built — set up Part AX5 |
+| 40. Opening hours by SMS: the owner's verified phone texts the shops' number, Claude reads only opening hours, the database checks and changes only the named days on the shop page and in the Google Business Profile, a confirmation SMS or "write it again"; "Hodiny cez SMS" in Môj obchod with phones, the log and the Google connection | ✅ built — set up Part AX6 steps 1, 2, 4; **the receiving SMS number later** (provider not chosen yet, not Twilio) |
+| 41. The owner's own AI assistant: Claude, ChatGPT, Gemini, Grok or any MCP client at /mcp/owner (OAuth consent page or a personal key), works with conversations, contacts, bookings, opening hours, shop details and stock; SMS / e-mail only after a preview the owner approves; stock changes warn that the next file overwrites them; "AI asistenti" in Môj obchod | ✅ built — set up Part AX7 |

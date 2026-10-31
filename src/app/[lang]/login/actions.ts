@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
-import { requestOrigin } from "@/lib/auth";
+import { requestOrigin, safeNextPath } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -22,7 +22,8 @@ const isRateLimit = (error: { status?: number; message: string }) => error.statu
 /** E-mail + password login. */
 export async function signIn(formData: FormData) {
   const { lang, email, password } = read(formData);
-  const back = (error: string) => redirect(`/${lang}/login?error=${error}`);
+  const next = safeNextPath(String(formData.get("next") ?? ""), "");
+  const back = (error: string) => redirect(`/${lang}/login?${new URLSearchParams({ error, ...(next ? { next } : {}) })}`);
   if (!EMAIL.test(email) || email.length > 254) back("email");
   const supabase = await createClient();
   if (!supabase) back("config");
@@ -33,7 +34,7 @@ export async function signIn(formData: FormData) {
     if (error.code === "email_not_confirmed" || /not confirmed/i.test(error.message)) back("unconfirmed");
     back("credentials");
   }
-  redirect(`/${lang}/dashboard`);
+  redirect(next || `/${lang}/dashboard`);
 }
 
 /** Self-service sign-up: anyone may create a shop account. Supabase e-mails a confirmation link. */

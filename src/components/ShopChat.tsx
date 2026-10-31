@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { AssistantHeading } from "./AssistantHeading";
+import { BookingPanel } from "./BookingPanel";
+import { CallbackPanel } from "./CallbackPanel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { looksLikeKey } from "@/lib/accessKey";
 import type { FolderFile, OpenFolder, OpenSession } from "@/lib/docsAccess";
 import type { ChatCard, ChatDocPrice, ChatListItem, ChatReply, ChatSource, ChatTurn } from "@/lib/shopChat";
 import { FolderAccess, FolderViewer, type ViewTarget } from "./FolderAccess";
+import { StockDot } from "./StockDot";
 
 /** Anthropic's recommended longest side for photos; larger ones only cost more. */
 const MAX_SIDE = 1568;
@@ -700,22 +704,12 @@ export function ShopChat({
 
   return (
     <>
-    <section className="flex flex-col border border-line" aria-labelledby="assistant-heading" data-assistant>
-      <h2 id="assistant-heading" className="p-3 font-semibold">
-        {title}
-      </h2>
+    <section className="relative flex flex-col border border-line" aria-labelledby="assistant-heading" data-assistant>
+      <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
         <div className="flex flex-col gap-3 border-t border-line p-3">
           <p className="text-sm text-muted" data-chat-welcome>
             {intro}
           </p>
-          {archive && (
-            <p className="text-xs text-muted" data-chat-privacy>
-              {labels.privacy_notice.replace("{shop}", shopName)}{" "}
-              <Link href={`/${lang}/sukromie-asistent`} className="underline underline-offset-4">
-                {labels.privacy_more}
-              </Link>
-            </p>
-          )}
           <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log>
           {entries.length > 0 && (
             <ol className="flex flex-col gap-4" aria-live="polite">
@@ -729,7 +723,13 @@ export function ShopChat({
                     </>
                   )}
                   {entry.role === "assistant" && (
-                    <Answer reply={entry.reply} labels={labels} shopName={shopName} onView={folders ? setViewing : null} />
+                    <Answer
+                      reply={entry.reply}
+                      labels={labels}
+                      shopName={shopName}
+                      onView={folders ? setViewing : null}
+                      booking={{ base, lang, conversation: () => (archive ? conv.current : null) }}
+                    />
                   )}
                   {entry.role === "error" && <p className="border border-line p-2 text-sm">{entry.text}</p>}
                   {entry.role === "notice" && (
@@ -827,9 +827,6 @@ export function ShopChat({
                 </button>
               )}
             </div>
-            <p className="text-xs text-muted">
-              {archive ? labels.files_note : labels.photo_note} {labels.note}
-            </p>
           </form>
         </div>
     </section>
@@ -892,12 +889,15 @@ function Answer({
   labels,
   shopName,
   onView,
+  booking,
 }: {
   reply: ChatReply;
   labels: Labels;
   shopName: string;
   /** Opens a private folder's document in the viewer (only while folders are open). */
   onView: ((target: ViewTarget) => void) | null;
+  /** What the booking form needs (database update 57). */
+  booking: { base: string; lang: string; conversation: () => Conversation | null };
 }) {
   const match = reply.photo
     ? { found: labels.match_found, not_found: labels.match_not_found, unsure: labels.match_unsure }[reply.photo.match]
@@ -971,12 +971,34 @@ function Answer({
           ))}
         </ul>
       )}
+      {reply.booking && reply.booking.slots.length > 0 && (
+        <BookingPanel
+          base={booking.base}
+          lang={booking.lang}
+          shopName={shopName}
+          timeZone={reply.booking.timezone}
+          service={reply.booking.service}
+          slots={reply.booking.slots}
+          conversation={booking.conversation}
+          privacyHref={`/${booking.lang}/sukromie-asistent#rezervacie`}
+          labels={labels}
+        />
+      )}
       {reply.callShop && (
         <p className="text-sm">
           <a href={`tel:${reply.callShop.replace(/[^+\d]/g, "")}`} className="font-medium underline underline-offset-4">
             {labels.call_shop.replace("{phone}", reply.callShop)}
           </a>
         </p>
+      )}
+      {reply.askContact && booking.conversation() && (
+        <CallbackPanel
+          base={booking.base}
+          shopName={shopName}
+          conversation={booking.conversation}
+          privacyHref={`/${booking.lang}/sukromie-asistent#kontakt`}
+          labels={labels}
+        />
       )}
     </>
   );
@@ -1011,16 +1033,17 @@ function ItemLine({ item, quantity, labels }: { item: ChatCard; quantity?: numbe
         <div className="min-w-0">
           {quantity !== undefined && <span className="font-medium">{quantity}× </span>}
           <Link href={item.href} className="font-medium hover:underline">
-            {item.name}
+            {item.translated ?? item.name}
           </Link>
-          {item.translated && <p className="text-sm text-muted">{item.translated}</p>}
+          {item.translated && <p className="text-sm text-muted">{item.name}</p>}
         </div>
-        <span className="whitespace-nowrap font-medium">{item.price}</span>
+        <span className="flex items-center gap-2 whitespace-nowrap font-medium">
+          {item.stock && <StockDot state={item.stock} label={item.stockLabel} />}
+          {item.price}
+        </span>
       </div>
-      <p className="text-sm">
-        {item.availability && <strong>{item.availability} · </strong>}
-        <span className="text-muted">{item.freshness}</span>
-      </p>
+      {/* No stock sentence in listings (only the product page has it): the dot says it. */}
+      {item.freshness && <p className="text-sm text-muted">{item.freshness}</p>}
       {(item.docPrices ?? []).map((p, i) => (
         <p key={i} className="text-sm">
           <DocPrice price={p} labels={labels} />
@@ -1030,7 +1053,7 @@ function ItemLine({ item, quantity, labels }: { item: ChatCard; quantity?: numbe
   );
 }
 
-/** The shopping list with each item's availability; copy as text or print only the list. */
+/** The shopping list (the stock dot on each line); copy as text or print only the list. */
 function ShoppingList({ list, labels, shopName }: { list: ChatListItem[]; labels: Labels; shopName: string }) {
   const box = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState<boolean | null>(null);
@@ -1040,8 +1063,7 @@ function ShoppingList({ list, labels, shopName }: { list: ChatListItem[]; labels
       `${labels.list_title} – ${shopName}`,
       ...list.map(
         (item) =>
-          `${item.quantity}× ${item.name}${item.translated ? ` (${item.translated})` : ""} – ${item.price} – ` +
-          `${item.availability ?? item.freshness}${item.note ? ` – ${item.note}` : ""}`,
+          `${item.quantity}× ${item.name}${item.translated ? ` (${item.translated})` : ""} – ${item.price}${item.note ? ` – ${item.note}` : ""}`,
       ),
       window.location.href.split("#")[0],
     ].join("\n");

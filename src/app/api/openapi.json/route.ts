@@ -60,7 +60,7 @@ const shop = {
     opening_hours: { type: ["object", "null"], description: '{"mon":[["08:00","17:00"]],...} in the shop\'s time zone' },
     open_now: { type: ["boolean", "null"] },
     status,
-    facilities: { type: "object", properties: { customer_toilet: { type: "boolean" }, douchette: { type: "boolean" }, card_payment: { type: "boolean" } } },
+    facilities: { type: "object", properties: { customer_toilet: { type: "boolean" }, douchette: { type: "boolean", description: "bidet shower" }, card_payment: { type: "boolean" } } },
     freshness,
     source_url: { type: "string", format: "uri" },
   },
