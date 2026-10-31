@@ -55,3 +55,58 @@ export async function findSlots(slug: string, from: string | null, days: number)
   const { data } = await bookingsCall<SlotList>({ action: "slots", slug, from, days: Math.min(Math.max(days, 1), 7) });
   return data;
 }
+
+// ---------------------------------------------------------------- update 63: the assistant's tools
+
+/** A service the assistant may offer (shop_booking_services). */
+export interface BookingService {
+  id: string;
+  name: string;
+  duration_minutes: number;
+  capacity: number;
+  needs_resource: boolean;
+  note: string | null;
+}
+
+/** A free start offered in one conversation: the short ref is the only thing the AI ever sends back. */
+export interface OfferedSlot {
+  ref: string;
+  starts_at: string;
+  ends_at: string;
+  resource_name: string | null;
+  seats_left: number;
+}
+
+export interface BookedSlot {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  service_name: string | null;
+  resource_name: string | null;
+  timezone: string;
+}
+
+export interface ChatConversation {
+  id: string;
+  token: string;
+}
+
+export async function bookingServices(slug: string): Promise<BookingService[]> {
+  const { data } = await bookingsCall<{ services: BookingService[] }>({ action: "services", slug });
+  return data?.services ?? [];
+}
+
+/** find_free_slots: booking_free_slots through booking_offer_slots (refs kept 30 minutes for this conversation). */
+export async function offerSlots(slug: string, conversation: ChatConversation, serviceId: string, from: string, to: string) {
+  return bookingsCall<{ available: boolean; timezone?: string; slots: OfferedSlot[] }>({
+    action: "offer", slug, service_id: serviceId, from, to, conversation_id: conversation.id, conversation_token: conversation.token,
+  });
+}
+
+/** book_slot: only a ref offered in this conversation, only for the contact verified in it (booking_create checks again). */
+export async function bookOffered(slug: string, conversation: ChatConversation, ref: string, people = 1) {
+  return bookingsCall<{ ok: boolean; booking: BookedSlot }>({
+    action: "book", slug, ref, people, conversation_id: conversation.id, conversation_token: conversation.token,
+  });
+}
+
