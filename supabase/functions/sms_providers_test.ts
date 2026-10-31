@@ -1,8 +1,9 @@
 // The SMS providers (database update 58, CRM phase 4): one block of code in crm-messages and bookings (each function is
-// one file pasted by hand), so both copies must stay the same; Brevo and Twilio requests, missing secrets, the sender.
+// one file pasted by hand) and hours-sms (update 60), so every copy must stay the same; Brevo and Twilio requests, missing secrets, the sender.
 // Run: npm run test:functions
 import * as crm from "./crm-messages/index.ts";
 import * as bookings from "./bookings/index.ts";
+import * as hours from "./hours-sms/index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -25,6 +26,10 @@ Deno.test("crm-messages and bookings carry the same SMS providers", async () => 
   eq(await block("crm-messages") === await block("bookings"), true, "copy the block from one file to the other");
 });
 
+Deno.test("hours-sms carries the same SMS providers (update 60)", async () => {
+  eq(await block("crm-messages") === await block("hours-sms"), true, "copy the block from crm-messages into hours-sms");
+});
+
 interface Call {
   url: string;
   init: RequestInit;
@@ -39,7 +44,7 @@ function fake(status: number, body: unknown) {
 }
 const env = (values: Record<string, string>) => (name: string) => values[name];
 
-for (const [label, m] of [["crm-messages", crm], ["bookings", bookings]] as const) {
+for (const [label, m] of [["crm-messages", crm], ["bookings", bookings], ["hours-sms", hours]] as const) {
   Deno.test(`${label}: Brevo sends a transactional SMS, Unicode only when needed`, async () => {
     const { f, calls } = fake(201, { messageId: 1511882900176220, smsCount: 1 });
     const p = m.smsProvider("Brevo", env({ BREVO_API_KEY: "xkeysib-1", SMS_SENDER: "Kaderníctvo Eva!" }), f);

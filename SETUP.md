@@ -1900,6 +1900,48 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - "Odpovedať" → SMS or e-mail → Náhľad → Odoslať → back on Konverzácie the shopper is "Odpovedané" and the badge is
      gone. "Vybavené" does the same by hand.
 
+## Part AX6 — opening hours by SMS and the Google Business Profile (30 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/60_hours_sms.sql` → Run → "Success". Safe to run
+   again. (Updates 56–59 must be in first.)
+2. **Edge Function:** Supabase → Edge Functions → Deploy a new function → Via Editor → name **`hours-sms`** → paste
+   `supabase/functions/hours-sms/index.ts` → Deploy → switch **OFF "Verify JWT"**. It uses `ANTHROPIC_API_KEY`,
+   `SMS_PROVIDER` + its secrets (Part AX4), `SITE_URL`, `REVALIDATE_SECRET` and `BOOKING_TOKEN_ENCRYPTION_KEY` (all
+   already set).
+3. **The number owners text — LATER (not set up yet).** The owner decided on 2026-10-31 not to use Twilio and to pick
+   a cheaper EU provider later. Until then skip this step: the rest works (phones can be verified, the codes go out
+   through `SMS_PROVIDER`), "Hodiny cez SMS" says the number is not set up yet, and nothing changes hours by SMS.
+   When a provider is chosen: it must give an EU number that can **receive** SMS and forward each one to a web
+   address; unless it can post the generic JSON below, Claude adds a small adapter for it in `hours-sms` first.
+   For reference, the two ways that work today (Brevo cannot receive SMS):
+   - Twilio → Phone Numbers → buy a number that can **receive SMS** in your country → its "Messaging" settings →
+     "A message comes in" = Webhook, **HTTP POST**, address
+     `https://<project>.supabase.co/functions/v1/hours-sms/inbound/twilio` (exactly this; the signature is checked
+     against it) → Save.
+   - Supabase → Edge Functions → Secrets: `TWILIO_AUTH_TOKEN` = the account's Auth Token (Twilio Console → Account
+     info), `HOURS_SMS_NUMBER` = that number as shown to owners (e.g. `+421 2 1234 5678`).
+   - Another SMS gateway instead: it must POST JSON `{"from": "+421…", "text": "…", "id": "…"}` to
+     `…/hours-sms/inbound/generic` with the header `x-ppi-inbound` = a secret of 32+ characters you put into
+     `INBOUND_SMS_SECRET`.
+4. **Google Business Profile (optional):**
+   - Google Cloud → the project with the OAuth client of the bookings (Part AX3) → APIs & Services → Library → enable
+     **My Business Account Management API** and **My Business Business Information API**. Google lets a project use
+     them only after its access request is approved (Business Profile APIs → "Request access"); until then
+     "Pripojiť" works but Google refuses the calls.
+   - OAuth consent screen → add the scope `https://www.googleapis.com/auth/business.manage`.
+   - Credentials → the OAuth client → Authorized redirect URIs → add
+     `https://<project>.supabase.co/functions/v1/hours-sms/oauth`.
+   - Secrets (only if you use a separate client): `GOOGLE_BUSINESS_CLIENT_ID`, `GOOGLE_BUSINESS_CLIENT_SECRET`;
+     otherwise the function uses `GOOGLE_CALENDAR_CLIENT_ID` / `_SECRET`.
+5. **Try it** (a shop with Pro):
+   - Môj obchod → "Hodiny cez SMS" → your mobile → "Poslať kód" → type the code → "Overené".
+     (Test mode: with `SMS_PROVIDER` unset and `BOOKING_TEST_CODES=on` the code is shown on the page.)
+   - Text the number: `Po-Pi 8-17, So 8-12, Ne zatvorené` → within seconds the reply "Cacaduu: otváracie hodiny …
+     zmenené: …" and the shop page shows the new hours; "Posledné SMS" lists it.
+   - Text `Aká je cena mlieka?` → "len otváracie hodiny"; text `hmm` → "nerozumel som"; from another phone → nothing.
+   - "Pripojiť profil firmy na Google" → allow → choose the location → "Poslať hodiny do Google teraz" → the hours in
+     Google Maps (Google may take a while to show them).
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -1955,3 +1997,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 37. "Rezervácie" for Pro shops: free times in the shop assistant (opening hours, holidays, special days, no overlap, optional Google Calendar), the page's own form with the consent, a 6-digit SMS code that confirms at once, the contact found or made by the phone ("overené"), optional reminder the day before; Môj obchod → Rezervácie with a list, a week calendar and statuses | ✅ built — set up Part AX3 (real SMS: Part AX4) |
 | 38. SMS quotas and real SMS: two monthly quotas per shop (100 booking SMS, 100 owner SMS, counted in SMS parts; the admin may change them), nothing sent over a limit, "SMS tento mesiac" on Kontakty and Rezervácie, SMS through Brevo (or Twilio) | ✅ built — set up Part AX4 |
 | 39. Unanswered questions: "Nechajte nám kontakt" in the shop assistant (phone or e-mail + consent), the contact made or found, the conversation flagged, an e-mail "Nový zákazník, prosím odpovedzte" to the owners, a badge and "Čakajú na odpoveď" in Môj obchod, the reply by SMS or e-mail marks it answered | ✅ built — set up Part AX5 |
+| 40. Opening hours by SMS: the owner's verified phone texts the shops' number, Claude reads only opening hours, the database checks and changes only the named days on the shop page and in the Google Business Profile, a confirmation SMS or "write it again"; "Hodiny cez SMS" in Môj obchod with phones, the log and the Google connection | ✅ built — set up Part AX6 steps 1, 2, 4; **the receiving SMS number later** (provider not chosen yet, not Twilio) |

@@ -2677,3 +2677,44 @@ which replaces three of its functions):
   conversation; badge, list, an answer marks it answered only when sent, "Vybavené" / back; owner B and owners writing
   alerts refused; without the plan refused.
 
+## Update 60 — opening hours by SMS and the Google Business Profile (CRM phase 6, 30 October 2026)
+
+`supabase/sql/60_hours_sms.sql` (one file, safe to run again; needs 56, 57, 58 and 59):
+- `shop_owner_phones` (shop, user, phone E.164 unique per shop, verified_at, code hash / expiry / attempts / sends;
+  members read id, phone, verified_at — never the hash), `hours_sms_messages` (shop, phone + SHA-256 hash, body, provider
+  + ref unique, status received|applied|unclear|not_hours|unknown_phone|which_shop|no_plan|too_many|failed, parsed,
+  reply, google none|pushed|failed|not_connected, error; members read body, status, reply, google, time),
+  `business_profile_connections` (encrypted access/refresh token, status, `locations/<id>`, title, last error / push;
+  members read everything but the tokens), `business_oauth_states` (state hash, verifier, return URL, 10 minutes).
+- `shop_outgoing_messages.kind` + `hours_reply`, `phone_code` (both in the owner quota of update 58); activity actions
+  `hours_phone_verified`, `hours_phone_removed`, `hours_sms_applied`, `business_connected`, `business_disconnected`,
+  `business_location_set`, `business_pushed`.
+- Service role: `hours_phone_start(user, shop, phone)` (member + plan; `crm_phone` with the shop's country; 3/hour/phone,
+  10/day/shop; `{id, phone, code}`, verified rows keep their owner), `hours_sms_receive(phone, body, provider, ref)`,
+  `hours_sms_result`, `hours_sms_apply(shop, user, regular, special, sms)` (merge only the named weekdays; special
+  dates upserted per day; refusals hours / dates / ranges / empty), `hours_sms_claim` / `hours_sms_settle` (codes
+  masked), `hours_special_days`, `business_oauth_begin/take`, `business_save`, `business_token`, `business_refreshed`,
+  `business_failed`, `business_pushed`, `business_set_location`, `business_remove`. Owners: `owner_phone_verify(id,
+  code)` (wrong_code + attempts_left / expired / too_many_attempts), `owner_phone_remove(id)`. `valid_week_hours(jsonb)`.
+- `supabase/functions/hours-sms/index.ts`: `POST /inbound/twilio` (signature with `TWILIO_AUTH_TOKEN` against
+  `<SUPABASE_URL>/functions/v1/hours-sms/inbound/twilio`) and `/inbound/generic` (`INBOUND_SMS_SECRET`) →
+  `handleSms`: receive → Claude (`claudeParser`, `PARSE_SCHEMA`, input: today + weekday in the shop's zone, shop
+  names, current week, the SMS) → shop choice → `checkParsed` → `hours_sms_apply` → `/api/revalidate` → `pushToGoogle`
+  (`googleRegular` / `googleSpecial`) → reply (`describeChange`, `replyText` sk/hu/en) through the SMS providers block →
+  `hours_sms_result`. Owner actions with the caller's login: `config`, `phone_start`, `google_connect` (PKCE,
+  `business.manage`, return only to `…/dashboard/hours-sms`), `google_locations` (Account Management `accounts` →
+  Business Information `locations?readMask=name,title,storefrontAddress`), `google_select`, `google_push` (the saved
+  week via `my_shops`), `google_disconnect` (revoke + delete); `GET /oauth`. Tests in `index_test.ts` (signatures,
+  unknown/duplicate, apply path with the Google body, unclear / not hours / which shop, quota, the rules, overnight
+  periods, codes never returned, OAuth) and `sms_providers_test.ts` (the block identical in three functions).
+- Website: `dashboard/hours-sms/page.tsx` (number + examples, phones with code form, owner SMS usage, Google status /
+  location radio / push / change / disconnect, last 20 SMS) + `actions.ts`; menu `account.hours_sms_page`; link in
+  Môj obchod's "Sviatky" section. Texts `hours_sms`.
+- DB tests (block "update 60"): week hours (past midnight fine); a code only for members, a bad phone, ≤ 3 codes an
+  hour; wrong code with attempts left, verified + logged, the hash never readable; another owner sees, verifies,
+  removes nothing and no owner applies hours directly; an unknown number keeps no text; a repeated ref; ≥ 10 an hour →
+  too_many; apply merges only the named days, bad hours / a past day / 90 days / nothing refused, special days per
+  day; the code masked, settled once, the owner quota; the Google location format, tokens and `business_token`
+  hidden from owners; a removed phone is unknown again.
+- Not verified here: the Google Business Profile endpoints (written from Google's published API shape; the project
+  needs the Business Profile API access approved) and a real Twilio number.

@@ -376,9 +376,9 @@ Never log phones, codes, names or tokens. Texts `chat.booking_*`, `bookings`.
 
 ## SMS quotas and the SMS provider (paid, update 58, CRM phase 4)
 
-`supabase/sql/58_sms_quotas.sql` + the **SMS providers block** (identical in `crm-messages/index.ts` and
-`bookings/index.ts`, between "SMS providers (the same block…" and "end of the SMS providers"; `sms_providers_test.ts`
-fails when the copies differ — edit both) + `@/lib/smsUsage` + `@/components/SmsUsage` + `admin/domains/SmsAdmin.tsx`.
+`supabase/sql/58_sms_quotas.sql` + the **SMS providers block** (identical in `crm-messages/index.ts`,
+`bookings/index.ts` and, since update 60, `hours-sms/index.ts`, between "SMS providers (the same block…" and "end of the
+SMS providers"; `sms_providers_test.ts` fails when the copies differ — edit all three) + `@/lib/smsUsage` + `@/components/SmsUsage` + `admin/domains/SmsAdmin.tsx`.
 **Two monthly quotas per shop, kept apart:** `booking` (kinds booking_code + booking_reminder) and `owner` (kind owner),
 limits only in `sms_quota_limits` (default 100 each; only `admin_save_sms_quotas()`, admin "SMS"). A quota counts **SMS
 parts** (`crm_sms_parts()` = `smsParts()` in `@/lib/crm` = `isGsm()` in the providers: GSM-7 160/153, Unicode 70/67) of
@@ -415,6 +415,36 @@ Konverzácie tab), `owner_callbacks_waiting()` (the "Asistent" menu badge), `own
 logged `callback_done` / `callback_reopened`); a reply = the contact's Správy (SMS / e-mail, phase 2 + 4 rules) — a sent
 or test owner message to that contact marks its waiting conversations answered (`crm_message_result`). Texts
 `chat.callback_*`, `callbacks`, `privacy_assistant.callback*` (#kontakt).
+
+## Opening hours by SMS (paid, update 60, CRM phase 6)
+
+`supabase/sql/60_hours_sms.sql` + `supabase/functions/hours-sms` (one file, Verify JWT off; `index_test.ts`) +
+`dashboard/hours-sms` ("Hodiny cez SMS": `page.tsx`, `actions.ts`; menu after Rezervácie, a link in "Sviatky"). An SMS
+**changes only opening hours** — never prices, stock, messages or anything else. **Only from an owner's verified phone**
+(`shop_owner_phones`, one per shop and number, E.164 by `crm_phone`): the code comes only from the function
+(`hours_phone_start`, service role, the caller's login + member + `shop_has_plan`; 6 digits from `booking_new_code()`,
+hash only, 10 minutes, 5 tries, 3 codes/hour/phone, 10/shop/day; the SMS log masks it) and is typed into
+`owner_phone_verify()`; the website never sees a code (except `BOOKING_TEST_CODES=on` while `SMS_PROVIDER` is test).
+Inbound: Brevo cannot receive SMS, so `POST /hours-sms/inbound/twilio` (`X-Twilio-Signature` = HMAC-SHA1 of the
+webhook address + sorted fields with `TWILIO_AUTH_TOKEN`; TwiML answer) or `/inbound/generic` (`x-ppi-inbound` =
+`INBOUND_SMS_SECRET`, ≥ 32; `{from, text, id?}`); anything unsigned → 403. `hours_sms_receive()` writes every SMS
+down (`hours_sms_messages`; an unknown number keeps no text, only a hash; provider ref once → duplicate; ≤ 10/hour per
+phone) and returns the shops of that verified phone (active, plan, owner still a member) — unknown numbers get **no
+reply**. Claude (`AI_MODEL`, structured output `PARSE_SCHEMA`; the SMS is data) reads intent hours|other|unclear,
+the named shop, the language, the named weekdays and the special dates (resolved in the shop's time zone); the function
+(`checkParsed`) and the database (`hours_sms_apply`: `valid_week_hours` / `valid_hour_ranges`, yesterday … +400 days,
+≤ 62 days a row, ≤ 10 rows) check again; **only the named days change** (regular → `shops.opening_hours`, dates →
+`shop_special_hours`; activity `hours_sms_applied`); the page is refreshed (`/api/revalidate`); Google gets the whole
+week + the coming special days; one reply SMS in sk/hu/en (cs → sk, else sk): "otváracie hodiny … zmenené: Po–Pi 8–17,
+Ne zatvorené." (+ Google line), or "nerozumel som…" / "len otváracie hodiny" / "pre ktorý obchod?" (several shops: the
+SMS names one). Replies and codes take the shop's **owner** SMS quota (`hours_sms_claim` → `sms_quota_take`, kinds
+`hours_reply` / `phone_code`; over it the hours still apply, no reply). **Google Business Profile:** OAuth PKCE, scope
+**only** `business.manage`, redirect `…/functions/v1/hours-sms/oauth`, tokens AES-GCM (`BOOKING_TOKEN_ENCRYPTION_KEY`,
+bound to shop + kind) in `business_profile_connections` (owners: status, location, last error/push only); one
+location per shop (`locations/<id>`); `PATCH {INFO_API}/locations/<id>?updateMask=regularHours,specialHours`
+(overnight closes the next day); "Poslať hodiny do Google teraz" for changes made on the website; 401 → expired;
+"Odpojiť" revokes and deletes. The Business Profile APIs need Google's approval for the project. Never log numbers,
+SMS texts, codes or tokens. Texts `hours_sms`.
 
 ## Cloud folder (paid, update 23)
 
