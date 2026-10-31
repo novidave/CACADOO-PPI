@@ -1889,10 +1889,10 @@ reset role;
 \echo '--- shop assistant archive: conversations, files, PDFs, keep time, owners only'
 do $$ begin
   assert (select schedule from cron.job where jobname = 'ppi-assistant-tick') = '*/5 * * * *', 'the 5-minute job';
-  assert (select schedule from cron.job where jobname = 'ppi-assistant-retention') = '17 3 * * *', 'the daily job';
+  -- update 63: conversations are kept until the owner deletes them — the daily keep-time job is gone
+  assert not exists (select 1 from cron.job where jobname = 'ppi-assistant-retention'), 'no keep-time job';
   assert (select command from cron.job where jobname = 'ppi-assistant-tick') like '%/functions/v1/assistant-archive%'
      and (select command from cron.job where jobname = 'ppi-assistant-tick') like '%''action'', ''tick''%', 'calls the function';
-  assert (select command from cron.job where jobname = 'ppi-assistant-retention') like '%''action'', ''retention''%';
   assert (select length(secret) from vault.secrets where name = 'ppi_assistant_cron') = 64, 'a random secret in Vault';
 end $$;
 
@@ -2169,14 +2169,12 @@ do $$
 declare
   v_id uuid := (select v::uuid from archive_test where k = 'id');
 begin
-  update public.assistant_conversations set last_message_at = now() - interval '29 days' where id = v_id;
-  assert not exists (select 1 from public.assistant_expired(10)), 'kept for 30 days';
+  -- update 63: a keep time chosen before (30/90/365) no longer deletes anything
   update public.assistant_conversations set last_message_at = now() - interval '31 days' where id = v_id;
-  assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], 'deleted after 30 days';
+  assert not exists (select 1 from public.assistant_expired(10)), 'a 30-day choice keeps it now';
   update public.shop_assistant_settings set retention_days = 90;
-  assert not exists (select 1 from public.assistant_expired(10)), 'a longer keep time keeps it';
   update public.assistant_conversations set last_message_at = now() - interval '91 days' where id = v_id;
-  assert (select array_agg(x) from public.assistant_expired(10) x) = array[v_id], 'deleted after 90 days';
+  assert not exists (select 1 from public.assistant_expired(10)), 'a 90-day choice keeps it now';
   -- update 55: nothing set (or "Neobmedzene") = kept until the owner deletes it
   delete from public.shop_assistant_settings;
   update public.assistant_conversations set last_message_at = now() - interval '3000 days' where id = v_id;
@@ -8903,7 +8901,7 @@ begin
   where id in (v_one, v_two);
   assert not exists (select 1 from public.assistant_expired(1000) x where x in (v_one, v_two)), 'Neobmedzene keeps them';
   update public.shop_assistant_settings set retention_days = 365 where shop_id = v_a;
-  assert (select count(*) from public.assistant_expired(1000) x where x in (v_one, v_two)) = 2, '365 days: deleted';
+  assert not exists (select 1 from public.assistant_expired(1000) x where x in (v_one, v_two)), 'update 63: 365 days keeps them too';
   perform public.assistant_forget(v_one);
   perform public.assistant_forget(v_two);
   delete from public.shop_assistant_settings where shop_id = v_a;
@@ -9390,7 +9388,9 @@ begin
   assert (select count(*) from public.owner_bookings(v_a, v_day, v_day, 'expired')) >= 2;
   assert (select name from public.owner_bookings(v_a, v_day, v_day) order by starts_at limit 1) = 'Jana Nová';
   assert public.owner_set_booking_status(v_b1, 'cancelled');
-  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'booking_status_changed');
+  -- update 63: a cancellation goes through booking_cancel (its own log line and the audit log)
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'booking_cancelled');
+  assert exists (select 1 from public.booking_events where booking_id = v_b1 and kind = 'cancelled' and actor_kind = 'owner');
   assert public.owner_set_booking_status(v_b1, 'no_show');
   assert public.owner_set_booking_status(v_b1, 'confirmed');
   assert not public.owner_set_booking_status(v_b1, 'confirmed'), 'no change';
@@ -10777,5 +10777,720 @@ begin
   where nullif((select v from t62 where k = 'lang_row'), '') is not null;
 end $$;
 drop table t62;
+
+\echo '--- update 63: Asistent + CRM + Rezervácie — rules, services, resources, one free-slot rule, no double booking, codes, delete-all, feed'
+do $$ begin
+  if exists (select 1 from pg_available_extensions where name = 'dblink') then create extension if not exists dblink; end if;
+end $$;
+create temporary table t63 (k text primary key, v text);
+grant all on t63 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := current_date + 20;
+  v_open jsonb;
+begin
+  insert into t63 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('d', v_d::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_63')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_63');
+  update public.shops set auto_holidays = true where id = v_a;
+  -- D: 09:00–12:00; D+1 closed; D+2 a day off (holiday)
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, v_d, false, '[["09:00","12:00"]]'), (v_a, v_d + 1, true, '[]')
+  on conflict (shop_id, date) do update set closed = excluded.closed, ranges = excluded.ranges;
+  insert into public.public_holidays (country, date, kind, closed_from, source)
+  values ('SK', v_d + 2, 'day_off', null, 'admin')
+  on conflict (country, date, source) do update set kind = excluded.kind, closed_from = excluded.closed_from;
+  delete from public.shop_special_hours where shop_id = v_a and date = v_d + 2;
+  v_open := public.assistant_open(v_a, 'sk', repeat('m', 32));
+  insert into t63 values ('conv', v_open ->> 'id'), ('token', v_open ->> 'token');
+  v_open := public.assistant_open(v_a, 'sk', repeat('n', 32));
+  insert into t63 values ('conv2', v_open ->> 'id'), ('token2', v_open ->> 'token');
+end $$;
+reset role;
+
+-- the owner: rules, services, resources, blocks, templates, settings, the feed
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_r1 uuid;
+  v_r2 uuid;
+  v_s1 uuid;
+  v_s2 uuid;
+  v_s3 uuid;
+  v_tpl uuid;
+  v_token text;
+begin
+  begin perform public.owner_save_booking_rules(v_a, true, 120, 60, 7, 2); raise exception 'a 7-minute step';
+  exception when invalid_parameter_value then null; end;
+  perform public.owner_save_booking_rules(v_a, true, 120, 60, 15, 2);
+  assert (select enabled and lead_minutes = 120 and horizon_days = 60 and step_minutes = 15 and max_per_contact_day = 2
+          from public.shop_booking_settings where shop_id = v_a);
+  v_r1 := public.owner_save_booking_resource(v_a, null, 'Jana', 'person', true, null);
+  begin perform public.owner_save_booking_resource(v_a, null, 'Eva', 'person', true, '{"mon": [["10:00"]]}'); raise exception 'bad hours';
+  exception when invalid_parameter_value then null; end;
+  v_r2 := public.owner_save_booking_resource(v_a, null, 'Eva', 'person', true,
+            '{"mon":[["10:00","12:00"]],"tue":[["10:00","12:00"]],"wed":[["10:00","12:00"]],"thu":[["10:00","12:00"]],"fri":[["10:00","12:00"]],"sat":[["10:00","12:00"]],"sun":[["10:00","12:00"]]}');
+  begin perform public.owner_save_booking_service(v_a, null, 'Strih', 3, 0, 15, 1, true, true, true, null, array[v_r1, v_r2]);
+    raise exception '3 minutes'; exception when invalid_parameter_value then null; end;
+  v_s1 := public.owner_save_booking_service(v_a, null, 'Strih', 30, 0, 15, 1, true, true, true, 'Umyté vlasy', array[v_r1, v_r2]);
+  v_s2 := public.owner_save_booking_service(v_a, null, 'Kurz', 60, 0, 0, 3, false, true, true, null);
+  v_s3 := public.owner_save_booking_service(v_a, null, 'Konzultácia', 60, 0, 0, 1, false, true, false, null);
+  assert (select count(*) from public.booking_service_resources where service_id = v_s1) = 2;
+  perform public.owner_save_booking_block(v_a, null, null, ((v_d + time '11:30') at time zone 'Europe/Bratislava'),
+                                          ((v_d + time '12:00') at time zone 'Europe/Bratislava'), 'Porada');
+  begin perform public.owner_save_booking_block(v_a, null, null, now(), now() - interval '1 hour', null); raise exception 'block ends first';
+  exception when invalid_parameter_value then null; end;
+  -- templates for SMS and e-mail
+  v_tpl := public.owner_save_message_template(v_a, null, 'Pripomienka', 'sms', null, 'Dobrý deň {meno}, {obchod} vás čaká {datum} o {cas}.');
+  assert (select channel = 'sms' and subject is null from public.shop_email_templates where id = v_tpl);
+  begin perform public.owner_save_message_template(v_a, null, 'E-mail', 'email', null, 'text'); raise exception 'e-mail without a subject';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.owner_save_message_template(v_a, null, 'Fax', 'fax', 'x', 'text'); raise exception 'channel';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.owner_save_message_template(v_a, null, 'Dlhá', 'sms', null, repeat('x', 1001)); raise exception '1001 characters';
+  exception when invalid_parameter_value then null; end;
+  -- CRM settings
+  begin perform public.owner_save_crm_settings(v_a, true, '3h', null, true); raise exception 'offset';
+  exception when invalid_parameter_value then null; end;
+  perform public.owner_save_crm_settings(v_a, true, '2h', 'Alerts@Example.invalid', true);
+  assert (select reminder_on and reminder_offset = '2h' and alert_email = 'alerts@example.invalid' and notify_on_owner_change
+          from public.crm_settings where shop_id = v_a);
+  -- the feed: the token shown once, only its hash kept
+  v_token := public.owner_calendar_feed_new(v_a);
+  assert v_token ~ '^cal_[0-9a-f]{64}$';
+  assert (select count(*) from public.shop_calendar_feeds where shop_id = v_a) = 1;
+  begin perform token_hash from public.shop_calendar_feeds; raise exception 'an owner read the feed hash';
+  exception when insufficient_privilege then null; end;
+  insert into t63 values ('r1', v_r1), ('r2', v_r2), ('s1', v_s1), ('s2', v_s2), ('s3', v_s3), ('tpl', v_tpl), ('feed', v_token);
+  -- owners write only through the functions
+  begin insert into public.booking_services (shop_id, name) values (v_a, 'x'); raise exception 'wrote a service directly';
+  exception when insufficient_privilege then null; end;
+  assert (owner_booking_setup ->> 'plan')::boolean and jsonb_array_length(owner_booking_setup -> 'services') = 3
+    from public.owner_booking_setup(v_a);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the one free-slot rule: hours, resources, blocks, buffers, special days, holidays, notice, days ahead
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_r1 uuid := (select v::uuid from t63 where k = 'r1');
+  v_r2 uuid := (select v::uuid from t63 where k = 'r2');
+  v_s1 uuid := (select v::uuid from t63 where k = 's1');
+  v_nine timestamptz := (v_d + time '09:00') at time zone 'Europe/Bratislava';
+  v_day_end timestamptz := (v_d + 1)::timestamp at time zone 'Europe/Bratislava';
+begin
+  -- 09:00–12:00, 30 min, step 15, a shop block 11:30–12:00: 09:00 … 11:00 (Jana first)
+  assert (select count(*) from public.booking_free_slots(v_a, v_s1, v_nine - interval '3 hours', v_day_end)) = 9;
+  assert (select min(starts_at) = v_nine and max(starts_at) = v_nine + interval '2 hours'
+          from public.booking_free_slots(v_a, v_s1, v_nine - interval '3 hours', v_day_end));
+  assert not exists (select 1 from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end) where resource_id <> v_r1), 'Jana first';
+  -- Eva works 10:00–12:00 only
+  assert (select count(*) from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end, v_r2)) = 5;
+  assert (select min(starts_at) from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end, v_r2)) = v_nine + interval '1 hour';
+  -- closed special day, a day off, the past and the notice, beyond the days ahead: nothing
+  assert not exists (select 1 from public.booking_free_slots(v_a, v_s1, v_day_end, v_day_end + interval '1 day')), 'closed day';
+  assert not exists (select 1 from public.booking_free_slots(v_a, v_s1, v_day_end + interval '1 day', v_day_end + interval '2 days')),
+    'a day off';
+  assert not exists (select 1 from public.booking_free_slots(v_a, v_s1, now() - interval '1 day', now() + interval '119 minutes')),
+    'never within the notice';
+  assert not exists (select 1 from public.booking_free_slots(v_a, v_s1, now() + interval '61 days', now() + interval '70 days')),
+    'never beyond the days ahead';
+  -- a service that is off has no times; more people than its capacity neither
+  assert not exists (select 1 from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end, null, null, 2)), 'capacity 1';
+  -- update 57's form uses the same rule
+  assert (select count(*) from public.booking_free_slots(v_a, v_nine, v_day_end)) > 0;
+end $$;
+reset role;
+
+-- codes: the contact is verified in the page's own field; limits, expiry, attempts
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_conv uuid := (select v::uuid from t63 where k = 'conv');
+  v_tok text := (select v from t63 where k = 'token');
+  c jsonb;
+  r jsonb;
+  v_contact uuid;
+  i integer;
+begin
+  begin perform public.sms_code_start('potraviny-centrum', 'contact', '0905 111 222', 'Jana Nová', repeat('k', 32), null, null, 'v1');
+    raise exception 'a contact code without a conversation'; exception when invalid_parameter_value then null; end;
+  begin perform public.sms_code_start('potraviny-centrum', 'contact', '12', 'Jana', repeat('k', 32), v_conv, v_tok, 'v1');
+    raise exception 'a bad phone'; exception when invalid_parameter_value then if sqlerrm <> 'phone' then raise; end if; end;
+  -- an expired code
+  c := public.sms_code_start('potraviny-centrum', 'contact', '0905 111 222', 'Jana Nová', repeat('k', 32), v_conv, v_tok, 'chat-v1');
+  assert c ->> 'code' ~ '^\d{6}$' and c ->> 'phone' = '+421905111222';
+  assert (select code_hash <> (c ->> 'code') and phone_hash = public.booking_hash('+421905111222') from public.sms_codes where id = (c ->> 'id')::uuid);
+  assert public.sms_code_claim((c ->> 'id')::uuid, 'Váš kód je ' || (c ->> 'code')) is not null;
+  assert (select body like '%••••••%' and body not like '%' || (c ->> 'code') || '%' and kind = 'sms_code'
+          from public.shop_outgoing_messages where shop_id = v_a and kind = 'sms_code' order by created_at desc limit 1), 'masked in the log';
+  update public.sms_codes set expires_at = now() - interval '1 second' where id = (c ->> 'id')::uuid;
+  assert public.sms_code_verify((c ->> 'id')::uuid, c ->> 'code', v_conv, v_tok) ->> 'reason' = 'expired';
+  -- 5 wrong tries end a code
+  c := public.sms_code_start('potraviny-centrum', 'contact', '0905 111 222', 'Jana Nová', repeat('k', 32), v_conv, v_tok, 'chat-v1');
+  for i in 1..5 loop
+    r := public.sms_code_verify((c ->> 'id')::uuid, case when c ->> 'code' = '000000' then '111111' else '000000' end, v_conv, v_tok);
+  end loop;
+  assert r ->> 'reason' = 'too_many_attempts';
+  assert public.sms_code_verify((c ->> 'id')::uuid, c ->> 'code', v_conv, v_tok) ->> 'reason' = 'too_many_attempts', 'even the right code';
+  -- the third code this hour still goes, the fourth not
+  c := public.sms_code_start('potraviny-centrum', 'contact', '+421 905 111 222', 'Jana Nová', repeat('k', 32), v_conv, v_tok, 'chat-v1');
+  begin perform public.sms_code_start('potraviny-centrum', 'contact', '0905111222', 'Jana', repeat('l', 32), v_conv, v_tok, 'v1');
+    raise exception '4 codes an hour'; exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+  -- another conversation's token never verifies it
+  assert public.sms_code_verify((c ->> 'id')::uuid, c ->> 'code', (select v::uuid from t63 where k = 'conv2'),
+                                (select v from t63 where k = 'token2')) ->> 'reason' = 'not_found';
+  r := public.sms_code_verify((c ->> 'id')::uuid, c ->> 'code', v_conv, v_tok);
+  assert (r ->> 'ok')::boolean and r ->> 'purpose' = 'contact';
+  v_contact := (r ->> 'contact_id')::uuid;
+  assert (select phone = '+421905111222' and name = 'Jana Nová' and phone_verified_at is not null and source = 'chat'
+          from public.shop_contacts where id = v_contact);
+  assert (select contact_id = v_contact and contact_verified_at is not null and contact_consent_version = 'chat-v1'
+          from public.assistant_conversations where id = v_conv);
+  assert (select phone is null and name is null and used_at is not null from public.sms_codes where id = (c ->> 'id')::uuid),
+    'the number leaves the code row once used';
+  assert (public.sms_code_verify((c ->> 'id')::uuid, c ->> 'code', v_conv, v_tok) ->> 'ok')::boolean is false, 'once';
+  -- 10 codes a caller an hour (other numbers)
+  for i in 1..7 loop
+    perform public.sms_code_start('potraviny-centrum', 'delete_all', '0905 222 00' || i, null, repeat('k', 32));
+  end loop;
+  begin perform public.sms_code_start('potraviny-centrum', 'delete_all', '0905 222 099', null, repeat('k', 32));
+    raise exception '11 codes for one caller'; exception when program_limit_exceeded then null; end;
+  -- the SMS quota: at the limit, no code
+  update public.sms_quota_limits set monthly = 0 where quota = 'booking';
+  begin perform public.sms_code_start('potraviny-centrum', 'delete_all', '0905 333 001', null, repeat('q', 32));
+    raise exception 'a code over the quota'; exception when program_limit_exceeded then if sqlerrm <> 'sms_quota' then raise; end if; end;
+  update public.sms_quota_limits set monthly = 100 where quota = 'booking';
+  delete from public.sms_codes where caller_hash in (repeat('k', 32), repeat('l', 32), repeat('q', 32)) and purpose = 'delete_all';
+  insert into t63 values ('jana', v_contact);
+end $$;
+reset role;
+
+-- the assistant books: only refs it offered, only for the verified contact; booking_create checks again
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_conv uuid := (select v::uuid from t63 where k = 'conv');
+  v_tok text := (select v from t63 where k = 'token');
+  v_conv2 uuid := (select v::uuid from t63 where k = 'conv2');
+  v_tok2 text := (select v from t63 where k = 'token2');
+  v_s1 uuid := (select v::uuid from t63 where k = 's1');
+  v_s3 uuid := (select v::uuid from t63 where k = 's3');
+  v_r1 uuid := (select v::uuid from t63 where k = 'r1');
+  v_nine timestamptz := (v_d + time '09:00') at time zone 'Europe/Bratislava';
+  v_day_end timestamptz := (v_d + 1)::timestamp at time zone 'Europe/Bratislava';
+  b jsonb;
+begin
+  assert (select count(*) from public.shop_booking_services('potraviny-centrum')) = 2, 'not the one the assistant does not offer';
+  assert not exists (select 1 from public.booking_offer_slots('potraviny-centrum', v_conv, v_tok, v_s3, v_nine, v_day_end)),
+    'a service the assistant does not offer';
+  assert not exists (select 1 from public.booking_offer_slots('potraviny-centrum', v_conv, 'wrong', v_s1, v_nine, v_day_end));
+  assert (select count(*) from public.booking_offer_slots('potraviny-centrum', v_conv, v_tok, v_s1, v_nine, v_day_end)) = 9;
+  assert (select ref = 's1' and starts_at = v_nine and resource_name = 'Jana'
+          from public.booking_offer_slots('potraviny-centrum', v_conv2, v_tok2, v_s1, v_nine, v_day_end) order by starts_at limit 1);
+  -- conversation 2 has no verified contact
+  begin perform public.booking_assistant_book('potraviny-centrum', v_conv2, v_tok2, 's1');
+    raise exception 'booked without a code'; exception when raise_exception then if sqlerrm <> 'not_verified' then raise; end if; end;
+  begin perform public.booking_assistant_book('potraviny-centrum', v_conv, v_tok, 's99');
+    raise exception 'a ref never offered'; exception when invalid_parameter_value then if sqlerrm <> 'ref' then raise; end if; end;
+  b := public.booking_assistant_book('potraviny-centrum', v_conv, v_tok,
+                                     (select ref from public.booking_offers where conversation_id = v_conv and starts_at = v_nine
+                                      order by ref limit 1));
+  assert (b ->> 'starts_at')::timestamptz = v_nine and b ->> 'resource_name' = 'Jana' and b ->> 'service_name' = 'Strih';
+  assert (select status = 'confirmed' and source = 'assistant' and contact_id = (select v::uuid from t63 where k = 'jana')
+                 and conversation_id = v_conv and lane = v_r1 and busy_to = v_nine + interval '45 minutes'
+                 and consent_version = 'chat-v1' and phone = '+421905111222'
+          from public.shop_bookings where id = (b ->> 'id')::uuid);
+  assert exists (select 1 from public.booking_events where booking_id = (b ->> 'id')::uuid and kind = 'created' and actor_kind = 'assistant');
+  assert not exists (select 1 from public.booking_offers where conversation_id = v_conv), 'the offers go once booked';
+  assert not exists (select 1 from public.booking_sync_jobs where booking_id = (b ->> 'id')::uuid), 'no calendar: nothing to sync';
+  insert into t63 values ('b1', b ->> 'id');
+  -- buffers: Jana 09:00–09:30 + 15 min after → next at 09:45; Eva only from 10:00
+  assert (select min(starts_at) from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end)) = v_nine + interval '45 minutes';
+  assert (select count(*) from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end)) = 6;
+  -- the same slot again: refused
+  begin perform public.booking_create(v_a, v_s1, v_nine, v_r1, 1, (select v::uuid from t63 where k = 'jana'), null, 'owner', null, null);
+    raise exception 'a double booking'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  -- a booking inside the buffer neither
+  begin perform public.booking_create(v_a, v_s1, v_nine + interval '30 minutes', v_r1, 1, (select v::uuid from t63 where k = 'jana'),
+                                      null, 'owner', null, null);
+    raise exception 'inside the buffer'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  -- the database itself refuses an overlap on the lane, whoever writes
+  begin
+    insert into public.shop_bookings (shop_id, resource_id, starts_at, ends_at, status, name, service_id, source)
+    values (v_a, v_r1, v_nine + interval '10 minutes', v_nine + interval '40 minutes', 'confirmed', 'x', v_s1, 'owner');
+    raise exception 'the exclusion constraint let an overlap in';
+  exception when exclusion_violation then null; end;
+  -- outside the hours, in the block, on a closed day, on a day off, within the notice: refused
+  begin perform public.booking_create(v_a, v_s1, v_nine - interval '1 hour', null, 1, (select v::uuid from t63 where k = 'jana'), null, 'owner', null, null);
+    raise exception 'before opening'; exception when raise_exception then null; end;
+  begin perform public.booking_create(v_a, v_s1, v_nine + interval '150 minutes', null, 1, (select v::uuid from t63 where k = 'jana'), null, 'owner', null, null);
+    raise exception 'in the block'; exception when raise_exception then null; end;
+  begin perform public.booking_create(v_a, v_s1, v_nine + interval '1 day', null, 1, (select v::uuid from t63 where k = 'jana'), null, 'owner', null, null);
+    raise exception 'a closed day'; exception when raise_exception then null; end;
+  begin perform public.booking_create(v_a, v_s1, v_nine + interval '2 days', null, 1, (select v::uuid from t63 where k = 'jana'), null, 'owner', null, null);
+    raise exception 'a day off'; exception when raise_exception then null; end;
+  begin perform public.booking_create(v_a, v_s1, date_trunc('hour', now()) + interval '1 hour', null, 1, (select v::uuid from t63 where k = 'jana'), null, 'owner', null, null);
+    raise exception 'within the notice'; exception when raise_exception then null; end;
+end $$;
+reset role;
+
+-- capacity > 1, bookings per contact a day, the owner's own bookings (the same number = the same contact)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_s1 uuid := (select v::uuid from t63 where k = 's1');
+  v_s2 uuid := (select v::uuid from t63 where k = 's2');
+  v_jana uuid := (select v::uuid from t63 where k = 'jana');
+  v_nine timestamptz := (v_d + time '09:00') at time zone 'Europe/Bratislava';
+  v_day_end timestamptz := (v_d + 1)::timestamp at time zone 'Europe/Bratislava';
+  v_k1 uuid;
+  v_k2 uuid;
+begin
+  -- the owner books Jana by her number written differently: the same contact
+  v_k1 := public.owner_booking_create(v_a, v_s2, v_nine, null, 2, null, 'Iné meno', '+421 905 111 222');
+  assert (select contact_id = v_jana and people = 2 and source = 'owner' from public.shop_bookings where id = v_k1);
+  assert (select name from public.shop_contacts where id = v_jana) = 'Jana Nová', 'a known name is never overwritten';
+  assert (select count(*) from public.shop_contacts where shop_id = v_a and phone = '+421905111222') = 1, 'never a duplicate';
+  assert (select seats_left from public.owner_booking_free_slots(v_a, v_s2, v_nine, v_nine + interval '1 hour')) = 1;
+  v_k2 := public.owner_booking_create(v_a, v_s2, v_nine, null, 1, null, 'Peter', '0905 444 555');
+  assert not exists (select 1 from public.owner_booking_free_slots(v_a, v_s2, v_nine, v_nine + interval '1 hour')), 'the course is full';
+  begin perform public.owner_booking_create(v_a, v_s2, v_nine, null, 1, null, 'Eva', '0905 666 777');
+    raise exception 'a 4th person in a course of 3'; exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  -- another start overlapping the course on the shop's lane: not free
+  assert not exists (select 1 from public.owner_booking_free_slots(v_a, v_s2, v_nine + interval '15 minutes', v_nine + interval '75 minutes'));
+  -- Jana has 2 bookings that day: the assistant may not add a third, the owner may
+  begin perform public.booking_create(v_a, v_s1, v_nine + interval '60 minutes', null, 1, v_jana, null, 'assistant', null, null);
+    raise exception 'a third booking a day'; exception when insufficient_privilege then null; end;
+  insert into t63 values ('k1', v_k1), ('k2', v_k2);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_s1 uuid := (select v::uuid from t63 where k = 's1');
+  v_jana uuid := (select v::uuid from t63 where k = 'jana');
+  v_nine timestamptz := (v_d + time '09:00') at time zone 'Europe/Bratislava';
+begin
+  assert (select not exclusive and lane = v_a from public.shop_bookings where id = (select v::uuid from t63 where k = 'k1')),
+    'a course shares the shop''s lane';
+  begin perform public.booking_create(v_a, v_s1, v_nine + interval '60 minutes', null, 1, v_jana, null, 'assistant', null, null);
+    raise exception 'a third booking a day'; exception when program_limit_exceeded then if sqlerrm <> 'contact_limit' then raise; end if; end;
+  insert into t63 values ('b_owner', public.booking_create(v_a, v_s1, v_nine + interval '60 minutes', null, 1, v_jana, null, 'owner', null, null));
+end $$;
+reset role;
+
+-- two requests at the same moment: the second waits for the lane and is refused
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_s1 uuid := (select v::uuid from t63 where k = 's1');
+  v_r2 uuid := (select v::uuid from t63 where k = 'r2');
+  v_jana uuid := (select v::uuid from t63 where k = 'jana');
+  v_t timestamptz := (v_d + time '11:00') at time zone 'Europe/Bratislava';
+  v_sql text;
+  v_n integer;
+begin
+  if not exists (select 1 from pg_extension where extname = 'dblink') then
+    raise notice 'dblink is not installed: the parallel booking check is skipped';
+    return;
+  end if;
+  v_sql := format('select public.booking_create(%L, %L, %L, %L, 1, %L, null, ''owner'', null, null)::text', v_a, v_s1, v_t, v_r2, v_jana);
+  perform public.dblink_connect('p1', 'dbname=' || current_database());
+  perform public.dblink_connect('p2', 'dbname=' || current_database());
+  perform public.dblink_exec('p1', 'begin');
+  perform * from public.dblink('p1', v_sql) as t(id text);
+  perform public.dblink_send_query('p2', v_sql);
+  perform pg_sleep(0.3);
+  assert public.dblink_is_busy('p2') = 1, 'the second request waits for the lane';
+  perform public.dblink_exec('p1', 'commit');
+  begin
+    perform * from public.dblink_get_result('p2') as t(id text);
+    raise exception 'two bookings of one slot at the same moment';
+  exception when others then
+    if sqlerrm not like '%slot_taken%' then raise; end if;
+  end;
+  perform public.dblink_disconnect('p1');
+  perform public.dblink_disconnect('p2');
+  select count(*) into v_n from public.shop_bookings where shop_id = v_a and starts_at = v_t and resource_id = v_r2 and status = 'confirmed';
+  assert v_n = 1, format('exactly one booking, %s', v_n);
+end $$;
+
+-- the owner moves, cancels, marks; the customer's SMS is queued; the audit log keeps every change
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_b1 uuid := (select v::uuid from t63 where k = 'b1');
+  v_bo uuid := (select v::uuid from t63 where k = 'b_owner');
+  v_r2 uuid := (select v::uuid from t63 where k = 'r2');
+  v_nine timestamptz := (v_d + time '09:00') at time zone 'Europe/Bratislava';
+  m jsonb;
+begin
+  -- onto the owner's own booking (Jana 10:00): refused; the booking itself is ignored when moving
+  begin perform public.owner_booking_move(v_b1, v_nine + interval '60 minutes'); raise exception 'moved onto another booking';
+  exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  m := public.owner_booking_move(v_b1, v_nine + interval '15 minutes');
+  assert (m ->> 'starts_at')::timestamptz = v_nine + interval '15 minutes';
+  assert exists (select 1 from public.booking_events where booking_id = v_b1 and kind = 'moved' and old_starts = v_nine
+                 and new_starts = v_nine + interval '15 minutes' and actor_kind = 'owner');
+  -- to Eva 10:15
+  m := public.owner_booking_move(v_b1, v_nine + interval '75 minutes', v_r2);
+  assert (m ->> 'resource_id')::uuid = v_r2;
+  perform public.owner_booking_cancel(v_bo);
+  assert (select status from public.shop_bookings where id = v_bo) = 'cancelled';
+  assert not public.owner_booking_cancel(v_bo), 'once';
+  assert public.owner_booking_mark(v_b1, 'done');
+  assert public.owner_booking_mark(v_b1, 'no_show');
+  assert public.owner_booking_mark(v_b1, 'confirmed');
+  begin perform public.owner_booking_mark(v_bo, 'done'); raise exception 'a cancelled one marked done';
+  exception when invalid_parameter_value then null; end;
+  assert (select count(*) from public.owner_booking_events(v_b1)) >= 6;
+  assert (select count(*) from public.owner_booking_list(v_a, v_nine - interval '1 day', v_nine + interval '1 day')) >= 4;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the calendar sync: a booking never waits for it, a failure is retried and shown, busy times are respected,
+-- disconnecting changes no booking
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_s1 uuid := (select v::uuid from t63 where k = 's1');
+  v_jana uuid := (select v::uuid from t63 where k = 'jana');
+  v_nine timestamptz := (v_d + time '09:00') at time zone 'Europe/Bratislava';
+  v_day_end timestamptz := (v_d + 1)::timestamp at time zone 'Europe/Bratislava';
+  v_b uuid;
+  v_job bigint;
+  i integer;
+  v_before integer;
+begin
+  assert (select count(*) from public.booking_notifications
+          where booking_id = (select v::uuid from t63 where k = 'b1') and kind = 'moved' and status = 'queued') = 1,
+    'moved twice: one SMS with the last time';
+  assert exists (select 1 from public.booking_notifications where booking_id = (select v::uuid from t63 where k = 'b_owner')
+                 and kind = 'cancelled');
+  insert into public.booking_google_connections (shop_id, access_token_enc, refresh_token_enc, status)
+  values (v_a, 'enc', 'enc', 'ok') on conflict (shop_id) do nothing;
+  v_b := public.booking_create(v_a, v_s1, v_nine + interval '105 minutes', null, 1, v_jana, null, 'owner', null, null);
+  assert (select status from public.shop_bookings where id = v_b) = 'confirmed', 'confirmed before any sync';
+  select id into v_job from public.booking_sync_jobs where booking_id = v_b and op = 'create' and status = 'queued';
+  assert v_job is not null;
+  assert exists (select 1 from public.booking_sync_due(50) where id = v_job and summary like 'Strih – Jana%');
+  for i in 1..3 loop
+    update public.booking_sync_jobs set next_try_at = now() where id = v_job;
+    perform public.booking_sync_result(v_job, false, null, 'HTTP 500');
+  end loop;
+  assert (select status from public.booking_sync_jobs where id = v_job) = 'failed';
+  assert (select google_status = 'failed' and status = 'confirmed' from public.shop_bookings where id = v_b);
+  assert (select last_error from public.booking_google_connections where shop_id = v_a) = 'HTTP 500';
+  -- a create that works keeps its event id; a cancel deletes only that event
+  perform public.booking_sync_queue(v_b, 'update');
+  select id into v_job from public.booking_sync_jobs where booking_id = v_b and status = 'queued';
+  perform public.booking_sync_result(v_job, true, 'evt_63', null);
+  assert (select google_event_id = 'evt_63' and google_status = 'created' from public.shop_bookings where id = v_b);
+  perform public.booking_cancel(v_b, 'owner', null);
+  assert exists (select 1 from public.booking_sync_jobs where booking_id = v_b and op = 'delete' and google_event_id = 'evt_63');
+  -- busy times read in take the slots away
+  v_before := (select count(*) from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end));
+  perform public.booking_calendar_busy_set(v_a, v_nine, v_day_end,
+    jsonb_build_array(jsonb_build_object('start', v_nine + interval '90 minutes', 'end', v_nine + interval '120 minutes')));
+  assert (select count(*) from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end)) < v_before;
+  -- disconnecting: the busy times and waiting pushes go, the bookings stay
+  i := (select count(*) from public.shop_bookings where shop_id = v_a);
+  assert public.booking_google_remove(v_a, null);
+  assert not exists (select 1 from public.booking_calendar_busy where shop_id = v_a);
+  assert not exists (select 1 from public.booking_sync_jobs where shop_id = v_a and status = 'queued');
+  assert (select count(*) from public.shop_bookings where shop_id = v_a) = i;
+  assert (select count(*) from public.booking_free_slots(v_a, v_s1, v_nine, v_day_end)) = v_before;
+end $$;
+reset role;
+
+-- reminders (2 h before), the owner-change SMS, templates, the owner's reply, "čaká na odpoveď"
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b1 uuid := (select v::uuid from t63 where k = 'b1');
+  v_jana uuid := (select v::uuid from t63 where k = 'jana');
+  v_conv uuid := (select v::uuid from t63 where k = 'conv');
+  n record;
+  v_msg uuid;
+begin
+  update public.shop_bookings set starts_at = now() + interval '90 minutes', ends_at = now() + interval '120 minutes' where id = v_b1;
+  assert exists (select 1 from public.booking_reminders_due(200) where id = v_b1), 'within 2 hours';
+  update public.crm_settings set reminder_offset = 'day_before_18' where shop_id = v_a;
+  update public.shop_bookings set starts_at = now() + interval '20 days', ends_at = now() + interval '20 days 30 minutes' where id = v_b1;
+  assert not exists (select 1 from public.booking_reminders_due(200) where id = v_b1), 'not yet';
+  update public.crm_settings set reminder_on = false where shop_id = v_a;
+  -- the queued owner-change SMS
+  select * into n from public.booking_notifications_due(50) where booking_id = v_b1;
+  assert n.kind = 'moved' and n.phone = '+421905111222';
+  v_msg := public.booking_notification_claim(n.id, 'Váš termín sa zmenil');
+  assert (select kind = 'booking_moved' and status = 'queued' from public.shop_outgoing_messages where id = v_msg);
+  perform public.booking_notification_result(n.id, false, 'HTTP 503');
+  perform public.booking_notification_result(n.id, false, 'HTTP 503');
+  perform public.booking_notification_result(n.id, false, 'HTTP 503');
+  assert (select status from public.booking_notifications where id = n.id) = 'failed', 'three tries';
+  -- the template's Slovak placeholders
+  assert public.crm_render('Dobrý deň {meno}, {obchod}: {produkt}', v_jana, v_a, '{"produkt": "Farba"}')
+         = 'Dobrý deň Jana Nová, ' || (select name from public.shops where id = v_a) || ': Farba';
+  assert public.crm_render('{datum} {cas}', v_jana, v_a) ~ '^\d{1,2}\.\d{1,2}\.\d{4} \d{1,2}:\d{2}$', 'the next booking''s day and time';
+  -- a contact left in the conversation waits for a reply until it is answered
+  update public.assistant_conversations set callback_at = now() where id = v_conv;
+  assert (select needs_reply and last_contact_at is not null from public.shop_contacts where id = v_jana);
+  update public.assistant_conversations set callback_answered_at = now() where id = v_conv;
+  assert not (select needs_reply from public.shop_contacts where id = v_jana);
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_conv uuid := (select v::uuid from t63 where k = 'conv');
+  r jsonb;
+begin
+  r := public.owner_reply(v_conv, 'sms', (select v::uuid from t63 where k = 'tpl'));
+  assert r ->> 'body' like 'Dobrý deň Jana Nová,%' and r ->> 'recipient' = '+421905111222';
+  assert exists (select 1 from public.assistant_messages where conversation_id = v_conv and role = 'owner' and channel = 'sms'
+                 and outgoing_id = (r ->> 'id')::uuid);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the calendar feed: the token only, first names only, a new link stops the old one
+set role anon;
+do $$
+declare
+  v_token text := (select v from t63 where k = 'feed');
+begin
+  assert (select count(*) from public.calendar_feed(v_token)) >= 2;
+  assert not exists (select 1 from public.calendar_feed(v_token) where first_name like '% %'), 'first names only';
+  assert not exists (select 1 from public.calendar_feed(repeat('x', 68)));
+  assert not exists (select 1 from public.calendar_feed(null));
+  -- visitors read nothing of the CRM or bookings
+  begin perform count(*) from public.booking_services; raise exception 'a visitor read services'; exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sms_codes; raise exception 'a visitor read codes'; exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.booking_events; raise exception 'a visitor read the audit log'; exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.crm_settings; raise exception 'a visitor read settings'; exception when insufficient_privilege then null; end;
+  begin perform public.booking_free_slots((select id from public.shops where slug = 'potraviny-centrum'), null::uuid, now(), now() + interval '1 day');
+    raise exception 'a visitor called the engine'; exception when insufficient_privilege then null; end;
+  begin perform public.booking_create(null, null, now(), null, 1, null, null, 'api', null, null);
+    raise exception 'a visitor booked'; exception when insufficient_privilege then null; end;
+  begin perform public.sms_code_start('potraviny-centrum', 'contact', '0905 111 222', 'x', repeat('z', 32));
+    raise exception 'a visitor asked for a code'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_booking_create((select id from public.shops where slug = 'potraviny-centrum'), null, now());
+    raise exception 'a visitor used an owner function'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_old text := (select v from t63 where k = 'feed');
+  v_new text;
+begin
+  v_new := public.owner_calendar_feed_new(v_a);
+  assert v_new <> v_old;
+  update t63 set v = v_new where k = 'feed';
+  insert into t63 values ('feed_old', v_old);
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$ begin
+  assert not exists (select 1 from public.calendar_feed((select v from t63 where k = 'feed_old'))), 'the old link stops';
+  assert exists (select 1 from public.calendar_feed((select v from t63 where k = 'feed')));
+end $$;
+reset role;
+
+-- owner B sees nothing of shop A and changes nothing there
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert not exists (select 1 from public.booking_services where shop_id = v_a);
+  assert not exists (select 1 from public.booking_resources where shop_id = v_a);
+  assert not exists (select 1 from public.booking_blocks where shop_id = v_a);
+  assert not exists (select 1 from public.booking_events where shop_id = v_a);
+  assert not exists (select 1 from public.crm_settings where shop_id = v_a);
+  assert not exists (select 1 from public.shop_calendar_feeds where shop_id = v_a);
+  assert not exists (select 1 from public.owner_booking_list(v_a, now() - interval '1 day', now() + interval '60 days'));
+  begin perform public.owner_booking_setup(v_a); raise exception 'B read A''s setup'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_booking_move((select v::uuid from t63 where k = 'b1'), now() + interval '30 days');
+    raise exception 'B moved A''s booking'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_booking_cancel((select v::uuid from t63 where k = 'b1')); raise exception 'B cancelled A''s booking';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_booking_service(v_a, null, 'x', 30, 0, 0, 1, false, true, true, null); raise exception 'B saved a service in A';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_calendar_feed_new(v_a); raise exception 'B made A''s feed'; exception when insufficient_privilege then null; end;
+  begin perform public.owner_reply((select v::uuid from t63 where k = 'conv'), 'sms', null, null, 'x'); raise exception 'B replied in A';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- DST: the shop's local hours on the last Sundays of March and October (Europe/Bratislava)
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_s3 uuid := (select v::uuid from t63 where k = 's3');
+  v_y integer := extract(year from current_date)::integer;
+  v_day date;
+  v_m integer;
+  v_y2 integer;
+  v_r record;
+  v_hours numeric;
+  v_slots integer;
+begin
+  update public.shop_booking_settings set horizon_days = 365, step_minutes = 30 where shop_id = v_a;
+  foreach v_m in array array[3, 10] loop
+    v_y2 := v_y;
+    loop
+      v_day := make_date(v_y2, v_m, 31) - extract(dow from make_date(v_y2, v_m, 31))::integer;
+      exit when v_day > current_date + 1;
+      v_y2 := v_y2 + 1;
+    end loop;
+    insert into public.shop_special_hours (shop_id, date, closed, ranges) values (v_a, v_day, false, '[["01:00","04:00"]]')
+    on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+    insert into t63 values ('dst_' || v_m, v_day::text) on conflict (k) do update set v = excluded.v;
+    select * into v_r from public.booking_day_ranges(v_a, v_day);
+    v_hours := extract(epoch from v_r.range_end - v_r.range_start) / 3600;
+    assert to_char(v_r.range_start at time zone 'Europe/Bratislava', 'HH24:MI') = '01:00';
+    assert to_char(v_r.range_end at time zone 'Europe/Bratislava', 'HH24:MI') = '04:00';
+    assert v_hours = case v_m when 3 then 2 else 4 end, format('%s: %s real hours', v_day, v_hours);
+    if v_day < current_date + 360 then
+      select count(*) into v_slots from public.booking_free_slots(v_a, v_s3, v_r.range_start - interval '1 hour', v_r.range_end + interval '1 hour');
+      -- 60 minutes every 30: March 01:00, 01:30, 03:00 (02:00–03:00 does not exist); October 7 starts (02:00–03:00 twice)
+      assert v_slots = case v_m when 3 then 3 else 7 end, format('%s: %s slots', v_day, v_slots);
+      assert not exists (select 1 from public.booking_free_slots(v_a, v_s3, v_r.range_start, v_r.range_end)
+                         where to_char(starts_at at time zone 'Europe/Bratislava', 'HH24') = '02') or v_m = 10,
+        'no 02:xx start on the spring day';
+    end if;
+  end loop;
+end $$;
+reset role;
+
+-- "Vymazať moje údaje" → "Všetko o mne"
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+  v_s1 uuid := (select v::uuid from t63 where k = 's1');
+  v_jana uuid := (select v::uuid from t63 where k = 'jana');
+  v_conv uuid := (select v::uuid from t63 where k = 'conv');
+  v_future uuid;
+  c jsonb;
+  p jsonb;
+  f jsonb;
+  cid uuid;
+begin
+  insert into public.shop_special_hours (shop_id, date, closed, ranges) values (v_a, v_d + 4, false, '[["09:00","12:00"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+  v_future := public.booking_create(v_a, v_s1, ((v_d + 4) + time '09:00') at time zone 'Europe/Bratislava', null, 1, v_jana, null,
+                                    'owner', null, null);
+  assert v_future is not null;
+  -- an hour later (her contact codes no longer count against the limit)
+  update public.sms_codes set created_at = now() - interval '2 hours' where phone_hash = public.booking_hash('+421905111222');
+  -- a code that was never verified does nothing
+  c := public.sms_code_start('potraviny-centrum', 'delete_all', '0905 111 222', null, repeat('f', 32));
+  begin perform public.shopper_forget_all_finish((c ->> 'id')::uuid); raise exception 'deleted without the code';
+  exception when raise_exception then if sqlerrm <> 'not_verified' then raise; end if; end;
+  assert (public.sms_code_verify((c ->> 'id')::uuid, c ->> 'code') ->> 'ok')::boolean;
+  p := public.shopper_forget_all_plan((c ->> 'id')::uuid);
+  assert (p ->> 'contact_id')::uuid = v_jana and p -> 'conversation_ids' ? v_conv::text;
+  -- the archive function forgets each conversation (files, PDFs) — here directly
+  for cid in select jsonb_array_elements_text(p -> 'conversation_ids')::uuid loop
+    perform public.assistant_shopper_forget(cid);
+  end loop;
+  f := public.shopper_forget_all_finish((c ->> 'id')::uuid);
+  assert (f ->> 'ok')::boolean and (f ->> 'bookings_cancelled')::int >= 1 and (f ->> 'had_data')::boolean;
+  assert not exists (select 1 from public.shop_contacts where id = v_jana), 'the contact is gone';
+  assert not exists (select 1 from public.shop_bookings where shop_id = v_a and phone = '+421905111222'), 'no booking keeps the number';
+  assert not exists (select 1 from public.shop_bookings where shop_id = v_a and status = 'confirmed' and starts_at > now() and name = '—'),
+    'her future bookings are cancelled';
+  assert not exists (select 1 from public.shop_outgoing_messages where shop_id = v_a and recipient = '+421905111222');
+  assert not exists (select 1 from public.assistant_conversations where shop_id = v_a and shopper_phone = '+421905111222');
+  assert exists (select 1 from public.booking_events where shop_id = v_a and kind = 'cancelled' and actor_kind = 'shopper'),
+    'the audit log keeps a line without personal data';
+  assert exists (select 1 from public.shop_owner_alerts where shop_id = v_a and kind = 'forget_all'), 'the owners get one e-mail';
+  assert exists (select 1 from public.crm_alerts_due(100) where shop_id = v_a and kind = 'forget_all'
+                 and recipients = '[{"email": "alerts@example.invalid", "lang": "sk"}]'::jsonb), 'to the shop''s alert address';
+  begin perform public.shopper_forget_all_finish((c ->> 'id')::uuid); raise exception 'twice';
+  exception when raise_exception then null; end;
+end $$;
+reset role;
+
+-- tidy up shop A exactly as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t63 where k = 'd');
+begin
+  delete from public.booking_notifications where shop_id = v_a;
+  delete from public.booking_sync_jobs where shop_id = v_a;
+  delete from public.booking_events where shop_id = v_a;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.shop_bookings where shop_id = v_a;
+  delete from public.booking_blocks where shop_id = v_a;
+  delete from public.booking_services where shop_id = v_a;
+  delete from public.booking_resources where shop_id = v_a;
+  delete from public.shop_booking_settings where shop_id = v_a;
+  delete from public.crm_settings where shop_id = v_a;
+  delete from public.shop_calendar_feeds where shop_id = v_a;
+  delete from public.shop_email_templates where shop_id = v_a;
+  delete from public.shop_owner_alerts where shop_id = v_a;
+  delete from public.sms_codes where shop_id = v_a;
+  delete from public.shop_contacts where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a
+    and date in (v_d, v_d + 1, v_d + 4, (select v::date from t63 where k = 'dst_3'), (select v::date from t63 where k = 'dst_10'));
+  delete from public.public_holidays where source = 'admin' and country = 'SK' and date = v_d + 2;
+  perform public.assistant_forget((select v::uuid from t63 where k = 'conv'));
+  perform public.assistant_forget((select v::uuid from t63 where k = 'conv2'));
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t63 where k = 'sub'))
+  where (select v from t63 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t63 where k = 'had_plan');
+end $$;
+reset role;
+drop table t63;
 
 \echo 'ALL DATABASE CHECKS PASSED'
