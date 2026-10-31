@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
-import { LANGUAGES } from "@/i18n/languages";
+import { LANGUAGES, languageOf } from "@/i18n/languages";
 import { sectionUrl } from "@/lib/dashboardPages";
 import { formatDateTime, formatPrice } from "@/lib/format";
 import { LANGUAGE_COLUMN_ROWS, MAPPING_FIELDS, REQUIRED_FIELDS, TEXT_FIELDS, type MyShop } from "@/lib/myShops";
@@ -9,6 +9,8 @@ import { translatedName, type NameI18n } from "@/lib/names";
 import { fileStatus, filterCount, ITEM_FILTERS, shopperView, type ItemCounts, type ItemFilter } from "@/lib/ownerItems";
 import { availabilityText, type AvailabilityKey } from "@/lib/stock";
 import { DashboardSection } from "@/components/DashboardSection";
+import { ItemsBulk } from "@/components/ItemsBulk";
+import { SelectSubmit } from "@/components/SelectSubmit";
 import { approveColumns } from "./actions";
 import { inputClass, type messages, SubmitButton } from "./shared";
 
@@ -37,14 +39,19 @@ interface OwnerItem {
   /** Update 41: a description is shown on the product page / its name or description still needs a translation. */
   has_description?: boolean;
   missing_translation?: boolean;
+  /** Update 62: "Preklady: X z Y jazykov" (Y = the shop's preferred languages) and the languages still missing. */
+  tr_done?: number;
+  tr_total?: number;
+  missing_langs?: string[];
 }
 
 type Messages = ReturnType<typeof messages>;
 type Hidden = (extra?: Record<string, string>) => React.ReactNode;
 
 /**
- * One page of the shop's items (search q, filter, 50 per page) and how many each filter has. Before database update 41
- * the list has no filters: it is loaded the old way and the filters are not shown.
+ * One page of the shop's items (search q, filter, the "Jazyk" dropdown, 50 per page), how many each filter has and the
+ * languages "Preklady: X z Y" counts (update 62). Before update 62 the language is left out; before update 41 the list
+ * has no filters: it is loaded the old way and the filters are not shown.
  */
 export async function loadItems(
   supabase: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }> },
@@ -52,17 +59,29 @@ export async function loadItems(
   q: string,
   page: number,
   filter: ItemFilter = "all",
+  itemLang: string | null = null,
 ) {
   const args = { p_shop_id: shop.id, q: q || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE };
-  const [list, countRows] = await Promise.all([
-    supabase.rpc("owner_items", { ...args, p_filter: filter }),
-    supabase.rpc("owner_item_counts", { p_shop_id: shop.id }),
+  const [list, countRows, langRows] = await Promise.all([
+    supabase.rpc("owner_items", { ...args, p_filter: filter, p_lang: itemLang }),
+    supabase.rpc("owner_item_counts", { p_shop_id: shop.id, p_lang: itemLang }),
+    supabase.rpc("owner_item_languages", { p_shop_id: shop.id }),
   ]);
   let { data, error } = list;
-  const counts = countRows.error ? null : ((Array.isArray(countRows.data) ? countRows.data[0] : countRows.data) as ItemCounts | null);
-  if (error && !counts) ({ data, error } = await supabase.rpc("owner_items", args));
+  let counts = countRows.error ? null : ((Array.isArray(countRows.data) ? countRows.data[0] : countRows.data) as ItemCounts | null);
+  if (error || countRows.error) {
+    // before update 62
+    const [older, olderCounts] = await Promise.all([
+      supabase.rpc("owner_items", { ...args, p_filter: filter }),
+      supabase.rpc("owner_item_counts", { p_shop_id: shop.id }),
+    ]);
+    ({ data, error } = older);
+    counts = olderCounts.error ? null : ((Array.isArray(olderCounts.data) ? olderCounts.data[0] : olderCounts.data) as ItemCounts | null);
+    if (error && !counts) ({ data, error } = await supabase.rpc("owner_items", args));
+  }
   const items = (data ?? []) as OwnerItem[];
-  return { items, total: Number(items[0]?.total_count ?? 0), counts, error: error?.message ?? null };
+  const langs = langRows.error ? null : ((langRows.data ?? []) as string[]);
+  return { items, total: Number(items[0]?.total_count ?? 0), counts, langs, error: error?.message ?? null };
 }
 
 /** The approval of the stock file's columns (with the language columns of update 40). */
@@ -158,9 +177,11 @@ export function ColumnsForm({ shop, dict, hidden }: { shop: MyShop; dict: Dictio
 }
 
 /**
- * "Tovar": the shop's items as its file has them. Above the list the last file and how fresh it is, the filters; per
- * item the name as written (+ its translation in the page language), one link "Popis a preklady" to the product's page
- * (description and the "Preklady" tab — every correction of a translation is made there) and "Čo vidí zákazník".
+ * "Tovar": the shop's items as its file has them, and since update 62 the one place for the products' translations.
+ * Above the list the last file and how fresh it is, the filters and "Jazyk"; the tools (descriptions, the bulk actions
+ * on the ticked products, the translation files) are `ItemsBulk`. Per item the name as written (+ its translation in
+ * the page language), "Preklady: X z Y jazykov", one link "Popis a preklady" to the product's page (its "Popis" and
+ * "Preklady" tabs) and "Čo vidí zákazník".
  */
 export function ItemsSection({
   shop,
@@ -174,6 +195,8 @@ export function ItemsSection({
   page,
   filter,
   filesCleared = false,
+  itemLang = null,
+  langs = null,
 }: {
   shop: MyShop;
   lang: Locale;
@@ -187,8 +210,13 @@ export function ItemsSection({
   filter: ItemFilter;
   /** The uploaded files were deleted and no file came since (update 43). */
   filesCleared?: boolean;
+  /** The "Jazyk" dropdown (update 62; null = every preferred language). */
+  itemLang?: string | null;
+  /** The shop's preferred languages (update 62; null = before it). */
+  langs?: string[] | null;
 }) {
   const d = dict.dashboard;
+  const b = dict.items_bulk;
   const { notice, section } = m;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const listUrl = (query: { page?: number; filter?: ItemFilter }) => {
@@ -198,6 +226,7 @@ export function ItemsSection({
       at: "items",
       ...(q ? { q } : {}),
       ...(f !== "all" ? { filter: f } : {}),
+      ...(itemLang ? { tr: itemLang } : {}),
       ...(query.page && query.page > 1 ? { page: String(query.page) } : {}),
     })}#items`;
   };
@@ -207,6 +236,50 @@ export function ItemsSection({
   };
   const upload = sectionUrl(lang, "export", { shop: shop.slug });
   const file = fileStatus(shop.latest_file_time, shop.freshness_state, filesCleared);
+  const native = (code: string) => languageOf(code)?.native ?? code.toUpperCase();
+  const langList = (langs ?? []).map((code) => ({ code, native: native(code) }));
+  const table = (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-line text-left text-muted">
+            {langs && <th className="w-8 py-1 pr-2 font-normal"><span className="sr-only">{b.pick}</span></th>}
+            <th className="py-1 pr-2 font-normal">{d.name}</th>
+            <th className="py-1 pr-2 font-normal">{d.code}</th>
+            <th className="py-1 pr-2 text-right font-normal">{d.price}</th>
+            <th className="py-1 pr-2 text-right font-normal">{d.quantity}</th>
+            <th className="min-w-36 py-1 font-normal">{d.shopper_sees}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.item_id} className="border-b border-line" data-item-row={item.source_code}>
+              {langs && (
+                <td className="py-2 pr-2 align-top">
+                  <input type="checkbox" value={item.item_id} className="size-5" aria-label={t(b.pick_one, { name: item.item_name })} data-item-pick />
+                </td>
+              )}
+              <td className="py-2 pr-2">
+                <ItemNames
+                  item={item}
+                  lang={lang}
+                  dict={dict}
+                  native={native}
+                  detail={`/${lang}/dashboard/items/${item.item_id}?${new URLSearchParams({ shop: shop.slug })}`}
+                />
+              </td>
+              <td className="py-2 pr-2 tabular-nums">{item.source_code}</td>
+              <td className="whitespace-nowrap py-2 pr-2 text-right">{formatPrice(item.price, lang, item.currency)}</td>
+              <td className="py-2 pr-2 text-right tabular-nums">{item.quantity ?? ""}</td>
+              <td className="min-w-36 py-2">
+                <ShopperSees item={item} lang={lang} dict={dict} upload={upload} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
   return (
     <DashboardSection {...section("items")} title={d.items_title} summary={productCount(counts ? Number(counts.all_items) : total)}>
               {/* div (not p): details may not sit inside p; that broke hydration. */}
@@ -244,60 +317,75 @@ export function ItemsSection({
                 <input type="hidden" name="shop" value={shop.slug} />
                 <input type="hidden" name="at" value="items" />
                 {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
+                {itemLang && <input type="hidden" name="tr" value={itemLang} />}
                 <input type="search" name="q" defaultValue={q} placeholder={d.search} className={`${inputClass} min-w-0 flex-1`} />
                 <SubmitButton>{dict.search.button}</SubmitButton>
               </form>
               {counts && (
-                <nav aria-label={d.filters_label} className="flex flex-wrap gap-2 text-sm" data-item-filters>
-                  {ITEM_FILTERS.map((f) => (
-                    <Link
-                      key={f}
-                      href={listUrl({ filter: f })}
-                      aria-current={f === filter ? "true" : undefined}
-                      className={`rounded-full border px-3 py-1 ${f === filter ? "border-foreground font-semibold" : "border-line"}`}
-                      data-filter={f}
-                    >
-                      {d[`filter_${f}`]} <span className="text-muted">{filterCount(counts, f)}</span>
-                    </Link>
-                  ))}
-                </nav>
+                <div className="flex flex-wrap items-center gap-2">
+                  <nav aria-label={d.filters_label} className="flex flex-wrap gap-2 text-sm" data-item-filters>
+                    {ITEM_FILTERS.map((f) => (
+                      <Link
+                        key={f}
+                        href={listUrl({ filter: f })}
+                        aria-current={f === filter ? "true" : undefined}
+                        className={`rounded-full border px-3 py-1 ${f === filter ? "border-foreground font-semibold" : "border-line"}`}
+                        data-filter={f}
+                      >
+                        {d[`filter_${f}`]} <span className="text-muted">{filterCount(counts, f)}</span>
+                      </Link>
+                    ))}
+                  </nav>
+                  {langs && langs.length > 0 && (
+                    <form method="get" action={`/${lang}/dashboard/translations#items`} className="flex items-center gap-2 text-sm" data-item-lang>
+                      <input type="hidden" name="shop" value={shop.slug} />
+                      <input type="hidden" name="at" value="items" />
+                      {q && <input type="hidden" name="q" value={q} />}
+                      {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
+                      <span className="text-muted">{b.lang_label}</span>
+                      <SelectSubmit
+                        name="tr"
+                        value={itemLang ?? ""}
+                        label={b.lang_label}
+                        data="item-lang"
+                        className="min-h-9 rounded border border-line px-2 py-1"
+                        options={[{ value: "", label: b.lang_all }, ...langList.map((l) => ({ value: l.code, label: l.native }))]}
+                      />
+                      <noscript>
+                        <button type="submit" className="underline underline-offset-4">
+                          {b.lang_apply}
+                        </button>
+                      </noscript>
+                    </form>
+                  )}
+                </div>
               )}
-              {items.length === 0 ? (
+              {langs && langs.length === 0 && (
+                <p className="text-sm text-muted" data-items-no-langs>
+                  {b.no_langs}{" "}
+                  <Link href={sectionUrl(lang, "review", { shop: shop.slug })} className="underline underline-offset-4">
+                    {b.no_langs_link}
+                  </Link>
+                </p>
+              )}
+              {langs ? (
+                <ItemsBulk
+                  shopId={shop.id}
+                  slug={shop.slug}
+                  pageLang={lang}
+                  q={q}
+                  filter={filter}
+                  itemLang={itemLang}
+                  langs={langList}
+                  labels={{ ...b, delete_again: dict.owner_tr.table.delete_again, delete_never: dict.owner_tr.table.delete_never }}
+                  fileLabels={dict.export_folder}
+                >
+                  {items.length === 0 ? <p>{q ? dict.shop.no_items : filter !== "all" ? d.filter_empty : d.no_items}</p> : table}
+                </ItemsBulk>
+              ) : items.length === 0 ? (
                 <p>{q ? dict.shop.no_items : filter !== "all" ? d.filter_empty : d.no_items}</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-line text-left text-muted">
-                        <th className="py-1 pr-2 font-normal">{d.name}</th>
-                        <th className="py-1 pr-2 font-normal">{d.code}</th>
-                        <th className="py-1 pr-2 text-right font-normal">{d.price}</th>
-                        <th className="py-1 pr-2 text-right font-normal">{d.quantity}</th>
-                        <th className="min-w-36 py-1 font-normal">{d.shopper_sees}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((item) => (
-                        <tr key={item.item_id} className="border-b border-line" data-item-row={item.source_code}>
-                          <td className="py-2 pr-2">
-                            <ItemNames
-                              item={item}
-                              lang={lang}
-                              dict={dict}
-                              detail={`/${lang}/dashboard/items/${item.item_id}?${new URLSearchParams({ shop: shop.slug })}`}
-                            />
-                          </td>
-                          <td className="py-2 pr-2 tabular-nums">{item.source_code}</td>
-                          <td className="whitespace-nowrap py-2 pr-2 text-right">{formatPrice(item.price, lang, item.currency)}</td>
-                          <td className="py-2 pr-2 text-right tabular-nums">{item.quantity ?? ""}</td>
-                          <td className="min-w-36 py-2">
-                            <ShopperSees item={item} lang={lang} dict={dict} upload={upload} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                table
               )}
               {pages > 1 && (
                 <nav className="flex items-center justify-between text-sm">
@@ -330,15 +418,28 @@ function ShopperSees({ item, lang, dict, upload }: { item: OwnerItem; lang: Loca
   );
 }
 
-/** The shop's own name, its translation in the page language, what it still lacks, and the one link to its page. */
-function ItemNames({ item, lang, dict, detail }: { item: OwnerItem; lang: Locale; dict: Dictionary; detail: string }) {
+/**
+ * The shop's own name, its translation in the page language, "Preklady: X z Y jazykov" (update 62: Y = the preferred
+ * languages, the missing ones named) or before update 62 "Chýba preklad", "Bez popisu", and the one link to its page.
+ */
+function ItemNames({ item, lang, dict, detail, native }: { item: OwnerItem; lang: Locale; dict: Dictionary; detail: string; native: (code: string) => string }) {
   const d = dict.dashboard;
+  const b = dict.items_bulk;
   const translated = translatedName(item.item_name, item.name_i18n, lang);
-  const lacks = [item.has_description === false ? d.filter_no_description : null, item.missing_translation ? d.filter_missing_translation : null].filter(Boolean);
+  const counted = typeof item.tr_total === "number";
+  const lacks = [item.has_description === false ? d.filter_no_description : null, !counted && item.missing_translation ? d.filter_missing_translation : null].filter(Boolean);
   return (
     <div className="flex min-w-40 flex-col gap-1">
       <span>{item.item_name}</span>
       {translated && <span className="text-muted">{translated}</span>}
+      {counted && (item.tr_total ?? 0) > 0 && (
+        <span className="text-xs" data-item-tr={`${item.tr_done}/${item.tr_total}`}>
+          {t(b.tr_count, { done: item.tr_done ?? 0, total: item.tr_total ?? 0 })}
+          {(item.missing_langs ?? []).length > 0 && (
+            <span className="text-muted"> · {t(b.tr_missing, { langs: (item.missing_langs ?? []).map(native).join(", ") })}</span>
+          )}
+        </span>
+      )}
       {lacks.length > 0 && <span className="text-xs text-muted" data-item-lacks>{lacks.join(" · ")}</span>}
       <Link href={detail} className="text-xs underline underline-offset-4" data-item-detail>
         {dict.owner_tr.item_link}

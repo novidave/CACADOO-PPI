@@ -12,8 +12,9 @@
 //   POST {action: "describe", item_ids}                     → an owner: "Návrh popisu" from the shop's own data only
 //   POST {action: "suggest", shop_id, kind, ref, lang}      → an owner: "Preložiť znova" / "Navrhnúť nový preklad" —
 //        Claude's new text, NOT saved (the owner compares and takes it with owner_accept_translation())
-//   POST {action: "run", shop_id, lang}                     → an owner: "Preložiť znova" for many — the shop's missing
-//        texts of that language now, a part per call → {saved, left}
+//   POST {action: "run", shop_id, lang[, item_ids]}         → an owner: "Preložiť znova" for many — the shop's missing
+//        texts of that language now, a part per call → {saved, left}; with item_ids (≤ 200, update 62) only those
+//        products' names, descriptions and categories (Tovar → "Preložiť chýbajúce")
 // Never translated: brands, codes, EAN, prices, quantities, units, addresses of web pages, e-mails, phone numbers,
 // colour codes. Nothing private is ever sent: only the shop's shown texts and an item's approved columns.
 // Every AI call checks the monthly budget first (TRANSLATION_MONTHLY_BUDGET_EUR) and adds its cost after; at 80 %
@@ -474,10 +475,28 @@ async function run(body: Body, deps: Deps): Promise<Response> {
   if (!(await member(deps, shopId))) throw new Refused(403, "shop", "Not your shop");
   if (!deps.ai) throw new Refused(503, "no_ai", "Translations are not set up");
   const now = deps.now ?? Date.now;
-  const result = await translateRows(deps, await work(deps, 120, shopId, lang), now() + 45_000);
+  const items = itemIds(body.item_ids);
+  if (items === "bad") return reply(400, { error: "bad_request", message: "item_ids" });
+  const rows = (limit: number) => (items ? itemWork(deps, shopId, lang, items, limit) : work(deps, limit, shopId, lang));
+  const result = await translateRows(deps, await rows(120), now() + 45_000);
   if (result.budget) throw new Refused(429, "budget", "This month's translation budget is used up");
-  const left = (await work(deps, 2000, shopId, lang)).length;
+  const left = (await rows(2000)).length;
   return reply(200, { saved: result.saved, failed: result.failed, left });
+}
+
+/** The chosen products of "Preložiť chýbajúce" (null = the whole shop; "bad" = not a list of up to 200 ids). */
+export function itemIds(value: unknown): string[] | null | "bad" {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 200) return "bad";
+  const ids = value.map(String);
+  return ids.every((id) => UUID.test(id)) ? [...new Set(ids)] : "bad";
+}
+
+/** Their missing (or stale AI) names, descriptions and categories in one language (translation_work_items()). */
+async function itemWork(deps: Deps, shopId: string, lang: string, ids: string[], limit: number): Promise<WorkRow[]> {
+  const { data, error } = await deps.db.rpc("translation_work_items", { p_shop_id: shopId, p_lang: lang, p_refs: ids, p_limit: limit });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as WorkRow[];
 }
 
 const OWNER_ACTIONS: Record<string, (body: Body, deps: Deps) => Promise<Response>> = { describe, suggest, run };

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { sectionUrl } from "@/lib/dashboardPages";
-import type { Cell, CellRow } from "@/lib/translations";
+import type { Cell, CellRow, PageTextRow } from "@/lib/translations";
 import { refreshAll, refreshShop } from "@/lib/publicCache";
 
 /**
@@ -99,7 +99,7 @@ export async function generateDescriptions(formData: FormData) {
   const back = (query: Record<string, string>) =>
     one
       ? redirect(`/${lang}/dashboard/items/${one}?${new URLSearchParams({ shop: slug, tab: "description", ...query })}`)
-      : redirect(sectionUrl(lang, "translations", { shop: slug, ...query }));
+      : redirect(sectionUrl(lang, "items", { shop: slug, ...query }));
   if (!ids.length) back({ err: "descriptions_none" });
   const { data, error } = await supabase.functions.invoke<{ results: { state: string }[]; error?: string }>("translate", {
     body: { action: "describe", item_ids: ids },
@@ -200,4 +200,97 @@ export async function translateNow(shopId: string, lang: string): Promise<Result
   if (error || !data) return { ok: false, error: data?.error ?? "failed" };
   refreshAll();
   return { ok: true, value: { saved: Number(data.saved ?? 0), left: Number(data.left ?? 0) } };
+}
+
+// ---------------------------------------------------------------- Tovar (update 62, called from the browser)
+
+const FILTERS = ["all", "in_stock", "sold_out", "no_description", "missing_translation"];
+const ids = (list: unknown, max: number) => (Array.isArray(list) ? list.map(String).filter((id) => UUID.test(id)) : []).slice(0, max);
+
+/**
+ * "Vygenerovať popisy (max. 20)": the ticked products, or (none ticked) up to 20 without any description. Drafts from
+ * the shop's own data only, published at once only with "Zverejniť vygenerované popisy automaticky"; the translate
+ * function checks the owner and the monthly budget.
+ */
+export async function describeChosen(shopId: string, slug: string, chosen: string[]): Promise<Result<{ made: number; asked: number; fewFacts: number }>> {
+  const supabase = await owner();
+  if (!supabase || !UUID.test(shopId)) return { ok: false, error: "login" };
+  let list = ids(chosen, 20);
+  if (!list.length) {
+    const { data, error } = await supabase.rpc("owner_items_without_description", { p_shop_id: shopId, p_limit: 20 });
+    if (error) return { ok: false, error: error.message };
+    list = ((data ?? []) as { item_id: string }[]).map((r) => r.item_id);
+  }
+  if (!list.length) return { ok: false, error: "none" };
+  const { data, error } = await supabase.functions.invoke<{ results: { state: string }[] }>("translate", {
+    body: { action: "describe", item_ids: list },
+  });
+  if (error || !data) return { ok: false, error: "failed" };
+  const made = data.results.filter((r) => r.state === "draft" || r.state === "published").length;
+  if (data.results.some((r) => r.state === "published")) refreshShop(slug);
+  return { ok: true, value: { made, asked: list.length, fewFacts: data.results.filter((r) => r.state === "too_few_facts").length } };
+}
+
+/** The texts of the ticked products × languages with their state (owner_item_translation_cells). */
+export async function itemCells(shopId: string, chosen: string[], lang: string | null): Promise<Result<(Cell & { state: CellRow["state"] })[]>> {
+  const supabase = await owner();
+  const list = ids(chosen, 200);
+  if (!supabase || !UUID.test(shopId) || !list.length) return { ok: false, error: "login" };
+  const { data, error } = await supabase.rpc("owner_item_translation_cells", {
+    p_shop_id: shopId,
+    p_item_ids: list,
+    p_lang: lang && LANG.test(lang) ? lang : null,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, value: (data ?? []) as (Cell & { state: CellRow["state"] })[] };
+}
+
+/** "Preložiť chýbajúce" / the second half of "Preložiť znova": the ticked products' missing texts of one language. */
+export async function translateItems(shopId: string, lang: string, chosen: string[]): Promise<Result<{ saved: number; left: number }>> {
+  const supabase = await owner();
+  const list = ids(chosen, 200);
+  if (!supabase || !UUID.test(shopId) || !LANG.test(lang) || !list.length) return { ok: false, error: "login" };
+  const { data, error } = await supabase.functions.invoke<{ saved?: number; left?: number; error?: string }>("translate", {
+    body: { action: "run", shop_id: shopId, lang, item_ids: list },
+  });
+  if (error || !data) return { ok: false, error: data?.error ?? "failed" };
+  refreshAll();
+  return { ok: true, value: { saved: Number(data.saved ?? 0), left: Number(data.left ?? 0) } };
+}
+
+/** Every product of the list as filtered (for "Stiahnuť preklady" without ticks). */
+export async function filteredItemIds(shopId: string, filters: { q?: string; filter?: string; lang?: string | null }): Promise<Result<string[]>> {
+  const supabase = await owner();
+  if (!supabase || !UUID.test(shopId)) return { ok: false, error: "login" };
+  const { data, error } = await supabase.rpc("owner_item_ids", {
+    p_shop_id: shopId,
+    q: filters.q?.trim() || null,
+    p_filter: FILTERS.includes(filters.filter ?? "") ? filters.filter : "all",
+    p_lang: filters.lang && LANG.test(filters.lang) ? filters.lang : null,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, value: ((data ?? []) as string[]).filter((id) => UUID.test(id)) };
+}
+
+// ---------------------------------------------------------------- Texty stránky (update 62)
+
+/** One page of the page's texts, one row per original with its languages. */
+export async function loadPageTexts(
+  shopId: string,
+  filters: { lang?: string; kind?: string; state?: string; q?: string; page?: number },
+): Promise<Result<{ rows: PageTextRow[]; total: number }>> {
+  const supabase = await owner();
+  if (!supabase || !UUID.test(shopId)) return { ok: false, error: "login" };
+  const { data, error } = await supabase.rpc("owner_page_texts", {
+    p_shop_id: shopId,
+    p_lang: filters.lang && LANG.test(filters.lang) ? filters.lang : null,
+    p_kind: filters.kind || null,
+    p_state: filters.state || null,
+    p_q: filters.q?.trim() || null,
+    p_page: filters.page ?? 1,
+    p_per_page: 30,
+  });
+  if (error) return { ok: false, error: error.code === "PGRST202" ? "unavailable" : error.message };
+  const rows = (data ?? []) as (PageTextRow & { total: number })[];
+  return { ok: true, value: { rows, total: Number(rows[0]?.total ?? 0) } };
 }

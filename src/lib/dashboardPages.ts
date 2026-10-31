@@ -1,7 +1,7 @@
 /**
  * Môj obchod's pages: "Môj obchod" (details, logo, plan, delete), "Obsah stránky" (the shop page's slider and its
  * library of files, database update 38), "Asistent" (its settings, the conversations with their cloud folder, the
- * private folders), "Jazyky a inventár" (update 40: the items and their translations) and "Priečinok s exportom" (the
+ * private folders), "Jazyky a inventár" (update 40: "Tovar" with the products' translations, update 62: "Texty stránky") and "Priečinok s exportom" (the
  * stock folder, update 45's review after an upload with the languages and the columns, the translations folder, the
  * last stock files and, update 43, the danger zone of the stock). A form
  * sends the owner back to the page and section ("at") it came from; a section that moved keeps working under its
@@ -15,11 +15,22 @@ export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs"
  */
 export const EXPORT_SECTIONS = ["source", "api", "pos", "export", "review", "trfolder", "imports", "conversations-pc", "danger"];
 export const CONTENT_SECTIONS = ["content", "library", "sections"];
-/** "Jazyky a inventár" (update 40): the items and every translation (languages, columns and files moved in update 45). */
-export const TRANSLATION_SECTIONS = ["items", "translations"];
+/**
+ * "Jazyky a inventár" (update 40): "Tovar" = the products and every translation of them, "Texty stránky" = the
+ * page's other texts in every language (update 62; it was "Preklady", which also listed the products). Languages,
+ * columns and files moved to "Priečinok s exportom" in update 45.
+ */
+export const TRANSLATION_SECTIONS = ["items", "texts"];
 
 /** Old names of sections that were merged into another one (the anchor and the open dropdown follow). */
-const MERGED: Record<string, string> = { private: "docs", sections: "content", languages: "review", columns: "review", files: "trfolder" };
+const MERGED: Record<string, string> = {
+  private: "docs",
+  sections: "content",
+  languages: "review",
+  columns: "review",
+  files: "trfolder",
+  translations: "texts",
+};
 
 /** The section a name stands for now ("private" → "docs"; "cloud" is a part of "conversations" with its own anchor). */
 export function sectionId(at: string): string {

@@ -24,6 +24,10 @@ function eq(actual: unknown, expected: unknown, label: string) {
   if (a !== b) throw new Error(`${label}\n  expected ${b}\n  got      ${a}`);
 }
 
+/** The edits without "before" (what Cacaduu wrote, only for the preview). */
+const plain = (edits: { code: string; ean: string | null; field: string; text: string }[]) =>
+  edits.map(({ code, ean, field, text }) => ({ code, ean, field, text }));
+
 const text = (s: string) => new TextEncoder().encode(s);
 const str = (b: Uint8Array) => new TextDecoder().decode(b);
 
@@ -179,7 +183,8 @@ Deno.test("edits: the owner's changed Popis; empty cells, read-only columns and 
   ]));
   eq(result.lang, null, "the main file");
   eq(result.shopId, SHOP, "its shop");
-  eq(result.edits, [{ code: "A3", ean: null, field: "description", text: "Valček na farbu." }], "one edit");
+  eq(plain(result.edits), [{ code: "A3", ean: null, field: "description", text: "Valček na farbu." }], "one edit");
+  eq(result.edits[0].before, a3[5], "what was written before (the preview, update 62)");
   eq(result.readonly, [{ code: "A1", column: "Cena" }], "the price is only listed");
   eq(result.unknown, ["ZZ9"], "an unknown row");
 });
@@ -190,7 +195,7 @@ Deno.test("edits: matched by EAN when the code is gone; columns found by their h
   // Popis moved first, the code removed from A1's row
   const moved = (r: string[]) => [r[5], ...r.slice(0, 5), r[6]];
   const result = editsOf(edited(sheets, [moved(head), moved(["", ...a1.slice(1, 5), "Biela farba na steny.", a1[6]])]));
-  eq(result.edits, [{ code: "A1", ean: "8580000000011", field: "description", text: "Biela farba na steny." }], "found by EAN");
+  eq(plain(result.edits), [{ code: "A1", ean: "8580000000011", field: "description", text: "Biela farba na steny." }], "found by EAN");
 });
 
 Deno.test("edits: a language file (Názov, Popis, Kategória editable; Stav only listed)", async () => {
@@ -201,7 +206,7 @@ Deno.test("edits: a language file (Názov, Popis, Kategória editable; Stav only
   sheets[0].rows = [head, [a1[0], a1[1], "Fehér falfesték 5 l", "", "Festékek", "Názov: hotovo"], [a2[0], a2[1], "Ecset", "", "", a2[5]]];
   const result = editsOf(sheets);
   eq(result.lang, "hu", "the language");
-  eq(result.edits, [
+  eq(plain(result.edits), [
     { code: "A1", ean: null, field: "name", text: "Fehér falfesték 5 l" },
     { code: "A1", ean: null, field: "category", text: "Festékek" },
     { code: "A2", ean: null, field: "name", text: "Ecset" },

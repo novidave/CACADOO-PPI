@@ -1965,6 +1965,21 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    The menus of these apps change often; the steps above are how they described adding a custom MCP server at the time
    of writing and have not been tried end to end with each app yet.
 
+## Part AX8 — Tovar and Texty stránky (update 62, 31 October 2026)
+
+1. **Database:** SQL Editor → paste the whole file `supabase/sql/62_items_page_texts.sql` → Run. It changes no data:
+   it ends with a list of what the clean-up **would** remove or change (the preview). Read the rows.
+2. **The clean-up** (only after checking the preview): SQL Editor → run
+   `select * from public.page_text_cleanup(true);` — one transaction; every row it removes or changes is first kept in
+   `page_text_cleanup_log`. Run `select * from public.page_text_cleanup(false);` again: it now returns no rows.
+3. **Edge Function:** paste the updated `supabase/functions/translate/index.ts` into **`translate`** → Deploy ("Verify
+   JWT" stays OFF). "Preložiť chýbajúce" / "Preložiť znova" in Tovar translate only the ticked products with it.
+4. **Vercel:** nothing new.
+5. **Try it** on davide.sk: Môj obchod → Jazyky a inventár → **Tovar**: each product shows "Preklady: X z Y jazykov";
+   pick a language in "Jazyk"; tick products → "Preložiť chýbajúce"; "Stiahnuť preklady" → open the ZIP's
+   `sklad.<jazyk>.xlsx` in Excel, fix one name, save → "Nahrať opravené preklady" → check the change → "Uložiť zmeny".
+   **Texty stránky** lists only the page's texts, each original once with its languages under it.
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -2022,3 +2037,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 39. Unanswered questions: "Nechajte nám kontakt" in the shop assistant (phone or e-mail + consent), the contact made or found, the conversation flagged, an e-mail "Nový zákazník, prosím odpovedzte" to the owners, a badge and "Čakajú na odpoveď" in Môj obchod, the reply by SMS or e-mail marks it answered | ✅ built — set up Part AX5 |
 | 40. Opening hours by SMS: the owner's verified phone texts the shops' number, Claude reads only opening hours, the database checks and changes only the named days on the shop page and in the Google Business Profile, a confirmation SMS or "write it again"; "Hodiny cez SMS" in Môj obchod with phones, the log and the Google connection | ✅ built — set up Part AX6 steps 1, 2, 4; **the receiving SMS number later** (provider not chosen yet, not Twilio) |
 | 41. The owner's own AI assistant: Claude, ChatGPT, Gemini, Grok or any MCP client at /mcp/owner (OAuth consent page or a personal key), works with conversations, contacts, bookings, opening hours, shop details and stock; SMS / e-mail only after a preview the owner approves; stock changes warn that the next file overwrites them; "AI asistenti" in Môj obchod | ✅ built — set up Part AX7 |
+| 42. Tovar is the one place for products and their translations ("Preklady: X z Y jazykov", "Jazyk", ticks with "Preložiť chýbajúce" / "Preložiť znova" / "Zmazať preklady" and "Späť", "Vygenerovať popisy (max. 20)", the translation files downloaded for the filtered or ticked products and uploaded back with a preview); "Texty stránky" (was "Preklady") lists only the page's own texts, one row per original; the old Cacadoo assistant label removed | ✅ built — set up Part AX8 |

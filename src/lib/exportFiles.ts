@@ -74,6 +74,8 @@ export interface Edit {
   ean: string | null;
   field: "description" | "name" | "category";
   text: string;
+  /** what Cacaduu wrote into that cell (shown in the preview before saving; never sent to the database) */
+  before?: string;
 }
 
 export interface FileEdits {
@@ -251,7 +253,7 @@ export function editsOf(sheets: SheetOut[]): FileEdits {
       const value = cell(key);
       if (value === "" || value === original.values[k]) return; // an empty cell never changes anything
       const field = editable[key];
-      if (field) edits.push({ code: original.code, ean: original.ean, field, text: value });
+      if (field) edits.push({ code: original.code, ean: original.ean, field, text: value, before: original.values[k] });
       else readonly.push({ code: original.code, column: headers[k] || key });
     });
   });

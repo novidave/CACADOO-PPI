@@ -2,7 +2,7 @@
 // shop_content() (pinned posts never repeated, fewer posts → fewer slides, hidden/expired files drop out and the rest
 // keep their order, the plan's slide and PDF numbers, a downgraded shop), the counters, srcset and excerpts — and
 // where Môj obchod's sections live now (old addresses forwarded). Run: npm run test:content
-import { forwardUrl, movedFrom, sectionId, sectionPath, sectionUrl } from "./dashboardPages.ts";
+import { ASSISTANT_SECTIONS, CONTENT_SECTIONS, EXPORT_SECTIONS, forwardUrl, movedFrom, sectionId, sectionPath, sectionUrl, TRANSLATION_SECTIONS } from "./dashboardPages.ts";
 import {
   arrangeSlides,
   canAdd,
@@ -126,6 +126,15 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(movedFrom("dashboard", "items"), true, "/dashboard?at=items → Jazyky a inventár");
   eq(movedFrom("dashboard", "columns"), true, "/dashboard?at=columns → Priečinok s exportom");
   eq(movedFrom("translations", "items"), false, "items live on translations");
+  // update 62: "Preklady" became "Texty stránky" (only the page's texts; the products' translations are in Tovar)
+  eq(movedFrom("translations", "texts"), false, "texts live on translations");
+  eq(movedFrom("translations", "translations"), true, "the old name is forwarded");
+  eq(forwardUrl("sk", "translations", { shop: "davide", at: "translations" }), "/sk/dashboard/translations?shop=davide&at=texts#texts", "translations → texts");
+  eq(sectionUrl("sk", "translations", { shop: "davide" }), "/sk/dashboard/translations?shop=davide&at=texts#texts", "old links land on Texty stránky");
+  eq(movedFrom("dashboard", "texts"), true, "/dashboard?at=texts → Jazyky a inventár");
+  // each section lives on exactly one page
+  const all = [...ASSISTANT_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS, ...TRANSLATION_SECTIONS];
+  eq(all.length, new Set(all).size, "no section on two pages");
   eq(sectionPath("sk", "columns"), "/sk/sync", "columns (update 45: Po nahratí súboru)");
   // update 45: the languages, the columns and the files in other languages moved to Priečinok s exportom
   for (const old of ["languages", "columns", "files"]) eq(movedFrom("translations", old), true, `${old} left Jazyky a inventár`);

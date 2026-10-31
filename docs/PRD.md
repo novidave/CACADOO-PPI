@@ -50,6 +50,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Unanswered questions (Pro, phase 5 of the CRM work): when the shop assistant cannot answer, the chat offers "Nechajte nám kontakt" — the page's own form for a phone or e-mail (+ optional name and consent); the contact is found (by phone, else e-mail) or made, the conversation is flagged "Bez odpovede" and joined to it; every owner of the shop gets an e-mail "Nový zákazník, prosím odpovedzte" with the question and a link; Môj obchod shows a badge and "Čakajú na odpoveď"; the owner replies by SMS or e-mail from the contact, which marks it answered, or marks it "Vybavené" | Built and tested (database checks, function tests); live after database update 59, the updated crm-messages function and the merge (SETUP.md part AX5) |
 | Opening hours by SMS (Pro, phase 6 of the CRM work): the owner verifies a phone with a 6-digit code, then texts the shops' SMS number ("Po-Pi 8-17, So 8-12, Ne zatvorené", "24.12. zatvorené"); Claude reads it as opening hours only, the database checks it and changes only the named days on the shop page and in the Google Business Profile (when connected); a confirmation SMS, or a request to write it again; unknown numbers get nothing | Built and tested (database checks, function tests); live after database update 60, the hours-sms function and the merge (SETUP.md part AX6); **the receiving SMS number is set up later** — the owner will pick a cheaper EU provider instead of Twilio (an adapter may be needed); Google needs the Business Profile API access approved |
 | The owner's own AI assistant (Pro, phase 7 of the CRM work): Claude, ChatGPT, Gemini, Grok or any MCP client connects to https://<site>/mcp/owner — by logging in to Cacaduu and ticking shops and permissions (OAuth), or with a personal key from Môj obchod → "AI asistenti" — and works for the owner: conversations, contacts (add / change / delete), bookings, opening hours, shop details, stock (read; manual change with a warning that the next stock file overwrites it), SMS and e-mail only after a preview the owner approves; the shoppers' MCP stays as it is | Built and tested (database checks, function tests, the MCP route against the database); live after database update 61, the updated crm-messages function and the merge (SETUP.md part AX7); not yet tried with the real Claude / ChatGPT / Gemini / Grok apps |
+| Tovar = the one place for products and their translations: "Preklady: X z Y jazykov" per product (Y = the shop's preferred languages), the "Jazyk" dropdown, ticks with "Preložiť chýbajúce", "Preložiť znova", "Zmazať preklady" (then again / "Neprekladať") and "Späť" 30 s, a progress bar, "Vygenerovať popisy (max. 20)", "Stiahnuť preklady" (update 45's files for the filtered or ticked products) and "Nahrať opravené preklady" (the same reader, every change shown before saving); "Texty stránky" (was "Preklady"): only the page's own texts, one row per original with its languages; the old assistant label "Keresés Cacadoo Assistenssel" and translations of deleted texts removed in a previewed clean-up | Built and tested (database checks, function and unit tests, the screens against a local database); live after database update 62, its clean-up step, the updated translate function and the merge (SETUP.md part AX8) |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -2063,3 +2064,33 @@ below is unchanged.)
   stock first answer with what would change; a stock change says that the next stock file, POS agent or inventory
   program will overwrite it, and never changes the currency or how fresh the stock is. Every change is in the shop's
   activity log under the owner's name. At most 120 requests a minute per connection.
+
+### 6.37 Tovar and Texty stránky (database update 62, 31 October 2026)
+
+- **One place per thing.** Môj obchod → Jazyky a inventár: **Tovar** holds the products and every translation of them;
+  **Texty stránky** (before "Preklady") holds the page's other texts. A product's texts never appear in Texty stránky.
+  Old addresses (`?at=translations`) open Texty stránky.
+- **Tovar:** each product shows "Preklady: X z Y jazykov" — Y = the shop's preferred languages; a language counts as
+  done when the product's name (and its shown description, if it has one) has a current translation there, or it is
+  the name's own language; "Neprekladať" counts as done, a stale AI text as missing — and which languages are missing.
+  "Chýba preklad" counts products missing a preferred language; the "Jazyk" dropdown narrows the counts and that chip to
+  one language. Both are decided only in the database.
+- **Tools above the list:** "Vygenerovať popisy (max. 20)" (the ticked products, else up to 20 without a description;
+  the shop's own data only, drafts unless automatic publishing is on, within the translation budget); ticks + "Vybrať
+  všetko na stránke" with "Preložiť chýbajúce", "Preložiť znova" (AI texts only — the shop's and the owner's own stay),
+  "Zmazať preklady" (then "preložiť znova pri ďalšej návšteve" or "neprekladať"), in the chosen language or all,
+  a progress bar and "Späť" for 30 s.
+- **Translation files:** "Stiahnuť preklady" makes update 45's files (the same code as Priečinok s exportom) for the
+  ticked products or the filtered list, languages = the preferred ones by default, "Všetky" possible; only the approved
+  public columns. "Nahrať opravené preklady" reads them with the same rules (Kód, then EAN; only Názov / Popis /
+  Kategória, never quantity or price), shows every change (before → after) and saves only after "Uložiť zmeny"; saved
+  texts are "Upravené ručne".
+- **Texty stránky:** the assistant's label and welcome text, special-day notes, the slider's title, section titles and
+  alt texts, blog posts — each original once, its languages folded underneath; filters Jazyk, Čo, Stav and words of the
+  original; the same states and actions (Zobraziť, Upraviť, Preložiť znova, Zmazať + Späť). The assistant's texts can
+  be corrected in the shop's own language too. (A shop description or other own texts are not translatable texts in
+  Cacaduu today; nothing to list for them.)
+- **Clean-up (once, previewed):** translations of page texts whose original was deleted, the old assistant label
+  "Keresés Cacadoo Assistenssel" with its translations (the assistant then shows its default heading in every
+  language), "Cacadoo" → "Cacaduu" in the assistant's texts and their translations. Never a product's translation,
+  never a hidden section's (it may come back). Every removed or changed row is kept in a log table first.
