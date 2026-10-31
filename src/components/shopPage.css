@@ -740,7 +740,6 @@
 }
 .ppi-read:focus-visible,
 .ppi-pill-select:focus-visible,
-.ppi-btn-orange:focus-visible,
 .ppi-btn-plain:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
@@ -843,7 +842,6 @@
 .ppi-post[data-open] .ppi-post-fig img {
   animation: ppi-kenburns 7s ease-out 0.3s forwards;
 }
-.ppi-btn-orange,
 .ppi-btn-plain {
   height: 44px;
   padding: 0 16px;
@@ -852,10 +850,28 @@
   font-weight: 700;
   cursor: pointer;
 }
-.ppi-btn-orange {
-  border: 0;
+/* The article's "Všetky novinky" (artboard 12's primary hold button): orange, a white fill while held, white when done. */
+.ppi-hold-news.ppi-hold-pri {
+  min-width: 0;
+  padding: 0 16px;
+  border-color: #f57c20;
   background: #f57c20;
   color: #fff;
+  font-size: 14px;
+}
+@media (hover: hover) {
+  .ppi-hold-news.ppi-hold-pri:hover {
+    border-color: #e46a0e;
+    background: #e46a0e;
+  }
+}
+.ppi-hold-news.ppi-hold-pri .ppi-cb-fill {
+  background: rgba(255, 255, 255, 0.28);
+}
+.ppi-hold-news.ppi-hold-pri[data-phase="done"] {
+  border-color: #f57c20;
+  background: #fff;
+  color: #c2410c;
 }
 .ppi-btn-plain {
   border: 1.5px solid #e2e2e2;
@@ -1478,4 +1494,76 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
   .ppi-hold-news .ppi-cb-ring {
     display: none;
   }
+}
+
+/*
+ * The shop page's background (artboard 12, 2026-10-31): `@/components/ShopBackdrop`. Cream page, white header; the
+ * animals sit behind the cards (z-index -1 inside the page's own stacking context, `isolate`), a little wider than the
+ * column, drift with the scroll where the browser has scroll timelines and float or swing; still with reduced motion.
+ */
+body:has([data-shop-backdrop]) {
+  background: #fff8f0;
+  overflow-x: clip;
+}
+body:has([data-shop-backdrop]) > header {
+  background: #fff;
+  border-bottom-color: #fde3cc;
+}
+.ppi-zoo {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: -1;
+  width: min(100vw, 1000px);
+  transform: translateX(-50%);
+  overflow: hidden;
+  opacity: 0.7;
+  pointer-events: none;
+}
+.ppi-zoo-animal {
+  position: absolute;
+}
+.ppi-zoo-animal svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ppi-zoo-drift {
+  animation: ppi-zoo-px linear both;
+  animation-timeline: scroll(root block);
+}
+.ppi-zoo-float {
+  animation: ppi-zoo-fl 7s ease-in-out infinite;
+}
+.ppi-zoo-float.ppi-zoo-s2 {
+  animation-duration: 9s;
+  animation-delay: -2s;
+}
+.ppi-zoo-float.ppi-zoo-s3 {
+  animation-duration: 6s;
+  animation-delay: -4s;
+}
+.ppi-zoo-swing {
+  transform-origin: 50% 0;
+  animation: ppi-zoo-sw 5s ease-in-out infinite;
+}
+@keyframes ppi-zoo-px {
+  from { transform: translateY(var(--p0)); }
+  to { transform: translateY(var(--p1)); }
+}
+@keyframes ppi-zoo-fl {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  50% { transform: translate(var(--fx, 6px), -14px) rotate(var(--fr, 3deg)); }
+}
+@keyframes ppi-zoo-sw {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(6deg); }
+}
+@supports not (animation-timeline: scroll()) {
+  .ppi-zoo-drift { animation: none; transform: translateY(var(--p0)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-zoo-drift, .ppi-zoo-float, .ppi-zoo-swing { animation: none; }
+  .ppi-zoo-drift { transform: translateY(var(--p0)); }
 }

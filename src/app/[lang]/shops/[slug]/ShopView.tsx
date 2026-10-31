@@ -38,6 +38,7 @@ import { getShopTexts } from "@/lib/contentTranslations";
 import { TranslationNote } from "@/components/TranslationNote";
 import { freshnessText } from "@/lib/stock";
 import { AmenityPills } from "@/components/AmenityPills";
+import { ShopBackdrop } from "@/components/ShopBackdrop";
 import { ContactButtons } from "@/components/ContactButtons";
 import { JsonLd } from "@/components/JsonLd";
 import { ContentSlider } from "@/components/ContentSlider";
@@ -199,7 +200,9 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const sliderNews = slides.length > 0 && Boolean(content?.has_posts);
 
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6">
+    <div className="relative isolate mx-auto flex w-full max-w-[760px] flex-col gap-6" data-shop-page>
+      {/* Artboard 12's background (pale animals drifting with the scroll), behind every card; decoration only. */}
+      <ShopBackdrop />
       <JsonLd data={{ "@context": "https://schema.org", ...storeJsonLd({ ...shop, ...company }, lang, host, input, siteUrl()) }} />
 
       {/* 1. The shop's name and logo, its details under them (on its own domain too). Screen 11 (2026-10-31). */}
@@ -268,7 +271,6 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           ratio={sliderRatio(content.ratio)}
           articles={articles}
           hold={dict.contact_buttons.hold}
-          assistant={assistant}
           first
         />
       )}

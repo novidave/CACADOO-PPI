@@ -2105,7 +2105,10 @@ below is unchanged.)
 
 The public shop page (Cacaduu address and own domain) has a new phone layout (designed at 428 px; also 390 px and a
 760 px column on a computer). Every text comes from the shop's data or the message files; nothing of the shop's data is
-changed. Order:
+changed. Behind it (artboard 12 "Celá stránka obchodu", 31 October 2026): a cream page (#FFF8F0) with pale animals
+and leaves that drift slowly as the page scrolls and float gently — decoration only (hidden from screen readers, never
+in front of a card or a button), still for visitors who asked for less motion, plain drawings without JavaScript.
+Order:
 1. Header (own domain): the shop's header logo, or its logo (32 px) with its name; the language picker on the right.
 2. Details: logo in a rounded box + name; address; the company line "Firma · IČO … · DIČ …" (only what the shop has).
 3. Amenities as green pills with icons ("WC pre zákazníkov", "Bidetová sprška", card terminal) — only those the shop has.
@@ -2122,8 +2125,9 @@ changed. Order:
    only** (mouse drag on a computer, ← → keys), a dark gradient with "Novinka" (post) / "Ponuka" (PDF, picture) and the
    title; under it the date and one pill per slide. **"Čítať" opens the post under the slider** (its text is in the
    page's HTML; the post's own page stays the canonical one): "BLOG · date · n MIN ČÍTANIA", the title, the text as
-   written (first paragraph as the lead), one photo with a slow zoom, "Opýtať sa asistenta" (when the assistant is
-   shown) and "Zavrieť článok". A PDF or picture: "Zobraziť" → the viewer.
+   written (first paragraph as the lead), one photo with a slow zoom, "Všetky novinky" (an orange hold link to the blog,
+   artboard 12's primary button; it replaced "Opýtať sa asistenta" on 31 October 2026) and "Zavrieť článok". A PDF
+   or picture: "Zobraziť" → the viewer.
 9. The shop assistant (paid plan; same logic): orange card, "GDPR" pill with the privacy text, "Pridať fotku alebo
    súbor", orange "Poslať" (the plane flies off, "Odoslané"); an empty question says "Napíšte otázku alebo pridajte
    fotku".

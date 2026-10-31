@@ -118,7 +118,7 @@ and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
 colour alone), no dark mode, no cart icons. Availability is always written out as text, emphasised in bold.
 **The shop page "Screen 11" (2026-10-31, at the owner's request — see below) may use colour:** Cacaduu orange #F57C20
-(accents: news, assistant, access key), the contact buttons' own tints, green amenity pills (#DCF5E5 / #146C37), the
+(accents: news, assistant, access key), artboard 12's cream page #FFF8F0 with its pale animals, the contact buttons' own tints, green amenity pills (#DCF5E5 / #146C37), the
 stock circles and the blue list counter; everything else on it stays black / white / grey, status dots unchanged.
 Mobile-first. Map: `@/components/ShopMap` (MapLibre + OpenFreeMap **"bright" = OSM Bright**, `@/lib/mapStyle` — every
 map, since 2026-10-31; no API key), pins in the status colour
@@ -143,8 +143,12 @@ current ± 1 picture, `<noscript>`); no title, no arrows, no counter; swipe (scr
 tag "Novinka"/"Ponuka" + title + white "Čítať" (chevron down, bobbing; "Zavrieť" when open) or "Zobraziť" (viewer);
 date + one pill per slide (`aria-pressed`). **"Čítať" opens the post inline**: `InlineArticle` (server: meta "BLOG ·
 date · n MIN ČÍTANIA" with `readingMinutes()`, title, `BlogText`, `articlePhoto()` with Ken Burns), all articles in
-the HTML (`getBlogPost` per post slide), the post page stays canonical; a link to the post without JavaScript.
-**Assistant**: first view = server HTML (`ShopAssistant`) + the small loader `AssistantBoot` (carries text, cursor,
+the HTML (`getBlogPost` per post slide), the post page stays canonical; a link to the post without JavaScript; its
+buttons: "Všetky novinky" (`HoldLink`, artboard 12's orange primary `.ppi-hold-pri`) + "Zavrieť článok" (no
+"Opýtať sa asistenta" since 2026-10-31). **Background** (artboard 12 "Celá stránka obchodu", 2026-10-31):
+`@/components/ShopBackdrop` (server SVG, `aria-hidden`, no pointer events) — pale animals and leaves on #FFF8F0 (body
+via `:has()`, white header), behind the cards (`isolate` + z-index −1), drifting with `animation-timeline: scroll()`
+(still without it), floating / swinging; nothing moves with `prefers-reduced-motion`. **Assistant**: first view = server HTML (`ShopAssistant`) + the small loader `AssistantBoot` (carries text, cursor,
 key row, a tapped "Poslať"); `ShopChat` the same look (`.ppi-ai*`): GDPR pill (`<details>`), "Pridať fotku alebo súbor",
 orange "Poslať" (plane, "Odoslané"), "Napíšte otázku alebo pridajte fotku". **Key row**: `@/components/KeyRow` (row) +
 `@/components/KeyForm` (150 px "Otvoriť", `KeyVortex`: rings while checking, head + crest + badge on success; part of

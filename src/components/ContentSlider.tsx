@@ -30,7 +30,6 @@ export interface ContentSliderLabels {
   tag_offer: string;
   close: string;
   view: string;
-  ask_assistant: string;
   close_article: string;
   article: string;
   slide_of: string;
@@ -111,7 +110,6 @@ export function ContentSlider({
   first = false,
   articles,
   hold,
-  assistant = false,
 }: {
   views: SlideView[];
   title: string;
@@ -129,8 +127,6 @@ export function ContentSlider({
   articles?: Record<string, ReactNode>;
   /** "Držte stlačené" for "Všetky novinky". */
   hold?: string;
-  /** The shop assistant is on the page: the article offers "Opýtať sa asistenta". */
-  assistant?: boolean;
 }) {
   const region = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLOListElement>(null);
@@ -374,13 +370,6 @@ export function ContentSlider({
     </a>
   );
 
-  const askAssistant = () => {
-    const box = document.querySelector<HTMLElement>("[data-assistant]");
-    if (!box) return;
-    box.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "start" });
-    box.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
-  };
-
   const slider = (
     <div
       ref={region}
@@ -447,10 +436,17 @@ export function ContentSlider({
                   <div className="mt-[18px] border-t border-[#EEEEEE] pt-5">
                     {articles[view.key]}
                     <div className="mt-[18px] flex flex-wrap gap-2.5">
-                      {assistant && (
-                        <button type="button" onClick={askAssistant} className="ppi-btn-orange" data-post-ask>
-                          {labels.ask_assistant}
-                        </button>
+                      {/* "Všetky novinky" → the blog, held like the one above the slider (artboard 12: orange) */}
+                      {allNews && !preview && (
+                        <HoldLink
+                          href={allNews}
+                          newTab={false}
+                          label={labels.all_news}
+                          holdLabel={hold ?? labels.all_news}
+                          doneLabel={labels.all_news_done}
+                          className="ppi-hold-news ppi-hold-pri"
+                          data={{ "post-all-news": "" }}
+                        />
                       )}
                       <button
                         type="button"
