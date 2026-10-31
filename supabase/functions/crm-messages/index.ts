@@ -32,7 +32,7 @@ const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 /** The owner MCP's own refusals (database update 61), passed on to the AI assistant as they are. */
 export const MCP_REASONS = ["invalid_token", "scope", "confirmation", "preview_changed", "no_plan", "forbidden"] as const;
 /** The database's own reasons, passed on to the page as they are. */
-export const REASONS = ["no_plan", "no_recipient", "empty", "subject", "too_long", "too_many", "channel", "sms_quota"] as const;
+export const REASONS = ["no_plan", "no_recipient", "empty", "subject", "too_long", "too_many", "channel", "sms_quota", "no_contact", "not_found"] as const;
 
 // ---------------------------------------------------------------- SMS providers (the same block in crm-messages and bookings)
 //
@@ -259,7 +259,7 @@ interface Queued {
 export interface AlertRow {
   id: string;
   shop_name: string;
-  kind: "callback";
+  kind: "callback" | "forget_all";
   conversation_id: string | null;
   question: string | null;
   has_phone: boolean;
@@ -300,13 +300,42 @@ const ALERT_TEXTS = {
   },
 } as const;
 
+/** Update 63: a shopper deleted everything about them ("Všetko o mne"); copies outside Cacaduu are the owner's to delete. */
+const FORGET_TEXTS = {
+  sk: {
+    subject: "Zákazník vymazal svoje údaje – {shop}",
+    intro: "Zákazník na stránke obchodu {shop} požiadal o vymazanie všetkých svojich údajov a potvrdil to SMS kódom.",
+    done: "V Cacaduu sme vymazali jeho kontakt, konverzácie, súbory a PDF a zrušili jeho budúce rezervácie.",
+    copies: "Ak máte kópie jeho konverzácií v cloudovom priečinku alebo v priečinku v počítači (Konverzácie do počítača), vymažte ich, prosím, aj tam.",
+    footer: "Táto správa prišla z Cacaduu, pretože ste majiteľom obchodu {shop}.",
+  },
+  hu: {
+    subject: "Egy ügyfél törölte az adatait – {shop}",
+    intro: "Egy ügyfél a(z) {shop} üzlet oldalán kérte minden adatának törlését, és SMS-kóddal megerősítette.",
+    done: "A Cacaduu-ban töröltük a kapcsolatát, a beszélgetéseit, a fájljait és a PDF-eket, és lemondtuk a jövőbeli foglalásait.",
+    copies: "Ha a beszélgetéseiről másolat van a felhőmappában vagy a számítógépes mappában, kérjük, ott is törölje.",
+    footer: "Ezt az üzenetet a Cacaduu küldte, mert Ön a(z) {shop} üzlet tulajdonosa.",
+  },
+  en: {
+    subject: "A customer deleted their data – {shop}",
+    intro: "A customer on the page of {shop} asked to delete all their data and confirmed it with an SMS code.",
+    done: "In Cacaduu we deleted their contact, conversations, files and PDFs and cancelled their future bookings.",
+    copies: "If you keep copies of their conversations in your cloud folder or in a folder on your computer, please delete them there too.",
+    footer: "This message comes from Cacaduu because you own the shop {shop}.",
+  },
+} as const;
+
 const fillText = (text: string, values: Record<string, string>) => text.replace(/\{(\w+)\}/g, (all, k: string) => values[k] ?? all);
 
 /** The owner e-mail for one waiting shopper, in the owner's language (Slovak, Hungarian, else English). */
 export function alertMail(row: AlertRow, lang: string, siteUrl: string | null) {
   const code = lang === "sk" || lang === "hu" ? lang : lang === "cs" ? "sk" : "en";
-  const t = ALERT_TEXTS[code];
   const shop = row.shop_name.replace(/[\r\n]/g, " ").trim().slice(0, 80);
+  if (row.kind === "forget_all") {
+    const f = FORGET_TEXTS[code];
+    return { subject: fillText(f.subject, { shop }), text: [fillText(f.intro, { shop }), "", f.done, "", f.copies, "", fillText(f.footer, { shop })].join("\n") };
+  }
+  const t = ALERT_TEXTS[code];
   const what = [row.has_phone ? t.phone : null, row.has_email ? t.email : null].filter(Boolean).join(" + ");
   const link = siteUrl && row.conversation_id ? `${siteUrl}/${code}/dashboard/conversations/${row.conversation_id}` : null;
   const lines = [
@@ -373,6 +402,23 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   const action = body?.action;
 
   if (action === "config") return reply(200, { email: Boolean(deps.email), sms: deps.sms.name, sms_live: deps.sms.live });
+  if (action === "reply" && body) {
+    // update 63: the owner answers in a conversation (its contact); the message is part of the conversation
+    const conversation = String(body.conversation_id ?? "");
+    const template = body.template_id ? String(body.template_id) : null;
+    if (!UUID.test(conversation) || (body.channel !== "sms" && body.channel !== "email") || (template !== null && !UUID.test(template))) {
+      return reply(400, { error: "bad_request" });
+    }
+    const queued = await caller.rpc("owner_reply", {
+      p_conversation_id: conversation,
+      p_channel: body.channel,
+      p_template_id: template,
+      p_subject: text(body.subject, 400),
+      p_body: text(body.body, 12_000),
+    });
+    if (queued.error) return reply(queued.error.code === "42501" ? 403 : 400, { error: reason(queued.error) });
+    return reply(200, await deliver(deps, queued.data as Queued));
+  }
   if (action !== "send" || !body) return reply(400, { error: "bad_request" });
 
   const contact = String(body.contact_id ?? "");
