@@ -24,9 +24,10 @@ Setup steps for humans are in `SETUP.md`.
   plus ≤ 3 values per column, and names only for `isPrivateColumn()` / `is_private_column()` columns.
 - Payment never affects search ranking.
 - Every database change is a new SQL file (never edit an applied one): updates 1–21 in `supabase/migrations/`; from
-  update 22 on, **one file per phase in `supabase/sql/`** that the owner pastes into the SQL Editor (never run
-  migrations, never ask for the database password). `npm run test:db` applies both.
-  Add a check to `supabase/tests/database_test.sql` for every rule you add.
+  update 22 on, **one numbered file per phase in `supabase/sql/`** (the history stays in the repo). Updates 22–62 were
+  pasted by the owner; **from 2026-10-31 Claude applies them** (see "How changes go live" below). Never ask for or use
+  the database password. `npm run test:db` applies both. Add a check to `supabase/tests/database_test.sql` for every
+  rule you add.
 - **Europe-wide, no home town.** Never hard-code a city, country, currency or time zone.
   **No location services**: the website never asks for or guesses the visitor's location (no device location,
   no IP lookup). Search is text only — item name (original or any translation), brand, category, code, EAN, shop name,
@@ -40,6 +41,54 @@ Setup steps for humans are in `SETUP.md`.
 - All visible text comes from `src/i18n/messages/{sk,hu,en}.json`; add every new key to all three (Slovak is the source;
   every other language comes from the database, update 40). `npm run test:strings` fails on text written straight into
   a page or component.
+
+## How changes go live (the owner's working rules, 2026-10-31)
+
+One branch, one PR, one PR at a time (in the order opened; the next one is re-checked on the new `main`). Every PR
+targets `main`. Supabase project: `szhotccxyaepjhwsqdqx` (through the Supabase connector).
+
+**Database (SQL).** Each change is still ONE numbered file in `supabase/sql/`. Claude applies it itself with
+`apply_migration`, named like the file (`62_items_page_texts`), in this order:
+1. `npm run test:db` passes on the branch;
+2. read-only checks on the live database (does it exist already? how many rows would change?);
+3. apply — **before the PR is merged**, and the change must work with the code that is live now;
+4. verify (`list_tables` / a `SELECT`), then `get_advisors` (security) for new warnings;
+5. note in the PR: "SQL applied: <name>, <time>".
+If applying fails: stop, change nothing else, show the owner the error. Never ask for or use the database password.
+
+**Edge Functions.** Deploy changed functions with `deploy_edge_function` after `npm run check:functions` and
+`npm run test:functions` pass; keep each function's settings (Verify JWT **off** unless the PR says otherwise; every
+function in `supabase/functions/` checks its callers itself). Order: SQL first, then functions, then merge. After
+deploying: ACTIVE + the new version in `list_edge_functions`, no new errors in the function logs; note "Function
+deployed: <name> v<version>" in the PR. On errors: redeploy the version from `main` and tell the owner.
+
+**Merging** (while Cacaduu has no paying shops — the owner says when that changes): when every check is green, the
+Vercel preview is Ready and SQL / functions are applied, Claude checks the changed pages in the preview itself, then
+**squash-merges into `main` without waiting**. After merging: the production deploy is Ready, and the live pages on
+cacaduu.com and davide.sk work; if production is broken, roll back in Vercel to the previous production deployment
+and fix it in a new PR. Afterwards tell the owner in 2–3 lines: what changed, what to look at, the PR link.
+When the owner says **"we have paying shops"**, merging goes back to waiting for "OK, merge".
+
+**Always wait for the owner's OK** (do not apply, deploy or merge) when a change:
+- deletes data (DROP, TRUNCATE, DELETE of rows, removing columns or tables, deleting files in storage),
+- touches payments (Stripe), domains (Websupport / DNS), legal texts, authentication / RLS / security, or secrets,
+- or changes these rules.
+Then write **"Čaká na tvoje OK: <reason>"** with exactly what would happen, and stop until the owner writes "OK".
+
+**Secrets.** Claude never sees, writes or sets secret values. A feature that needs a new secret is built so it works
+without it (switched off or "nie je nastavené" until the secret exists — no errors, nothing breaks); its NAME goes in
+the PR and in `TODO-OWNER.txt`; never stop for a missing secret. The owner adds values in Supabase / Vercel. At the end
+of the phases: ONE list of every secret to add (name, Supabase or Vercel, where to get the value, which feature it
+switches on); after "secrets done", check that each feature switched on and report.
+
+**`TODO-OWNER.txt`** (repository root): a numbered list of everything the owner must do by hand (secrets to add,
+settings to click, things to check), each with exact steps in plain words. Numbers never change; new items get the
+next number; "done 4, 7" moves them to DONE with the date. Every PR adds its manual steps; the message to the owner
+names only the new numbers.
+
+**Phases.** When a phase is finished (checks green, SQL / functions applied, merged, live page checked), start the next
+phase from the new `main` without waiting. Stop only when a change needs the owner's OK, something fails twice, or
+all phases are done.
 
 ## Design
 
