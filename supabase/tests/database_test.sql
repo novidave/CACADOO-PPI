@@ -6776,6 +6776,10 @@ begin
   -- P002's name is translated into every language the shop needs
   delete from public.translation_requests where shop_id = v_a;
   insert into public.translation_requests (shop_id, lang) values (v_a, 'de');
+  -- since update 62 "Chýba preklad" counts the shop's preferred languages: German is one (kept and put back below)
+  perform set_config('ppi.t_lang_row', coalesce((select to_jsonb(ls)::text from public.shop_language_settings ls where ls.shop_id = v_a), ''), false);
+  insert into public.shop_language_settings (shop_id, main_lang, preferred_langs) values (v_a, 'sk', array['de'])
+  on conflict (shop_id) do update set main_lang = 'sk', preferred_langs = array['de'];
   delete from public.content_translations where shop_id = v_a and kind like 'item_%';
   delete from public.item_descriptions where item_id in (select id from public.shop_items where shop_id = v_a);
   update public.shop_items set name_lang = 'sk' where shop_id = v_a;
@@ -6893,6 +6897,10 @@ begin
   delete from public.content_translations where shop_id = v_a and kind like 'item_%';
   delete from public.item_descriptions where shop_id = v_a;
   delete from public.translation_requests where shop_id = v_a;
+  delete from public.shop_language_settings where shop_id = v_a;
+  insert into public.shop_language_settings
+  select * from jsonb_populate_record(null::public.shop_language_settings, nullif(current_setting('ppi.t_lang_row'), '')::jsonb)
+  where nullif(current_setting('ppi.t_lang_row'), '') is not null;
 end $$;
 
 \echo '--- speed: stored name text, search patterns, no JIT, the error log (update 42)'
@@ -10491,5 +10499,283 @@ begin
 end $$;
 reset role;
 drop table om_test;
+
+\echo '--- update 62: Tovar (X z Y, language, bulk cells, chosen products) and Texty stránky (grouped), clean-up'
+reset role;
+create temporary table t62 (k text primary key, v text);
+grant all on t62 to authenticated, anon, service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p1 uuid := (select id from public.shop_items where source_code = 'P001');
+  v_p2 uuid := (select id from public.shop_items where source_code = 'P002');
+  v_p3 uuid := (select id from public.shop_items where source_code = 'P003');
+begin
+  -- shop A writes Slovak and wants Hungarian and German; nothing else of its products is translated
+  insert into t62 values ('lang_row', coalesce((select to_jsonb(ls)::text from public.shop_language_settings ls where ls.shop_id = v_a), ''));
+  insert into t62 values ('label', coalesce((select assistant_label from public.shops where id = v_a), ''));
+  insert into t62 values ('welcome', coalesce((select assistant_welcome from public.shops where id = v_a), ''));
+  insert into public.shop_language_settings (shop_id, main_lang, preferred_langs) values (v_a, 'sk', array['hu', 'de'])
+  on conflict (shop_id) do update set main_lang = 'sk', preferred_langs = array['hu', 'de'];
+  update public.languages set enabled = true where code in ('hu', 'de', 'en');
+  delete from public.content_translations where shop_id = v_a;
+  delete from public.item_descriptions where shop_id = v_a;
+  update public.shop_items set name_lang = 'sk' where shop_id = v_a;
+  -- P001: a shown description; hu: name "Neprekladať" + description by AI (done); de: name by hand, no description
+  insert into public.item_descriptions (item_id, shop_id, text, published_at, show) values (v_p1, v_a, 'Popis jedna.', now(), 'auto');
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash) values
+    (v_a, 'item_name', v_p1::text, 'hu', null, 'none', null),
+    (v_a, 'item_description', v_p1::text, 'hu', 'Leírás egy.', 'ai', md5('Popis jedna.')),
+    (v_a, 'item_name', v_p1::text, 'de', 'Name eins', 'manual', md5('x')),
+  -- P002: hu current AI, de stale AI
+    (v_a, 'item_name', v_p2::text, 'hu', 'Kávé', 'ai', md5((select name from public.shop_items where id = v_p2))),
+    (v_a, 'item_name', v_p2::text, 'de', 'Kaffee', 'ai', md5('old name'));
+  -- P003's own name is Hungarian: done in Hungarian without a translation
+  update public.shop_items set name_lang = 'hu' where id = v_p3;
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p1 uuid := (select id from public.shop_items where source_code = 'P001');
+  v_p2 uuid := (select id from public.shop_items where source_code = 'P002');
+  r record;
+  c record;
+  n integer;
+begin
+  assert public.owner_item_languages(v_a) = array['hu', 'de'], 'Y = the preferred languages';
+  -- "Preklady: X z Y jazykov"
+  select * into r from public.owner_items(v_a, 'P001');
+  assert r.tr_done = 1 and r.tr_total = 2 and r.missing_langs = array['de'], format('P001 %s', r);
+  select * into r from public.owner_items(v_a, 'P002');
+  assert r.tr_done = 1 and r.tr_total = 2 and r.missing_langs = array['de'], format('P002: stale AI = missing %s', r);
+  select * into r from public.owner_items(v_a, 'P003');
+  assert r.tr_done = 1 and r.missing_langs = array['de'], format('P003: its own language counts %s', r);
+  select * into r from public.owner_items(v_a, 'P004');
+  assert r.tr_done = 0 and r.missing_langs = array['hu', 'de'] and r.missing_translation, format('P004 %s', r);
+  -- "Chýba preklad" and the "Jazyk" dropdown, decided here: counts = the filtered list = the ids
+  select * into c from public.owner_item_counts(v_a);
+  assert c.missing_translation = c.all_items, format('every product lacks German %s', c);
+  select * into c from public.owner_item_counts(v_a, 'hu');
+  assert c.missing_translation = c.all_items - 3, format('Hungarian: P001, P002, P003 are done %s', c);
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'missing_translation', 'hu')) = c.missing_translation;
+  assert cardinality(public.owner_item_ids(v_a, null, 'missing_translation', 'hu')) = c.missing_translation;
+  assert not exists (select 1 from public.owner_items(v_a, null, 100, 0, 'missing_translation', 'hu')
+                     where source_code in ('P001', 'P002', 'P003')), 'done in Hungarian';
+  assert (select missing_translation from public.owner_items(v_a, 'P002', 50, 0, 'all', 'de')), 'stale German = missing';
+  assert (select count(*) from public.owner_items(v_a, null, 100, 0, 'missing_translation', 'sk')) = 0, 'never missing in its own language';
+  assert (select tr_total from public.owner_items(v_a, 'P001', 50, 0, 'all', 'hu')) = 2, 'Y stays the preferred languages';
+  assert cardinality(public.owner_item_ids(v_a, null, 'all', null)) = c.all_items;
+  assert cardinality(public.owner_item_ids(v_a, 'P001', 'all', null)) = 1, 'the search narrows the ids';
+  -- the bulk actions' cells: name, shown description, category × languages, with the "Preklady" tab's states
+  assert (select state from public.owner_item_translation_cells(v_a, array[v_p2], null) where kind = 'item_name' and lang = 'de') = 'stale';
+  assert (select state from public.owner_item_translation_cells(v_a, array[v_p2], null) where kind = 'item_name' and lang = 'hu') = 'ai';
+  assert (select state from public.owner_item_translation_cells(v_a, array[v_p1], null) where kind = 'item_name' and lang = 'hu') = 'none';
+  assert (select state from public.owner_item_translation_cells(v_a, array[v_p1], null) where kind = 'item_description' and lang = 'de') = 'missing';
+  assert not exists (select 1 from public.owner_item_translation_cells(v_a, array[v_p1, v_p2], 'hu') where lang <> 'hu');
+  assert not exists (select 1 from public.owner_item_translation_cells(v_a, array[v_p1], null) where lang = 'sk'), 'never the shop''s own language';
+  begin
+    perform public.owner_item_translation_cells(v_a, array(select gen_random_uuid() from generate_series(1, 201)), null);
+    raise exception 'more than 200 products';
+  exception when invalid_parameter_value then null;
+  end;
+  -- "Zmazať preklady" with "Neprekladať", then "Späť": exactly as before
+  select count(*) into n from public.content_translations where shop_id = v_a;
+  perform set_config('ppi.t62_before', (select public.owner_delete_translations(v_a,
+    (select jsonb_agg(jsonb_build_object('kind', x.kind, 'ref', x.ref, 'lang', x.lang))
+     from public.owner_item_translation_cells(v_a, array[v_p2], null) x where x.state <> 'missing'), true))::text, false);
+  assert (select bool_and(status = 'none') from public.content_translations where shop_id = v_a and ref = v_p2::text), 'never translate';
+  assert (select tr_done from public.owner_items(v_a, 'P002')) = 2, '"Neprekladať" counts as done';
+  perform public.owner_restore_translations(v_a, current_setting('ppi.t62_before')::jsonb);
+  assert (select count(*) from public.content_translations where shop_id = v_a) = n, 'undo puts every row back';
+  assert (select text from public.content_translations where shop_id = v_a and ref = v_p2::text and lang = 'hu') = 'Kávé';
+  -- another owner's shop, the owner's own functions only
+  begin
+    perform public.owner_item_ids((select id from public.shops where slug = 'drogeria-kostolne'));
+    raise exception 'another shop''s ids';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.translation_work_items(v_a, 'de', array[v_p2::text]);
+    raise exception 'an owner ran translation_work_items';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin
+    perform public.owner_item_languages(v_a);
+    raise exception 'owner B read shop A''s languages';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.owner_item_translation_cells(v_a, array[(select id from public.shop_items where source_code = 'P001')], null);
+    raise exception 'owner B read shop A''s cells';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.owner_page_texts(v_a);
+    raise exception 'owner B read shop A''s page texts';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p1 uuid := (select id from public.shop_items where source_code = 'P001');
+  v_p2 uuid := (select id from public.shop_items where source_code = 'P002');
+begin
+  -- "Preložiť chýbajúce" for chosen products: only theirs, only missing or stale AI, never the own language
+  assert (select array_agg(kind || ':' || lang order by kind) from public.translation_work_items(v_a, 'de', array[v_p2::text]))
+         = array['item_name:de'], 'the stale German name';
+  assert not exists (select 1 from public.translation_work_items(v_a, 'hu', array[v_p2::text])), 'a current one is not work';
+  assert (select array_agg(kind order by kind) from public.translation_work_items(v_a, 'de', array[v_p1::text]))
+         = array['item_description'], 'P001: the German description (the name is the owner''s)';
+  assert not exists (select 1 from public.translation_work_items(v_a, 'sk', array[v_p1::text, v_p2::text])), 'never the shop''s language';
+  assert not exists (select 1 from public.translation_work_items(v_a, 'de',
+                       array[(select id::text from public.shop_items where source_code = 'D001')])), 'never another shop''s product';
+end $$;
+reset role;
+-- Texty stránky: the page's texts, grouped by original, never a product
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  update public.shops set assistant_label = 'Hľadať s asistentom', assistant_welcome = 'Dobrý deň, čo hľadáte?' where id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date in (current_date + 30, current_date + 31);
+  insert into public.shop_special_hours (shop_id, date, closed, note) values (v_a, current_date + 30, true, 'Inventúra');
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash) values
+    (v_a, 'assistant_label', v_a::text, 'hu', 'Keresés az asszisztenssel', 'ai', md5('Hľadať s asistentom')),
+    (v_a, 'assistant_label', v_a::text, 'sk', 'Hľadať s asistentom', 'ai', md5('Hľadať s asistentom')),
+    (v_a, 'special_note', (current_date + 30)::text, 'hu', 'Leltár', 'manual', md5('Inventúra')),
+    (v_a, 'special_note', (current_date + 30)::text, 'de', 'Inventur', 'ai', md5('Inventúra alt'));
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  r record;
+  n integer;
+begin
+  assert not exists (select 1 from public.owner_page_texts(v_a, null, null, null, null, 1, 100) where kind like 'item_%'), 'no product rows';
+  select count(*) into n from public.owner_page_texts(v_a, null, null, null, null, 1, 100);
+  assert n = (select count(distinct (kind, ref)) from public.owner_page_texts(v_a, null, null, null, null, 1, 100)), 'one row per original';
+  select * into r from public.owner_page_texts(v_a, null, 'hours', null, null, 1, 100);
+  assert r.kind = 'special_note' and r.source = 'Inventúra' and r.total = 1, format('the special day %s', r);
+  assert (select count(*) from jsonb_array_elements(r.cells) e where e ->> 'lang' = 'hu' and e ->> 'state' = 'manual') = 1;
+  assert (select count(*) from jsonb_array_elements(r.cells) e where e ->> 'lang' = 'de' and e ->> 'state' = 'stale') = 1;
+  assert not exists (select 1 from jsonb_array_elements(r.cells) e where e ->> 'lang' = 'sk'), 'a note is never in the shop''s language';
+  -- the assistant's label also in the shop's own language (update 46)
+  select * into r from public.owner_page_texts(v_a, 'sk', 'assistant', null, null, 1, 100) where kind = 'assistant_label';
+  assert jsonb_array_length(r.cells) = 1 and r.cells -> 0 ->> 'state' = 'ai', format('label in Slovak %s', r);
+  -- filters: language (one cell), state (only originals that have one), words of the original
+  assert (select bool_and(jsonb_array_length(cells) = 1) from public.owner_page_texts(v_a, 'hu', null, null, null, 1, 100));
+  assert (select count(*) from public.owner_page_texts(v_a, null, null, 'stale', null, 1, 100)) = 1;
+  assert (select bool_and(e ->> 'state' = 'stale') from public.owner_page_texts(v_a, null, null, 'stale', null, 1, 100) t,
+          jsonb_array_elements(t.cells) e);
+  assert (select count(*) from public.owner_page_texts(v_a, null, null, null, 'inventura', 1, 100)) = 1, 'search in the original';
+  assert (select count(*) from public.owner_page_texts(v_a, null, null, null, null, 1, 1)) = 1
+     and (select total from public.owner_page_texts(v_a, null, null, null, null, 1, 1)) = n, 'pages count the originals';
+  -- "Upraviť": the label in the shop's own language is allowed, a note is not
+  perform public.owner_save_translation(v_a, 'assistant_label', v_a::text, 'sk', 'Hľadajte s nami');
+  assert (select status from public.content_translations where shop_id = v_a and kind = 'assistant_label' and lang = 'sk') = 'manual';
+  begin
+    perform public.owner_save_translation(v_a, 'special_note', (current_date + 30)::text, 'sk', 'Inventúra');
+    raise exception 'a note in the shop''s own language';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform * from public.page_text_cleanup(false);
+    raise exception 'an owner ran the clean-up';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+-- the clean-up: preview changes nothing, the change removes exactly the listed rows, nothing else is lost
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_post uuid;
+  n_all integer;
+  n_items integer;
+  n_preview integer;
+  n_gone integer;
+begin
+  -- the old label (with 2 translations) in shop D, "Cacadoo" in shop A's welcome text and its translations,
+  -- translations of a deleted special day and of a deleted blog post (orphans); a past special day that still exists
+  update public.shops set assistant_label = 'Keresés Cacadoo Assistenssel', assistant_welcome = null where id = v_d;
+  delete from public.content_translations where shop_id = v_d and kind like 'assistant_%';
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash) values
+    (v_d, 'assistant_label', v_d::text, 'sk', 'Hľadať s asistentom Cacadoo', 'ai', md5('Keresés Cacadoo Assistenssel')),
+    (v_d, 'assistant_label', v_d::text, 'en', 'Search with the Cacadoo assistant', 'ai', md5('Keresés Cacadoo Assistenssel'));
+  update public.shops set assistant_welcome = 'Vitajte v Cacadoo obchode' where id = v_a;
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash) values
+    (v_a, 'assistant_welcome', v_a::text, 'hu', 'Üdvözöljük a Cacadoo boltban', 'ai', md5('Vitajte v Cacadoo obchode')),
+    (v_a, 'assistant_welcome', v_a::text, 'de', 'Willkommen im Laden', 'ai', md5('Vitajte v Cacadoo obchode')),
+    (v_a, 'assistant_welcome', v_a::text, 'en', 'Welcome to the CACADOO shop', 'manual', md5('x')),
+    (v_a, 'special_note', '2020-01-02', 'hu', 'Régi', 'ai', md5('Stará')),
+    (v_a, 'special_note', '2020-01-02', 'de', 'Alt', 'ai', md5('Stará'));
+  delete from public.shop_special_hours where shop_id = v_a and date = current_date - 10;
+  insert into public.shop_special_hours (shop_id, date, closed, note) values (v_a, current_date - 10, true, 'Minulý');
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  values (v_a, 'special_note', (current_date - 10)::text, 'hu', 'Múlt', 'ai', md5('Minulý'));
+  v_post := gen_random_uuid();
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash) values
+    (v_a, 'blog_title', v_post::text, 'hu', 'Régi hír', 'ai', md5('x'));
+
+  select count(*) into n_all from public.content_translations;
+  select count(*) into n_items from public.content_translations where kind like 'item_%';
+  select count(*) into n_preview from public.page_text_cleanup(false);
+  assert (select count(*) from public.content_translations) = n_all, 'the preview changes nothing';
+  assert (select assistant_label from public.shops where id = v_d) = 'Keresés Cacadoo Assistenssel';
+  assert n_preview = (select count(*) from public.page_text_cleanup(false)), 'the preview is the same twice';
+  assert (select count(*) from public.page_text_cleanup(false) where action = 'orphan' and shop = 'potraviny-centrum') = 3,
+    'orphans: the deleted day (2) and the deleted post (1)';
+  assert not exists (select 1 from public.page_text_cleanup(false) where ref = (current_date - 10)::text), 'a past day that exists stays';
+  assert (select count(*) from public.page_text_cleanup(false) where action = 'old_label') = 3, 'the label and its 2 translations';
+  assert (select count(*) from public.page_text_cleanup(false) where action = 'rename' and shop = 'potraviny-centrum') = 3,
+    'the welcome text and its 2 translations that say Cacadoo';
+  assert not exists (select 1 from public.page_text_cleanup(false) where kind like 'item_%'), 'never a product';
+
+  select count(*) into n_gone from public.page_text_cleanup(true) where action in ('orphan', 'old_label') and lang is not null;
+  assert n_gone = 5, format('5 translations go, %s', n_gone);
+  assert (select count(*) from public.content_translations) = n_all - n_gone, 'exactly the listed rows went';
+  assert (select count(*) from public.content_translations where kind like 'item_%') = n_items, 'no product translation lost';
+  assert (select assistant_label from public.shops where id = v_d) is null, 'the old label is gone';
+  assert not exists (select 1 from public.content_translations where shop_id = v_d and kind = 'assistant_label');
+  assert (select assistant_welcome from public.shops where id = v_a) = 'Vitajte v Cacaduu obchode';
+  assert (select text from public.content_translations where shop_id = v_a and kind = 'assistant_welcome' and lang = 'hu') = 'Üdvözöljük a Cacaduu boltban';
+  assert (select text from public.content_translations where shop_id = v_a and kind = 'assistant_welcome' and lang = 'en') = 'Welcome to the CACADUU shop';
+  assert (select public.translation_state(status, source_hash, 'Vitajte v Cacaduu obchode') from public.content_translations
+          where shop_id = v_a and kind = 'assistant_welcome' and lang = 'hu') = 'ai', 'the AI text stays current';
+  assert (select public.translation_state(status, source_hash, 'Vitajte v Cacaduu obchode') from public.content_translations
+          where shop_id = v_a and kind = 'assistant_welcome' and lang = 'de') = 'ai', 'an AI text without the name stays current too';
+  assert (select count(*) from public.page_text_cleanup_log) = n_preview, 'every row kept in the log first';
+  assert not exists (select 1 from public.page_text_cleanup(false)), 'nothing left the second time';
+
+  -- put shop A and D back
+  delete from public.content_translations where shop_id in (v_a, v_d) and kind not like 'item_%';
+  delete from public.content_translations where shop_id = v_a;
+  delete from public.item_descriptions where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date in (current_date + 30, current_date - 10);
+  update public.shop_items set name_lang = 'sk' where shop_id = v_a;
+  update public.shops set assistant_label = nullif((select v from t62 where k = 'label'), ''),
+                          assistant_welcome = nullif((select v from t62 where k = 'welcome'), '') where id = v_a;
+  update public.shops set assistant_label = null where id = v_d;
+  delete from public.page_text_cleanup_log;
+  delete from public.shop_language_settings where shop_id = v_a;
+  insert into public.shop_language_settings
+  select * from jsonb_populate_record(null::public.shop_language_settings, nullif((select v from t62 where k = 'lang_row'), '')::jsonb)
+  where nullif((select v from t62 where k = 'lang_row'), '') is not null;
+end $$;
+drop table t62;
 
 \echo 'ALL DATABASE CHECKS PASSED'

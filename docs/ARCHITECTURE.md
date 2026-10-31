@@ -2763,3 +2763,37 @@ which replaces three of its functions):
   per scope, list_shops, set_opening_hours, input validation, save_contact, preview_message with a variable,
   search_stock, update_stock warning, another shop refused, unknown key → 401). Not tried with the real Claude,
   ChatGPT, Gemini or Grok apps yet.
+
+## Update 62 — Tovar holds the products' translations, "Texty stránky" the page's texts (31 October 2026)
+
+`supabase/sql/62_items_page_texts.sql` (one file, safe to run again; needs 61):
+- `owner_item_languages(shop)` = `shop_preferred_langs()` (Y). `owner_item_rows(shop, q, lang)` / `owner_items(…, filter,
+  lang)` / `owner_item_counts(shop, lang)` (old signatures dropped; callers with fewer arguments still work) add
+  `tr_done`, `tr_total`, `missing_langs`; `missing_translation` = missing in a preferred language (or the chosen one).
+  Done in a language = the name's own language, or a non-stale name translation and (with a shown description) a
+  non-stale description translation; `none` counts as done. Before update 62 "Chýba preklad" used `shop_target_langs()`
+  (also sk/hu/en and asked-for languages); the update 41 test sets a preferred language for its shop.
+- `owner_item_ids(shop, q, filter, lang)` (the filtered list for the download), `owner_item_translation_cells(shop,
+  ids ≤ 200, lang)` (name / shown description / category × languages with their state; the bulk actions then use update
+  40's `owner_delete_translations` / `owner_restore_translations` in parts of 1 000), `translation_work_items(shop,
+  lang, refs, limit)` (service role; the translate function's `run` with `item_ids`).
+- `owner_page_texts(shop, lang, kind, state, q, page, per_page)`: `translation_sources()` without `item_%`, one row
+  per (kind, ref) with `cells` jsonb `[{lang, text, state, updated_at}]`; the languages of update 40's table plus the
+  main language for `preset_translation_kind()`; groups via `page_text_group()` (assistant | hours | content | blog).
+  `owner_save_translation()` accepts the main language for the preset kinds.
+- Clean-up: `page_text_cleanup(apply)` (no grants: SQL Editor / service role) — actions `orphan` (a page text's
+  translation whose source row is gone: special day, section, blog post, slider title, assistant text), `old_label`
+  (`shops.assistant_label = 'Keresés Cacadoo Assistenssel'` → null + its translations), `rename` (Cacadoo → Cacaduu in
+  `assistant_label` / `assistant_welcome` and their translations; matching AI hashes moved to the new original). Rows
+  first into `page_text_cleanup_log` (RLS, no grants). The file ends with the preview `page_text_cleanup(false)`.
+
+`supabase/functions/translate`: `run` takes `item_ids` (≤ 200; `itemIds()`), then reads `translation_work_items`.
+
+Website: `@/components/ItemsBulk` (the tools around Tovar's server-rendered rows: ticks `data-item-pick`, describe →
+`describeChosen`, cells → `itemCells`, `translateItems`, `deleteTranslations` / `restoreTranslations`, download /
+upload), `@/lib/exportClient` (update 45's row loading, workbook, ZIP and file reading, now shared with
+`TranslationFolderSync`; `editsOf()` also returns `before` for the preview), `@/components/SelectSubmit` ("Jazyk", `?tr=`),
+`@/components/PageTextsTable` (Texty stránky), `translationActions.ts` (`describeChosen`, `itemCells`, `translateItems`,
+`filteredItemIds`, `loadPageTexts`). `@/lib/dashboardPages`: `TRANSLATION_SECTIONS = ["items", "texts"]`,
+`translations` → `texts`. Texts `items_bulk`, `owner_tr.texts*`.
+

@@ -9,6 +9,7 @@ import {
   type Deps,
   DESCRIBE_PROMPT,
   handle,
+  itemIds,
   KEEP_RULES,
   LANG_NAMES,
   readItems,
@@ -213,4 +214,24 @@ Deno.test("the job needs its secret; without the AI nothing runs", async () => {
   const res = await handle(post({ action: "tick" }, { "x-ppi-cron": "right" }), deps({ ai: null, answers: { translate_cron_ok: true } }));
   eq(await res.json(), { saved: 0, skipped: "no_ai" }, "no key: originals stay");
   eq((await handle(post({ action: "nope" }), deps())).status, 400, "unknown action");
+});
+
+Deno.test("run with chosen products (update 62): only their texts, only for the shop's owners", async () => {
+  eq(itemIds(undefined), null, "no list = the whole shop");
+  eq(itemIds([]), "bad", "an empty list");
+  eq(itemIds([ITEM, "x"]), "bad", "not an id");
+  eq(itemIds(Array.from({ length: 201 }, () => ITEM)), "bad", "more than 200");
+  eq(itemIds([ITEM, ITEM]), [ITEM], "each once");
+  const row = { shop_id: SHOP, kind: "item_name", ref: ITEM, lang: "de", source: "Farba biela 5L", source_hash: "h", source_lang: "sk" };
+  const calls: Call[] = [];
+  const res = await handle(post({ action: "run", shop_id: SHOP, lang: "de", item_ids: [ITEM] }, { Authorization: "Bearer owner" }),
+    deps({ calls, caller: { is_shop_member: true }, answers: { translation_work_items: [row], apply_translations: 1 } }));
+  eq(await res.json(), { saved: 1, failed: 0, left: 1 }, "translated, the rest counted");
+  const asked = calls.filter((c) => c.fn === "translation_work_items");
+  ok(asked.length === 2 && asked.every((c) => JSON.stringify(c.args.p_refs) === JSON.stringify([ITEM]) && c.args.p_lang === "de"), "only the chosen products");
+  ok(!calls.some((c) => c.fn === "translation_work"), "never the whole shop");
+  eq((await handle(post({ action: "run", shop_id: SHOP, lang: "de", item_ids: ["x"] }, { Authorization: "Bearer owner" }),
+    deps({ caller: { is_shop_member: true } }))).status, 400, "bad ids");
+  eq((await handle(post({ action: "run", shop_id: SHOP, lang: "de", item_ids: [ITEM] }, { Authorization: "Bearer owner" }),
+    deps({ caller: { is_shop_member: false } }))).status, 403, "another shop");
 });

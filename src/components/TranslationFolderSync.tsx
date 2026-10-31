@@ -3,18 +3,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Locale } from "@/i18n/config";
 import { formatDateTime } from "@/lib/format";
-import {
-  buildWorkbook,
-  fileHash,
-  fileName,
-  langColumns,
-  mainColumns,
-  readEdits,
-  type ExportFileLabels,
-  type ExportInfo,
-  type ExportRow,
-  type FileEdits,
-} from "@/lib/exportFiles";
+import { fileHash, fileName, type ExportFileLabels, type ExportInfo, type FileEdits } from "@/lib/exportFiles";
+import { downloadZip, exportInfo, fileEdits, workbookFor } from "@/lib/exportClient";
 import {
   fileIn,
   folderPickerSupported,
@@ -26,7 +16,6 @@ import {
   type TranslationFolder,
 } from "@/lib/folderStore";
 import { createClient } from "@/lib/supabase/client";
-import { zip } from "@/lib/xlsx";
 import { applyExportEdits, describeItems, exportAuto } from "@/app/[lang]/(account)/sync/exportActions";
 
 const CHECK_EVERY_MS = 15 * 60_000;
@@ -34,7 +23,6 @@ const CHECK_EVERY_MS = 15 * 60_000;
 const SETTLE_MS = 60_000;
 const RECHECK_SOON_MS = 60_000;
 const TICK_MS = 20_000;
-const PAGE = 1000;
 
 /** A file Cacaduu wrote (only these are ever written again, read or deleted). */
 interface Tracked {
@@ -69,26 +57,6 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** Excel (and other programs) keep a file locked while it is open. */
 const isLocked = (e: unknown) =>
   e instanceof DOMException && ["NoModificationAllowedError", "InvalidModificationError", "NotReadableError", "InvalidStateError"].includes(e.name);
-
-async function rowsOf(shopId: string, lang: string | null): Promise<ExportRow[]> {
-  const supabase = createClient();
-  const all: ExportRow[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase.rpc("owner_export_rows", { p_shop_id: shopId, p_lang: lang, p_offset: offset, p_limit: PAGE });
-    if (error) throw new Error(error.message);
-    const page = (data ?? []) as ExportRow[];
-    all.push(...page);
-    if (page.length < PAGE) return all;
-  }
-}
-
-/** The bytes of one file (lang null = the main file). */
-async function workbookFor(shopId: string, info: ExportInfo, lang: string | null, labels: TranslationFolderLabels, pageLang: string) {
-  const rows = await rowsOf(shopId, lang);
-  const columns = lang ? langColumns(labels) : mainColumns(info, labels, pageLang);
-  const bytes = await buildWorkbook({ shopId, lang, mainLang: info.main_lang, columns, rows, labels, writtenAt: new Date().toISOString() });
-  return { bytes, rows: rows.length };
-}
 
 /**
  * "Preklady v priečinku" (database update 45): a folder on the shop PC (Edge or Chrome) where Cacaduu keeps
@@ -157,14 +125,12 @@ export function TranslationFolderSync({
   /** Applies one file's edits (from the folder or uploaded by hand). */
   const apply = useCallback(
     async (file: string, bytes: Uint8Array): Promise<{ text: string; applied: number }> => {
-      let edits: FileEdits;
-      try {
-        edits = await readEdits(bytes);
-      } catch (e) {
-        const notOurs = ["not_ours", "not_xlsx", "no_code_column"].includes(errorText(e));
-        return { text: fill(notOurs ? labels.file_not_cacaduu : labels.file_failed, { file, error: errorText(e) }), applied: 0 };
+      const read = await fileEdits(bytes, shopId);
+      if (!read.ok) {
+        if (read.error === "other_shop") return { text: fill(labels.file_other_shop, { file }), applied: 0 };
+        return { text: fill(read.error === "not_ours" ? labels.file_not_cacaduu : labels.file_failed, { file, error: read.detail }), applied: 0 };
       }
-      if (edits.shopId !== shopId) return { text: fill(labels.file_other_shop, { file }), applied: 0 };
+      const edits = read.edits;
       if (!edits.edits.length) return { text: appliedText(file, edits, { applied: 0, unknown: [], skipped: [] }), applied: 0 };
       const result = await applyExportEdits({ shopId, slug, lang: edits.lang, file, edits: edits.edits });
       if (!result.ok) return { text: fill(labels.file_failed, { file, error: result.error }), applied: 0 };
@@ -482,25 +448,13 @@ export function TranslationFolderSync({
     setHandBusy("download");
     setHandMessage([]);
     try {
-      const supabase = createClient();
-      const { data, error } = await supabase.rpc("owner_export_info", { p_shop_id: shopId });
-      if (error) throw new Error(error.message);
-      const info = data as ExportInfo;
+      const info = await exportInfo(shopId);
       if (!info.confirmed || info.items === 0) {
         setHandMessage([labels.nothing_yet]);
         return;
       }
-      const entries: { name: string; data: Uint8Array }[] = [];
-      for (const l of [null, ...info.langs]) entries.push({ name: fileName(l ?? info.main_lang), data: (await workbookFor(shopId, info, l, labels, lang)).bytes });
-      const blob = new Blob([(await zip(entries)) as BlobPart], { type: "application/zip" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${labels.zip_name}-${slug}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
-      setHandMessage([fill(labels.downloaded, { n: entries.length })]);
+      const n = await downloadZip({ shopId, info, langs: [null, ...info.langs], labels, pageLang: lang, name: slug });
+      setHandMessage([fill(labels.downloaded, { n })]);
     } catch (e) {
       setHandMessage([fill(labels.check_failed, { error: errorText(e) })]);
     } finally {

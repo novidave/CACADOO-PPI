@@ -1,5 +1,5 @@
 import { expect, loginOwner, sk, test, watchConsole } from "./helpers";
-import { unzip } from "../src/lib/xlsx";
+import { readXlsx, unzip, writeXlsx } from "../src/lib/xlsx";
 
 // These checks upload a stock file and approve its columns: only on a shop made for testing, named explicitly.
 const SHOP = process.env.E2E_OWNER_SHOP ?? "";
@@ -191,4 +191,84 @@ test("Kontakty (update 56): a contact with the phone in E.164, tabs, SMS preview
   await page.check('form:has(button:text("Vymazať")) input[name="confirm"]');
   await page.getByRole("button", { name: sk.contacts.delete_button }).click();
   await expect(page.getByText(sk.contacts.ok_deleted)).toBeVisible();
+});
+
+test("Tovar (update 62): X z Y, Jazyk, ticks, translations downloaded, one fixed in the file and uploaded back with a preview", async ({ page }) => {
+  test.setTimeout(180_000);
+  const c = watchConsole(page);
+  await page.goto(`/sk/dashboard/translations?shop=${SHOP}&at=items#items`);
+  const items = page.locator("#items");
+  test.skip((await items.locator("[data-items-bulk]").count()) === 0, "database update 62 is not applied");
+  // every row: a tick, "Preklady: X z Y jazykov" when the shop has preferred languages
+  const rows = items.locator("[data-item-row]");
+  await expect(rows.first()).toBeVisible();
+  expect(await items.locator("[data-item-pick]").count()).toBe(await rows.count());
+  const langs = items.locator('[data-select-submit="item-lang"] option');
+  test.skip((await langs.count()) < 2, "the test shop has no preferred languages");
+  await expect(items.locator("[data-item-tr]").first()).toBeVisible();
+  // "Jazyk": the address keeps it, the chip counts that language (decided in the database)
+  const code = await langs.nth(1).getAttribute("value");
+  await items.locator('[data-select-submit="item-lang"]').selectOption(code!);
+  await expect(page).toHaveURL(new RegExp(`tr=${code}`));
+  await expect(page.locator('#items [data-filter="missing_translation"]')).toBeVisible();
+  // ticks: all on the page, then the bulk actions show
+  await page.locator("#items [data-items-pick-all]").check();
+  await expect(page.locator("#items [data-items-selected]")).toBeVisible();
+  for (const action of ["translate", "retranslate", "delete"]) await expect(page.locator(`#items [data-bulk="${action}"]`)).toBeVisible();
+  // "Zmazať preklady" asks what comes after (again / never); cancelled here
+  await page.locator('#items [data-bulk="delete"]').tap();
+  await expect(page.locator("[data-items-delete-dialog] [data-after=again]")).toBeVisible();
+  await expect(page.locator("[data-items-delete-dialog] [data-after=never]")).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // "Stiahnuť preklady": the ticked products, the language file of the chosen language
+  await page.locator("#items [data-items-download]").tap();
+  const dialog = page.locator("[data-items-download-dialog]");
+  await expect(dialog.locator("[data-download-scope]")).toBeVisible({ timeout: 30_000 });
+  await expect(dialog.locator(`[data-download-lang="${code}"]`)).toBeChecked();
+  await dialog.locator('[data-download-lang="main"]').uncheck();
+  const [download] = await Promise.all([page.waitForEvent("download"), dialog.locator("[data-download-go]").tap()]);
+  const zipped = new Uint8Array(await (await download.createReadStream()).toArray().then((parts) => Buffer.concat(parts)));
+  const files = await unzip(zipped);
+  expect([...files.keys()]).toEqual([`sklad.${code}.xlsx`]);
+
+  // fix one name in "Excel": the file read back shows exactly that change before anything is saved
+  const sheets = await readXlsx(files.get(`sklad.${code}.xlsx`)!);
+  const data = sheets[0];
+  expect(data.rows.length).toBeGreaterThan(1);
+  const nameAt = 2; // Kód, Pôvodný názov, Názov, …
+  const fixed = `E2E ${Date.now()}`;
+  data.rows[1][nameAt] = fixed;
+  const edited = await writeXlsx(sheets.map((s) => ({ name: s.name, rows: s.rows, hidden: s.hidden })));
+  await page.locator("#items [data-items-upload-input]").setInputFiles({ name: `sklad.${code}.xlsx`, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from(edited) });
+  const preview = page.locator("[data-upload-preview]");
+  await expect(preview.locator("[data-upload-change]")).toHaveCount(1, { timeout: 30_000 });
+  await expect(preview.locator("[data-upload-change]")).toContainText(fixed);
+  await preview.locator("[data-upload-save]").tap();
+  await expect(page.locator("#items [data-items-message]")).toContainText(`sklad.${code}.xlsx`, { timeout: 30_000 });
+  c.check();
+});
+
+test("Texty stránky (update 62): only the page's texts, grouped by original; the old address forwards", async ({ page }) => {
+  const c = watchConsole(page);
+  await page.goto(`/sk/dashboard/translations?shop=${SHOP}&at=translations`);
+  await expect(page).toHaveURL(/at=texts/);
+  const texts = page.locator("#texts [data-page-texts]");
+  await expect(texts).toBeVisible();
+  // never a product's text, each original once
+  await expect(texts.locator('[data-page-text^="item_"]')).toHaveCount(0);
+  const groups = texts.locator("[data-page-text]");
+  const keys = await groups.evaluateAll((els) => els.map((e) => e.getAttribute("data-page-text")));
+  expect(new Set(keys).size).toBe(keys.length);
+  if (keys.length) {
+    const first = groups.first();
+    await first.locator("[data-page-text-toggle]").tap();
+    await expect(first.locator("[data-page-text-langs] [data-cell]").first()).toBeVisible();
+    await first.locator("[data-page-text-toggle]").tap();
+    await expect(first.locator("[data-page-text-langs]")).toHaveCount(0);
+  }
+  // only one "Texty stránky" and one "Tovar" on the page
+  await expect(page.locator("#texts")).toHaveCount(1);
+  await expect(page.locator("#items")).toHaveCount(1);
+  c.check();
 });

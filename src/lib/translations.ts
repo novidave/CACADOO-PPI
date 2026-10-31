@@ -26,3 +26,17 @@ export const STATES: CellState[] = ["shop", "ai", "manual", "stale", "missing", 
 export const replaceable = (state: CellState) => state === "ai" || state === "stale" || state === "missing" || state === "none";
 
 export const cellKey = (c: Cell) => `${c.kind}:${c.ref}:${c.lang}`;
+
+/** "Texty stránky" (update 62): one original of the page with its languages (owner_page_texts()). */
+export interface PageTextRow {
+  kind: string;
+  ref: string;
+  source: string;
+  cells: { lang: string; text: string | null; state: CellState; updated_at: string | null }[];
+}
+
+/** The groups of the "Čo" filter of Texty stránky (page_text_group() in SQL). */
+export const PAGE_TEXT_GROUPS = ["assistant", "hours", "content", "blog"] as const;
+
+/** How many languages of an original still need a text ("Chýba" or "Zastaraný"). */
+export const lacking = (row: PageTextRow) => row.cells.filter((c) => c.state === "missing" || c.state === "stale").length;

@@ -8,13 +8,12 @@ import { forwardUrl, movedFrom, sectionUrl } from "@/lib/dashboardPages";
 import type { MyShop } from "@/lib/myShops";
 import { DashboardSection } from "@/components/DashboardSection";
 import { DbError } from "@/components/DbError";
-import { TranslationsTable } from "@/components/TranslationsTable";
-import { generateDescriptions } from "../translationActions";
-import { languageList, tableLabels } from "../translationShared";
+import { PageTextsTable } from "@/components/PageTextsTable";
+import { languageList, pageTextLabels } from "../translationShared";
 import { itemFilter } from "@/lib/ownerItems";
 import { ItemsSection, loadItems } from "../Inventory";
 import type { LanguageSettings } from "../LanguagesForm";
-import { hiddenFields, messages, ShopSwitcher, SubmitButton } from "../shared";
+import { messages, ShopSwitcher } from "../shared";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/translations">): Promise<Metadata> {
   const { lang } = await params;
@@ -27,10 +26,12 @@ function first(value: string | string[] | undefined): string | undefined {
 }
 
 /**
- * Môj obchod → "Jazyky a inventár" (database update 40): "Tovar" (the items, update 41) and "Preklady" (every text of
- * the shop in every language it keeps, with filters, ticks for many, a progress bar and "Späť"). The languages, the
- * stock file's columns and the stock files in other languages moved to "Priečinok s exportom" in update 45 (their
- * old addresses are forwarded there). The database decides again (owner_translations, owner_*_translation[s]).
+ * Môj obchod → "Jazyky a inventár" (database update 40): "Tovar" — the products and, since update 62, every
+ * translation of them (X z Y jazykov, the "Jazyk" dropdown, bulk actions, descriptions, the translation files) — and
+ * "Texty stránky" (update 62, before "Preklady"): the page's other texts, one row per original with its languages.
+ * The languages, the stock file's columns and the stock files in other languages moved to "Priečinok s exportom" in
+ * update 45 (their old addresses are forwarded there). The database decides (owner_items, owner_page_texts,
+ * owner_*_translation[s]).
  */
 export default async function TranslationsPage({ params, searchParams }: PageProps<"/[lang]/dashboard/translations">) {
   const { lang } = await params;
@@ -48,20 +49,38 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
   if (!shops.length) redirect(`/${lang}/dashboard`);
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
   const m = messages(dict, sp, { n: Number(first(sp.n) ?? 1) });
-  const hidden = hiddenFields(lang, shop);
 
   const q = (first(sp.q) ?? "").trim();
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   const filter = itemFilter(sp.filter);
+  // the "Jazyk" dropdown (update 62): a valid code, the database checks it again
+  const asked = first(sp.tr) ?? "";
+  const itemLang = /^[a-z]{2}(-(cyrl|hans|hant))?$/.test(asked) ? asked : null;
   const [{ data: settingsData, error }, stock, stockState] = await Promise.all([
     supabase.rpc("owner_language_settings", { p_shop_id: shop.id }),
-    loadItems(supabase, shop, q, page, filter),
+    loadItems(supabase, shop, q, page, filter, itemLang),
     // Whether the uploaded files were deleted (update 43; before it: never).
     supabase.rpc("owner_inventory_state", { p_shop_id: shop.id }),
   ]);
   const filesCleared = !stockState.error && (stockState.data as { files_cleared?: boolean } | null)?.files_cleared === true;
   if (stock.error) return <DbError message={stock.error} dict={dict} />;
-  const itemsSection = <ItemsSection shop={shop} lang={lang} dict={dict} m={m} items={stock.items} total={stock.total} counts={stock.counts} q={q} page={page} filter={filter} filesCleared={filesCleared} />;
+  const itemsSection = (
+    <ItemsSection
+      shop={shop}
+      lang={lang}
+      dict={dict}
+      m={m}
+      items={stock.items}
+      total={stock.total}
+      counts={stock.counts}
+      q={q}
+      page={page}
+      filter={filter}
+      filesCleared={filesCleared}
+      itemLang={stock.langs && itemLang && stock.langs.includes(itemLang) ? itemLang : null}
+      langs={stock.langs}
+    />
+  );
   const header = (
     <header className="flex flex-col gap-2">
       <h1 className="text-2xl font-semibold tracking-tight">{dict.account.translations_page}</h1>
@@ -90,7 +109,8 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
       </div>
     );
   }
-  const others = languageList(enabled).filter((l) => l.code !== settings.main_lang);
+  // every switched-on language (the assistant's texts are also kept in the shop's own one, update 46)
+  const all = languageList(enabled);
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -98,15 +118,10 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
 
       {itemsSection}
 
-      <DashboardSection {...m.section("translations")} title={o.translations_title} summary={o.translations_summary}>
-        {m.notice("translations")}
-        <p className="text-sm">{o.translations_intro}</p>
-        <form action={generateDescriptions} className="flex flex-wrap items-center gap-3 border border-line p-3 text-sm">
-          {hidden()}
-          <span>{o.describe_bulk_help}</span>
-          <SubmitButton pending={o.describing}>{o.describe_bulk}</SubmitButton>
-        </form>
-        <TranslationsTable shopId={shop.id} langs={others} labels={tableLabels(dict)} />
+      <DashboardSection {...m.section("texts")} title={o.texts_title} summary={o.texts_summary}>
+        {m.notice("texts")}
+        <p className="text-sm">{o.texts_intro}</p>
+        <PageTextsTable shopId={shop.id} langs={all} labels={pageTextLabels(dict)} />
       </DashboardSection>
     </div>
   );

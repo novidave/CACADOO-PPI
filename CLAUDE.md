@@ -839,14 +839,15 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   (`item_description_facts()`: name, brand, EAN, category, the shop's own description), never invented; the owner edits
   → "Uložiť a zverejniť" / "Zahodiť"; "Zverejniť vygenerované popisy automaticky" (default off); the shop's own
   description wins unless the owner picks "Popis (Cacaduu)" (`item_description_shown()`).
-- **Owner screens:** Môj obchod → "Jazyky a inventár" (`/dashboard/translations`: Tovar, Preklady; since update 45 the
+- **Owner screens:** Môj obchod → "Jazyky a inventár" (`/dashboard/translations`: Tovar, Texty stránky — "Preklady"
+  until update 62, see below; since update 45 the
   languages, the stock file's columns and the stock files in other languages are on `/sync` — see below —, old `?at=`
   forwarded;
   **"Tovar" since update 41** (`supabase/sql/41_items_list.sql`, `@/lib/ownerItems`): one short line + "Viac", the
   status line "Posledný súbor: … · aktuálny / starší / zastaraný" (`shops.freshness_state`), filters Všetko / Na sklade /
   Vypredané / Bez popisu / Chýba preklad decided only in SQL (`owner_items(…, p_filter)`, `owner_item_counts()`; stock
   filters by the file's quantity, "Chýba preklad" = a name or shown description without a current translation in
-  `shop_target_langs()`, stale AI = missing, "Neprekladať" = not), one link per product "Popis a preklady" (no
+  a preferred language since update 62 (`shop_target_langs()` before), stale AI = missing, "Neprekladať" = not), one link per product "Popis a preklady" (no
   correction dropdown — every correction on the product's "Preklady" tab), column "Čo vidí zákazník" = the database's
   label as the shopper reads it, or "Skryté – údaje sú staršie ako 24 h · Nahrať nový súbor" when stale, never "–"; with filters, ticks, progress bar, "Späť" 30 s) and a product's page `/dashboard/items/[id]`
   (tabs Popis, Preklady; Zmazať asks "preložiť znova pri ďalšej návšteve" or "neprekladať"; "Preložiť znova" shows old
@@ -863,6 +864,27 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   (`translation_spend`); one e-mail to `ADMIN_ALERT_EMAIL` at 80 %; batches of ≤ 60 texts; job every 5 min
   (`ppi-translate-tick`, Vault `ppi_translate_cron`). E-mails: the signup language is kept (`profiles.language`,
   Supabase templates read `{{ .Data.lang }}`).
+
+## Tovar and Texty stránky (update 62)
+
+`supabase/sql/62_items_page_texts.sql` + `@/components/ItemsBulk` + `@/lib/exportClient` + `@/components/PageTextsTable` +
+`@/components/SelectSubmit`. **One place per thing** on "Jazyky a inventár": **Tovar** = the products and every
+translation of them, **Texty stránky** (`texts`, was `translations` → forwarded) = the page's other texts; a product's
+text never appears in Texty stránky. Per product "Preklady: X z Y jazykov" — **Y = `shop_preferred_langs()`**, done =
+the name's own language or a non-stale name translation (+ the shown description's), "Neprekladať" done, stale AI
+missing — and "Chýba preklad" / the "Jazyk" dropdown (`?tr=`) are decided only in SQL (`owner_items` / `owner_item_counts`
+with `p_lang`). Tools: "Vygenerovať popisy (max. 20)" (ticked, else 20 without a description; translate `describe`),
+ticks + bulk "Preložiť chýbajúce" / "Preložiť znova" (AI texts only) / "Zmazať preklady" (again / "Neprekladať"; update
+40's delete/restore in parts of 1 000, "Späť" 30 s, progress bar) through `owner_item_translation_cells()` and the
+translate function's `run` with `item_ids` (`translation_work_items()`). "Stiahnuť preklady" / "Nahrať opravené
+preklady" **reuse update 45's files and reader** (`@/lib/exportClient`, the same code as `TranslationFolderSync`; never a
+second exporter): files narrowed to the ticked or filtered products (`owner_item_ids()`), languages = preferred by
+default, every change previewed (before → after) before `applyExportEdits`; only Názov / Popis / Kategória are read.
+Texty stránky: `owner_page_texts()` — one row per original with `cells` per language, filters Jazyk / Čo
+(`page_text_group()`) / Stav / words, the same actions; the assistant's texts also in the shop's own language.
+Clean-up `page_text_cleanup(false|true)` (SQL Editor only; log `page_text_cleanup_log`): orphaned page-text
+translations, the old label "Keresés Cacadoo Assistenssel", Cacadoo → Cacaduu in the assistant's texts — never a
+product's translation, never a hidden section's. Texts `items_bulk`, `owner_tr.texts*`.
 
 ## Speed (performance pass, update 42)
 
