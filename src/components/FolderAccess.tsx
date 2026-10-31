@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import type { FolderFile, OpenFolder, OpenSession } from "@/lib/docsAccess";
+import { KeyForm } from "./KeyForm";
 
 type Labels = Dictionary["chat"];
 
@@ -47,18 +48,23 @@ export function FolderAccess({
   inline?: boolean;
 }) {
   const [show, setShow] = useState(inline);
-  const [key, setKey] = useState("");
+  // "Otvorené" with the vortex's ending for a moment after the right key, then the folder's files.
+  const [celebrate, setCelebrate] = useState(false);
   const until = (iso: string) => new Intl.DateTimeFormat(lang, { timeZone, dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!key.trim() || busy) return;
-    const ok = await onUnlock(key.trim());
-    setKey("");
-    if (ok) setShow(inline);
+  async function submit(key: string) {
+    if (busy) return;
+    const ok = await onUnlock(key);
+    if (ok) {
+      setCelebrate(true);
+      window.setTimeout(() => {
+        setCelebrate(false);
+        setShow(inline);
+      }, 1600);
+    }
   }
 
-  if (session) {
+  if (session && !celebrate) {
     return (
       <div className="flex flex-col gap-3 border-t border-line pt-3 text-sm" data-folder-access>
         {session.open.map((folder) => (
@@ -120,32 +126,14 @@ export function FolderAccess({
     );
   }
   return (
-    <div className="flex flex-col gap-2 border-t border-line pt-3 text-sm">
+    <div className="flex flex-col gap-2 text-sm">
       {!show ? (
         <button type="button" onClick={() => setShow(true)} className="self-start underline underline-offset-4">
           {labels.key_have}
         </button>
       ) : (
-        <form onSubmit={submit} className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1">
-            <span>{labels.key_label}</span>
-            <input
-              value={key}
-              onChange={(event) => setKey(event.target.value)}
-              maxLength={100}
-              autoComplete="off"
-              spellCheck={false}
-              autoCapitalize="characters"
-              className="rounded border border-line px-3 py-2 font-mono outline-none focus:border-foreground"
-            />
-          </label>
-          <button type="submit" disabled={busy || !key.trim()} className="self-start rounded border border-foreground px-3 py-1 font-medium disabled:text-muted">
-            {busy ? labels.key_opening : labels.key_open}
-          </button>
-          <p className="text-xs text-muted">{labels.key_note}</p>
-        </form>
+        <KeyForm phase={celebrate ? "ok" : busy ? "busy" : "idle"} problem={celebrate ? null : problem} onSubmit={submit} labels={labels} />
       )}
-      {problem && <p role="alert">{problem}</p>}
     </div>
   );
 }

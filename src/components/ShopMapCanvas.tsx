@@ -1,5 +1,6 @@
 "use client";
 
+import { MAP_STYLE } from "@/lib/mapStyle";
 import { useEffect, useRef } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { shopStatus, STATUS_COLORS, type StatusInput, type StatusLabels } from "@/lib/hours";
@@ -17,7 +18,7 @@ export interface MapShop {
 
 /**
  * The interactive map itself (maplibre + its CSS), loaded by `ShopMap` only when the map comes into view or is
- * tapped. Black-and-white map of shops (OpenFreeMap "positron" tiles: free, no API key,
+ * tapped. Map of shops (OpenFreeMap "bright" = OSM Bright, `@/lib/mapStyle`: free, no API key,
  * commercial use allowed). Purely an extra: every page works without it.
  * Tapping a pin marks that shop's results (elements with data-shop="<slug>").
  * With statuses, each pin is the shop's status colour (white outline, thin dark ring) and says
@@ -64,7 +65,7 @@ export function ShopMapCanvas({
       maplibre.setWorkerUrl(`/maplibre/${maplibre.getVersion()}/maplibre-gl-worker.mjs`);
       map = new maplibre.Map({
         container: container.current,
-        style: "https://tiles.openfreemap.org/styles/positron",
+        style: MAP_STYLE,
         center: [shops[0].lng, shops[0].lat],
         zoom: 14,
         attributionControl: { compact: true },

@@ -1480,7 +1480,13 @@ line until the legal text is final).
 - Availability always written out as text, in bold, always next to its freshness.
 - Translated names in grey under the shop's own name. The main page's chat: the shopper's question in a light-grey
   bubble on the right, the answer on the left without a border, cards with thin grey lines; the input large and rounded.
-- Map: OpenFreeMap "positron" (free, no key), black dot pins; never required for the page to work.
+- Map: **OSM Bright** — OpenFreeMap "bright" (free, no key; at the owner's request, 31 October 2026, replacing
+  "positron") on every map (shop page, product page, search map, Môj obchod's location picker); pins in the status
+  colour; never required for the page to work.
+- **The shop page "Screen 11"** (31 October 2026, at the owner's request; Claude Design "Davide shop page – iPhone 14
+  Plus", artboard 11): colours are allowed on the shop page — Cacaduu orange #F57C20 as the accent (news, assistant,
+  access key), the contact buttons' own tints, green amenity pills (#DCF5E5 / #146C37), the stock circles and the blue
+  shopping-list counter. Everything else stays black, white and grey; the status dots stay as they are. Details in 6.38.
 - Shop blog (update 37): black and white like the rest; photos with a thin grey line; the Facebook preview in the
   publish dialog is a plain sketch (no Facebook colours or logo); no Facebook SDK, pixel, plugin or embedded widget on
   any page.
@@ -2094,3 +2100,37 @@ below is unchanged.)
   "Keresés Cacadoo Assistenssel" with its translations (the assistant then shows its default heading in every
   language), "Cacadoo" → "Cacaduu" in the assistant's texts and their translations. Never a product's translation,
   never a hidden section's (it may come back). Every removed or changed row is kept in a log table first.
+
+### 6.38 The shop page "Screen 11" (31 October 2026, at the owner's request)
+
+The public shop page (Cacaduu address and own domain) has a new phone layout (designed at 428 px; also 390 px and a
+760 px column on a computer). Every text comes from the shop's data or the message files; nothing of the shop's data is
+changed. Order:
+1. Header (own domain): the shop's header logo, or its logo (32 px) with its name; the language picker on the right.
+2. Details: logo in a rounded box + name; address; the company line "Firma · IČO … · DIČ …" (only what the shop has).
+3. Amenities as green pills with icons ("WC pre zákazníkov", "Bidetová sprška", card terminal) — only those the shop has.
+4. Contact buttons (two columns; "Krátke / Dlhé" per button as before, update 51; e-mail long by default): each is a
+   real link that works without JavaScript. A finger or a mouse must **hold it 1.2 s** (the fill grows, "Držte
+   stlačené", then the done label with the orange check and the link opens); a short tap only says "Držte stlačené"
+   and does nothing; **Enter / Space open it at once**; a screen reader's activation opens it.
+5. The map (OSM Bright), 222 px high.
+6. Opening hours in a card with the status pill ("Otvorené · zatvára o 17:00", the status's colour and words), today
+   highlighted, breaks as "8:00–12:00, 12:30–17:00".
+7. "Sviatky · najbližších 14 dní" in its own card, only when something is coming.
+8. News slider (the "Obsah stránky" rules of 6.x stay: the database decides the slides, the frame ratio and crop): no
+   title, "Všetky novinky" above it (hold like the contact buttons) → the blog. One rounded frame per slide, **swipe
+   only** (mouse drag on a computer, ← → keys), a dark gradient with "Novinka" (post) / "Ponuka" (PDF, picture) and the
+   title; under it the date and one pill per slide. **"Čítať" opens the post under the slider** (its text is in the
+   page's HTML; the post's own page stays the canonical one): "BLOG · date · n MIN ČÍTANIA", the title, the text as
+   written (first paragraph as the lead), one photo with a slow zoom, "Opýtať sa asistenta" (when the assistant is
+   shown) and "Zavrieť článok". A PDF or picture: "Zobraziť" → the viewer.
+9. The shop assistant (paid plan; same logic): orange card, "GDPR" pill with the privacy text, "Pridať fotku alebo
+   súbor", orange "Poslať" (the plane flies off, "Odoslané"); an empty question says "Napíšte otázku alebo pridajte
+   fotku".
+10. "Mám prístupový kľúč" as a row that opens; the 150 px "Otvoriť" shows "Overujem…" with the Cacaduu vortex while the
+    shop's system checks the key; "Zadajte prístupový kľúč" when empty. Logic and limits unchanged.
+11. Products and the shopping list (6.29, unchanged; the stock circle always has the availability in words).
+
+"Reduce motion" turns off every animation (the check is shown still). Lists never show the stock sentence; the product
+page keeps it. The first JavaScript of the shop page stays under 150 kB.
+

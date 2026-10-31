@@ -1,5 +1,6 @@
 "use client";
 
+import { MAP_STYLE } from "@/lib/mapStyle";
 import { useEffect, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -31,7 +32,7 @@ export function LocationPicker({
       const hasPoint = la !== null && ln !== null;
       map = new maplibre.Map({
         container: container.current,
-        style: "https://tiles.openfreemap.org/styles/positron",
+        style: MAP_STYLE,
         // Without a point yet, show Europe.
         center: hasPoint ? [ln!, la!] : [15, 50],
         zoom: hasPoint ? 15 : 3.5,

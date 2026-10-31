@@ -32,9 +32,8 @@ export const DEFAULT_WIDTHS: ContactWidths = {
   phone: "short",
 };
 
-/** How long the button must be held before it acts, and how long "done" stays (ms). */
-export const HOLD_MS = 1200;
-export const DONE_MS = 2300;
+/** How long the button must be held before it acts, and how long "done" stays (ms): the hold links' rule. */
+export { DONE_MS, HOLD_MS } from "./holdLink";
 
 /** The stored choices (anything else, or nothing, = the defaults). */
 export function contactWidths(stored: unknown): ContactWidths {
@@ -140,4 +139,14 @@ export function gridPlaces(buttons: { width: ContactWidth }[]): { row: number; c
     } else column = 2;
     return place;
   });
+}
+
+/**
+ * A label that would not fit at 15 px is set at 12.5 px (never cut, never wrapped): decided from the longest of its
+ * three texts (the label, "Držte stlačené", the done label with its check), in characters of Quicksand 600 —
+ * a short button holds about 16 at 15 px on a 390 px phone, a long one about 36.
+ */
+export function smallLabel(texts: { label: string; hold: string; done: string }, width: ContactWidth): boolean {
+  const longest = Math.max([...texts.label].length, [...texts.hold].length, [...texts.done].length + 4);
+  return longest > (width === "long" ? 36 : 16);
 }

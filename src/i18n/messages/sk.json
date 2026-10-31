@@ -588,11 +588,11 @@
     "company_id": "IČO"
   },
   "chat": {
-    "title": "Opýtajte sa asistenta obchodu",
+    "title": "Hľadanie s asistentom Cacaduu",
     "intro": "Pýtajte sa na tovar, ceny a dostupnosť v tomto obchode, nechajte si zostaviť nákupný zoznam na prácu alebo pošlite fotku súčiastky, zariadenia či typového štítku a zistite, či ju tu majú.",
     "placeholder": "Vaša otázka…",
     "send": "Poslať",
-    "photo": "Pridať fotku alebo PDF",
+    "photo": "Pridať fotku alebo súbor",
     "photo_note": "Fotky a PDF sa použijú len na odpoveď a neukladajú sa.",
     "note": "Odpovede píše AI; ceny a zásoby sú priamo z obchodu.",
     "thinking": "Hľadá sa v tomto obchode…",
@@ -615,7 +615,7 @@
     "key_have": "Mám prístupový kľúč",
     "key_label": "Prístupový kľúč",
     "key_open": "Otvoriť",
-    "key_opening": "Overuje sa…",
+    "key_opening": "Overujem…",
     "key_note": "Kľúč overuje systém obchodu; nikdy sa neposiela AI ani nezostáva v konverzácii. Priečinok zostane otvorený 24 hodín, kým ho znova nezamknete alebo neodídete zo stránky.",
     "key_opened": "Otvorené: {folders}. Do {time}.",
     "key_lock": "Znova zamknúť",
@@ -718,7 +718,12 @@
     "callback_err_consent": "Potvrďte, prosím, súhlas.",
     "callback_err_too_many": "Kontakt ste už poslali. Obchod vám odpovie.",
     "callback_err_not_available": "Teraz sa to nedá poslať. Skúste obchod kontaktovať priamo.",
-    "callback_err_failed": "Nepodarilo sa odoslať. Skúste to znova."
+    "callback_err_failed": "Nepodarilo sa odoslať. Skúste to znova.",
+    "empty_question": "Napíšte otázku alebo pridajte fotku",
+    "sent": "Odoslané",
+    "key_hint": "Zadajte kľúč, ktorý ste dostali od obchodu, a otvorí sa vám súkromný priečinok.",
+    "key_empty": "Zadajte prístupový kľúč",
+    "key_done": "Otvorené"
   },
   "docs": {
     "title": "Dokumenty pre asistenta",
@@ -1503,7 +1508,8 @@
     "closed_all_day": "Zatvorené celý deň",
     "check_hours": "overte otváracie hodiny",
     "closed_from": "zatvorené od {time}",
-    "today": "dnes"
+    "today": "dnes",
+    "upcoming_short": "Sviatky · najbližších 14 dní"
   },
   "holidays": {
     "title": "Sviatky a mimoriadne zatvorenie",
@@ -2140,7 +2146,17 @@
     "video_target": "Tlačidlo ▶ pri videách otvorí",
     "video_target_post": "Článok na Cacaduu (odporúčané) – video z YouTube sa prehrá priamo v článku",
     "video_target_facebook": "Príspevok na Facebooku – na mobile v aplikácii Facebook, ak ju návštevník má",
-    "video_target_hint": "Platí pre videá z Facebooku aj pre YouTube videá zdieľané na Facebooku. Článok, ktorý nie je na Facebooku, sa vždy otvorí na Cacaduu. Nadpis a „Čítať“ vedú vždy na článok."
+    "video_target_hint": "Platí pre videá z Facebooku aj pre YouTube videá zdieľané na Facebooku. Článok, ktorý nie je na Facebooku, sa vždy otvorí na Cacaduu. Nadpis a „Čítať“ vedú vždy na článok.",
+    "tag_post": "Novinka",
+    "tag_offer": "Ponuka",
+    "close": "Zavrieť",
+    "view": "Zobraziť",
+    "blog_meta": "Blog · {date} · {n} min čítania",
+    "ask_assistant": "Opýtať sa asistenta",
+    "close_article": "Zavrieť článok",
+    "article": "Článok",
+    "all_news_done": "Otvorené",
+    "slide_of": "Snímka {n} z {total}"
   },
   "languages": {
     "button": "Jazyk",

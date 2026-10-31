@@ -12,6 +12,7 @@ export function ShopStatusLine({
   lang,
   renderedAt,
   className,
+  pill = false,
 }: {
   input: StatusInput;
   labels: StatusLabels;
@@ -19,7 +20,8 @@ export function ShopStatusLine({
   /** Date.now() on the server. */
   renderedAt: number;
   className?: string;
+  pill?: boolean;
 }) {
   const status = shopStatus(input, new Date(renderedAt));
-  return <LiveStatusLazy first={{ state: status.state, ...statusParts(status, labels, lang) }} input={input} labels={labels} lang={lang} className={className} />;
+  return <LiveStatusLazy first={{ state: status.state, ...statusParts(status, labels, lang) }} input={input} labels={labels} lang={lang} className={className} pill={pill} />;
 }

@@ -588,11 +588,11 @@
     "company_id": "Company registration number"
   },
   "chat": {
-    "title": "Ask the shop's assistant",
+    "title": "Search with the Cacaduu assistant",
     "intro": "Ask about this shop's items, prices and availability, get a shopping list for a job, or send a photo of a part, device or model plate to find it here.",
     "placeholder": "Your question…",
     "send": "Send",
-    "photo": "Add photo or PDF",
+    "photo": "Add photo or file",
     "photo_note": "Photos and PDFs are used only for the answer and are not stored.",
     "note": "Answers are written by AI; prices and stock come straight from the shop.",
     "thinking": "Searching this shop…",
@@ -718,7 +718,12 @@
     "callback_err_consent": "Please confirm your consent.",
     "callback_err_too_many": "You have already sent your contact. The shop will reply.",
     "callback_err_not_available": "This cannot be sent now. Please contact the shop directly.",
-    "callback_err_failed": "Could not send. Please try again."
+    "callback_err_failed": "Could not send. Please try again.",
+    "empty_question": "Type a question or add a photo",
+    "sent": "Sent",
+    "key_hint": "Enter the key you got from the shop and its private folder opens.",
+    "key_empty": "Enter the access key",
+    "key_done": "Opened"
   },
   "docs": {
     "title": "Documents for the assistant",
@@ -1503,7 +1508,8 @@
     "closed_all_day": "Closed all day",
     "check_hours": "check opening hours",
     "closed_from": "closed from {time}",
-    "today": "today"
+    "today": "today",
+    "upcoming_short": "Holidays · next 14 days"
   },
   "holidays": {
     "title": "Holidays and special closures",
@@ -2140,7 +2146,17 @@
     "video_target": "The ▶ button of videos opens",
     "video_target_post": "The article on Cacaduu (recommended) – a YouTube video plays right in the article",
     "video_target_facebook": "The post on Facebook – on a phone in the Facebook app, if the visitor has it",
-    "video_target_hint": "Applies to Facebook videos and to YouTube videos shared on Facebook. An article that is not on Facebook always opens on Cacaduu. The title and \"Read\" always lead to the article."
+    "video_target_hint": "Applies to Facebook videos and to YouTube videos shared on Facebook. An article that is not on Facebook always opens on Cacaduu. The title and \"Read\" always lead to the article.",
+    "tag_post": "News",
+    "tag_offer": "Offer",
+    "close": "Close",
+    "view": "View",
+    "blog_meta": "Blog · {date} · {n} min read",
+    "ask_assistant": "Ask the assistant",
+    "close_article": "Close article",
+    "article": "Article",
+    "all_news_done": "Opened",
+    "slide_of": "Slide {n} of {total}"
   },
   "languages": {
     "button": "Language",

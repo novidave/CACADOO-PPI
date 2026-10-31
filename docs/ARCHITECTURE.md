@@ -307,7 +307,7 @@ the service role (owners may read their own shop's `subscriptions` row and impor
   keydown listener while open (← → + −, ignored once the dialog is closed); the next page's picture prefetched;
   Zavrieť / Esc). Picture addresses: `${SUPABASE_URL}/storage/v1/object/public/shop-sections-public/
   <shop>/<section>/v<version>/<page>-<800|1600>.<webp|jpg>`.
-- **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "positron" tiles; its worker file is copied to
+- **Map** (`components/ShopMap.tsx`): MapLibre GL with OpenFreeMap "bright" (OSM Bright, `@/lib/mapStyle`) tiles; its worker file is copied to
   `public/maplibre/` at build time (`scripts/copy-maplibre-worker.mjs`).
 - **Owner dashboard** (`app/[lang]/(account)/dashboard`): server actions in `actions.ts` (save shop incl. e-mail and
   Facebook page, approve columns, logo, translation correction, assistant texts, plan, delete) and `docActions.ts`;

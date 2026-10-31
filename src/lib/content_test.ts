@@ -5,6 +5,9 @@
 import { ASSISTANT_SECTIONS, CONTENT_SECTIONS, EXPORT_SECTIONS, forwardUrl, movedFrom, sectionId, sectionPath, sectionUrl, TRANSLATION_SECTIONS } from "./dashboardPages.ts";
 import {
   arrangeSlides,
+  articlePhoto,
+  readingMinutes,
+  slideTag,
   canAdd,
   cardExcerpt,
   cropPosition,
@@ -198,4 +201,29 @@ Deno.test("update 44: one frame for every slide (Pomer strán slidera) and the V
   eq(1080 / 1350, ratioValue("4:5"), "the hinted size has the frame's ratio");
   eq([slideCrop(undefined), slideCrop("top"), slideCrop("left")], ["center", "top", "center"], "Výrez: the middle unless chosen");
   eq([cropPosition("top"), cropPosition("center"), cropPosition("bottom")], ["50% 0%", "50% 50%", "50% 100%"], "object-position");
+});
+
+// ---------------------------------------------------------------- Screen 11: the news slider's inline article
+
+Deno.test("reading time: 200 words a minute, rounded up, at least 1", () => {
+  eq(readingMinutes(""), 1, "screen 11");
+  eq(readingMinutes("Krátka správa."), 1, "screen 11");
+  eq(readingMinutes(Array(200).fill("slovo").join(" ")), 1, "screen 11");
+  eq(readingMinutes(Array(201).fill("slovo").join("\n")), 2, "screen 11");
+  eq(readingMinutes(Array(650).fill("szó").join("  ")), 4, "screen 11");
+});
+
+Deno.test("article photo: the second photo, else the first; photos before videos' pictures", () => {
+  const p = (id: string, kind: "photo" | "video" = "photo") => ({ id, kind });
+  eq(articlePhoto([]), null, "screen 11");
+  eq(articlePhoto([p("a")])?.id, "a", "screen 11");
+  eq(articlePhoto([p("a"), p("b"), p("c")])?.id, "b", "screen 11");
+  eq(articlePhoto([p("v", "video"), p("a")])?.id, "a", "screen 11");
+  eq(articlePhoto([p("v", "video"), p("w", "video")])?.id, "w", "screen 11");
+});
+
+Deno.test("slide tag: a post is news, a PDF or a picture an offer", () => {
+  eq(slideTag("post"), "tag_post", "screen 11");
+  eq(slideTag("pdf"), "tag_offer", "screen 11");
+  eq(slideTag("picture"), "tag_offer", "screen 11");
 });

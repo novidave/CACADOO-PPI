@@ -270,3 +270,26 @@ export function cardExcerpt(text: string, max = 160): string {
   const at = cut.lastIndexOf(" ");
   return `${(at > max * 0.6 ? cut.slice(0, at) : cut).replace(/[\s,;:–-]+$/, "")}…`;
 }
+
+// ---------------------------------------------------------------- the news slider's inline article (Screen 11)
+
+/** "3 min čítania": the post's words at 200 a minute, rounded up, at least 1. */
+export function readingMinutes(text: string): number {
+  const words = text.trim() ? text.trim().split(/\s+/u).length : 0;
+  return Math.max(1, Math.ceil(words / 200));
+}
+
+/**
+ * The picture of a post's inline article: its second photo (the first is the slide's own picture), else the first;
+ * photos before videos' pictures. Null without any.
+ */
+export function articlePhoto<P extends { kind: "photo" | "video" }>(photos: P[]): P | null {
+  const real = photos.filter((p) => p.kind === "photo");
+  const pool = real.length ? real : photos;
+  return pool[1] ?? pool[0] ?? null;
+}
+
+/** The slide's tag on the picture: a post is news ("Novinka"), a PDF or a picture an offer ("Ponuka"). */
+export function slideTag(kind: SlideView["kind"]): "tag_post" | "tag_offer" {
+  return kind === "post" ? "tag_post" : "tag_offer";
+}
