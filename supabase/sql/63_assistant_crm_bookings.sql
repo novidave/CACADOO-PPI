@@ -67,6 +67,7 @@ drop trigger if exists assistant_conversations_reply_sync on public.assistant_co
 create trigger assistant_conversations_reply_sync
   after insert or update of contact_id, callback_at, callback_answered_at, last_message_at on public.assistant_conversations
   for each row execute function public.crm_contact_reply_sync();
+revoke execute on function public.crm_contact_reply_sync() from public, anon, authenticated;
 
 -- the contacts that wait today
 update public.shop_contacts k
