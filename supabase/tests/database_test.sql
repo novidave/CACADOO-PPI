@@ -10076,4 +10076,420 @@ end $$;
 reset role;
 drop table hs_test;
 
+\echo '--- update 61: the owner MCP — OAuth (register, PKCE, code once, rotating refresh), keys, one door as the owner, previews, scopes'
+create temporary table om_test (k text primary key, v text);
+grant all on om_test to public;
+
+do $$ begin
+  assert public.mcp_s256('dBjftJeZ4CVP-mJ92K9qnBDvz5kXGhWbFMhOeTDE-tOyTlwKZg') = 'x3oksxij2DV0_Rlip7GoIqV3OMDhQr4LMSB58cEqNHg',
+    'PKCE S256 = base64url(sha256) without padding';
+  assert public.mcp_redirect_ok('https://claude.ai/api/mcp/auth_callback') and public.mcp_redirect_ok('http://localhost:7777/oauth/callback')
+    and not public.mcp_redirect_ok('http://evil.example/cb') and not public.mcp_redirect_ok('javascript:alert(1)')
+    and not public.mcp_redirect_ok('https://x.example/cb#frag');
+  assert public.mcp_scopes_ok(array['shop.read']) and not public.mcp_scopes_ok(array['shop.write'])
+    and not public.mcp_scopes_ok(array['shop.read', 'admin']);
+  assert public.mcp_tool_scope('send_anything') is null and public.mcp_tool_scope('update_stock') = 'shop.write';
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_item uuid := (select i.id from public.shop_items i join public.inventory inv on inv.shop_item_id = i.id
+                  where i.shop_id = v_a order by i.source_code limit 1);
+begin
+  insert into om_test values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('hours', (select opening_hours::text from public.shops where id = v_a)),
+    ('phone_before', (select coalesce(phone, '') from public.shops where id = v_a)),
+    ('item', v_item::text),
+    ('inv', (select to_jsonb(inv)::text from public.inventory inv where shop_item_id = v_item));
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_om')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_om');
+end $$;
+reset role;
+
+-- a client registers itself (anyone), with safe redirect addresses only
+set role anon;
+do $$
+declare
+  vj jsonb;
+begin
+  begin perform public.owner_mcp_register('Evil', array['http://evil.example/cb'], 'caller-hash-0123456789'); raise exception 'http redirect';
+  exception when invalid_parameter_value then if sqlerrm <> 'redirect_uri' then raise; end if; end;
+  vj := public.owner_mcp_register('Claude', array['https://claude.ai/api/mcp/auth_callback'], 'caller-hash-0123456789');
+  assert vj ->> 'client_id' ~ '^cmc_[0-9a-f]{64}$', vj::text;
+  insert into om_test values ('client', vj ->> 'client_id');
+  assert (public.owner_mcp_client(vj ->> 'client_id') ->> 'client_name') = 'Claude';
+  begin perform count(*) from public.owner_mcp_clients; raise exception 'anon read the clients';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the owner says yes on the consent page: a code for their own Pro shop only
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_client text := (select v from om_test where k = 'client');
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_ch text := 'x3oksxij2DV0_Rlip7GoIqV3OMDhQr4LMSB58cEqNHg';
+  v_cb text := 'https://claude.ai/api/mcp/auth_callback';
+  v_all text[] := array['shop.read', 'shop.write', 'messages.send'];
+  i integer;
+begin
+  assert exists (select 1 from public.owner_mcp_shops() where shop_id = v_a and has_plan);
+  begin perform public.owner_mcp_authorize(v_client, 'https://other.example/cb', v_ch, v_all, array[v_a], null); raise exception 'other redirect';
+  exception when invalid_parameter_value then if sqlerrm <> 'redirect_uri' then raise; end if; end;
+  begin perform public.owner_mcp_authorize(v_client, v_cb, v_ch, array['shop.write'], array[v_a], null); raise exception 'no read scope';
+  exception when invalid_parameter_value then if sqlerrm <> 'scope' then raise; end if; end;
+  begin perform public.owner_mcp_authorize(v_client, v_cb, v_ch, v_all, array[v_b], null); raise exception 'B''s shop';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_mcp_authorize(v_client, v_cb, 'short', v_all, array[v_a], null); raise exception 'bad challenge';
+  exception when invalid_parameter_value then if sqlerrm <> 'challenge' then raise; end if; end;
+  for i in 1..4 loop
+    insert into om_test values ('code' || i, public.owner_mcp_authorize(v_client, v_cb, v_ch, v_all, array[v_a], 'https://site.example/mcp/owner'));
+  end loop;
+  insert into om_test values ('code_read', public.owner_mcp_authorize(v_client, v_cb, v_ch, array['shop.read'], array[v_a], null));
+  assert (select v from om_test where k = 'code1') ~ '^cmo_[0-9a-f]{64}$';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- the token endpoint: the verifier must match, a code works once, refresh tokens rotate
+set role anon;
+do $$
+declare
+  v_client text := (select v from om_test where k = 'client');
+  v_ver text := 'dBjftJeZ4CVP-mJ92K9qnBDvz5kXGhWbFMhOeTDE-tOyTlwKZg';
+  v_cb text := 'https://claude.ai/api/mcp/auth_callback';
+  vj jsonb;
+begin
+  begin perform public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code1'), repeat('a', 43), v_client, v_cb, null);
+    raise exception 'wrong verifier';
+  exception when invalid_parameter_value then if sqlerrm <> 'invalid_grant' then raise; end if; end;
+  begin perform public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code1'), v_ver, 'cmc_other', v_cb, null);
+    raise exception 'other client';
+  exception when invalid_parameter_value then if sqlerrm <> 'invalid_client' then raise; end if; end;
+  vj := public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code1'), v_ver, v_client, v_cb, null);
+  assert vj ->> 'access_token' ~ '^cma_' and vj ->> 'refresh_token' ~ '^cmr_' and (vj ->> 'expires_in')::integer = 3600
+    and vj ->> 'scope' = 'shop.read shop.write messages.send', vj::text;
+  insert into om_test values ('access1', vj ->> 'access_token');
+  assert public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code1'), v_ver, v_client, v_cb, null)
+    = '{"error": "invalid_grant"}'::jsonb, 'a code twice';
+end $$;
+do $$ begin
+  -- the code used twice revoked what it gave
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access1'), 'list_shops', '{}'); raise exception 'revoked grant works';
+  exception when invalid_authorization_specification then if sqlerrm <> 'invalid_token' then raise; end if; end;
+end $$;
+do $$
+declare
+  v_client text := (select v from om_test where k = 'client');
+  v_ver text := 'dBjftJeZ4CVP-mJ92K9qnBDvz5kXGhWbFMhOeTDE-tOyTlwKZg';
+  v_cb text := 'https://claude.ai/api/mcp/auth_callback';
+  vj jsonb;
+  vr jsonb;
+begin
+  vj := public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code2'), v_ver, v_client, v_cb, null);
+  vr := public.owner_mcp_token('refresh_token', null, null, v_client, null, vj ->> 'refresh_token');
+  assert vr ->> 'access_token' <> vj ->> 'access_token' and vr ->> 'refresh_token' <> vj ->> 'refresh_token';
+  insert into om_test values ('access2', vr ->> 'access_token'), ('refresh2_old', vj ->> 'refresh_token');
+  vj := public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code3'), v_ver, v_client, v_cb, null);
+  insert into om_test values ('access', vj ->> 'access_token'), ('refresh', vj ->> 'refresh_token');
+  vj := public.owner_mcp_token('authorization_code', (select v from om_test where k = 'code_read'), v_ver, v_client, v_cb, null);
+  insert into om_test values ('access_read', vj ->> 'access_token');
+  begin perform public.owner_mcp_token('password', null, null, v_client, null, null); raise exception 'other grant type';
+  exception when invalid_parameter_value then if sqlerrm <> 'unsupported_grant_type' then raise; end if; end;
+end $$;
+do $$ begin
+  -- an old refresh token used again revokes that grant (its new access token stops working)
+  assert public.owner_mcp_token('refresh_token', null, null, (select v from om_test where k = 'client'), null,
+                                (select v from om_test where k = 'refresh2_old')) = '{"error": "invalid_grant"}'::jsonb,
+    'an old refresh token';
+end $$;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access2'), 'list_shops', '{}'); raise exception 'stolen refresh';
+  exception when invalid_authorization_specification then null; end;
+  begin perform public.owner_mcp_call('cma_nonsense', 'list_shops', '{}'); raise exception 'any token';
+  exception when invalid_authorization_specification then null; end;
+  begin perform public.owner_mcp_whoami('cma_nonsense'); raise exception 'whoami any token';
+  exception when invalid_authorization_specification then null; end;
+end $$;
+
+-- the tools, as the owner, through the one door
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_whoami(v_t);
+  assert vj -> 'scopes' = '["shop.read", "shop.write", "messages.send"]'::jsonb and vj -> 'shops' -> 0 ->> 'slug' = 'potraviny-centrum', vj::text;
+  vj := public.owner_mcp_call(v_t, 'list_shops', '{}');
+  assert vj -> 'result' -> 'shops' -> 0 ->> 'slug' = 'potraviny-centrum' and jsonb_array_length(vj -> 'result' -> 'shops') = 1, vj::text;
+  vj := public.owner_mcp_call(v_t, 'get_shop_details', '{}');
+  assert vj ->> 'shop' = 'potraviny-centrum' and vj -> 'result' ? 'stock_source', vj::text;
+  begin perform public.owner_mcp_call(v_t, 'get_shop_details', '{"shop": "drogeria-kostolne"}'); raise exception 'B''s shop';
+  exception when insufficient_privilege then if sqlerrm <> 'shop_not_in_grant' then raise; end if; end;
+  begin perform public.owner_mcp_call(v_t, 'drop_everything', '{}'); raise exception 'unknown tool';
+  exception when invalid_parameter_value then if sqlerrm <> 'unknown_tool' then raise; end if; end;
+end $$;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_call(v_t, 'set_opening_hours', ('{"regular": {"tue": [["09:00","18:00"]], "sun": []},
+    "special": [{"from": "' || (current_date + 50)::text || '", "closed": true, "note": "Inventúra"}]}')::jsonb);
+  assert vj -> 'result' -> 'regular' -> 'tue' = '[["09:00","18:00"]]'::jsonb and vj -> 'result' -> 'regular' -> 'sun' = '[]'::jsonb
+    and (vj ->> 'changed')::boolean, vj::text;
+  assert vj -> 'result' -> 'regular' -> 'mon' is not distinct from ((select v::jsonb from om_test where k = 'hours') -> 'mon'),
+    'days not named stay as they were';
+  assert exists (select 1 from jsonb_array_elements(vj -> 'result' -> 'special_days') d
+                 where (d ->> 'date')::date = current_date + 50 and (d ->> 'closed')::boolean and d ->> 'note' = 'Inventúra');
+end $$;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'set_opening_hours', '{"regular": {"mon": [["25:00","08:00"]]}}');
+    raise exception 'bad hours';
+  exception when invalid_parameter_value then if sqlerrm <> 'hours' then raise; end if; end;
+end $$;
+-- (the checks below read the tables themselves, so they run as the test's own user)
+reset role;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+  v_c uuid;
+begin
+  vj := public.owner_mcp_call(v_t, 'save_contact', '{"name": "MCP Test", "phone": "0905 111 333", "tags": ["vip"]}');
+  v_c := (vj -> 'result' ->> 'contact_id')::uuid;
+  insert into om_test values ('contact', v_c::text);
+  vj := public.owner_mcp_call(v_t, 'save_contact', jsonb_build_object('contact_id', v_c, 'email', 'mcp@example.invalid'));
+  assert (select name = 'MCP Test' and phone = '+421905111333' and email = 'mcp@example.invalid' and tags = array['vip']
+          from public.shop_contacts where id = v_c), 'only the given fields change';
+  vj := public.owner_mcp_call(v_t, 'list_contacts', '{"q": "mcp test"}');
+  assert jsonb_array_length(vj -> 'result') = 1 and vj -> 'result' -> 0 ->> 'id' = v_c::text, vj::text;
+  vj := public.owner_mcp_call(v_t, 'get_contact', jsonb_build_object('contact_id', v_c));
+  assert vj -> 'result' ->> 'email' = 'mcp@example.invalid';
+end $$;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'get_contact',
+                                      jsonb_build_object('contact_id', gen_random_uuid()));
+    raise exception 'any contact';
+  exception when no_data_found then null; end;
+end $$;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  -- a message only after its preview: exactly what was previewed, once
+  vj := public.owner_mcp_call(v_t, 'preview_message', jsonb_build_object('contact_id', (select v from om_test where k = 'contact'),
+                                                                           'channel', 'email', 'subject', 'Ahoj', 'text', 'Váš tovar je tu.'));
+  assert vj -> 'result' -> 'preview' ->> 'recipient' = 'mcp@example.invalid' and vj -> 'result' ->> 'confirmation_id' is not null, vj::text;
+  insert into om_test values ('confirm', vj -> 'result' ->> 'confirmation_id');
+  vj := public.owner_mcp_call(v_t, 'preview_message', jsonb_build_object('contact_id', (select v from om_test where k = 'contact'),
+                                                                           'channel', 'email', 'subject', 'Ahoj', 'text', 'Druhý.'));
+  insert into om_test values ('confirm2', vj -> 'result' ->> 'confirmation_id');
+  assert not exists (select 1 from public.shop_outgoing_messages where body = 'Váš tovar je tu.'), 'a preview writes nothing';
+end $$;
+set role anon;
+do $$ begin
+  begin perform public.owner_mcp_message_queue((select v from om_test where k = 'access'), (select v::uuid from om_test where k = 'confirm'));
+    raise exception 'anon queued a message';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_message_queue(v_t, (select v::uuid from om_test where k = 'confirm'));
+  assert (select body = 'Váš tovar je tu.' and status = 'queued' and sent_by = '00000000-0000-0000-0000-00000000000a'
+          from public.shop_outgoing_messages where id = (vj ->> 'id')::uuid), vj::text;
+  assert exists (select 1 from public.shop_activity where action = 'mcp_message_queued' and details ->> 'message_id' = vj ->> 'id');
+  begin perform public.owner_mcp_message_queue(v_t, (select v::uuid from om_test where k = 'confirm')); raise exception 'sent twice';
+  exception when invalid_parameter_value then if sqlerrm <> 'confirmation' then raise; end if; end;
+  begin perform public.owner_mcp_message_queue((select v from om_test where k = 'access_read'), (select v::uuid from om_test where k = 'confirm2'));
+    raise exception 'read-only grant sent';
+  exception when insufficient_privilege then null; end;
+  -- the contact changed after the preview → refused, nothing written
+  update public.shop_contacts set email = 'other@example.invalid' where id = (select v::uuid from om_test where k = 'contact');
+  begin perform public.owner_mcp_message_queue(v_t, (select v::uuid from om_test where k = 'confirm2')); raise exception 'changed preview';
+  exception when invalid_parameter_value then if sqlerrm <> 'preview_changed' then raise; end if; end;
+  assert not exists (select 1 from public.shop_outgoing_messages where body = 'Druhý.');
+end $$;
+reset role;
+
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  v_item text := (select v from om_test where k = 'item');
+  v_inv jsonb := (select v::jsonb from om_test where k = 'inv');
+  vj jsonb;
+begin
+  -- stock: first the warning and what would change, then (confirm) the change; never the currency
+  vj := public.owner_mcp_call(v_t, 'update_stock', jsonb_build_object('item_id', v_item, 'quantity', 77));
+  assert (vj -> 'result' ->> 'needs_confirmation')::boolean and vj -> 'result' ->> 'warning' like '%overwrite%'
+    and (vj -> 'result' -> 'after' ->> 'quantity')::numeric = 77, vj::text;
+  assert (select quantity from public.inventory where shop_item_id = v_item::uuid) = (v_inv ->> 'quantity')::numeric, 'nothing yet';
+  vj := public.owner_mcp_call(v_t, 'update_stock', jsonb_build_object('item_id', v_item, 'quantity', 77, 'price', 1.5, 'confirm', true));
+  assert (vj -> 'result' ->> 'applied')::boolean and (vj ->> 'changed')::boolean, vj::text;
+  assert (select quantity = 77 and price = 1.5 and currency = v_inv ->> 'currency'
+                 and source_updated_at is not distinct from (v_inv ->> 'source_updated_at')::timestamptz
+          from public.inventory where shop_item_id = v_item::uuid), 'quantity and price only; currency and freshness kept';
+end $$;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'update_stock',
+                                      jsonb_build_object('item_id', (select v from om_test where k = 'item'), 'price', -1, 'confirm', true));
+    raise exception 'negative price';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access_read'), 'update_stock',
+                                      jsonb_build_object('item_id', (select v from om_test where k = 'item'), 'quantity', 1, 'confirm', true));
+    raise exception 'read-only grant wrote';
+  exception when insufficient_privilege then if sqlerrm <> 'scope: shop.write' then raise; end if; end;
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'update_shop_details', '{"address": "Iná 1"}');
+    raise exception 'address via MCP';
+  exception when invalid_parameter_value then null; end;
+end $$;
+do $$
+declare
+  v_t text := (select v from om_test where k = 'access');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_call(v_t, 'update_shop_details', '{"phone": "+421 2 1234 5678"}');
+  assert vj -> 'result' ->> 'phone' = '+421 2 1234 5678' and (select name = 'Potraviny Centrum' or name is not null from public.shops
+                                                                  where slug = 'potraviny-centrum');
+  assert (select opening_hours -> 'tue' = '[["09:00","18:00"]]'::jsonb from public.shops where slug = 'potraviny-centrum'),
+    'the rest of the shop is kept';
+  vj := public.owner_mcp_call(v_t, 'delete_contact', jsonb_build_object('contact_id', (select v from om_test where k = 'contact')));
+  assert (vj -> 'result' ->> 'needs_confirmation')::boolean and exists (select 1 from public.shop_contacts
+                                                                        where id = (select v::uuid from om_test where k = 'contact'));
+  vj := public.owner_mcp_call(v_t, 'delete_contact', jsonb_build_object('contact_id', (select v from om_test where k = 'contact'),
+                                                                         'confirm', true));
+  assert not exists (select 1 from public.shop_contacts where id = (select v::uuid from om_test where k = 'contact'));
+  vj := public.owner_mcp_call(v_t, 'search_stock', '{"limit": 3}');
+  assert jsonb_array_length(vj -> 'result' -> 'items') between 1 and 3, vj::text;
+  vj := public.owner_mcp_call(v_t, 'list_conversations', '{}');
+  assert jsonb_typeof(vj -> 'result') = 'array';
+  vj := public.owner_mcp_call(v_t, 'list_bookings', '{}');
+  assert jsonb_typeof(vj -> 'result') = 'array';
+end $$;
+reset role;
+
+-- logged as the owner; 120 calls a minute; without the plan nothing
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert (select count(*) from public.shop_activity where shop_id = v_a and actor = '00000000-0000-0000-0000-00000000000a'
+          and action in ('mcp_connected', 'hours_changed', 'contact_saved', 'stock_edited', 'shop_details_changed', 'contact_deleted')
+          and at > now() - interval '5 minutes') >= 6;
+  update public.owner_mcp_tokens set window_calls = 120, window_start = now()
+  where access_hash = public.mcp_hash((select v from om_test where k = 'access'));
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access'), 'list_shops', '{}'); raise exception 'no limit';
+  exception when program_limit_exceeded then null; end;
+end $$;
+reset role;
+
+-- the owner's screen: personal keys, the list, "Odpojiť"; owner B sees and stops nothing of A's
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  vj := public.owner_mcp_create_key('Grok', array[v_a], array['shop.read']);
+  assert vj ->> 'key' ~ '^cmk_[0-9a-f]{64}$';
+  insert into om_test values ('key', vj ->> 'key'), ('key_id', vj ->> 'id');
+  assert (select count(*) from public.owner_mcp_grants() where active) >= 2;
+  begin perform count(*) from public.owner_mcp_tokens; raise exception 'owner read token hashes';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  assert not exists (select 1 from public.owner_mcp_grants()), 'B sees none of A''s';
+  begin perform public.owner_mcp_disconnect((select v::uuid from om_test where k = 'key_id')); raise exception 'B disconnected A';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+declare
+  vj jsonb := public.owner_mcp_call((select v from om_test where k = 'key'), 'get_opening_hours', '{}');
+begin
+  assert vj -> 'result' ? 'regular';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  assert public.owner_mcp_disconnect((select v::uuid from om_test where k = 'key_id'));
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'key'), 'list_shops', '{}'); raise exception 'disconnected key';
+  exception when invalid_authorization_specification then null; end;
+  assert public.owner_mcp_revoke((select v from om_test where k = 'refresh'));
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access_read'), 'get_shop_details', '{}');
+  exception when others then raise exception 'the other grant still works: %', sqlerrm; end;
+end $$;
+reset role;
+
+-- tidy up: everything as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_inv jsonb := (select v::jsonb from om_test where k = 'inv');
+begin
+  delete from public.subscriptions where shop_id = v_a;
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin perform public.owner_mcp_call((select v from om_test where k = 'access_read'), 'get_shop_details', '{}'); raise exception 'no plan';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_inv jsonb := (select v::jsonb from om_test where k = 'inv');
+begin
+  update public.inventory set quantity = (v_inv ->> 'quantity')::numeric, price = (v_inv ->> 'price')::numeric
+  where shop_item_id = (select v::uuid from om_test where k = 'item');
+  update public.shops set opening_hours = (select v::jsonb from om_test where k = 'hours'),
+                          phone = nullif((select v from om_test where k = 'phone_before'), '') where id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date = current_date + 50;
+  delete from public.shop_outgoing_messages where shop_id = v_a;
+  delete from public.owner_mcp_pending;
+  delete from public.owner_mcp_tokens;
+  delete from public.owner_mcp_codes;
+  delete from public.owner_mcp_clients;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from om_test where k = 'sub'))
+  where (select v from om_test where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from om_test where k = 'had_plan');
+end $$;
+reset role;
+drop table om_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'

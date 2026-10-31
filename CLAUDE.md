@@ -101,6 +101,8 @@ button, the text only after a tap, 2026-10-27); always an extra — every page m
   "9+", totals in cents per currency, Slovak plurals, the copied text, broken stored lists, blocked storage
 - `npm run test:search` — unit tests (Deno) of the forgiving search's word rules (`src/lib/searchWords_test.ts`): the
   same stems as `search_stem()`, accents, typo and prefix marks for highlighting
+- `npm run test:mcp` — unit tests (Deno) of the owner MCP's shared rules (`src/lib/ownerMcpRules_test.ts`): scopes, the
+  OAuth metadata, the 401 header, bearer tokens, the authorization request, the error texts for the AI
 - `npm run test:connector` — the POS agent contract (`src/lib/connectorContract_test.ts`): the OpenAPI file has exactly
   the connector function's routes, the written contract names every path, the client calls every path
 - `npm run test:items` — unit tests (Deno) of Môj obchod's "Tovar" list (`src/lib/ownerItems_test.ts`): each state of
@@ -125,7 +127,7 @@ and the MCP server (`/mcp`, stateless Streamable HTTP, tools `search_stock`, `ge
 anon client without cookies (`@/lib/supabase/public`), every result carries `source_url`, the database
 decides availability/quantity. Every API/MCP request goes through `rateLimit` (`api_hit`: 60/min, daily-salted
 IP hash). Items carry `name`, `name_translated` (in `lang`) and `name_lang`. `robots.ts`, `sitemap.ts` and
-`llms.txt` live at the app root.
+`llms.txt` live at the app root. The shop owner's own MCP server is a different one: `/mcp/owner` (update 61, below).
 
 ## AI search (the main page is one chat, Prompt 10)
 
@@ -445,6 +447,36 @@ location per shop (`locations/<id>`); `PATCH {INFO_API}/locations/<id>?updateMas
 (overnight closes the next day); "Poslať hodiny do Google teraz" for changes made on the website; 401 → expired;
 "Odpojiť" revokes and deletes. The Business Profile APIs need Google's approval for the project. Never log numbers,
 SMS texts, codes or tokens. Texts `hours_sms`.
+
+## The owner's MCP server (paid, update 61, CRM phase 7)
+
+`supabase/sql/61_owner_mcp.sql` + `src/app/mcp/owner/route.ts` + `@/lib/ownerMcp` (server) / `@/lib/ownerMcpRules` (shared,
+`ownerMcpRules_test.ts`, `npm run test:mcp`) + `/.well-known/oauth-protected-resource[/mcp/owner]`,
+`/.well-known/oauth-authorization-server`, `/api/oauth/{register,authorize,token,revoke}` + the consent page
+`/[lang]/oauth/authorize` + `dashboard/ai` ("AI asistenti": address, how to connect Claude / ChatGPT / Gemini / Grok,
+connected grants with "Odpojiť", personal keys via `@/components/McpKeyForm`) + crm-messages `mcp_send`. **The shopper
+MCP (`/mcp`) is unchanged.** Access: OAuth 2.1 — dynamic client registration (public clients, redirect https or
+http://localhost only, 10/caller/hour), code + PKCE **S256 only**, code once (a second use revokes its grant), access
+1 h, refresh 60 days **rotating** (an old refresh token used again revokes the grant), RFC 9728/8414 metadata, 401 with
+`WWW-Authenticate: Bearer resource_metadata=…` — or a **personal key** (`cmk_…`, 1 year, ≤ 10) for clients that only take
+a bearer header. Tokens are random, returned once, kept as SHA-256 only; tables `owner_mcp_clients/_codes/_tokens/_pending`
+have no grants (functions only). Scopes `shop.read` (always) · `shop.write` · `messages.send`, shops ticked on the consent
+page — **Pro shops only**. **One door:** `owner_mcp_call(token, tool, args)` (anon may call it; the website holds no
+secret): token → scope of the tool → the shop (in the grant, the owner still a member, `shop_has_plan`) → 120 calls/min
+per grant → `mcp_act_as()` sets the request's JWT claims to the owner so **every owner_* function and its checks run as on
+the website** → result `{shop, result, changed}` (changed → `refreshShop`). `owner_mcp_whoami(token)` = the route's first
+check (tools listed only for the grant's scopes). Tools: list_shops, get_shop_details, get_opening_hours,
+list_conversations, get_conversation, list_contacts, get_contact, list_bookings, list_email_templates, get_sms_usage,
+search_stock · update_conversations, save_contact (only the given fields change), delete_contact (confirm),
+set_booking_status, set_opening_hours (`mcp_set_hours`: only the named days, the 60's rules, activity `hours_changed`),
+update_shop_details (name, phone, e-mail, website, Facebook, booking link only → `owner_save_shop` with the rest as is),
+update_stock (one item: quantity/price, **never the currency or the freshness**; without `confirm` only before/after and
+the warning that the next stock file / POS agent / inventory program overwrites it; activity `stock_edited`) ·
+preview_message (exactly what would go + a confirmation id, 10 min, `owner_mcp_pending`) → send_message (crm-messages
+with `x-ppi-mcp` → `owner_mcp_message_queue()`: same grant, once, refused `preview_changed` when the rendered message
+differs, then `owner_message_queue` as the owner — quota, 100/day, log). Every write is in `shop_activity` as the owner
+(`mcp_connected`, `mcp_disconnected`, `mcp_key_created`, `mcp_message_queued`, `hours_changed`,
+`shop_details_changed`, `stock_edited` + the owner_* functions' own). The consent page is never framed (`next.config.ts` headers). Texts `owner_mcp`; login keeps a safe `next`.
 
 ## Cloud folder (paid, update 23)
 

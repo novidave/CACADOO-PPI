@@ -49,6 +49,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | SMS quotas and the real SMS provider (Pro, phase 4 of the CRM work): two monthly quotas per shop kept apart — 100 SMS for bookings (codes and reminders) and 100 for the owner's own SMS (the admin may change both); counted as billed SMS parts in the shop's calendar month; at a limit nothing is sent (the owner is told, the assistant stops offering times, reminders wait); "SMS tento mesiac" with both quotas on Kontakty, the contact card and Rezervácie; SMS sent through Brevo (works in Slovakia and across Europe, the same key as the e-mails) or Twilio, chosen by one secret | Built and tested (database checks, function tests with mocked Brevo and Twilio); live after database update 58, the updated crm-messages and bookings functions, `SMS_PROVIDER` and the merge (SETUP.md part AX4); not yet tried with real SMS |
 | Unanswered questions (Pro, phase 5 of the CRM work): when the shop assistant cannot answer, the chat offers "Nechajte nám kontakt" — the page's own form for a phone or e-mail (+ optional name and consent); the contact is found (by phone, else e-mail) or made, the conversation is flagged "Bez odpovede" and joined to it; every owner of the shop gets an e-mail "Nový zákazník, prosím odpovedzte" with the question and a link; Môj obchod shows a badge and "Čakajú na odpoveď"; the owner replies by SMS or e-mail from the contact, which marks it answered, or marks it "Vybavené" | Built and tested (database checks, function tests); live after database update 59, the updated crm-messages function and the merge (SETUP.md part AX5) |
 | Opening hours by SMS (Pro, phase 6 of the CRM work): the owner verifies a phone with a 6-digit code, then texts the shops' SMS number ("Po-Pi 8-17, So 8-12, Ne zatvorené", "24.12. zatvorené"); Claude reads it as opening hours only, the database checks it and changes only the named days on the shop page and in the Google Business Profile (when connected); a confirmation SMS, or a request to write it again; unknown numbers get nothing | Built and tested (database checks, function tests); live after database update 60, the hours-sms function and the merge (SETUP.md part AX6); **the receiving SMS number is set up later** — the owner will pick a cheaper EU provider instead of Twilio (an adapter may be needed); Google needs the Business Profile API access approved |
+| The owner's own AI assistant (Pro, phase 7 of the CRM work): Claude, ChatGPT, Gemini, Grok or any MCP client connects to https://<site>/mcp/owner — by logging in to Cacaduu and ticking shops and permissions (OAuth), or with a personal key from Môj obchod → "AI asistenti" — and works for the owner: conversations, contacts (add / change / delete), bookings, opening hours, shop details, stock (read; manual change with a warning that the next stock file overwrites it), SMS and e-mail only after a preview the owner approves; the shoppers' MCP stays as it is | Built and tested (database checks, function tests, the MCP route against the database); live after database update 61, the updated crm-messages function and the merge (SETUP.md part AX7); not yet tried with the real Claude / ChatGPT / Gemini / Grok apps |
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
@@ -2045,3 +2046,20 @@ below is unchanged.)
   the shop's activity log.
 - **Receiving SMS:** Brevo only sends SMS, so the number owners text is a Twilio number (or another gateway posting to
   Cacaduu with a secret).
+
+### 6.36 The owner's own AI assistant (database update 61, phase 7 of the CRM work, 31 October 2026)
+
+- **Who:** owners of Pro shops. The shoppers' MCP server (/mcp) is unchanged and stays read-only.
+- **Connecting:** Môj obchod → "AI asistenti" shows the address https://<site>/mcp/owner and how to add it in Claude,
+  ChatGPT, Gemini (CLI) and Grok. Assistants that can log in send the owner to Cacaduu's page "Pripojiť AI asistenta":
+  the owner ticks the shops and what the assistant may do — read; change; send messages — and allows or denies. Others
+  get a personal key (shown once, 1 year). "Odpojiť" ends any connection at once.
+- **What it can do:** read conversations (with the Slovak version), contacts, bookings, the e-mail templates, the SMS
+  usage and the stock as in the last file; mark conversations, write the private note; add, change and delete contacts;
+  confirm / cancel / no-show bookings; change the opening hours and special days (only the days named); change the
+  shop's name, phone, e-mail, website, Facebook and booking link; change one item's quantity or price by hand.
+- **Safety:** a message is sent only after preview_message showed exactly what goes and the owner said yes (then
+  send_message, once, within 10 minutes; refused if the message changed meanwhile). Deleting a contact and changing
+  stock first answer with what would change; a stock change says that the next stock file, POS agent or inventory
+  program will overwrite it, and never changes the currency or how fresh the stock is. Every change is in the shop's
+  activity log under the owner's name. At most 120 requests a minute per connection.

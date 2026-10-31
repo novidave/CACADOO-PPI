@@ -8,6 +8,9 @@
 //     message down first (owner_message_queue: members of the shop with the paid plan, the contact's own number or
 //     address, the variables filled in, at most 100 per channel and day), then this function sends it and reports the
 //     result once (crm_message_result: sent / failed / test). Nothing is sent that is not in the log.
+//   - action "mcp_send" {confirmation_id} with the header x-ppi-mcp = the owner's MCP token (database update 61): the
+//     message an AI assistant previewed for the owner (preview_message) goes out exactly as previewed, once, within 10
+//     minutes — owner_mcp_message_queue checks the token, its scope and the preview, then writes it down as the owner.
 //   - action "alerts" (x-ppi-cron = Vault ppi_crm_cron; database update 59): the e-mails to the shop's owners that wait
 //     in shop_owner_alerts — "Nový zákazník, prosím odpovedzte" when a shopper left a phone or e-mail after a question
 //     the assistant could not answer — in each owner's language, with the question and a link to the conversation
@@ -26,6 +29,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/** The owner MCP's own refusals (database update 61), passed on to the AI assistant as they are. */
+export const MCP_REASONS = ["invalid_token", "scope", "confirmation", "preview_changed", "no_plan", "forbidden"] as const;
 /** The database's own reasons, passed on to the page as they are. */
 export const REASONS = ["no_plan", "no_recipient", "empty", "subject", "too_long", "too_many", "channel", "sms_quota"] as const;
 
@@ -344,6 +349,20 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
     if (body?.action !== "alerts") return reply(400, { error: "bad_request" });
     return await sendAlerts(deps);
   }
+  const mcp = req.headers.get("x-ppi-mcp");
+  if (mcp !== null) {
+    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    const confirmation = String(body?.confirmation_id ?? "");
+    if (body?.action !== "mcp_send" || !UUID.test(confirmation) || mcp.length < 20 || mcp.length > 200) {
+      return reply(400, { error: "bad_request" });
+    }
+    const queued = await deps.db.rpc("owner_mcp_message_queue", { p_token: mcp, p_confirmation: confirmation });
+    if (queued.error) {
+      const why = MCP_REASONS.find((r) => queued.error!.message.startsWith(r)) ?? reason(queued.error);
+      return reply(why === "invalid_token" ? 401 : queued.error.code === "42501" ? 403 : 400, { error: why });
+    }
+    return reply(200, await deliver(deps, queued.data as Queued));
+  }
   const authorization = req.headers.get("Authorization") ?? "";
   const token = authorization.replace(/^Bearer\s+/i, "").trim();
   if (!token) return reply(401, { error: "login" });
@@ -370,8 +389,11 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
     p_body: text(body.body, 12_000),
   });
   if (queued.error) return reply(queued.error.code === "42501" ? 403 : 400, { error: reason(queued.error) });
-  const message = queued.data as Queued;
+  return reply(200, await deliver(deps, queued.data as Queued));
+}
 
+/** Sends one message already written down (queued) and stores its result once. */
+async function deliver(deps: Deps, message: Queued): Promise<{ id: string; status: "sent" | "failed" | "test" }> {
   let result: SmsResult;
   let provider: string;
   let status: "sent" | "failed" | "test";
@@ -399,7 +421,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   });
   if (reported.error) console.error("crm-messages: result not stored", message.id, reported.error.code ?? "");
   if (status === "failed") console.error("crm-messages: not sent", message.id, provider, (result.error ?? "").slice(0, 120));
-  return reply(200, { id: message.id, status });
+  return { id: message.id, status };
 }
 
 export async function handler(req: Request): Promise<Response> {
