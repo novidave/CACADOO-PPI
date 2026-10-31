@@ -470,23 +470,11 @@ export function ContentSlider({
     </div>
   );
 
-  // "Všetky novinky": right-aligned above the slider, press and hold (Screen 11).
-  const news =
-    allNews &&
-    (preview ? (
-      <span className="ppi-hold-news" data-all-news>
-        {labels.all_news}
-      </span>
-    ) : (
-      <HoldLink href={allNews} newTab={false} label={labels.all_news} holdLabel={hold ?? labels.all_news} doneLabel={labels.all_news_done} className="ppi-hold-news" data={{ "all-news": "" }} />
-    ));
-
   // "Vždy otvorené" (default) or "Rozbaľovacie"; the section has no visible title (screen readers get it).
   return display === "collapsed" ? (
     <details className="rounded-[18px] border border-line p-3" data-page-content="collapsed">
       <summary className="cursor-pointer text-lg font-semibold">{title}</summary>
       <div className="flex flex-col gap-3 pt-3">
-        {news && <div className="flex justify-end">{news}</div>}
         {slider}
       </div>
     </details>
@@ -496,11 +484,6 @@ export function ContentSlider({
       <h2 className="sr-only" data-show-title={showTitle || undefined}>
         {title}
       </h2>
-      {news && (
-        <div className="mb-3 flex justify-end" data-slider-header>
-          {news}
-        </div>
-      )}
       {slider}
     </section>
   );

@@ -2121,7 +2121,8 @@ Order:
    highlighted, breaks as "8:00–12:00, 12:30–17:00".
 7. "Sviatky · najbližších 14 dní" in its own card, only when something is coming.
 8. News slider (the "Obsah stránky" rules of 6.x stay: the database decides the slides, the frame ratio and crop): no
-   title, "Všetky novinky" above it (hold like the contact buttons) → the blog. One rounded frame per slide, **swipe
+   title and no "Všetky novinky" above it (removed on 31 October 2026 at the owner's request; the blog is reached from
+   the open post's "Všetky novinky"). One rounded frame per slide, **swipe
    only** (mouse drag on a computer, ← → keys), a dark gradient with "Novinka" (post) / "Ponuka" (PDF, picture) and the
    title; under it the date and one pill per slide. **"Čítať" opens the post under the slider** (its text is in the
    page's HTML; the post's own page stays the canonical one): "BLOG · date · n MIN ČÍTANIA", the title, the text as

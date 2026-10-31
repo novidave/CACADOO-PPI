@@ -137,7 +137,8 @@ products. **Hold links** (`@/components/HoldLink`, rule `@/lib/holdLink`, tests 
 (works without JavaScript); a finger or a mouse holds 1.2 s (fill, "Držte stlačené", done label + `CheckLoop` loaded on
 the first press, then opens — a finger in the same tab), a short tap only shows "Držte stlačené" (`hint`), Enter / Space
 and a click without a press open at once; children `pointer-events: none` (labels change under the finger); used by
-`ContactButtons` (12.5 px decided by `smallLabel()`, never measured) and "Všetky novinky". **News slider** =
+`ContactButtons` (12.5 px decided by `smallLabel()`, never measured) and the open post's "Všetky novinky" (none above the
+slider since 2026-10-31, at the owner's request). **News slider** =
 `ContentSlider` in the news look: every update 38/39/44 rule stays (`shop_content()`, ratio frame + crop, only the
 current ± 1 picture, `<noscript>`); no title, no arrows, no counter; swipe (scroll snap), mouse drag, ← →; gradient +
 tag "Novinka"/"Ponuka" + title + white "Čítať" (chevron down, bobbing; "Zavrieť" when open) or "Zobraziť" (viewer);
