@@ -11495,6 +11495,156 @@ end $$;
 reset role;
 drop table t63;
 
+\echo '--- update 64: the bookings for the owner''s AI assistants — services, free times, create, move / cancel only with confirm'
+create temporary table t64 (k text primary key, v text);
+grant all on t64 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := current_date + 40;
+begin
+  insert into t64 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text), ('d', v_d::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_64')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_64');
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, v_d, false, '[["09:00","12:00"]]')
+  on conflict (shop_id, date) do update set closed = excluded.closed, ranges = excluded.ranges;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  perform public.owner_save_booking_rules(v_a, true, 0, 365, 15, 3);
+  insert into t64 values ('service', public.owner_save_booking_service(v_a, null, 'Konzultácia', 30, 0, 0, 1, false, true, true, null, null)::text);
+  vj := public.owner_mcp_create_key('Test 64', array[v_a], array['shop.read', 'shop.write']);
+  insert into t64 values ('key', vj ->> 'key'), ('key_id', vj ->> 'id');
+  vj := public.owner_mcp_create_key('Test 64 read', array[v_a], array['shop.read']);
+  insert into t64 values ('key_read', vj ->> 'key'), ('key_read_id', vj ->> 'id');
+end $$;
+reset role;
+
+-- the tools through the one door (anon may call it; the token decides)
+set role anon;
+do $$
+declare
+  v_k text := (select v from t64 where k = 'key');
+  v_s text := (select v from t64 where k = 'service');
+  v_d date := (select v::date from t64 where k = 'd');
+  v_tz text := (select timezone from public.shops where slug = 'potraviny-centrum');
+  v_at timestamptz := (v_d::timestamp + time '10:00') at time zone v_tz;
+  v_b uuid;
+  vj jsonb;
+  v_one jsonb;
+begin
+  vj := public.owner_mcp_call(v_k, 'list_booking_services', '{}');
+  assert vj -> 'result' -> 'services' -> 0 ->> 'name' = 'Konzultácia' and (vj -> 'result' ->> 'taking_bookings')::boolean, vj::text;
+  vj := public.owner_mcp_call(v_k, 'find_free_slots', jsonb_build_object('service_id', v_s, 'from', v_d, 'days', 1));
+  assert jsonb_array_length(vj -> 'result' -> 'slots') = 11, 'only 09:00–11:30 every 15 min (30 min long, closes 12:00): ' || vj::text;
+  assert vj -> 'result' -> 'slots' -> 0 ->> 'local' = to_char(v_d, 'YYYY-MM-DD') || ' 09:00', vj::text;
+  -- a read-only key may look, never book
+  begin perform public.owner_mcp_call((select v from t64 where k = 'key_read'), 'create_booking',
+          jsonb_build_object('service_id', v_s, 'starts_at', v_at, 'name', 'Read Only', 'phone', '0905 640 000'));
+    raise exception 'read key booked';
+  exception when insufficient_privilege then if sqlerrm <> 'scope: shop.write' then raise; end if; end;
+  -- create: the engine checks the time (a closed hour is refused), the contact is found or made by the number
+  begin perform public.owner_mcp_call(v_k, 'create_booking',
+          jsonb_build_object('service_id', v_s, 'starts_at', (v_d::timestamp + time '13:00') at time zone v_tz, 'name', 'Ján', 'phone', '0905 640 001'));
+    raise exception 'booked outside the hours';
+  exception when raise_exception then if sqlerrm not in ('not_available', 'slot_taken') then raise; end if; end;
+  vj := public.owner_mcp_call(v_k, 'create_booking', jsonb_build_object('service_id', v_s, 'starts_at', v_at, 'name', 'Ján MCP', 'phone', '0905 640 001'));
+  v_b := (vj -> 'result' -> 'booking' ->> 'id')::uuid;
+  assert (vj -> 'result' ->> 'created')::boolean and vj -> 'result' -> 'booking' ->> 'source' = 'api'
+     and vj -> 'result' -> 'booking' ->> 'phone' = '+421905640001', vj::text;
+  insert into t64 values ('booking', v_b::text);
+  begin perform public.owner_mcp_call(v_k, 'create_booking', jsonb_build_object('service_id', v_s, 'starts_at', v_at, 'name', 'Eva', 'phone', '0905 640 002'));
+    raise exception 'double booking';
+  exception when raise_exception then if sqlerrm <> 'slot_taken' then raise; end if; end;
+  vj := public.owner_mcp_call(v_k, 'list_bookings', jsonb_build_object('from', v_d, 'to', v_d));
+  assert jsonb_array_length(vj -> 'result') = 1 and vj -> 'result' -> 0 ->> 'service' = 'Konzultácia'
+     and vj -> 'result' -> 0 ->> 'service_name' = 'Konzultácia', 'update 61''s key kept for the Telegram bot: ' || vj::text;
+  -- move: without confirm only before → after; with confirm the move (checked again)
+  vj := public.owner_mcp_call(v_k, 'move_booking', jsonb_build_object('booking_id', v_b, 'starts_at', v_at + interval '1 hour'));
+  assert not (vj -> 'result' ->> 'moved')::boolean and (vj -> 'result' ->> 'time_free')::boolean and vj -> 'result' ? 'needs_confirm', vj::text;
+  v_one := public.owner_mcp_call(v_k, 'list_bookings', jsonb_build_object('from', v_d, 'to', v_d)) -> 'result' -> 0;
+  assert (v_one ->> 'starts_at')::timestamptz = v_at, 'nothing moved without confirm: ' || v_one::text;
+  vj := public.owner_mcp_call(v_k, 'move_booking', jsonb_build_object('booking_id', v_b, 'starts_at', v_at + interval '3 hours'));
+  assert not (vj -> 'result' ->> 'time_free')::boolean, 'a closed time is not free: ' || vj::text;
+  vj := public.owner_mcp_call(v_k, 'move_booking', jsonb_build_object('booking_id', v_b, 'starts_at', v_at + interval '1 hour', 'confirm', true));
+  assert (vj -> 'result' ->> 'moved')::boolean and (vj -> 'result' -> 'booking' ->> 'starts_at')::timestamptz = v_at + interval '1 hour', vj::text;
+  -- cancel: the same two steps
+  vj := public.owner_mcp_call(v_k, 'cancel_booking', jsonb_build_object('booking_id', v_b));
+  assert not (vj -> 'result' ->> 'cancelled')::boolean and vj -> 'result' -> 'booking' ->> 'status' = 'confirmed', vj::text;
+  vj := public.owner_mcp_call(v_k, 'cancel_booking', jsonb_build_object('booking_id', v_b, 'confirm', true));
+  assert (vj -> 'result' ->> 'cancelled')::boolean and vj -> 'result' -> 'booking' ->> 'status' = 'cancelled', vj::text;
+  -- update 61's tools still answer through the same door
+  vj := public.owner_mcp_call(v_k, 'list_shops', '{}');
+  assert vj -> 'result' -> 'shops' -> 0 ->> 'slug' = 'potraviny-centrum', vj::text;
+  begin perform public.owner_mcp_call('cmk_nonsense', 'list_booking_services', '{}'); raise exception 'any token';
+  exception when invalid_authorization_specification then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_b uuid := (select v::uuid from t64 where k = 'booking');
+begin
+  assert exists (select 1 from public.booking_events where booking_id = v_b and kind = 'moved' and actor_kind = 'api'), 'audit: moved by api';
+  assert exists (select 1 from public.booking_events where booking_id = v_b and kind = 'cancelled' and actor_kind = 'api'), 'audit: cancelled by api';
+end $$;
+reset role;
+
+-- owner B's key never reaches shop A's bookings
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  assert not exists (select 1 from public.owner_booking_list((select id from public.shops where slug = 'potraviny-centrum'),
+                                                             now() - interval '1 day', now() + interval '60 days', null)),
+    'B sees A''s bookings';
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  perform public.owner_mcp_disconnect((select v::uuid from t64 where k = 'key_id'));
+  perform public.owner_mcp_disconnect((select v::uuid from t64 where k = 'key_read_id'));
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.booking_notifications where shop_id = v_a;
+  delete from public.booking_sync_jobs where shop_id = v_a;
+  delete from public.booking_events where shop_id = v_a;
+  delete from public.shop_bookings where shop_id = v_a;
+  delete from public.booking_services where shop_id = v_a;
+  delete from public.shop_booking_settings where shop_id = v_a;
+  delete from public.shop_contacts where shop_id = v_a and phone like '+42190564%';
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t64 where k = 'd');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t64 where k = 'sub'))
+  where (select v from t64 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t64 where k = 'had_plan');
+end $$;
+reset role;
+drop table t64;
+
 \echo '--- update 65: the shop''s own legal page — owners write, visitors read as written, owner B and visitors cannot write'
 set role authenticated;
 set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';

@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
-import { getDictionary, t } from "@/i18n/dictionaries";
+import { getDictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
-import { saveAssistantTexts } from "../actions";
+import { AssistantOverview, loadOverview } from "../AssistantOverview";
+import { AssistantSettings, type BookingSetup } from "../AssistantSettings";
+import { AssistantTabs, waitingCount } from "../AssistantTabs";
 import { Callbacks, loadCallbacks } from "../Callbacks";
 import { CloudFolder, cloudSummary, loadCloud } from "../CloudFolder";
-import { conversationFilter, Conversations, conversationsSummary, loadConversations, newConversations } from "../Conversations";
-import { Field, hiddenFields, inputClass, messages, ProOnly, ShopSwitcher, SubmitButton } from "../shared";
-import { loadShopDocs, ShopDocuments } from "../ShopDocuments";
+import { conversationFilter, Conversations, conversationsSummary, loadConversations } from "../Conversations";
+import { hiddenFields, messages, ProOnly, ShopSwitcher } from "../shared";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant">): Promise<Metadata> {
   const { lang } = await params;
@@ -24,19 +24,18 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-/** The page's three tabs (update 55): every section name of the page belongs to one of them. */
-const TABS = ["assistant", "conversations", "docs"] as const;
-type Tab = (typeof TABS)[number];
-const tabOf = (at: string): Tab => (at === "conversations" || at === "cloud" ? "conversations" : at === "docs" ? "docs" : "assistant");
+/** The tabs this page shows (update 63); Kontakty, Rezervácie and Šablóny are tabs on their own pages. */
+type Tab = "overview" | "conversations" | "settings";
+const tabOf = (at: string): Tab => (at === "conversations" || at === "cloud" ? "conversations" : at === "settings" ? "settings" : "overview");
 
 /**
- * "Asistent": everything about the shop's assistant on one page, each part once, as three tabs since update 55 (plain
- * links, `?at=`, so they work without JavaScript and every old address still lands on its part): 1) "Nastavenia" (its
- * button text and welcome), 2) "Konverzácie" (status, star, filters, search, bulk actions, exports, the keep time and
- * the cloud folder they are copied to; the tab shows how many wait as "Nové"), 3) "Súkromné priečinky" (the documents
- * it answers from, the folders, their access keys and "Len zobraziť" / "Zobraziť a stiahnuť"). "Posledné nahrané
- * súbory" moved to "Priečinok s exportom" (update 43); its old address is forwarded there. A free shop sees "Dostupné
- * v Pro" where it has nothing yet; what it already has stays reachable. Every paid part checks shop_has_plan() in SQL.
+ * "Asistent" (update 63, the approved screens): one row of tabs — Prehľad · Konverzácie · Kontakty · Rezervácie ·
+ * Šablóny · Nastavenia — plain links (`?at=`), so they work without JavaScript and every old address still lands on its
+ * part: "Prehľad" (who waits for an answer, today's numbers, the next bookings, this month's SMS), "Konverzácie" (status,
+ * star, filters, search, bulk actions, exports, the cloud folder; kept until the owner deletes them), "Nastavenia" (the
+ * assistant's texts, the automatic messages, the bookings' setup, the way to "Súkromné priečinky", which have their own
+ * page /dashboard/assistant/folders). A free shop sees "Dostupné v Pro" where it has nothing yet; what it already has
+ * stays reachable. Every paid part checks shop_has_plan() in SQL.
  */
 export default async function AssistantPage({ params, searchParams }: PageProps<"/[lang]/dashboard/assistant">) {
   const { lang } = await params;
@@ -57,112 +56,62 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
 
   // Only the open tab's data is loaded (the badge of "Konverzácie" is one count).
-  const [hasPlan, docsData, conversations, cloud, newCount, callbacks] = await Promise.all([
+  const [hasPlan, conversations, cloud, waiting, callbacks, overview, setup] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
-    tab === "docs" ? loadShopDocs(supabase, shop.id) : Promise.resolve(null),
     // The assistant's conversations (database update 22, filters update 55): owners only.
     tab === "conversations" ? loadConversations(supabase, shop.id, conversationFilter(sp)) : Promise.resolve(null),
     // The shop's cloud folder (database update 23): owners only, never the tokens.
     tab === "conversations" ? loadCloud(supabase, shop.id) : Promise.resolve(null),
-    newConversations(supabase, shop.id),
+    waitingCount(supabase, shop.id),
     // Shoppers who left a contact after an unanswered question (database update 59).
     tab === "conversations" ? loadCallbacks(supabase, shop.id) : Promise.resolve(null),
+    tab === "overview" ? loadOverview(supabase, shop.id, shop.timezone) : Promise.resolve(null),
+    tab === "settings"
+      ? supabase.rpc("owner_booking_setup", { p_shop_id: shop.id }).then((r) => (r.error ? null : (r.data as BookingSetup)))
+      : Promise.resolve(null),
   ]);
   const planActive = !hasPlan.error && hasPlan.data === true;
   const number = (key: string) => Math.max(0, Math.floor(Number(first(sp[key])) || 0));
   const m = messages(dict, sp, {
-    retention: conversations?.retention ?? 90,
     backfilled: number("n"),
     n: number("n"),
     failed: number("failed"),
   });
   const hidden = hiddenFields(lang, shop);
   const planUrl = `/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
-  const tabUrl = (to: Tab) => `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: shop.slug, at: to })}`;
-  const tabLabels: Record<Tab, string> = { assistant: c.tab_settings, conversations: c.tab_conversations, docs: c.tab_docs };
+  // Nastavenia's forms come back with ?part= (texts, messages, rules, services, …); its own messages are `asst.*`.
+  const part = first(sp.part) ?? "texts";
+  const asstTexts = dict.asst as Record<string, string>;
+  const settingsNotice = (which: string) => {
+    if (tab !== "settings" || which !== part) return null;
+    const ok = first(sp.ok);
+    const err = first(sp.err);
+    if (ok) return <p role="status" className="border border-foreground p-3 font-medium">{asstTexts[ok] ?? dict.account.saved}</p>;
+    if (err) return <p role="alert" className="border border-line p-3">{asstTexts[err] ?? asstTexts.err_failed}</p>;
+    return null;
+  };
 
   // What a free shop still has (from its Pro time) stays reachable; otherwise "Dostupné v Pro".
   const showConversations = planActive || (conversations?.all ?? 0) > 0;
   const showCloud = Boolean(cloud && (planActive || cloud.connection));
-  const showDocs = Boolean(
-    docsData && (planActive || docsData.docs.length > 0 || docsData.pictures.length > 0 || docsData.keys.length > 0),
-  );
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{dict.account.assistant_page}</h1>
+    <div className="flex max-w-3xl flex-col gap-5">
+      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current={tab} waiting={waiting}>
         <ShopSwitcher
           shops={shops}
           current={shop}
           label={d.shop}
-          href={(slug) => `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: slug, ...(at ? { at: tab } : {}) })}`}
+          href={(slug) => `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: slug, ...(tab !== "overview" ? { at: tab } : {}) })}`}
         />
-        <p className="text-muted">{shop.name}</p>
-        <p className="text-sm">{dict.account.assistant_page_intro}</p>
-        {m.top}
-      </header>
+        {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
+        {tab !== "settings" && m.top}
+        {!planActive && tab === "overview" && <ProOnly dict={dict} href={planUrl} />}
+      </AssistantTabs>
 
-      <nav aria-label={c.tabs} className="flex flex-wrap gap-1 border-b border-line" data-assistant-tabs>
-        {TABS.map((to) => (
-          <Link
-            key={to}
-            href={tabUrl(to)}
-            aria-current={tab === to ? "page" : undefined}
-            className={`-mb-px flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm ${
-              tab === to ? "border-foreground font-semibold" : "border-transparent text-muted hover:text-foreground"
-            }`}
-            data-tab={to}
-          >
-            {tabLabels[to]}
-            {to === "conversations" && newCount > 0 && (
-              <span className="rounded-full border border-foreground px-2 text-xs font-semibold" data-new-count>
-                <span aria-hidden="true">{newCount > 99 ? "99+" : newCount}</span>
-                <span className="sr-only">{t(c.tab_new, { n: newCount })}</span>
-              </span>
-            )}
-          </Link>
-        ))}
-      </nav>
+      {tab === "overview" && overview && <AssistantOverview data={overview} lang={lang} dict={dict} shop={shop.slug} timeZone={shop.timezone} />}
 
-      {/* 1. Nastavenia asistenta */}
-      {tab === "assistant" && (
-        <section id="assistant" className="flex scroll-mt-4 flex-col gap-3" data-tab-panel="assistant">
-          <h2 className="text-lg font-semibold">{d.assistant_title}</h2>
-          {m.notice("assistant")}
-          <p className="text-sm">{d.assistant_intro}</p>
-          {planActive ? (
-            <form action={saveAssistantTexts} className="flex flex-col gap-3">
-              {hidden({ at: "assistant" })}
-              <Field label={d.assistant_label}>
-                <input
-                  name="assistant_label"
-                  maxLength={40}
-                  defaultValue={shop.assistant_label ?? ""}
-                  placeholder={dict.chat.title}
-                  className={inputClass}
-                />
-              </Field>
-              <Field label={d.assistant_welcome}>
-                <textarea
-                  name="assistant_welcome"
-                  maxLength={300}
-                  rows={3}
-                  defaultValue={shop.assistant_welcome ?? ""}
-                  placeholder={dict.chat.intro}
-                  className={inputClass}
-                />
-              </Field>
-              <p className="text-sm text-muted">{d.assistant_hint}</p>
-              <SubmitButton pending={dict.owner.saving}>{dict.account.save}</SubmitButton>
-            </form>
-          ) : (
-            <ProOnly dict={dict} href={planUrl} />
-          )}
-        </section>
-      )}
-
-      {/* 2. Konverzácie, with the cloud folder they are copied to */}
+      {/* Konverzácie, with the cloud folder they are copied to */}
       {tab === "conversations" && (
         <section id="conversations" className="flex scroll-mt-4 flex-col gap-4" data-tab-panel="conversations">
           <h2 className="text-lg font-semibold">
@@ -196,28 +145,18 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
         </section>
       )}
 
-      {/* 3. Súkromné priečinky: documents, folders, access keys, "Len zobraziť" / "Zobraziť a stiahnuť" */}
-      {tab === "docs" && (
-        <section id="docs" className="flex scroll-mt-4 flex-col gap-3" data-tab-panel="docs">
-          <h2 className="text-lg font-semibold">
-            {d.private_folders_title}
-            {docsData && showDocs && (
-              <span className="text-sm font-normal text-muted">
-                {" · "}
-                {t(d.summary_docs, { documents: docsData.docs.length, pictures: docsData.pictures.length })}
-              </span>
-            )}
-          </h2>
-          {!docsData || showDocs ? (
-            <ShopDocuments supabase={supabase} data={docsData} shop={shop} lang={lang} dict={dict} hasPlan={planActive} notice={m.notice("docs")} />
-          ) : (
-            <>
-              {m.notice("docs")}
-              <p className="text-sm">{dict.docs.intro}</p>
-              <ProOnly dict={dict} href={planUrl} />
-            </>
-          )}
-        </section>
+      {tab === "settings" && (
+        <AssistantSettings
+          setup={setup}
+          shop={shop}
+          lang={lang}
+          dict={dict}
+          planActive={planActive}
+          planUrl={planUrl}
+          hidden={hidden}
+          notice={(which) => (which === "texts" && m.notice("settings")) || settingsNotice(which)}
+          googleOn
+        />
       )}
     </div>
   );

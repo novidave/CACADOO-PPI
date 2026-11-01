@@ -87,6 +87,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/owner/conver
     ],
     shopper: c.shopper,
     assistant: c.assistant,
+    owner: dict.asst.role_owner,
     inOwnerLang: c.in_slovak,
     files: c.csv_files,
     unanswered: c.unanswered_message,

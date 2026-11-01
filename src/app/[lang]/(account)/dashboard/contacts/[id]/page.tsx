@@ -85,7 +85,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       .limit(100),
     supabase.from("shop_outgoing_messages").select("id, channel, recipient, subject, body, status, created_at").eq("contact_id", id).order("created_at", { ascending: false }).limit(100),
     tab === "messages"
-      ? supabase.from("shop_email_templates").select("id, name, subject, body").eq("shop_id", contact.shop_id).order("name")
+      ? supabase.from("shop_email_templates").select("id, name, channel, subject, body").eq("shop_id", contact.shop_id).order("name")
       : Promise.resolve({ data: [], error: null }),
     tab === "messages"
       ? supabase.functions.invoke<{ email?: boolean; sms_live?: boolean }>("crm-messages", { body: { action: "config" } })

@@ -9,6 +9,7 @@ import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { SmsUsage } from "@/components/SmsUsage";
 import { loadSmsUsage } from "@/lib/smsUsage";
+import { AssistantTabs, waitingCount } from "../AssistantTabs";
 import { countText } from "../Conversations";
 import { hiddenFields, inputClass, ProOnly, ShopSwitcher } from "../shared";
 import { deleteTemplate, saveContact, saveTemplate } from "./actions";
@@ -27,7 +28,9 @@ const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v
 interface Template {
   id: string;
   name: string;
-  subject: string;
+  /** update 63: SMS, e-mail or both (before it every template was an e-mail one) */
+  channel?: "sms" | "email" | "both" | null;
+  subject: string | null;
   body: string;
   updated_at: string;
 }
@@ -47,23 +50,24 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
   if (chosen.error) return <DbError message={chosen.error} dict={dict} />;
   const shop = chosen.shop;
   if (!shop) redirect(`/${lang}/dashboard`);
-  const view = first(sp.view) === "templates" ? "templates" : "contacts";
+  const view: "contacts" | "templates" = first(sp.view) === "templates" ? "templates" : "contacts";
   const q = (first(sp.q) ?? "").trim().slice(0, 100);
   const tag = (first(sp.tag) ?? "").trim().slice(0, 40);
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   const conversation = first(sp.conversation) ?? "";
 
-  const [plan, list, tags, templates, sms] = await Promise.all([
+  const [plan, list, tags, templates, sms, waiting] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     view === "contacts"
       ? supabase.rpc("owner_contacts", { p_shop_id: shop.id, p_q: q || null, p_tag: tag || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE })
       : Promise.resolve({ data: [], error: null }),
     view === "contacts" ? supabase.rpc("owner_contact_tags", { p_shop_id: shop.id }) : Promise.resolve({ data: [], error: null }),
     view === "templates"
-      ? supabase.from("shop_email_templates").select("id, name, subject, body, updated_at").eq("shop_id", shop.id).order("name")
+      ? supabase.from("shop_email_templates").select("id, name, channel, subject, body, updated_at").eq("shop_id", shop.id).order("name")
       : Promise.resolve({ data: [], error: null }),
     // "SMS tento mesiac" (database update 58; none before it).
     loadSmsUsage(supabase, shop.id),
+    waitingCount(supabase, shop.id),
   ]);
   const hasPlan = !plan.error && plan.data === true;
   const unavailable = Boolean(list.error || templates.error);
@@ -77,29 +81,14 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
   const filtered = Boolean(q || tag);
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{c.title}</h1>
-        <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/contacts?shop=${slug}`} />
-        <p className="text-muted">{shop.name}</p>
-        <p className="text-sm">{c.intro}</p>
+    <div className="flex max-w-3xl flex-col gap-5">
+      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current={view} waiting={waiting}>
+        <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/contacts?shop=${slug}${view === "templates" ? "&view=templates" : ""}`} />
+        {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
         {!hasPlan && <ProOnly dict={dict} href={planUrl} />}
         <Notice sp={sp} dict={dict} />
-        {hasPlan && sms && <SmsUsage usage={sms} lang={lang} timeZone={shop.timezone} dict={dict} />}
-      </header>
-
-      <nav aria-label={c.tabs} className="flex flex-wrap gap-1 border-b border-line" data-contact-tabs>
-        {(["contacts", "templates"] as const).map((to) => (
-          <Link
-            key={to}
-            href={url(to === "templates" ? { view: "templates" } : {})}
-            aria-current={view === to ? "page" : undefined}
-            className={`-mb-px flex min-h-11 items-center border-b-2 px-3 text-sm ${view === to ? "border-foreground font-semibold" : "border-transparent text-muted"}`}
-          >
-            {to === "contacts" ? c.tab_contacts : c.tab_templates}
-          </Link>
-        ))}
-      </nav>
+        {hasPlan && sms && view === "contacts" && <SmsUsage usage={sms} lang={lang} timeZone={shop.timezone} dict={dict} />}
+      </AssistantTabs>
 
       {unavailable ? (
         <p className="text-sm text-muted">{c.unavailable}</p>
@@ -205,7 +194,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
   );
 }
 
-/** "E-mailové šablóny": each template editable in its own box, a new one, the variables. */
+/** "Šablóny odpovedí" (update 63: SMS, e-mail or both): each template in its own box, a new one, the variables. */
 function Templates({
   templates,
   dict,
@@ -218,6 +207,8 @@ function Templates({
   hasPlan: boolean;
 }) {
   const c = dict.contacts;
+  const a = dict.asst;
+  const channelLabel = (ch: Template["channel"]) => (ch === "sms" ? a.channel_sms : ch === "both" ? a.channel_both : a.channel_email);
   const fields = (tpl: Template | null) => (
     <>
       <label className="flex flex-col gap-1">
@@ -225,39 +216,57 @@ function Templates({
         <input name="name" required maxLength={80} defaultValue={tpl?.name ?? ""} className={inputClass} />
       </label>
       <label className="flex flex-col gap-1">
-        <span className="text-sm">{c.subject}</span>
-        <input name="subject" required maxLength={200} defaultValue={tpl?.subject ?? ""} className={inputClass} />
+        <span className="text-sm">{a.template_channel}</span>
+        <select name="channel" defaultValue={tpl?.channel ?? "sms"} className={`${inputClass} min-h-11 bg-white`}>
+          <option value="sms">{a.channel_sms}</option>
+          <option value="email">{a.channel_email}</option>
+          <option value="both">{a.channel_both}</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-sm">{a.template_subject}</span>
+        <input name="subject" maxLength={200} defaultValue={tpl?.subject ?? ""} className={inputClass} />
       </label>
       <label className="flex flex-col gap-1">
         <span className="text-sm">{c.body}</span>
-        <textarea name="body" required rows={8} maxLength={10000} defaultValue={tpl?.body ?? ""} className={inputClass} />
+        <textarea name="body" required rows={6} maxLength={10000} defaultValue={tpl?.body ?? ""} className={inputClass} />
       </label>
     </>
   );
   return (
-    <section className="flex flex-col gap-4" data-templates>
-      <p className="text-sm">{c.templates_intro}</p>
-      <VariableList dict={dict} />
+    <section className="flex flex-col gap-3" data-templates>
+      <h2 className="text-[17px] font-bold">{a.templates_title}</h2>
+      <p className="text-sm text-muted">{a.templates_intro}</p>
       {templates.length === 0 && <p className="text-sm text-muted">{c.template_none}</p>}
-      {templates.map((tpl) => (
-        <details key={tpl.id} className="border border-line p-3" data-template={tpl.id}>
-          <summary className="cursor-pointer font-semibold">{tpl.name}</summary>
-          <form action={saveTemplate} className="mt-3 flex flex-col gap-3">
-            {hidden({ template_id: tpl.id })}
-            {fields(tpl)}
-            {hasPlan && <PendingButton pending={dict.owner.saving}>{c.template_save}</PendingButton>}
-          </form>
-          <form action={deleteTemplate} className="mt-2">
-            {hidden({ template_id: tpl.id })}
-            <button type="submit" className="text-sm underline underline-offset-4">
-              {c.template_delete}
-            </button>
-          </form>
-        </details>
-      ))}
+      <div className="flex flex-col border-t border-line">
+        {templates.map((tpl) => (
+          <details key={tpl.id} className="border-b border-line py-3" data-template={tpl.id}>
+            <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
+              <span className="flex min-w-0 flex-col">
+                <strong className="text-[15px]">{tpl.name}</strong>
+                <span className="truncate text-[13px] text-muted">{tpl.body}</span>
+              </span>
+              <span className="inline-flex h-[22px] flex-none items-center rounded-md border border-line px-2 text-xs font-semibold">{channelLabel(tpl.channel)}</span>
+            </summary>
+            <form action={saveTemplate} className="mt-3 flex flex-col gap-3">
+              {hidden({ template_id: tpl.id })}
+              {fields(tpl)}
+              {hasPlan && <PendingButton pending={dict.owner.saving}>{c.template_save}</PendingButton>}
+            </form>
+            {hasPlan && (
+              <form action={deleteTemplate} className="mt-2">
+                {hidden({ template_id: tpl.id })}
+                <button type="submit" className="min-h-11 text-sm underline underline-offset-4">
+                  {c.template_delete}
+                </button>
+              </form>
+            )}
+          </details>
+        ))}
+      </div>
       {hasPlan && (
-        <details className="border border-line p-3" open={templates.length === 0} data-template-new>
-          <summary className="cursor-pointer font-semibold">{c.template_new}</summary>
+        <details className="rounded-[10px] border border-line p-3" open={templates.length === 0} data-template-new>
+          <summary className="flex min-h-11 cursor-pointer items-center font-semibold">{a.template_new}</summary>
           <form action={saveTemplate} className="mt-3 flex flex-col gap-3">
             {hidden()}
             {fields(null)}
@@ -265,6 +274,7 @@ function Templates({
           </form>
         </details>
       )}
+      <VariableList dict={dict} />
     </section>
   );
 }

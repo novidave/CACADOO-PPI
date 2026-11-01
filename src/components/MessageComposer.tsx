@@ -7,7 +7,9 @@ import { SMS_MAX, smsParts, TEMPLATE_VARIABLES, variableToken } from "@/lib/crm"
 export interface ComposerTemplate {
   id: string;
   name: string;
-  subject: string;
+  /** update 63: sms, email or both (older templates: e-mail) */
+  channel?: "sms" | "email" | "both" | null;
+  subject: string | null;
   body: string;
 }
 
@@ -25,6 +27,7 @@ const fill = (text: string, values: Record<string, string | number>) =>
 export function MessageComposer({
   lang,
   contactId,
+  conversationId,
   hasPhone,
   hasEmail,
   emailReady,
@@ -34,6 +37,8 @@ export function MessageComposer({
 }: {
   lang: string;
   contactId: string;
+  /** Update 63: an answer inside this conversation (crm-messages "reply": it becomes one of its messages). */
+  conversationId?: string;
   hasPhone: boolean;
   hasEmail: boolean;
   emailReady: boolean;
@@ -58,6 +63,8 @@ export function MessageComposer({
   }, { step: "edit" });
 
   const parts = smsParts(body);
+  // the templates for the chosen channel (an older template without a channel is an e-mail one)
+  const usable = templates.filter((t) => t.channel === "both" || (t.channel ?? "email") === channel);
   const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
   const button = "min-h-11 rounded border px-4 font-medium disabled:text-muted";
   const hidden = (
@@ -65,7 +72,8 @@ export function MessageComposer({
       <input type="hidden" name="lang" value={lang} />
       <input type="hidden" name="contact_id" value={contactId} />
       <input type="hidden" name="channel" value={channel} />
-      <input type="hidden" name="template_id" value={channel === "email" ? template : ""} />
+      <input type="hidden" name="template_id" value={usable.some((t) => t.id === template) ? template : ""} />
+      {conversationId && <input type="hidden" name="conversation_id" value={conversationId} />}
     </>
   );
 
@@ -159,16 +167,16 @@ export function MessageComposer({
       {channel === "email" && !emailReady && <p className="text-sm">{texts.email_off}</p>}
       {channel === "email" && emailReady && <p className="text-xs text-muted">{texts.email_from}</p>}
       {channel === "sms" && !smsLive && <p className="text-xs text-muted">{texts.sms_test_note}</p>}
-      {channel === "email" && templates.length > 0 && (
+      {usable.length > 0 && (
         <label className="flex flex-col gap-1">
           <span className="text-sm">{texts.template}</span>
           <select
             value={template}
             onChange={(e) => {
-              const picked = templates.find((t) => t.id === e.target.value);
+              const picked = usable.find((t) => t.id === e.target.value);
               setTemplate(e.target.value);
               if (picked) {
-                setSubject(picked.subject);
+                setSubject(picked.subject ?? "");
                 setBody(picked.body);
               }
             }}
@@ -176,7 +184,7 @@ export function MessageComposer({
             data-template-pick
           >
             <option value="">{texts.no_template}</option>
-            {templates.map((t) => (
+            {usable.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>

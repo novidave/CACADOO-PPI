@@ -48,7 +48,8 @@ export interface ExportRow {
   access_key_used: boolean | null;
   language: string | null;
   message_at: string;
-  role: "shopper" | "assistant";
+  /** update 63: "owner" = the shop's own answer by SMS or e-mail */
+  role: "shopper" | "assistant" | "owner";
   body: string;
   body_owner: string | null;
   attachments: number;
@@ -61,6 +62,8 @@ export interface CsvLabels {
   no: string;
   shopper: string;
   assistant: string;
+  /** update 63: the shop's own answers (e.g. "Obchod") */
+  owner?: string;
   status: Record<string, string>;
 }
 
@@ -78,7 +81,7 @@ export function exportCsv(rows: ExportRow[], timeZone: string, labels: CsvLabels
       flag(r.access_key_used),
       r.language ?? "",
       localStamp(r.message_at, timeZone),
-      r.role === "shopper" ? labels.shopper : labels.assistant,
+      r.role === "shopper" ? labels.shopper : r.role === "owner" ? (labels.owner ?? labels.assistant) : labels.assistant,
       r.body,
       r.body_owner ?? "",
       r.attachments || "",
@@ -88,7 +91,7 @@ export function exportCsv(rows: ExportRow[], timeZone: string, labels: CsvLabels
 }
 
 export interface TxtMessage {
-  role: "shopper" | "assistant";
+  role: "shopper" | "assistant" | "owner";
   body: string;
   body_owner: string | null;
   created_at: string;
@@ -103,6 +106,8 @@ export interface TxtLabels {
   facts: [string, string][];
   shopper: string;
   assistant: string;
+  /** update 63: the shop's own answers */
+  owner?: string;
   inOwnerLang: string;
   files: string;
   unanswered: string;
@@ -113,7 +118,7 @@ export function conversationTxt(messages: TxtMessage[], timeZone: string, labels
   const lines = [labels.title, "=".repeat(Math.min(labels.title.length, 72))];
   for (const [label, value] of labels.facts) if (value) lines.push(`${label}: ${value}`);
   for (const m of messages) {
-    lines.push("", `[${localStamp(m.created_at, timeZone)}] ${m.role === "shopper" ? labels.shopper : labels.assistant}:`);
+    lines.push("", `[${localStamp(m.created_at, timeZone)}] ${m.role === "shopper" ? labels.shopper : m.role === "owner" ? (labels.owner ?? labels.assistant) : labels.assistant}:`);
     if (m.body) lines.push(m.body);
     if (m.body_owner) lines.push(`${labels.inOwnerLang} ${m.body_owner}`);
     if (m.files.length) lines.push(`${labels.files}: ${m.files.join(", ")}`);

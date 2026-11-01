@@ -1,13 +1,33 @@
 /**
  * Môj obchod's pages: "Môj obchod" (details, logo, plan, delete), "Obsah stránky" (the shop page's slider and its
- * library of files, database update 38), "Asistent" (its settings, the conversations with their cloud folder, the
- * private folders), "Jazyky a inventár" (update 40: "Tovar" with the products' translations, update 62: "Texty stránky") and "Priečinok s exportom" (the
+ * library of files, database update 38), "Asistent" (update 63: Prehľad, the conversations with their cloud folder,
+ * Nastavenia; Kontakty, Rezervácie and Šablóny are tabs on their own pages; the private folders on
+ * /dashboard/assistant/folders), "Jazyky a inventár" (update 40: "Tovar" with the products' translations, update 62: "Texty stránky") and "Priečinok s exportom" (the
  * stock folder, update 45's review after an upload with the languages and the columns, the translations folder, the
  * last stock files and, update 43, the danger zone of the stock). A form
  * sends the owner back to the page and section ("at") it came from; a section that moved keeps working under its
  * old name (old links, e-mails, the cloud sign-in coming back with ?at=cloud).
  */
-export const ASSISTANT_SECTIONS = ["assistant", "conversations", "cloud", "docs", "private"];
+export const ASSISTANT_SECTIONS = ["overview", "conversations", "cloud", "settings"];
+/** Update 63: "Súkromné priečinky" have their own page under Asistent (/dashboard/assistant/folders). */
+export const FOLDER_SECTIONS = ["docs"];
+
+/**
+ * Update 63: the Asistent tabs as on the approved screens — Prehľad · Konverzácie · Kontakty · Rezervácie · Šablóny ·
+ * Nastavenia. Kontakty and Rezervácie keep their own pages (and their addresses); the row is the same on all of them.
+ */
+export const ASSISTANT_TABS = ["overview", "conversations", "contacts", "bookings", "templates", "settings"] as const;
+export type AssistantTab = (typeof ASSISTANT_TABS)[number];
+
+/** Where a tab lives: "/sk/dashboard/contacts?shop=davide&view=templates". */
+export function assistantTabUrl(lang: string, tab: AssistantTab, shop: string, extra: Record<string, string> = {}): string {
+  const q = (more: Record<string, string>) => `?${new URLSearchParams({ shop, ...more, ...extra })}`;
+  if (tab === "contacts") return `/${lang}/dashboard/contacts${q({})}`;
+  if (tab === "templates") return `/${lang}/dashboard/contacts${q({ view: "templates" })}`;
+  if (tab === "bookings") return `/${lang}/dashboard/bookings${q({})}`;
+  if (tab === "overview") return `/${lang}/dashboard/assistant${q({})}`;
+  return `/${lang}/dashboard/assistant${q({ at: tab })}`;
+}
 /**
  * "Priečinok s exportom": the stock folder, "Po nahratí súboru" (update 45: the review card, the languages and the
  * stock file's columns), "Preklady v priečinku" (update 45: the translations folder and the stock files in other
@@ -25,6 +45,8 @@ export const TRANSLATION_SECTIONS = ["items", "texts"];
 /** Old names of sections that were merged into another one (the anchor and the open dropdown follow). */
 const MERGED: Record<string, string> = {
   private: "docs",
+  // update 63: the assistant's own settings are one tab "Nastavenia" with the reminders and the bookings' setup
+  assistant: "settings",
   sections: "content",
   languages: "review",
   columns: "review",
@@ -40,6 +62,7 @@ export function sectionId(at: string): string {
 export function sectionPath(lang: string, name: string): string {
   const at = sectionId(name);
   if (ASSISTANT_SECTIONS.includes(at)) return `/${lang}/dashboard/assistant`;
+  if (FOLDER_SECTIONS.includes(at)) return `/${lang}/dashboard/assistant/folders`;
   if (EXPORT_SECTIONS.includes(at)) return `/${lang}/sync`;
   if (CONTENT_SECTIONS.includes(at)) return `/${lang}/dashboard/content`;
   if (TRANSLATION_SECTIONS.includes(at)) return `/${lang}/dashboard/translations`;
@@ -53,10 +76,11 @@ export function sectionUrl(lang: string, at: string, query: Record<string, strin
   return `${sectionPath(lang, at)}?${params}${id ? `#${id}` : ""}`;
 }
 
-const PAGE_SECTIONS: Record<"dashboard" | "sync" | "assistant" | "content" | "translations", string[]> = {
+const PAGE_SECTIONS: Record<"dashboard" | "sync" | "assistant" | "folders" | "content" | "translations", string[]> = {
   dashboard: [],
   sync: EXPORT_SECTIONS,
   assistant: ASSISTANT_SECTIONS,
+  folders: FOLDER_SECTIONS,
   content: CONTENT_SECTIONS,
   translations: TRANSLATION_SECTIONS,
 };
@@ -65,7 +89,8 @@ const PAGE_SECTIONS: Record<"dashboard" | "sync" | "assistant" | "content" | "tr
 export function movedFrom(page: keyof typeof PAGE_SECTIONS, at: string): boolean {
   if (!at) return false;
   if (MERGED[at]) return true;
-  return [...ASSISTANT_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS, ...TRANSLATION_SECTIONS].includes(at) && !PAGE_SECTIONS[page].includes(at);
+  return [...ASSISTANT_SECTIONS, ...FOLDER_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS, ...TRANSLATION_SECTIONS].includes(at) &&
+    !PAGE_SECTIONS[page].includes(at);
 }
 
 /** The same address on the section's page now (every query parameter kept, `at` and the anchor renamed). */
