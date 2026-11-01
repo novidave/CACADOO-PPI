@@ -77,7 +77,11 @@ OPEN
    c) In Telegram: tap "Dnes" (today's hours, bookings, new conversations); "Hodiny" → "Zajtra zatvorené" →
       "Potvrdiť"; write "sklad <a product>" → "Zmeniť množstvo" → type a number → read the warning → "Potvrdiť"
       (then put the right number back the same way).
-   d) Tell Claude what happened (a screenshot is enough if something fails).
+   d) Write in Telegram: "v sobotu otvárame 9–12" → check the before → after the AI proposes → "Potvrdiť".
+   e) On the website, under "3. Upozornenia a AI", tick "zákazník si rezervuje termín" → "Uložiť" → "Poslať skúšobné
+      upozornenie" (it should arrive in Telegram). Then make a test booking in Davide Paint's shop assistant; the
+      notification should arrive within a minute.
+   f) Tell Claude what happened (a screenshot is enough if something fails).
 
 12. Privacy page: Telegram as a processor (waits for your OK)
    Why: owners who link Telegram send their shop's data through Telegram (Telegram FZ-LLC, Dubai).

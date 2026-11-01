@@ -9,7 +9,7 @@ import { MCP_PATH } from "@/lib/ownerMcpRules";
 import { siteUrl } from "@/lib/site";
 import { TelegramLinkForm } from "@/components/TelegramLinkForm";
 import { telegramBotUsername } from "@/lib/telegram";
-import { createMcpKey, disconnectMcp, saveTelegramConsent, startTelegramLink, unlinkTelegram } from "./actions";
+import { createMcpKey, disconnectMcp, saveTelegramConsent, saveTelegramPrefs, sendTelegramTest, startTelegramLink, unlinkTelegram } from "./actions";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/ai">): Promise<Metadata> {
   const { lang } = await params;
@@ -31,6 +31,14 @@ interface GrantRow {
   active: boolean;
 }
 
+interface TelegramPrefs {
+  shop_id: string;
+  ai_on: boolean;
+  notify: Record<string, boolean>;
+  quiet_from: string | null;
+  quiet_to: string | null;
+}
+
 interface TelegramStatus {
   username: string | null;
   linked_at: string;
@@ -50,11 +58,12 @@ export default async function AiPage({ params, searchParams }: PageProps<"/[lang
   const sp = await searchParams;
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
   const m = dict.owner_mcp;
-  const [shopsRes, grantsRes, telegramRes] = await Promise.all([
+  const [shopsRes, grantsRes, telegramRes, prefsRes] = await Promise.all([
     session.supabase.rpc("owner_mcp_shops"),
     session.supabase.rpc("owner_mcp_grants"),
     // Telegram (database update 66; before it the section is not shown)
     session.supabase.rpc("owner_telegram_status"),
+    session.supabase.rpc("owner_telegram_prefs"),
   ]);
   if (shopsRes.error) {
     return (
@@ -77,6 +86,7 @@ export default async function AiPage({ params, searchParams }: PageProps<"/[lang
   const tgErr = first(sp.tg_err);
   const tgShops = new Set((telegram?.shops ?? []).map((s) => s.id));
   const tgScopes = new Set(telegram?.scopes ?? ["shop.read", "shop.write"]);
+  const tgPrefs = new Map(((prefsRes.data ?? []) as TelegramPrefs[]).map((p) => [p.shop_id, p]));
   const ok = first(sp.ok);
   const err = first(sp.err);
   const howTo: [string, string][] = [
@@ -213,6 +223,55 @@ export default async function AiPage({ params, searchParams }: PageProps<"/[lang
                     {tg.save}
                   </button>
                 </form>
+              )}
+              {telegram?.scopes && (telegram.shops ?? []).length > 0 && (
+                <div className="flex flex-col gap-3" data-telegram-prefs>
+                  <h3 className="text-sm font-semibold">{tg.prefs_title}</h3>
+                  {(telegram.shops ?? []).map((shop) => {
+                    const p = tgPrefs.get(shop.id);
+                    return (
+                      <div key={shop.id} className="flex flex-col gap-2 border border-line p-3">
+                        <form action={saveTelegramPrefs} className="flex flex-col gap-2 text-sm">
+                          <input type="hidden" name="lang" value={lang} />
+                          <input type="hidden" name="shop_id" value={shop.id} />
+                          <span className="font-semibold">{shop.name}</span>
+                          <label className="flex min-h-11 items-center gap-2">
+                            <input type="checkbox" name="ai_on" defaultChecked={p?.ai_on ?? true} className="h-4 w-4 shrink-0 accent-foreground" />
+                            {tg.ai_on}
+                          </label>
+                          <span>{tg.notify_title}</span>
+                          {(["booking_new", "booking_cancelled", "callback"] as const).map((k) => (
+                            <label key={k} className="flex min-h-11 items-center gap-2">
+                              <input type="checkbox" name={`n_${k}`} defaultChecked={p?.notify?.[k] === true} className="h-4 w-4 shrink-0 accent-foreground" />
+                              {tgTexts[`n_${k}`]}
+                            </label>
+                          ))}
+                          <span>{tg.quiet}</span>
+                          <span className="flex flex-wrap items-center gap-2">
+                            <label className="flex items-center gap-2">
+                              {tg.quiet_from}
+                              <input type="time" name="quiet_from" defaultValue={p?.quiet_from ?? ""} className="min-h-11 rounded border border-line px-2 text-base" />
+                            </label>
+                            <label className="flex items-center gap-2">
+                              {tg.quiet_to}
+                              <input type="time" name="quiet_to" defaultValue={p?.quiet_to ?? ""} className="min-h-11 rounded border border-line px-2 text-base" />
+                            </label>
+                          </span>
+                          <button type="submit" className="min-h-11 self-start rounded border border-foreground px-4 font-medium" data-telegram-prefs-save>
+                            {tg.save_prefs}
+                          </button>
+                        </form>
+                        <form action={sendTelegramTest}>
+                          <input type="hidden" name="lang" value={lang} />
+                          <input type="hidden" name="shop_id" value={shop.id} />
+                          <button type="submit" className="min-h-11 text-sm underline underline-offset-4" data-telegram-test>
+                            {tg.test}
+                          </button>
+                        </form>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
               <p className="text-xs text-muted">{tg.note}</p>
             </>

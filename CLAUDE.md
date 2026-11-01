@@ -591,8 +591,19 @@ the message files, then run the script), `owner_tg`, `admin_telegram`. Tables (n
 `telegram_settings` (AI on/off, AI 50/day, notifications 30/day — admin only), `telegram_link_codes`, `telegram_links`,
 `telegram_pending`, `telegram_shop_prefs`. Without `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` the function
 sends nothing and the admin page says "nie je nastavené"; without `TELEGRAM_BOT_USERNAME` (Vercel, public) the website
-offers no link. Later phases: T2 AI free text (proposals only), T3 notifications (opt-in, quiet hours), T4 setup helper
-(needs a Pomocník, which does not exist yet).
+offers no link. **Free text (T2):** Claude (`AI_MODEL`, `ANTHROPIC_API_KEY`; injected as `deps.ai`) with read tools
+through the same door and `propose_*` tools only (hours, booking status, stock, mark handled → the same "Potvrdiť"
+message, ≤ 3 per message; the AI never confirms); tool results reach it through `forAi()` (phones masked; e-mails,
+addresses, notes dropped); `telegram_ai_hit()` = the admin's switch + the owner's per shop (`telegram_shop_prefs.ai_on`)
++ `ai_daily_limit` per Telegram user (`telegram_ai_usage`); history = the last 4 short turns in `telegram_links.state`.
+**Notifications (T3, opt-in per shop):** `booking_new` / `booking_cancelled` (trigger on `shop_bookings`: a customer's,
+never the owner's own — `auth.uid()` a member) and `callback` (trigger on `shop_owner_alerts`) → `telegram_notify()` →
+`telegram_outbox` (once per link/kind/ref) → `telegram_kick()` (pg_net) or the job `ppi-telegram-tick` (5 min, Vault
+`ppi_telegram_cron`, header `x-ppi-cron`) → action notify → `telegram_notify_due()` (quiet hours in the shop's time
+wait, `notify_daily_cap` per link and 24 h, access/plan re-checked; only time, service, name or the question — never a
+phone) → `telegram_notify_result()` (5 tries). Owners: `owner_telegram_prefs()` / `owner_telegram_save_prefs()`,
+"Poslať skúšobné upozornenie" = `owner_telegram_test()` (5/hour). T4 (setup helper, files/photos/blog drafts) needs a
+Pomocník, which does not exist yet.
 
 ## Cloud folder (paid, update 23)
 

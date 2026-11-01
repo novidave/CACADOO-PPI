@@ -3348,7 +3348,16 @@
     "item_line": "Množstvo: {qty} · Cena: {price}",
     "warn_files": "Ďalší súbor so skladom (z priečinka alebo nahratý) nahradí celý sklad a túto zmenu prepíše. Zmeňte to aj v skladovom programe.",
     "warn_agent": "Pokladnica (agent) pri ďalšej synchronizácii pošle celý sklad znova a túto zmenu prepíše.",
-    "warn_api": "Pripojený skladový program pri ďalšej synchronizácii pošle celý sklad znova a túto zmenu prepíše."
+    "warn_api": "Pripojený skladový program pri ďalšej synchronizácii pošle celý sklad znova a túto zmenu prepíše.",
+    "n_booking_new": "Nová rezervácia · {shop}",
+    "n_booking_cancelled": "Zákazník zrušil rezerváciu · {shop}",
+    "n_callback": "Zákazník čaká na odpoveď · {shop}",
+    "n_test": "Skúšobné upozornenie z Cacaduu · {shop}. Upozornenia fungujú.",
+    "b_open": "Otvoriť",
+    "ai_off": "AI odpovede sú vypnuté. Použite tlačidlá:",
+    "ai_limit": "Dnešný limit AI správ je vyčerpaný. Použite tlačidlá:",
+    "ai_failed": "AI teraz neodpovedá. Použite tlačidlá:",
+    "sum_conv_n": "Označiť ako vybavené: {n} konverzácie"
   },
   "owner_tg": {
     "title": "Telegram",
@@ -3377,7 +3386,21 @@
     "err_failed": "Nepodarilo sa. Skúste to znova.",
     "err_too_many": "Priveľa odkazov za hodinu – skúste to neskôr.",
     "err_shops": "Vyberte aspoň jeden obchod s Pro.",
-    "err_not_linked": "Najprv prepojte Telegram (krok 1)."
+    "err_not_linked": "Najprv prepojte Telegram (krok 1).",
+    "prefs_title": "3. Upozornenia a AI",
+    "ai_on": "AI odpovede na voľný text (napr. „v sobotu otvárame 9–12“) – zmeny vždy čakajú na „Potvrdiť“",
+    "notify_title": "Poslať upozornenie, keď:",
+    "n_booking_new": "zákazník si rezervuje termín",
+    "n_booking_cancelled": "zákazník zruší rezerváciu",
+    "n_callback": "zákazník čaká na odpoveď (nechal kontakt)",
+    "quiet": "Tichý režim (v čase obchodu; upozornenia počkajú do jeho konca)",
+    "quiet_from": "od",
+    "quiet_to": "do",
+    "save_prefs": "Uložiť",
+    "prefs_saved": "Uložené.",
+    "test": "Poslať skúšobné upozornenie",
+    "test_sent": "Skúšobné upozornenie je na ceste – pozrite Telegram.",
+    "err_quiet": "Tichý režim: vyplňte „od“ aj „do“."
   },
   "admin_telegram": {
     "title": "Telegram bot",

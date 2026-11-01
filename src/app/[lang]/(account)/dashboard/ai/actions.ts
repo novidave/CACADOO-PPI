@@ -95,3 +95,38 @@ export async function unlinkTelegram(formData: FormData) {
   const { error } = await session.supabase.rpc("owner_telegram_unlink");
   tgBack(lang, error ? { tg_err: "err_failed" } : { tg_ok: "unlinked" });
 }
+
+const TIME_FIELD = /^(|([01]\d|2[0-3]):[0-5]\d)$/;
+
+/** "Upozornenia a AI" per shop: the AI on/off, the notifications ticked and the quiet hours (owner_telegram_save_prefs). */
+export async function saveTelegramPrefs(formData: FormData) {
+  const langValue = String(formData.get("lang") ?? "");
+  const lang: Locale = isLocale(langValue) ? langValue : "en";
+  const session = await getSession();
+  if (!session) redirect(`/${lang}/login`);
+  const shop = String(formData.get("shop_id") ?? "");
+  const from = String(formData.get("quiet_from") ?? "");
+  const to = String(formData.get("quiet_to") ?? "");
+  if (!UUID.test(shop)) tgBack(lang, { tg_err: "err_failed" });
+  if (!TIME_FIELD.test(from) || !TIME_FIELD.test(to) || !from !== !to) tgBack(lang, { tg_err: "err_quiet" });
+  const notify = Object.fromEntries(["booking_new", "booking_cancelled", "callback"].map((k) => [k, formData.get(`n_${k}`) === "on"]));
+  const { error } = await session.supabase.rpc("owner_telegram_save_prefs", {
+    p_shop_id: shop,
+    p_ai_on: formData.get("ai_on") === "on",
+    p_notify: notify,
+    p_quiet_from: from,
+    p_quiet_to: to,
+  });
+  tgBack(lang, error ? { tg_err: error.message === "quiet" ? "err_quiet" : "err_failed" } : { tg_ok: "prefs_saved" });
+}
+
+/** "Poslať skúšobné upozornenie": one message to the owner's Telegram now (5 an hour). */
+export async function sendTelegramTest(formData: FormData) {
+  const langValue = String(formData.get("lang") ?? "");
+  const lang: Locale = isLocale(langValue) ? langValue : "en";
+  const session = await getSession();
+  if (!session) redirect(`/${lang}/login`);
+  const shop = String(formData.get("shop_id") ?? "");
+  const { error } = UUID.test(shop) ? await session.supabase.rpc("owner_telegram_test", { p_shop_id: shop }) : { error: { message: "bad" } };
+  tgBack(lang, error ? { tg_err: error.message === "too_many" ? "err_too_many" : "err_failed" } : { tg_ok: "test_sent" });
+}

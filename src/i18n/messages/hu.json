@@ -3348,7 +3348,16 @@
     "item_line": "Mennyiség: {qty} · Ár: {price}",
     "warn_files": "A következő készletfájl (a mappából vagy feltöltve) a teljes készletet lecseréli, és felülírja ezt a módosítást. Módosítsa a készletprogramban is.",
     "warn_agent": "A pénztár (ügynök) a következő szinkronizáláskor újra elküldi a teljes készletet, és felülírja ezt a módosítást.",
-    "warn_api": "A csatlakoztatott készletprogram a következő szinkronizáláskor újra elküldi a teljes készletet, és felülírja ezt a módosítást."
+    "warn_api": "A csatlakoztatott készletprogram a következő szinkronizáláskor újra elküldi a teljes készletet, és felülírja ezt a módosítást.",
+    "n_booking_new": "Új foglalás · {shop}",
+    "n_booking_cancelled": "Egy vásárló lemondta a foglalást · {shop}",
+    "n_callback": "Egy vásárló válaszra vár · {shop}",
+    "n_test": "Próbaértesítés a Cacaduutól · {shop}. Az értesítések működnek.",
+    "b_open": "Megnyitás",
+    "ai_off": "Az MI-válaszok ki vannak kapcsolva. Használja a gombokat:",
+    "ai_limit": "A mai MI-üzenetkeret elfogyott. Használja a gombokat:",
+    "ai_failed": "Az MI most nem válaszol. Használja a gombokat:",
+    "sum_conv_n": "Elintézettnek jelölés: {n} beszélgetés"
   },
   "owner_tg": {
     "title": "Telegram",
@@ -3377,7 +3386,21 @@
     "err_failed": "Nem sikerült. Próbálja újra.",
     "err_too_many": "Túl sok hivatkozás egy órán belül – próbálja később.",
     "err_shops": "Válasszon legalább egy Pro üzletet.",
-    "err_not_linked": "Előbb kapcsolja össze a Telegramot (1. lépés)."
+    "err_not_linked": "Előbb kapcsolja össze a Telegramot (1. lépés).",
+    "prefs_title": "3. Értesítések és MI",
+    "ai_on": "MI-válaszok szabad szövegre (pl. „szombaton 9–12-ig nyitunk”) – a módosítások mindig „Megerősítés”-re várnak",
+    "notify_title": "Értesítés, amikor:",
+    "n_booking_new": "egy vásárló időpontot foglal",
+    "n_booking_cancelled": "egy vásárló lemondja a foglalást",
+    "n_callback": "egy vásárló válaszra vár (elérhetőséget hagyott)",
+    "quiet": "Csendes mód (az üzlet idejében; az értesítések a végéig várnak)",
+    "quiet_from": "ettől",
+    "quiet_to": "eddig",
+    "save_prefs": "Mentés",
+    "prefs_saved": "Elmentve.",
+    "test": "Próbaértesítés küldése",
+    "test_sent": "A próbaértesítés úton van – nézze meg a Telegramot.",
+    "err_quiet": "Csendes mód: töltse ki mindkét időpontot."
   },
   "admin_telegram": {
     "title": "Telegram bot",

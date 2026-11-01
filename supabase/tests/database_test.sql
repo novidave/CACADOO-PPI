@@ -11564,6 +11564,7 @@ declare
   v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
   v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
   vj jsonb;
+  i integer;
 begin
   begin perform public.owner_telegram_consent(array[v_b], array['shop.read']); raise exception 'another owner''s shop';
   exception when insufficient_privilege then null; end;
@@ -11575,6 +11576,23 @@ begin
   assert vj ->> 'username' = 'davide' and vj -> 'scopes' = '["shop.read", "shop.write"]'::jsonb
      and vj -> 'shops' -> 0 ->> 'slug' = 'potraviny-centrum', vj::text;
   begin perform count(*) from public.telegram_links; raise exception 'owner read the links table';
+  exception when insufficient_privilege then null; end;
+  -- the owner's choices per shop: only known notification kinds, quiet hours both or none, only the grant's shops
+  assert public.owner_telegram_save_prefs(v_a, false, '{"booking_new": true, "callback": false, "everything": true}', '22:00', '07:00');
+  vj := public.owner_telegram_prefs() -> 0;
+  assert vj -> 'notify' = '{"booking_new": true}'::jsonb and not (vj ->> 'ai_on')::boolean
+     and vj ->> 'quiet_from' = '22:00' and vj ->> 'quiet_to' = '07:00', vj::text;
+  begin perform public.owner_telegram_save_prefs(v_a, true, '{}', '22:00', ''); raise exception 'half quiet hours';
+  exception when invalid_parameter_value then if sqlerrm <> 'quiet' then raise; end if; end;
+  begin perform public.owner_telegram_save_prefs(v_a, true, '{}', '25:00', '07:00'); raise exception 'bad time';
+  exception when invalid_parameter_value then if sqlerrm <> 'quiet' then raise; end if; end;
+  begin perform public.owner_telegram_save_prefs(v_b, true, '{}', '', ''); raise exception 'another owner''s shop';
+  exception when insufficient_privilege then null; end;
+  -- a test notification: 5 an hour
+  for i in 1..5 loop perform public.owner_telegram_test(v_a); end loop;
+  begin perform public.owner_telegram_test(v_a); raise exception 'no limit on test notifications';
+  exception when program_limit_exceeded then null; end;
+  begin perform count(*) from public.telegram_outbox; raise exception 'owner read the outbox';
   exception when insufficient_privilege then null; end;
 end $$;
 reset role;
@@ -11594,6 +11612,8 @@ declare
   v_d date := (select v::date from t66 where k = 'd');
   vj jsonb;
   v_p uuid;
+  v_b1 uuid;
+  v_b2 uuid;
 begin
   assert exists (select 1 from public.owner_mcp_tokens t join public.telegram_links l on l.grant_id = t.id
                  where l.tg_user_id = 9001 and t.kind = 'telegram' and t.revoked_at is null), 'a telegram grant';
@@ -11639,6 +11659,73 @@ begin
   begin perform public.telegram_whoami(9001); raise exception 'no rate limit';
   exception when program_limit_exceeded then null; end;
   update public.telegram_links set window_count = 0 where tg_user_id = 9001;
+  -- phase 2: the AI only with both switches on, within the daily limit
+  update public.telegram_shop_prefs set ai_on = true where shop_id = v_a;
+  update public.telegram_settings set ai_enabled = true, ai_daily_limit = 2 where id;
+  assert public.telegram_ai_hit(9001, 'potraviny-centrum') = 1;
+  assert public.telegram_ai_hit(9001, 'potraviny-centrum') = 0;
+  begin perform public.telegram_ai_hit(9001, 'potraviny-centrum'); raise exception 'no AI limit';
+  exception when program_limit_exceeded then if sqlerrm <> 'ai_limit' then raise; end if; end;
+  delete from public.telegram_ai_usage;
+  update public.telegram_shop_prefs set ai_on = false where shop_id = v_a;
+  begin perform public.telegram_ai_hit(9001, 'potraviny-centrum'); raise exception 'AI on for a shop that switched it off';
+  exception when raise_exception then if sqlerrm <> 'ai_off' then raise; end if; end;
+  update public.telegram_shop_prefs set ai_on = true where shop_id = v_a;
+  update public.telegram_settings set ai_enabled = false, ai_daily_limit = 50 where id;
+  begin perform public.telegram_ai_hit(9001, 'potraviny-centrum'); raise exception 'AI on while the admin switched it off';
+  exception when raise_exception then if sqlerrm <> 'ai_off' then raise; end if; end;
+  update public.telegram_settings set ai_enabled = true where id;
+  delete from public.telegram_ai_usage;
+
+  -- phase 3: notifications only when ticked; a customer's booking, never the owner's own
+  -- (telegram_call above acted as the owner in this transaction: back to a shopper's request without a login)
+  perform set_config('request.jwt.claims', '', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+  delete from public.telegram_outbox;
+  update public.telegram_shop_prefs set notify = '{}', quiet_from = null, quiet_to = null where shop_id = v_a;
+  v_b1 := gen_random_uuid();
+  insert into public.shop_bookings (id, shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash, confirmed_at)
+  values (v_b1, v_a, now() + interval '40 days', now() + interval '40 days 30 minutes', 'confirmed', 'Tg Jeden', '+421905131313', now(), 'v', 'x', now());
+  assert not exists (select 1 from public.telegram_outbox), 'nothing without ticking';
+  update public.telegram_shop_prefs set notify = '{"booking_new": true, "booking_cancelled": true}' where shop_id = v_a;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', true);
+  insert into public.shop_bookings (id, shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash, confirmed_at)
+  values (gen_random_uuid(), v_a, now() + interval '42 days', now() + interval '42 days 30 minutes', 'confirmed', 'Od majiteľa', '+421905141414', now(), 'v', 'x', now());
+  perform set_config('request.jwt.claim.sub', '', true);
+  assert not exists (select 1 from public.telegram_outbox), 'the owner''s own booking is not announced';
+  v_b2 := gen_random_uuid();
+  insert into public.shop_bookings (id, shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash, confirmed_at)
+  values (v_b2, v_a, now() + interval '41 days', now() + interval '41 days 30 minutes', 'confirmed', 'Tg Dva', '+421905151515', now(), 'v', 'x', now());
+  assert (select count(*) from public.telegram_outbox where kind = 'booking_new' and ref_id = v_b2) = 1, 'a customer''s booking';
+  -- quiet hours (the shop's time): the notification waits until they end
+  update public.telegram_shop_prefs
+  set quiet_from = ((now() at time zone 'Europe/Bratislava') - interval '1 hour')::time,
+      quiet_to = ((now() at time zone 'Europe/Bratislava') + interval '1 hour')::time
+  where shop_id = v_a;
+  assert jsonb_array_length(public.telegram_notify_due(20)) = 0, 'waits in quiet hours';
+  assert (select not_before > now() + interval '50 minutes' from public.telegram_outbox where ref_id = v_b2), 'moved to their end';
+  update public.telegram_shop_prefs set quiet_from = null, quiet_to = null where shop_id = v_a;
+  update public.telegram_outbox set not_before = now() where ref_id = v_b2;
+  vj := public.telegram_notify_due(20);
+  assert jsonb_array_length(vj) = 1 and vj -> 0 ->> 'kind' = 'booking_new' and vj -> 0 -> 'booking' ->> 'name' = 'Tg Dva'
+     and not (vj -> 0 -> 'booking' ? 'phone') and (vj -> 0 ->> 'chat_id')::bigint = 9001, vj::text;
+  assert jsonb_array_length(public.telegram_notify_due(20)) = 0, 'claimed once';
+  perform public.telegram_notify_result((vj -> 0 ->> 'id')::bigint, true, null);
+  assert (select status from public.telegram_outbox where ref_id = v_b2) = 'sent';
+  -- the customer cancels → "zrušil"; the cap of the day skips it
+  update public.shop_bookings set status = 'cancelled', status_changed_at = now() where id = v_b2;
+  assert exists (select 1 from public.telegram_outbox where kind = 'booking_cancelled' and ref_id = v_b2), 'a cancellation';
+  update public.telegram_settings set notify_daily_cap = 1 where id;
+  assert jsonb_array_length(public.telegram_notify_due(20)) = 0, 'over the cap';
+  assert (select reason from public.telegram_outbox where kind = 'booking_cancelled' and ref_id = v_b2) = 'daily_cap';
+  update public.telegram_settings set notify_daily_cap = 30 where id;
+  -- a failed send is tried again later, at most 5 times
+  insert into public.telegram_outbox (link_id, shop_id, kind) select id, v_a, 'test' from public.telegram_links where tg_user_id = 9001;
+  vj := public.telegram_notify_due(20);
+  perform public.telegram_notify_result((vj -> 0 ->> 'id')::bigint, false, 'telegram');
+  assert (select status = 'queued' and not_before > now() from public.telegram_outbox where id = (vj -> 0 ->> 'id')::bigint), 'retried later';
+  delete from public.shop_bookings where id in (v_b1, v_b2) or name = 'Od majiteľa';
+  delete from public.telegram_outbox;
   -- Pro ended: the bot stops for that shop
   update public.subscriptions set status = 'canceled', current_period_end = now() - interval '1 day' where shop_id = v_a;
   begin perform public.telegram_call(9001, 'get_shop_details', '{}'); raise exception 'works without Pro';

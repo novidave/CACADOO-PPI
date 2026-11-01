@@ -3348,7 +3348,16 @@
     "item_line": "Quantity: {qty} · Price: {price}",
     "warn_files": "The next stock file (from the folder or uploaded) replaces the whole stock and will overwrite this change. Change it in the stock program too.",
     "warn_agent": "The till (agent) sends the whole stock again at its next sync and will overwrite this change.",
-    "warn_api": "The connected inventory program sends the whole stock again at its next sync and will overwrite this change."
+    "warn_api": "The connected inventory program sends the whole stock again at its next sync and will overwrite this change.",
+    "n_booking_new": "New booking · {shop}",
+    "n_booking_cancelled": "A customer cancelled a booking · {shop}",
+    "n_callback": "A customer is waiting for an answer · {shop}",
+    "n_test": "Test notification from Cacaduu · {shop}. Notifications work.",
+    "b_open": "Open",
+    "ai_off": "AI answers are switched off. Use the buttons:",
+    "ai_limit": "Today's AI message limit is used up. Use the buttons:",
+    "ai_failed": "The AI is not answering right now. Use the buttons:",
+    "sum_conv_n": "Mark as handled: {n} conversations"
   },
   "owner_tg": {
     "title": "Telegram",
@@ -3377,7 +3386,21 @@
     "err_failed": "That did not work. Please try again.",
     "err_too_many": "Too many links in an hour – try again later.",
     "err_shops": "Choose at least one shop with Pro.",
-    "err_not_linked": "Link Telegram first (step 1)."
+    "err_not_linked": "Link Telegram first (step 1).",
+    "prefs_title": "3. Notifications and AI",
+    "ai_on": "AI answers to free text (e.g. “we open 9–12 on Saturday”) – changes always wait for “Confirm”",
+    "notify_title": "Send a notification when:",
+    "n_booking_new": "a customer books a time",
+    "n_booking_cancelled": "a customer cancels a booking",
+    "n_callback": "a customer waits for an answer (left a contact)",
+    "quiet": "Quiet hours (shop time; notifications wait until they end)",
+    "quiet_from": "from",
+    "quiet_to": "to",
+    "save_prefs": "Save",
+    "prefs_saved": "Saved.",
+    "test": "Send a test notification",
+    "test_sent": "The test notification is on its way – check Telegram.",
+    "err_quiet": "Quiet hours: fill in both “from” and “to”."
   },
   "admin_telegram": {
     "title": "Telegram bot",
