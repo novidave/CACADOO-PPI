@@ -104,7 +104,19 @@ export default async function SiteLayout({ children, params }: LayoutProps<"/sit
             />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+        {/* At least one screen high: the footer starts below the first view, so nothing that grows moves it on screen. */}
+        <main className="mx-auto min-h-svh w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+        {/* The shop's own legal page (update 65) and © with the shop's name. */}
+        <footer className="mt-8 border-t border-line" data-site-footer>
+          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-5 px-4 py-3 text-sm text-muted">
+            <Link href={lang === homeLang ? "/pravne-informacie" : `/${lang}/pravne-informacie`} className="flex min-h-11 items-center hover:text-foreground hover:underline">
+              {dict.shop_legal.link}
+            </Link>
+            <span className="flex min-h-11 items-center sm:ml-auto">
+              © {new Date().getFullYear()} {shop.name}
+            </span>
+          </div>
+        </footer>
         {/* Cookie-free, only on Vercel (elsewhere their scripts do not exist); loaded after the page (privacy page). */}
         {process.env.VERCEL && <VercelMetrics />}
       </body>

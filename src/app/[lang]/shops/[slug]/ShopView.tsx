@@ -317,6 +317,13 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         />
       </section>
 
+      {/* The shop's own "Právne informácie" (update 65); on its own domain the layout's footer has the link. */}
+      {!onSite && (
+        <Link href={`/${lang}/shops/${shop.slug}/pravne-informacie`} className="flex min-h-11 items-center self-start text-sm text-muted underline underline-offset-4" data-shop-legal-link>
+          {dict.shop_legal.link}
+        </Link>
+      )}
+
       {slides.some((v) => v.kind !== "post") && <SectionZoom labels={dict.sections} />}
     </div>
   );
