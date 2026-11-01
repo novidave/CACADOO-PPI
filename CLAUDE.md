@@ -200,6 +200,9 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
 - `npm run test:content` — unit tests (Deno) of "Obsah stránky" (`src/lib/content_test.ts`): the slide rule
   (pinned never repeated, fewer posts, hidden files, plan limits), counters, srcset, excerpts and where Môj obchod's
   sections live (old addresses forwarded)
+- `npm run test:booking` — unit tests (Deno) of the shop assistant's booking tools (`src/lib/bookingTools_test.ts`):
+  no personal data in the tools, refs only from the list, the shop's time zone across clock changes, when the
+  contact form shows, the phone calendar feed (iCalendar, first names only)
 - `npm run test:telegram` — the Telegram bot's texts in `supabase/functions/telegram/index.ts` match the message
   files (`node scripts/telegram-texts.mjs` writes them)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
@@ -565,6 +568,37 @@ with `x-ppi-mcp` → `owner_mcp_message_queue()`: same grant, once, refused `pre
 differs, then `owner_message_queue` as the owner — quota, 100/day, log). Every write is in `shop_activity` as the owner
 (`mcp_connected`, `mcp_disconnected`, `mcp_key_created`, `mcp_message_queued`, `hours_changed`,
 `shop_details_changed`, `stock_edited` + the owner_* functions' own). The consent page is never framed (`next.config.ts` headers). Texts `owner_mcp`; login keeps a safe `next`.
+
+## Asistent + CRM + Rezervácie (paid, updates 63–64, 2026-10-31 at the owner's request)
+
+`supabase/sql/63_assistant_crm_bookings.sql` + `supabase/sql/64_owner_booking_tools.sql` + the functions `bookings`
+(code_start / code_verify, services / offer / book for the assistant, the 5-minute tick), `crm-messages` (`reply`, the
+"Všetko o mne" e-mail) and `assistant-archive` (`forget_all`) + `@/lib/icsFeed` + `@/lib/ownerBookingsApi` + the
+dashboard's Asistent tabs. **Cacaduu's own booking system is the source of truth** (Google Calendar is only an optional
+sync: Cacaduu's own events pushed by id, busy times read in, never decisive; a sync failure never blocks a booking).
+**Every booking rule lives in SQL** and every caller (website, shop assistant, owner MCP/API, Telegram) uses the same
+functions: services (length, buffers, capacity, resource), resources (own hours), rules (notice, horizon, step, per
+contact a day), blocked times, audit log `booking_events` (actor owner / customer / api); **one** availability function
+`booking_free_slots()` (opening hours ∩ resource hours − special days − holidays − blocks − bookings with buffers −
+busy calendar times); `booking_create()` / `booking_move()` / `booking_cancel()` check again under the lane's lock; an
+exclusion constraint per lane (with buffers) makes double booking impossible; capacity counted under an advisory lock.
+This replaces update 57's slot rules and its 09:00 reminder: reminders 2 h before / the day before from 18:00 shop time.
+CRM: contacts know their last contact and whether they wait; the owner's SMS / e-mail replies belong to the
+conversation (role owner; in the PDF, TXT and CSV); one `sms_codes` table (contact, booking, delete_all: 6 digits,
+hash only, 10 min, 5 tries, 3/number/hour, 10/caller/hour); templates for SMS and/or e-mail with {meno} {obchod}
+{produkt} {datum} {cas}; `crm_settings` (reminders, alert address, the customer's SMS when the owner moves or cancels);
+conversations are kept until the owner deletes them (no keep-time choice). The shop assistant books **only for a
+contact verified with the page's own SMS code field** (the AI never sees the code); "Vymazať moje údaje" = "Všetko o
+mne" + a verified code → every conversation of that number forgotten. A read-only calendar feed per shop
+(`/api/calendar/<token>`, hash only, confirmed bookings, first names only). **Môj obchod → Asistent** is one tab row
+(Prehľad · Konverzácie · Kontakty · Rezervácie · Šablóny · Nastavenia; Súkromné priečinky on
+`/dashboard/assistant/folders`; old addresses forwarded by `@/lib/dashboardPages`). **Update 64:** owner-MCP tools
+`list_booking_services`, `find_free_slots` (shop.read), `create_booking`, `move_booking`, `cancel_booking` (shop.write;
+move / cancel answer before → after until `confirm: true`) in `owner_mcp_call()` — the update-61 door is kept as
+`owner_mcp_call_61` for every other tool; `list_bookings` reads the engine and keeps update 61's `service_name` key
+(the Telegram bot reads it). The same tools over HTTP with the same bearer tokens: `/api/owner/bookings` (GET),
+`/[id]` (PATCH move, DELETE cancel), `/services`, `/free-slots`. Tests: DB blocks "update 63" / "update 64",
+`npm run test:booking`, `test:functions`.
 
 ## Telegram bot for owners (Pro, update 66, phase T1)
 
