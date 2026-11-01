@@ -81,20 +81,6 @@ OPEN
    Steps: Claude will show you the exact new lines for the privacy page; write "OK" or your changes.
 
 
-15. Optional: Google Calendar for bookings (skip if you already added these 3 secrets)
-   Why: bookings work without it. With it, a shop can connect its Google Calendar in Môj obchod → Asistent →
-   Nastavenia: Cacaduu then avoids the shop's busy times and writes its own bookings into that calendar.
-   Steps:
-   a) console.cloud.google.com → the same project as for item 2 → APIs & Services → Library → enable
-      "Google Calendar API".
-   b) OAuth consent screen → Scopes: add ".../auth/calendar.freebusy" and ".../auth/calendar.events.owned"
-      (nothing else).
-   c) Credentials → Create credentials → OAuth client ID → Web application → Authorized redirect URI exactly:
-      https://szhotccxyaepjhwsqdqx.supabase.co/functions/v1/bookings/oauth → Create.
-   d) Supabase → Edge Functions → Secrets → add GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET (from c),
-      and BOOKING_TOKEN_ENCRYPTION_KEY = a new long random text (40+ letters and digits; never change it later).
-   e) Write "done 15". Claude checks that "Pripojiť Google Kalendár" appears and works.
-
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
