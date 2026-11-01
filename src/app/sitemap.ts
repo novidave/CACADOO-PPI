@@ -26,7 +26,7 @@ function entry(path: string, lastModified?: string | null): MetadataRoute.Sitema
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   locales = await indexedLocales();
-  const urls: MetadataRoute.Sitemap = [entry("")];
+  const urls: MetadataRoute.Sitemap = [entry(""), entry("/pravne-informacie")];
   const supabase = createPublicClient();
   if (!supabase) return urls;
 

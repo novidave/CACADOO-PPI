@@ -3241,5 +3241,20 @@
     "consent_err_no_plan": "The chosen shop has no Pro plan.",
     "consent_err_shops": "Choose at least one shop.",
     "consent_err_failed": "Connecting failed. Try again."
+  },
+  "legal": {
+    "footer_label": "Legal information",
+    "footer_legal": "Legal information",
+    "footer_privacy": "Privacy (GDPR)",
+    "footer_assistant": "Privacy in the assistant",
+    "footer_terms": "Terms of use",
+    "copyright": "© {year} Cacaduu",
+    "title": "Legal information",
+    "intro": "All of Cacaduu's legal documents in one place: privacy (GDPR), privacy in a shop's assistant and the terms of use.",
+    "privacy_desc": "Who processes data, which data and why.",
+    "assistant_desc": "What is stored when you write to a shop's assistant, add a photo, leave a contact or book a time.",
+    "deletion_desc": "How to ask for the data of a connected Facebook Page to be deleted.",
+    "terms_desc": "The rules for using Cacaduu, for shops and visitors.",
+    "domain_desc": "The terms for registering and running a shop's own domain."
   }
 }
