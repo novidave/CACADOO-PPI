@@ -4,7 +4,7 @@ test("AI search → shop → product", async ({ page }) => {
   const c = watchConsole(page);
   await page.goto("/sk");
   const box = page.locator("[data-chat-input]");
-  await box.fill("káva");
+  await box.fill("interiérová farba");
   const pressed = Date.now();
   await box.press("Enter");
   // The question shows at once (tap feedback), the cards follow (AI or the plain results).
