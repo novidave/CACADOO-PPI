@@ -49,7 +49,15 @@ OPEN
    a) Write to Claude: "remove the test shops".
    b) Claude shows exactly what would be deleted and waits for your "OK" (deleting data always needs it).
 
-6. Fix the project address in the Vault (every scheduled job has failed since about 11 October)
+8. Later, after item 7: delete the old function "quick-responder"
+   Why: it was an earlier copy of "bookings" under a wrong address; nothing calls it any more.
+   Steps: Supabase → Edge Functions → quick-responder → Settings → Delete function. (Or write "OK, delete
+   quick-responder" and Claude does it — deleting always waits for your OK.)
+
+
+DONE
+----
+6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
    Why: the Vault value "ppi_project_url" is still the example text "https://<your-ref>.supabase.co". Every job that
    calls a function every few minutes (bookings and reminders, translations, the blog, domains, the cloud folder,
    the inventory programs, partner feeds, the owner e-mails) stops with "Bad hostname". Nothing is sent or synced.
@@ -60,7 +68,7 @@ OPEN
       long random texts (not an example text). If one looks like an example, write its NAME to Claude.
    d) Write "done 6". Claude checks in the job history that the next runs succeed.
 
-7. Deploy the new "assistant-archive" function (one paste)
+7. Deploy the new "assistant-archive" function — done 2026-11-01 (v54, same as the repository)
    Why: "Vymazať moje údaje → Všetko o mne" on the shop page needs it; the conversation PDFs then also show the
    owner's own replies. (Claude deployed "bookings" and "crm-messages" itself; this file is too long for that.)
    Steps:
@@ -68,13 +76,3 @@ OPEN
    b) Paste the whole file assistant-archive.index.txt that Claude sent you → Deploy.
    c) Check that "Verify JWT" stays OFF.
    d) Write "done 7".
-
-8. Later, after item 7: delete the old function "quick-responder"
-   Why: it was an earlier copy of "bookings" under a wrong address; nothing calls it any more.
-   Steps: Supabase → Edge Functions → quick-responder → Settings → Delete function. (Or write "OK, delete
-   quick-responder" and Claude does it — deleting always waits for your OK.)
-
-
-DONE
-----
-(nothing yet)
