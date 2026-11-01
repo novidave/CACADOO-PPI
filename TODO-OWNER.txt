@@ -88,6 +88,20 @@ OPEN
    Steps: Claude will show you the exact new lines for the privacy page; write "OK" or your changes.
 
 
+13. Switch on real SMS through Brevo (credits bought 2026-11-01)
+   Why: until then every SMS (booking codes, reminders, your messages to customers) is only written down as "test".
+   Steps:
+   a) Supabase → project szhotccxyaepjhwsqdqx → Edge Functions → Secrets.
+   b) Add SMS_PROVIDER = brevo
+   c) BREVO_API_KEY: it is already there for the e-mails — the same key sends SMS. (If it is missing: Brevo →
+      your name top right → SMTP & API → API keys → Generate → paste it as BREVO_API_KEY.)
+   d) Optional: SMS_SENDER = the name shown on the customer's phone (letters and digits only, at most 11, e.g.
+      DavidePaint). Without it the SMS come from "Cacaduu". Brevo → Transactional → SMS → Senders may ask you to
+      register that name first.
+   e) Write "done 13". Claude checks that the SMS functions report Brevo and that one test SMS arrives.
+   Note: Brevo cannot RECEIVE SMS, so "Hodiny cez SMS" still needs item 1.
+
+
 DONE
 ----
 (nothing yet)
