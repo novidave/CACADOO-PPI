@@ -51,9 +51,10 @@ OPEN
 
 8. Later, after item 7: delete the old function "quick-responder"
    Why: it was an earlier copy of "bookings" under a wrong address; nothing calls it any more.
-   Steps: Supabase → Edge Functions → quick-responder → Settings → Delete function. (Or write "OK, delete
-   quick-responder" and Claude does it — deleting always waits for your OK.)
-
+   Where: in Supabase → Edge Functions there are TWO functions named "bookings". Open each one: the old one's
+   address ends with /functions/v1/quick-responder (version 4, created 29 Oct). Keep the one ending with
+   /functions/v1/bookings.
+   Steps: the old one → Settings → Delete function.
 
 9. Create the Cacaduu Telegram bot and add its 3 settings
    Why: the Telegram bot for shop owners (Môj obchod → AI asistenti → Telegram) stays switched off until then.
@@ -92,21 +93,6 @@ OPEN
    Why: owners who link Telegram send their shop's data through Telegram (Telegram FZ-LLC, Dubai).
    Steps: Claude will show you the exact new lines for the privacy page; write "OK" or your changes.
 
-
-13. Switch on real SMS through Brevo (credits bought 2026-11-01)
-   Why: until then every SMS (booking codes, reminders, your messages to customers) is only written down as "test".
-   Steps:
-   a) Supabase → project szhotccxyaepjhwsqdqx → Edge Functions → Secrets.
-   b) Add SMS_PROVIDER = brevo
-   c) BREVO_API_KEY: it is already there for the e-mails — the same key sends SMS. (If it is missing: Brevo →
-      your name top right → SMTP & API → API keys → Generate → paste it as BREVO_API_KEY.)
-   d) Optional: SMS_SENDER = the name shown on the customer's phone (letters and digits only, at most 11, e.g.
-      DavidePaint). Without it the SMS come from "Cacaduu". Brevo → Transactional → SMS → Senders may ask you to
-      register that name first.
-   e) Write "done 13". Claude checks that the SMS functions report Brevo and that one test SMS arrives.
-   Note: Brevo cannot RECEIVE SMS, so "Hodiny cez SMS" still needs item 1.
-
-
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
@@ -128,3 +114,15 @@ DONE
    b) Paste the whole file assistant-archive.index.txt that Claude sent you → Deploy.
    c) Check that "Verify JWT" stays OFF.
    d) Write "done 7".
+13. Switch on real SMS through Brevo — done 2026-11-01 (the admin page shows "SMS are sent by: brevo")
+   Why: until then every SMS (booking codes, reminders, your messages to customers) is only written down as "test".
+   Steps:
+   a) Supabase → project szhotccxyaepjhwsqdqx → Edge Functions → Secrets.
+   b) Add SMS_PROVIDER = brevo
+   c) BREVO_API_KEY: it is already there for the e-mails — the same key sends SMS. (If it is missing: Brevo →
+      your name top right → SMTP & API → API keys → Generate → paste it as BREVO_API_KEY.)
+   d) Optional: SMS_SENDER = the name shown on the customer's phone (letters and digits only, at most 11, e.g.
+      DavidePaint). Without it the SMS come from "Cacaduu". Brevo → Transactional → SMS → Senders may ask you to
+      register that name first.
+   e) Write "done 13". Claude checks that the SMS functions report Brevo and that one test SMS arrives.
+   Note: Brevo cannot RECEIVE SMS, so "Hodiny cez SMS" still needs item 1.
