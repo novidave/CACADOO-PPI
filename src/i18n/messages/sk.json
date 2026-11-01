@@ -3321,5 +3321,20 @@
     "err_failed": "Nepodarilo sa. Skúste to znova.",
     "err_email": "Skontrolujte e-mail.",
     "err_too_long": "Jeden z textov je príliš dlhý (najviac 30 000 znakov)."
+  },
+  "legal": {
+    "footer_label": "Právne informácie",
+    "footer_legal": "Právne informácie",
+    "footer_privacy": "Ochrana osobných údajov (GDPR)",
+    "footer_assistant": "Súkromie v asistentovi",
+    "footer_terms": "Obchodné podmienky",
+    "copyright": "© {year} Cacaduu",
+    "title": "Právne informácie",
+    "intro": "Všetky právne dokumenty Cacaduu na jednom mieste: ochrana osobných údajov (GDPR), súkromie v asistentovi obchodu a podmienky používania.",
+    "privacy_desc": "Kto spracúva údaje, aké údaje a prečo.",
+    "assistant_desc": "Čo sa uloží, keď píšete asistentovi obchodu, pridáte fotku, necháte kontakt alebo si rezervujete termín.",
+    "deletion_desc": "Ako požiadať o vymazanie údajov z pripojenej stránky na Facebooku.",
+    "terms_desc": "Pravidlá používania Cacaduu pre obchody a návštevníkov.",
+    "domain_desc": "Podmienky registrácie a prevádzky vlastnej domény obchodu."
   }
 }

@@ -3321,5 +3321,20 @@
     "err_failed": "Nem sikerült. Próbálja újra.",
     "err_email": "Ellenőrizze az e-mailt.",
     "err_too_long": "Az egyik szöveg túl hosszú (legfeljebb 30 000 karakter)."
+  },
+  "legal": {
+    "footer_label": "Jogi információk",
+    "footer_legal": "Jogi információk",
+    "footer_privacy": "Adatvédelem (GDPR)",
+    "footer_assistant": "Adatvédelem az asszisztensben",
+    "footer_terms": "Általános szerződési feltételek",
+    "copyright": "© {year} Cacaduu",
+    "title": "Jogi információk",
+    "intro": "A Cacaduu összes jogi dokumentuma egy helyen: adatvédelem (GDPR), adatvédelem az üzlet asszisztensében és a felhasználási feltételek.",
+    "privacy_desc": "Ki kezeli az adatokat, milyen adatokat és miért.",
+    "assistant_desc": "Mit tárolunk, amikor az üzlet asszisztensének ír, fotót csatol, elérhetőséget hagy vagy időpontot foglal.",
+    "deletion_desc": "Hogyan kérheti a csatlakoztatott Facebook-oldal adatainak törlését.",
+    "terms_desc": "A Cacaduu használatának szabályai üzletek és látogatók számára.",
+    "domain_desc": "Az üzlet saját domainjének regisztrációs és üzemeltetési feltételei."
   }
 }

@@ -5,6 +5,7 @@ import { enabledLocales, getDictionary, indexedLocales } from "@/i18n/dictionari
 import { HANDWRITTEN, languageOf } from "@/i18n/languages";
 import { Suspense } from "react";
 import { Header } from "@/components/Header";
+import { SiteFooter } from "@/components/SiteFooter";
 import { TapFeedback } from "@/components/TapFeedback";
 import { siteUrl } from "@/lib/site";
 import { notoFallback, quicksand } from "../fonts";
@@ -50,7 +51,10 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
     <html lang={lang} dir="ltr" data-script={languageOf(lang)?.script} className={`${quicksand.variable} ${notoFallback.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <Header lang={lang} dict={dict} enabled={enabled} />
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+        {/* At least one screen high: the footer starts below the first view, so content growing after load (the
+            chat's answer, the products) never moves it on screen (layout shift budget ≤ 0.05). */}
+        <main className="mx-auto min-h-svh w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+        <SiteFooter lang={lang} dict={dict} />
         <Suspense fallback={null}>
           <TapFeedback />
         </Suspense>
