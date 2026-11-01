@@ -36,11 +36,11 @@ export interface ArchiveMessage {
   lang: string | null;
 }
 
-export type ArchiveError = "no_plan" | "not_found" | "too_many" | "too_many_files" | "ended" | "unavailable" | "failed";
+export type ArchiveError = "not_verified" | "no_plan" | "not_found" | "too_many" | "too_many_files" | "ended" | "unavailable" | "failed";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN = /^[0-9a-f]{64}$/;
-const KNOWN: ArchiveError[] = ["no_plan", "not_found", "too_many", "too_many_files", "ended"];
+const KNOWN: ArchiveError[] = ["not_verified", "no_plan", "not_found", "too_many", "too_many_files", "ended"];
 
 function secret(): string | null {
   const value = process.env.ASSISTANT_ARCHIVE_SECRET?.trim();
@@ -120,4 +120,12 @@ export async function deleteConversation(conversation: Conversation) {
 export async function discardFile(conversation: Conversation, attachment: string) {
   if (!UUID.test(attachment)) return { data: null, error: "not_found" as ArchiveError };
   return call<{ discarded: boolean }>({ action: "discard", ...conversation, attachment });
+}
+
+/**
+ * Update 63 "Vymazať moje údaje" → "Všetko o mne": after the delete_all SMS code was verified, every conversation of
+ * that number is forgotten (files and PDFs), future bookings cancelled, the contact deleted, the owners told once.
+ */
+export async function forgetAllForShopper(codeId: string) {
+  return call<{ deleted: boolean; bookings_cancelled: number }>({ action: "forget_all", code_id: codeId });
 }

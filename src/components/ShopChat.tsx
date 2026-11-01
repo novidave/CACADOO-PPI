@@ -4,6 +4,8 @@ import Link from "next/link";
 import { AssistantHeading } from "./AssistantHeading";
 import { BookingPanel } from "./BookingPanel";
 import { CallbackPanel } from "./CallbackPanel";
+import { ContactCodePanel } from "./ContactCodePanel";
+import { ForgetDialog } from "./ForgetDialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { looksLikeKey } from "@/lib/accessKey";
@@ -644,9 +646,9 @@ export function ShopChat({
     }
   }
 
-  async function send(event: React.FormEvent) {
-    event.preventDefault();
-    const message = text.trim();
+  async function send(event: React.FormEvent | null, override?: string) {
+    event?.preventDefault();
+    const message = (override ?? text).trim();
     const ready = filesRef.current.filter((f) => f.ready);
     if (busy || filesRef.current.some((f) => !f.ready)) return;
     if (!message && ready.length === 0) {
@@ -706,10 +708,13 @@ export function ShopChat({
     }
   }
 
-  /** "Vymazať moju konverzáciu": the conversation and its files are deleted for good. */
-  async function deleteMine() {
+  /** "Vymazať moje údaje" (update 63): the dialog offers this conversation or everything about the shopper. */
+  const [forgetOpen, setForgetOpen] = useState(false);
+
+  /** "Len túto konverzáciu": the conversation and its files are deleted for good. */
+  async function deleteMine(): Promise<boolean> {
     const current = conv.current;
-    if (!current || busy || !window.confirm(labels.delete_confirm)) return;
+    if (!current || busy) return false;
     setBusy(true);
     try {
       const response = await fetch(`${base}/conversation`, {
@@ -722,8 +727,9 @@ export function ShopChat({
       used.current = 0;
       reset();
       setEntries([{ role: "notice", text: labels.deleted }]);
+      return true;
     } catch {
-      setEntries((now) => [...now, { role: "error", text: labels.delete_failed }]);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -733,6 +739,23 @@ export function ShopChat({
 
   return (
     <div className="flex flex-col gap-[18px]">
+      {forgetOpen && (
+        <ForgetDialog
+          base={base}
+          lang={lang}
+          shopName={shopName}
+          hasConversation={Boolean(conversation)}
+          labels={labels}
+          onOnlyThis={deleteMine}
+          onDone={() => {
+            conv.current = null;
+            used.current = 0;
+            reset();
+            setEntries([{ role: "notice", text: labels.forget_done }]);
+          }}
+          onClose={() => setForgetOpen(false)}
+        />
+      )}
     <section className="ppi-ai" aria-labelledby="assistant-heading" data-assistant>
       <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
         <div className="flex flex-col px-[13px] py-[14px]">
@@ -757,7 +780,13 @@ export function ShopChat({
                       labels={labels}
                       shopName={shopName}
                       onView={folders ? setViewing : null}
-                      booking={{ base, lang, conversation: () => (archive ? conv.current : null) }}
+                      booking={{
+                        base,
+                        lang,
+                        conversation: () => (archive ? conv.current : null),
+                        // the number is checked: the assistant books the chosen time (the code never goes to it)
+                        verified: () => void send(null, labels.contact_verified_message),
+                      }}
                     />
                   )}
                   {entry.role === "error" && <p className="border border-line p-2 text-sm">{entry.text}</p>}
@@ -865,9 +894,9 @@ export function ShopChat({
                     {labels.clear}
                   </button>
                 )}
-                {archive && conversation && (
-                  <button type="button" onClick={deleteMine} className="min-h-11 text-sm underline underline-offset-4">
-                    {labels.delete_mine}
+                {archive && (
+                  <button type="button" onClick={() => setForgetOpen(true)} className="min-h-11 text-sm underline underline-offset-4" data-forget-open>
+                    {labels.forget_open}
                   </button>
                 )}
                 {archive && shopperPdf && conversation && entries.some((e) => e.role === "assistant") && (
@@ -962,8 +991,8 @@ function Answer({
   shopName: string;
   /** Opens a private folder's document in the viewer (only while folders are open). */
   onView: ((target: ViewTarget) => void) | null;
-  /** What the booking form needs (database update 57). */
-  booking: { base: string; lang: string; conversation: () => Conversation | null };
+  /** What the booking form needs (database update 57) and, update 63, what follows a checked number. */
+  booking: { base: string; lang: string; conversation: () => Conversation | null; verified: () => void };
 }) {
   const match = reply.photo
     ? { found: labels.match_found, not_found: labels.match_not_found, unsure: labels.match_unsure }[reply.photo.match]
@@ -1056,6 +1085,27 @@ function Answer({
             {labels.call_shop.replace("{phone}", reply.callShop)}
           </a>
         </p>
+      )}
+      {reply.booked && (
+        <p role="status" className="border border-foreground p-3 text-sm font-semibold" data-booked>
+          {labels.booked_line
+            .replace("{service}", reply.booked.service_name ?? labels.booked_default)
+            .replace("{when}", new Intl.DateTimeFormat(booking.lang, {
+              timeZone: reply.booked.timezone, weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit",
+            }).format(new Date(reply.booked.starts_at)))
+            .replace("{with}", reply.booked.resource_name ? ` · ${reply.booked.resource_name}` : "")}
+        </p>
+      )}
+      {reply.requestContact && !reply.booked && booking.conversation() && (
+        <ContactCodePanel
+          base={booking.base}
+          lang={booking.lang}
+          shopName={shopName}
+          conversation={booking.conversation}
+          privacyHref={`/${booking.lang}/sukromie-asistent#rezervacie`}
+          labels={labels}
+          onVerified={booking.verified}
+        />
       )}
       {reply.askContact && booking.conversation() && (
         <CallbackPanel
