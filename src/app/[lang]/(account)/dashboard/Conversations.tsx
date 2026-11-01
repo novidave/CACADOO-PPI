@@ -6,14 +6,9 @@ import type { MyShop } from "@/lib/myShops";
 import { ConversationDownloadBar } from "@/components/ConversationDownloadBar";
 import { PendingButton } from "@/components/PendingButton";
 import { retryCloudExport } from "./cloudActions";
-import { bulkConversations, deleteConversation, saveAssistantRetention, saveShopperPdf, starConversation } from "./conversationActions";
+import { bulkConversations, deleteConversation, saveShopperPdf, starConversation } from "./conversationActions";
 import type { Supabase } from "./ShopDocuments";
 
-/**
- * How long a shop keeps its assistant's conversations (shop_assistant_settings): "Neobmedzene" (null, the default since
- * database update 55: kept until the owner deletes them) or 30 / 90 / 365 days (deleted every night after that).
- */
-export const RETENTION_DAYS = [30, 90, 365] as const;
 const PAGE_SIZE = 20;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** The list's status filter (update 55): "" = new and read (not archived). */
@@ -237,7 +232,7 @@ export function conversationsSummary(data: ConversationsData | null, dict: Dicti
   const c = dict.conversations;
   if (!data) return c.unavailable;
   const count = countText(c, "count", data.all, lang) + (data.newCount > 0 ? ` · ${t(c.summary_new, { n: data.newCount })}` : "");
-  return data.retention === null ? t(c.summary_unlimited, { count }) : t(c.summary, { count, days: data.retention });
+  return count;
 }
 
 /** Where "Stiahnuť PDF" of one conversation leads (a 10-minute download address of its PDF). */
@@ -315,24 +310,10 @@ export function Conversations({
       <p className="text-sm">{c.intro}</p>
       {!hasPlan && <p className="border border-line p-3 text-sm">{c.needs_plan}</p>}
 
-      {(hasPlan || data.all > 0) && (
-        <form action={saveAssistantRetention} className="flex flex-wrap items-end gap-3" data-retention>
-          {hidden({ at: "conversations" })}
-          <label className="flex flex-col gap-1">
-            <span className="text-sm">{c.retention}</span>
-            <select name="retention_days" defaultValue={data.retention === null ? "" : String(data.retention)} className={`${input} bg-white`}>
-              {data.full && <option value="">{c.retention_unlimited}</option>}
-              {RETENTION_DAYS.map((days) => (
-                <option key={days} value={days}>
-                  {t(c.days, { n: days })}
-                </option>
-              ))}
-            </select>
-          </label>
-          <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
-          <p className="w-full text-xs text-muted">{c.retention_hint}</p>
-        </form>
-      )}
+      {/* update 63: conversations are kept until the owner deletes them (no keep time, no deletion job) */}
+      <p className="text-sm text-muted" data-kept>
+        {dict.asst.kept_until_deleted}
+      </p>
 
       {hasPlan && data.shopperPdf !== null && (
         <form action={saveShopperPdf} className="flex flex-col gap-2" data-shopper-pdf-setting>

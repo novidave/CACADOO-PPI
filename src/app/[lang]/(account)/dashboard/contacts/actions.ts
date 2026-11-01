@@ -61,15 +61,17 @@ export async function deleteContact(formData: FormData) {
   redirect(list({ ok: "ok_deleted" }));
 }
 
-/** Saves an e-mail template (new one without `template_id`). */
+/** Saves a template (new one without `template_id`); update 63: for SMS, e-mail or both (an SMS needs no subject). */
 export async function saveTemplate(formData: FormData) {
   const { session, shopId, list } = await start(formData);
   const id = String(formData.get("template_id") ?? "");
-  const { error } = await session.supabase.rpc("owner_save_email_template", {
+  const channel = String(formData.get("channel") ?? "email");
+  const { error } = await session.supabase.rpc("owner_save_message_template", {
     p_shop_id: shopId,
     p_id: UUID.test(id) ? id : null,
     p_name: field(formData, "name", 80),
-    p_subject: field(formData, "subject", 200),
+    p_channel: ["sms", "email", "both"].includes(channel) ? channel : "email",
+    p_subject: field(formData, "subject", 200) || null,
     p_body: field(formData, "body", 10000),
   });
   redirect(list({ view: "templates", ...(error ? { err: contactError(error.message) } : { ok: "ok_template" }) }));
@@ -134,10 +136,12 @@ export async function sendMessage(_state: ComposeState, formData: FormData): Pro
   if (!session) return { step: "edit", message: "err_forbidden" };
   const input = composeInput(formData);
   if (!UUID.test(input.p_contact_id)) return { step: "edit", message: "err_forbidden" };
+  // update 63: from a conversation the answer is part of it (owner_reply: the conversation's own contact)
+  const conversation = String(formData.get("conversation_id") ?? "");
+  const inConversation = UUID.test(conversation);
   const { data, error } = await session.supabase.functions.invoke<{ id?: string; status?: string; error?: string }>("crm-messages", {
     body: {
-      action: "send",
-      contact_id: input.p_contact_id,
+      ...(inConversation ? { action: "reply", conversation_id: conversation } : { action: "send", contact_id: input.p_contact_id }),
       channel: input.p_channel,
       template_id: input.p_template_id,
       subject: input.p_subject,
@@ -156,5 +160,6 @@ export async function sendMessage(_state: ComposeState, formData: FormData): Pro
     return { step: "edit", message: messageError(reason) };
   }
   revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/contacts/${input.p_contact_id}`);
+  if (inConversation) revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/conversations/${conversation}`);
   return { step: "done", message: data.status === "sent" ? "sent" : data.status === "test" ? "sent_test" : "sent_failed" };
 }

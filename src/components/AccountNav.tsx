@@ -27,13 +27,19 @@ function Label({ text, badge, badgeLabel }: { text: string; badge?: number; badg
  * (Môj obchod, AI asistent, Priečinok s exportom, Predplatné a doména) keep the shop that is
  * open (?shop=…), so an owner with several shops stays on the same shop between them.
  */
-export function AccountNav({ links }: { links: { href: string; label: string; shopPage?: boolean; badge?: number; badgeLabel?: string }[] }) {
+export function AccountNav({
+  links,
+}: {
+  links: { href: string; label: string; shopPage?: boolean; badge?: number; badgeLabel?: string; also?: string[] }[];
+}) {
   const pathname = usePathname() ?? "";
   const shop = useSearchParams()?.get("shop") ?? "";
-  // The most specific link wins ("/sk/dashboard/plan" over "/sk/dashboard").
+  const under = (path: string) => pathname === path || pathname.startsWith(`${path}/`);
+  // The most specific link wins ("/sk/dashboard/plan" over "/sk/dashboard"); `also` = pages that are its tabs
+  // (update 63: Kontakty, Rezervácie and a conversation belong to "Asistent").
   const current = links
-    .filter((link) => pathname === link.href || pathname.startsWith(`${link.href}/`))
-    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+    .flatMap((link) => [link.href, ...(link.also ?? [])].filter(under).map((path) => ({ link: link.href, path })))
+    .sort((a, b) => b.path.length - a.path.length)[0]?.link;
   return (
     <>
       {links.map((link) => {

@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { formatDateTime, formatTime, localDay } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
+import { MessageComposer, type ComposerTemplate } from "@/components/MessageComposer";
 import { PendingButton } from "@/components/PendingButton";
 import { markCallback } from "../../callbackActions";
 import { deleteConversation, markConversation, saveConversationNote } from "../../conversationActions";
@@ -30,7 +31,9 @@ interface Card {
 
 interface Message {
   id: number;
-  role: "shopper" | "assistant";
+  /** update 63: "owner" = the shop's own answer by SMS or e-mail (owner_reply) */
+  role: "shopper" | "assistant" | "owner";
+  channel?: "sms" | "email" | null;
   body: string;
   body_owner: string | null;
   lang: string | null;
@@ -182,6 +185,15 @@ export default async function ConversationPage({ params, searchParams }: PagePro
   const callback = callbackRes.error
     ? null
     : (callbackRes.data as { callback_at: string | null; callback_name: string | null; callback_email: string | null; callback_answered_at: string | null } | null);
+  // update 63: the answer box (SMS / e-mail inside this conversation) for the conversation's contact, Pro only
+  const [replyPlan, replyTemplates, replyConfig] = linkedContact
+    ? await Promise.all([
+        supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
+        supabase.from("shop_email_templates").select("id, name, channel, subject, body").eq("shop_id", shop.id).order("name"),
+        supabase.functions.invoke<{ email?: boolean; sms_live?: boolean }>("crm-messages", { body: { action: "config" } }),
+      ])
+    : [null, null, null];
+  const canReply = replyPlan?.data === true;
   const k = dict.contacts;
   const contactLabel = (x: { name: string | null; phone: string | null; email: string | null }) =>
     [x.name, x.phone, x.email].filter(Boolean).join(" · ") || k.no_name;
@@ -395,7 +407,12 @@ export default async function ConversationPage({ params, searchParams }: PagePro
         {messages.map((m) => (
           <li key={m.id} className="flex flex-col gap-2 border-b border-line py-4" data-role={m.role}>
             <span className="text-xs font-semibold text-muted">
-              {when(m.created_at)} · {m.role === "shopper" ? c.shopper : c.assistant}
+              {when(m.created_at)} ·{" "}
+              {m.role === "shopper"
+                ? c.shopper
+                : m.role === "owner"
+                  ? `${dict.asst.role_owner}${m.channel ? ` · ${m.channel === "sms" ? k.channel_sms : k.channel_email}` : ""}`
+                  : c.assistant}
             </span>
             {m.body && <p className="whitespace-pre-line break-words">{m.body}</p>}
             {m.body_owner && (
@@ -420,6 +437,35 @@ export default async function ConversationPage({ params, searchParams }: PagePro
           </li>
         ))}
       </ol>
+
+      {linkedContact && (
+        <section id="reply" className="flex scroll-mt-4 flex-col gap-3" data-conversation-reply>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-semibold">{dict.asst.reply_title}</h2>
+            <Link
+              href={`/${lang}/dashboard/bookings?${new URLSearchParams({ shop: shop.slug, new: "1", contact: linkedContact.id })}`}
+              className="flex min-h-11 items-center rounded-[10px] border border-line px-4 text-[15px] font-semibold"
+            >
+              {dict.asst.booking_add}
+            </Link>
+          </div>
+          {canReply ? (
+            <MessageComposer
+              lang={lang}
+              contactId={linkedContact.id}
+              conversationId={conv.id}
+              hasPhone={Boolean(linkedContact.phone)}
+              hasEmail={Boolean(linkedContact.email)}
+              emailReady={replyConfig?.data?.email === true}
+              smsLive={replyConfig?.data?.sms_live === true}
+              templates={(replyTemplates?.data ?? []) as ComposerTemplate[]}
+              texts={k as Record<string, string>}
+            />
+          ) : (
+            <p className="border border-line p-3 text-sm">{k.needs_plan}</p>
+          )}
+        </section>
+      )}
 
       {loose.length > 0 && (
         <section className="flex flex-col gap-2">

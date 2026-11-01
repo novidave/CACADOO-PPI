@@ -32,7 +32,8 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabase.rpc("owner_conversations_export", { p_shop_id: shop.id, p_from: from, p_to: to });
   if (error) return back(error.code === "22023" ? "conversations_range" : "conversations_export");
-  const c = (await getDictionary(lang)).conversations;
+  const dict = await getDictionary(lang);
+  const c = dict.conversations;
   const csv = exportCsv((data ?? []) as ExportRow[], shop.timezone, {
     header: [
       c.csv_conversation,
@@ -53,6 +54,7 @@ export async function GET(request: Request) {
     no: c.no,
     shopper: c.shopper,
     assistant: c.assistant,
+    owner: dict.asst.role_owner,
     status: { new: c.status_new, read: c.status_read, archived: c.status_archived },
   });
   return new Response(csv, {

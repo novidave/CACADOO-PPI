@@ -67,22 +67,27 @@ export const toolPeople = (value: unknown) => Math.min(Math.max(Math.floor(Numbe
 /** Today as YYYY-MM-DD in the shop's time zone. */
 export const shopToday = (timeZone: string, now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(now);
 
-/** The instant the day `day` (YYYY-MM-DD) begins in `timeZone` — correct on the days the clocks change. */
-export function localMidnight(day: string, timeZone: string): Date {
-  const guess = new Date(`${day}T00:00:00Z`);
-  const offsetAt = (d: Date) => {
+/** The instant of the wall-clock time `time` (HH:MM) on `day` (YYYY-MM-DD) in `timeZone`, or null for a bad value. */
+export function localInstant(day: string, time: string, timeZone: string): Date | null {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  const t = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!d || !t || Number(t[1]) > 23 || Number(t[2]) > 59) return null;
+  const guess = Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]), Number(t[1]), Number(t[2]));
+  const offsetAt = (ms: number) => {
     const parts = Object.fromEntries(
       new Intl.DateTimeFormat("en-US", {
         timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
-      }).formatToParts(d).map((p) => [p.type, p.value]),
+      }).formatToParts(new Date(ms)).map((p) => [p.type, p.value]),
     );
-    const local = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
-    return local - d.getTime();
+    return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second) - ms;
   };
   // two steps: the offset at the guess, then at the corrected instant (they differ only across a clock change)
-  const first = new Date(guess.getTime() - offsetAt(guess));
-  return new Date(guess.getTime() - offsetAt(first));
+  const first = guess - offsetAt(guess);
+  return new Date(guess - offsetAt(first));
 }
+
+/** The instant the day `day` (YYYY-MM-DD) begins in `timeZone` — correct on the days the clocks change. */
+export const localMidnight = (day: string, timeZone: string): Date => localInstant(day, "00:00", timeZone) ?? new Date(NaN);
 
 /** The window find_free_slots asks SQL for: from the day's local midnight, `days` days on (+1 h for a long DST day). */
 export function slotWindow(fromText: string, days: number, timeZone: string, now = new Date()) {

@@ -111,3 +111,12 @@ Deno.test("TXT: title, facts, messages with files, cards and the no-answer mark"
 Deno.test("file names like the PDFs'", () => {
   eq(exportName("2026-10-30T13:05:00Z", "3f2a9c1b-0000-4000-8000-000000000000", "Europe/Bratislava", "txt"), "konverzacia_2026-10-30_14-05_3f2a9c1b.txt", "txt");
 });
+
+Deno.test("update 63: the shop's own answers carry the shop's label in TXT and CSV", () => {
+  const txt = conversationTxt(
+    [{ role: "owner", body: "RAL 7016 namiešame.", body_owner: null, created_at: "2026-10-30T13:05:00Z", files: [], cards: [] }],
+    "Europe/Bratislava",
+    { title: "Konverzácia", facts: [], shopper: "Zákazník", assistant: "Asistent", owner: "Obchod", inOwnerLang: "Po slovensky:", files: "Súbory", unanswered: "bez odpovede" },
+  );
+  if (!txt.includes("Obchod:\r\nRAL 7016 namiešame.") && !txt.includes("Obchod:\nRAL 7016 namiešame.")) throw new Error(txt);
+});
