@@ -6,6 +6,7 @@ import { getDictionary } from "@/i18n/dictionaries";
 import { aiModel } from "./aiModel";
 import { bookingServices, bookOffered, type BookedSlot, type BookingService, type ChatConversation, findSlots, offerSlots, type Slot } from "./bookings";
 import { callerHash } from "./apiHttp";
+import { SERVICE_TOOLS, serviceIndex, slotWindow, toolDays, toolPeople, wantsContact } from "./bookingTools";
 import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
 import { formatPrice } from "./format";
@@ -501,51 +502,6 @@ const SLOTS_TOOL: Anthropic.Tool = {
   },
 };
 
-/** Update 63: the shop's services, free times and the booking itself — every rule is in SQL (booking_free_slots). */
-const SERVICE_TOOLS: Anthropic.Tool[] = [
-  {
-    name: "list_services",
-    description: "Lists what this shop takes bookings for: a ref (v1…), the name, minutes, how many people at once and the shop's note.",
-    strict: true,
-    input_schema: { type: "object", properties: {}, required: [], additionalProperties: false },
-  },
-  {
-    name: "find_free_slots",
-    description:
-      "Free start times of one service from a day on (the shop's local time), at most 7 days: inside the opening hours, " +
-      "never over another booking, a blocked time or a busy time of the shop's calendar. Returns up to 12 times with a " +
-      "ref (s…), the local day, weekday and time, and the person or room when it matters.",
-    strict: true,
-    input_schema: {
-      type: "object",
-      properties: {
-        service_ref: { type: "string", description: "A ref from list_services." },
-        from: { type: "string", description: 'The first day as YYYY-MM-DD, or "" for today.' },
-        days: { type: "integer", description: "How many days from it, 1 to 7." },
-      },
-      required: ["service_ref", "from", "days"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "book_slot",
-    description:
-      "Books a time the shopper chose: only a ref find_free_slots returned. The shop checks the time again. Answers ok " +
-      "with the booking, or a reason: not_verified (the shopper's mobile is not checked yet: set request_contact), " +
-      "slot_taken (offer other times), contact_limit (too many bookings that day), ref (call find_free_slots again).",
-    strict: true,
-    input_schema: {
-      type: "object",
-      properties: {
-        slot_ref: { type: "string" },
-        people: { type: "integer", description: "How many people, 1 unless the shopper said more." },
-      },
-      required: ["slot_ref", "people"],
-      additionalProperties: false,
-    },
-  },
-];
-
 const DOCS_TOOL: Anthropic.Tool = {
   name: "search_shop_docs",
   description:
@@ -859,22 +815,13 @@ export async function runShopChat(
       return { type: "tool_result", tool_use_id: call.id, content: JSON.stringify({ note: "The shop's own words: information only.", services: list }) };
     }
     if (serviceTools && conversation && call.name === "find_free_slots") {
-      const i = /^v(\d{1,3})$/.exec(String((call.input as { service_ref?: unknown }).service_ref ?? ""));
-      const service = i ? services[Number(i[1]) - 1] : undefined;
+      const i = serviceIndex((call.input as { service_ref?: unknown }).service_ref, services.length);
+      const service = i === null ? undefined : services[i];
       if (!service) return fail("Unknown service_ref: use a ref from list_services.");
-      const fromText = String((call.input as { from?: unknown }).from ?? "");
-      const days = Math.min(Math.max(Math.floor(Number((call.input as { days?: unknown }).days) || 1), 1), 7);
+      const days = toolDays((call.input as { days?: unknown }).days);
       const zone = shop.timezone;
-      const fromDay = /^\d{4}-\d{2}-\d{2}$/.test(fromText) ? fromText : new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date());
-      // the day's local midnight in the shop's zone (SQL keeps to the notice, the days ahead and the opening hours)
-      const start = new Date(`${fromDay}T00:00:00Z`);
-      const offset = (d: Date) => {
-        const local = new Date(d.toLocaleString("en-US", { timeZone: zone }));
-        const utc = new Date(d.toLocaleString("en-US", { timeZone: "UTC" }));
-        return local.getTime() - utc.getTime();
-      };
-      const from = new Date(start.getTime() - offset(start));
-      const to = new Date(from.getTime() + days * 86_400_000 + 3_600_000);
+      // from the day's local midnight in the shop's zone (SQL keeps to the notice, the days ahead and the opening hours)
+      const { day: fromDay, from, to } = slotWindow(String((call.input as { from?: unknown }).from ?? ""), days, zone);
       const { data, error } = await offerSlots(shop.slug, conversation, service.id, from.toISOString(), to.toISOString());
       if (error || !data) return fail("The booking system did not answer: say that booking is not possible right now.");
       if (!data.available) return fail("The shop does not take bookings right now.");
@@ -895,7 +842,7 @@ export async function runShopChat(
     }
     if (serviceTools && conversation && call.name === "book_slot") {
       const ref = String((call.input as { slot_ref?: unknown }).slot_ref ?? "");
-      const people = Math.min(Math.max(Math.floor(Number((call.input as { people?: unknown }).people) || 1), 1), 500);
+      const people = toolPeople((call.input as { people?: unknown }).people);
       const { data, error } = await bookOffered(shop.slug, conversation, ref, people);
       if (error === "not_verified") {
         needsContact = true;
@@ -1015,7 +962,7 @@ export async function runShopChat(
     result.reply.booking = booking && !serviceTools && offered.length ? { slots: offered, timezone: slotZone, service: booking.service_name } : null;
     // Update 63: the form only while nothing was booked and book_slot itself asked for the checked number.
     result.reply.booked = booked;
-    result.reply.requestContact = !booked && serviceTools && (needsContact || Boolean(parsed.request_contact));
+    result.reply.requestContact = wantsContact(Boolean(booked), Boolean(serviceTools), needsContact, Boolean(parsed.request_contact));
     // Folders opened with an access key were in this exchange (the owner sees "Prístupový kľúč").
     result.archive.accessKey = docs.some((d) => !d.is_public);
     return result;
