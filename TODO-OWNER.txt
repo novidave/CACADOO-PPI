@@ -43,12 +43,6 @@ OPEN
       (OpenStreetMap Foundation – Nominatim / Overpass, Google Places if switched on, Anthropic).
    b) Send the texts to Claude. Legal texts always wait for your "OK" before they go live.
 
-5. Before the public launch: remove the 4 test shops
-   Shops: potraviny-centrum, drogeria-kostolne, zeleziarstvo-vychod, kisbolt-budapest (test data).
-   Steps:
-   a) Write to Claude: "remove the test shops".
-   b) Claude shows exactly what would be deleted and waits for your "OK" (deleting data always needs it).
-
 9. Create the Cacaduu Telegram bot and add its 3 settings
    Why: the Telegram bot for shop owners (Môj obchod → AI asistenti → Telegram) stays switched off until then.
    Steps:
@@ -86,14 +80,20 @@ OPEN
    Why: owners who link Telegram send their shop's data through Telegram (Telegram FZ-LLC, Dubai).
    Steps: Claude will show you the exact new lines for the privacy page; write "OK" or your changes.
 
-14. Deploy the new "telegram" function (one paste)
-   Why: the Telegram bot's code (the database part is already applied).
-   Steps:
-   a) Supabase → Edge Functions → "Deploy a new function" → "Via Editor" → name exactly: telegram
-   b) Delete the example code, paste the whole file telegram.txt that Claude sent you → Deploy.
-   c) Function → Settings: switch "Verify JWT" OFF → Save.
-   d) Write "done 14". Claude checks that the code is the same as in the repository.
 
+15. Optional: Google Calendar for bookings (skip if you already added these 3 secrets)
+   Why: bookings work without it. With it, a shop can connect its Google Calendar in Môj obchod → Asistent →
+   Nastavenia: Cacaduu then avoids the shop's busy times and writes its own bookings into that calendar.
+   Steps:
+   a) console.cloud.google.com → the same project as for item 2 → APIs & Services → Library → enable
+      "Google Calendar API".
+   b) OAuth consent screen → Scopes: add ".../auth/calendar.freebusy" and ".../auth/calendar.events.owned"
+      (nothing else).
+   c) Credentials → Create credentials → OAuth client ID → Web application → Authorized redirect URI exactly:
+      https://szhotccxyaepjhwsqdqx.supabase.co/functions/v1/bookings/oauth → Create.
+   d) Supabase → Edge Functions → Secrets → add GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET (from c),
+      and BOOKING_TOKEN_ENCRYPTION_KEY = a new long random text (40+ letters and digits; never change it later).
+   e) Write "done 15". Claude checks that "Pripojiť Google Kalendár" appears and works.
 
 DONE
 ----
@@ -135,3 +135,17 @@ DONE
    address ends with /functions/v1/quick-responder (version 4, created 29 Oct). Keep the one ending with
    /functions/v1/bookings.
    Steps: the old one → Settings → Delete function.
+
+5. Before the public launch: remove the 4 test shops — done 2026-11-01 (deleted after your OK; only Davide paint shop is left)
+   Shops: potraviny-centrum, drogeria-kostolne, zeleziarstvo-vychod, kisbolt-budapest (test data).
+   Steps:
+   a) Write to Claude: "remove the test shops".
+   b) Claude shows exactly what would be deleted and waits for your "OK" (deleting data always needs it).
+
+14. Deploy the new "telegram" function (one paste) — done 2026-11-01 (v1, same as the repository, Verify JWT off)
+   Why: the Telegram bot's code (the database part is already applied).
+   Steps:
+   a) Supabase → Edge Functions → "Deploy a new function" → "Via Editor" → name exactly: telegram
+   b) Delete the example code, paste the whole file telegram.txt that Claude sent you → Deploy.
+   c) Function → Settings: switch "Verify JWT" OFF → Save.
+   d) Write "done 14". Claude checks that the code is the same as in the repository.
