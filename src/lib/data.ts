@@ -231,6 +231,28 @@ export async function shopCompany(slug: string): Promise<{ zip: string | null; c
   return row ?? null;
 }
 
+/** The shop's own "Právne informácie" (database update 65; null before it or for an inactive shop). */
+export interface ShopLegalPage {
+  name: string;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  company_name: string | null;
+  ico: string | null;
+  dic: string | null;
+  zip: string | null;
+  contact_email: string | null;
+  privacy: string | null;
+  terms: string | null;
+  complaints: string | null;
+  updated_at: string | null;
+}
+
+export async function shopLegalPage(slug: string): Promise<ShopLegalPage | null> {
+  const { data, error } = await (await client()).rpc("shop_legal_page", { p_slug: slug });
+  return !error && data && typeof data === "object" ? (data as ShopLegalPage) : null;
+}
+
 /** The owner's short / long choices of the contact buttons (database update 51; {} before it = the defaults). */
 export async function shopContactButtons(slug: string): Promise<unknown> {
   const { data, error } = await (await client()).rpc("shop_contact_buttons", { p_slug: slug });

@@ -11493,4 +11493,56 @@ end $$;
 reset role;
 drop table t63;
 
+\echo '--- update 65: the shop''s own legal page — owners write, visitors read as written, owner B and visitors cannot write'
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  perform public.owner_save_legal_page(v_a, ' Info@Example.invalid ', E'Riadok 1\r\nRiadok 2 <b>tak</b>\x01', 'Podmienky', '');
+  assert (select contact_email = 'info@example.invalid' and privacy = E'Riadok 1\nRiadok 2 <b>tak</b>' and terms = 'Podmienky'
+            and complaints is null from public.shop_legal_pages where shop_id = v_a), 'kept as written (control characters out)';
+  begin perform public.owner_save_legal_page(v_a, 'not-an-email', null, null, null); raise exception 'bad e-mail';
+  exception when invalid_parameter_value then if sqlerrm <> 'email' then raise; end if; end;
+  begin perform public.owner_save_legal_page(v_a, null, repeat('x', 30001), null, null); raise exception 'too long';
+  exception when invalid_parameter_value then if sqlerrm <> 'too_long' then raise; end if; end;
+  begin insert into public.shop_legal_pages (shop_id, privacy) values (v_a, 'direct'); raise exception 'owner wrote the table';
+  exception when insufficient_privilege then null; end;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'legal_page_saved');
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_save_legal_page(v_a, null, 'B', null, null); raise exception 'B wrote A''s page';
+  exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.shop_legal_pages where shop_id = v_a), 'B reads nothing of A';
+end $$;
+reset role;
+
+set role anon;
+do $$
+declare
+  vj jsonb := public.shop_legal_page('potraviny-centrum');
+begin
+  assert vj ->> 'privacy' = E'Riadok 1\nRiadok 2 <b>tak</b>' and vj ->> 'contact_email' = 'info@example.invalid'
+     and vj ->> 'name' is not null, vj::text;
+  assert public.shop_legal_page('no-such-shop') is null;
+  begin perform count(*) from public.shop_legal_pages; raise exception 'visitors read the table';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_legal_page((select id from public.shops where slug = 'potraviny-centrum'), null, 'x', null, null);
+    raise exception 'anon wrote';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+delete from public.shop_legal_pages where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+reset role;
+
 \echo 'ALL DATABASE CHECKS PASSED'
