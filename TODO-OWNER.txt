@@ -49,13 +49,6 @@ OPEN
    a) Write to Claude: "remove the test shops".
    b) Claude shows exactly what would be deleted and waits for your "OK" (deleting data always needs it).
 
-8. Later, after item 7: delete the old function "quick-responder"
-   Why: it was an earlier copy of "bookings" under a wrong address; nothing calls it any more.
-   Where: in Supabase → Edge Functions there are TWO functions named "bookings". Open each one: the old one's
-   address ends with /functions/v1/quick-responder (version 4, created 29 Oct). Keep the one ending with
-   /functions/v1/bookings.
-   Steps: the old one → Settings → Delete function.
-
 9. Create the Cacaduu Telegram bot and add its 3 settings
    Why: the Telegram bot for shop owners (Môj obchod → AI asistenti → Telegram) stays switched off until then.
    Steps:
@@ -126,3 +119,10 @@ DONE
       register that name first.
    e) Write "done 13". Claude checks that the SMS functions report Brevo and that one test SMS arrives.
    Note: Brevo cannot RECEIVE SMS, so "Hodiny cez SMS" still needs item 1.
+
+8. Delete the old function "quick-responder" — done 2026-11-01 (only "bookings" left, jobs answer 200)
+   Why: it was an earlier copy of "bookings" under a wrong address; nothing calls it any more.
+   Where: in Supabase → Edge Functions there are TWO functions named "bookings". Open each one: the old one's
+   address ends with /functions/v1/quick-responder (version 4, created 29 Oct). Keep the one ending with
+   /functions/v1/bookings.
+   Steps: the old one → Settings → Delete function.
