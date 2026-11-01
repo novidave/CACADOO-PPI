@@ -67,8 +67,8 @@ export async function saveBookingRules(formData: FormData) {
     p_enabled: formData.get("enabled") === "on",
     p_min_notice: Math.round(Number(formData.get("min_notice_hours") ?? 0) * 60) || 0,
     p_max_days: int(formData, "max_days", 30),
-    p_step: int(formData, "step", 15),
-    p_max_per_contact_day: int(formData, "max_per_contact_day", 0) || null,
+    p_step: [5, 10, 15, 30].includes(int(formData, "step", 15)) ? int(formData, "step", 15) : 15,
+    p_max_per_contact_day: Math.min(Math.max(int(formData, "max_per_contact_day", 2), 1), 20),
   });
   back(error ? { err: reason(error.message) } : { ok: "ok_saved" });
 }

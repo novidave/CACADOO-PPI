@@ -23,6 +23,7 @@ import { Field, inputClass, ProOnly } from "./shared";
 /** owner_booking_setup() (database update 63). */
 export interface BookingSetup {
   plan: boolean;
+  /** step 5 / 10 / 15 / 30 min; 1–20 bookings per customer a day (owner_save_booking_rules) */
   rules: { enabled: boolean; min_notice: number; max_days: number; step: number; max_per_contact_day: number | null };
   crm: { reminder_on: boolean; reminder_offset: "2h" | "day_before_18"; alert_email: string | null; notify_on_owner_change: boolean };
   services: {
@@ -161,7 +162,7 @@ export function AssistantSettings({
                 </Field>
                 <Field label={a.rules_step}>
                   <select name="step" defaultValue={String(setup.rules.step)} disabled={ro} className={`${inputClass} bg-white`}>
-                    {[5, 10, 15, 20, 30, 45, 60].map((n) => (
+                    {[5, 10, 15, 30].map((n) => (
                       <option key={n} value={n}>
                         {t(a.minutes, { n })}
                       </option>
@@ -169,7 +170,7 @@ export function AssistantSettings({
                   </select>
                 </Field>
                 <Field label={a.rules_per_contact}>
-                  <input type="number" name="max_per_contact_day" min={0} max={20} defaultValue={setup.rules.max_per_contact_day ?? 0} disabled={ro} className={inputClass} />
+                  <input type="number" name="max_per_contact_day" required min={1} max={20} defaultValue={setup.rules.max_per_contact_day ?? 2} disabled={ro} className={inputClass} />
                 </Field>
               </div>
               <p className="text-[13px] text-muted">{a.rules_hint}</p>
