@@ -6,7 +6,6 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DAYS = [30, 90, 365];
 /** The list's own address parameters (filters and page) a form may carry back. */
 const LIST_KEYS = ["cq", "cfrom", "cto", "cstatus", "cstar", "cna", "cfiles", "clang", "cpage"];
 const MARKS = ["read", "new", "archive", "unarchive", "star", "unstar"];
@@ -46,19 +45,6 @@ async function logDeleted(session: NonNullable<Awaited<ReturnType<typeof getSess
     p_details: { count, failed },
   });
   if (error && error.code !== "PGRST202" && error.code !== "42883") console.error(`conversations: deletion not logged (${error.code})`);
-}
-
-/**
- * How long the shop keeps its assistant's conversations: "Neobmedzene" (empty = kept until the owner deletes them,
- * database update 55) or 30, 90 or 365 days (owners only).
- */
-export async function saveAssistantRetention(formData: FormData) {
-  const { session, shopId, back } = await start(formData);
-  const value = String(formData.get("retention_days") ?? "");
-  const days = value === "" ? null : Number(value);
-  if (!UUID.test(shopId) || (days !== null && !DAYS.includes(days))) back({ err: "invalid" });
-  const { error } = await session.supabase.rpc("owner_set_assistant_retention", { p_shop_id: shopId, p_days: days });
-  back(error ? { err: error.message } : { ok: days === null ? "retention_unlimited" : "retention", n: String(days ?? "") });
 }
 
 /**

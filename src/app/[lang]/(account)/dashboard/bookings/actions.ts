@@ -3,10 +3,23 @@
 import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
+import { localInstant } from "@/lib/bookingTools";
 import { siteUrl } from "@/lib/site";
 
+/**
+ * Asistent → Rezervácie (update 63): the owner adds, moves, cancels and marks bookings. Cacaduu's own booking system is the
+ * source of truth: owner_booking_create / _move check the time again under the lane's lock (opening hours, blocks, other
+ * bookings with their buffers, capacity), so nothing here is trusted; a move or a cancel queues the customer's SMS when
+ * "SMS pri zmene" is on, and the optional Google Calendar follows from the job.
+ */
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STATUSES = ["confirmed", "cancelled", "no_show"];
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const REASONS = [
+  "no_plan", "slot_taken", "not_available", "service", "resource", "people", "phone", "name", "not_found", "status",
+  "not_confirmed", "contact_limit", "no_contact",
+] as const;
+const reason = (message: string | undefined) => (REASONS.find((r) => r === message) ? `err_${message}` : "err_failed");
 
 /** Who is asking and for which shop; the owner_* functions and the bookings function decide what they may do. */
 async function start(formData: FormData) {
@@ -16,62 +29,83 @@ async function start(formData: FormData) {
   if (!session) redirect(`/${lang}/login`);
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
-  const page = (query: Record<string, string>) => {
-    const view = String(formData.get("view") ?? "");
-    const week = String(formData.get("week") ?? "");
-    return `/${lang}/dashboard/bookings?${new URLSearchParams({
+  const day = String(formData.get("day") ?? "");
+  const page = (query: Record<string, string>): never =>
+    redirect(`/${lang}/dashboard/bookings?${new URLSearchParams({
       ...(slug ? { shop: slug } : {}),
-      ...(view ? { view } : {}),
-      ...(/^\d{4}-\d{2}-\d{2}$/.test(week) ? { week } : {}),
+      ...(DAY.test(day) ? { day } : {}),
       ...query,
-    })}`;
-  };
+    })}`);
   return { lang, session, shopId, slug, page };
 }
 
-const int = (formData: FormData, name: string) => Math.floor(Number(formData.get(name)));
+const text = (formData: FormData, name: string, max: number) => String(formData.get(name) ?? "").trim().slice(0, max);
+const id = (formData: FormData, name: string) => {
+  const v = String(formData.get(name) ?? "");
+  return UUID.test(v) ? v : null;
+};
 
-/** "Nastavenia rezervácií" (members with the plan). */
-export async function saveBookingSettings(formData: FormData) {
+/** "+ Rezervácia": a free time the page offered (owner_booking_free_slots) for a contact or a new name + phone. */
+export async function createBooking(formData: FormData) {
   const { session, shopId, page } = await start(formData);
-  const { error } = await session.supabase.rpc("owner_save_booking_settings", {
+  const startsAt = text(formData, "starts_at", 40);
+  if (Number.isNaN(Date.parse(startsAt))) page({ new: "1", err: "err_time" });
+  const { error } = await session.supabase.rpc("owner_booking_create", {
     p_shop_id: shopId,
-    p_enabled: formData.get("enabled") === "on",
-    p_service_name: String(formData.get("service_name") ?? "").slice(0, 80),
-    p_duration: int(formData, "duration"),
-    p_step: int(formData, "step"),
-    p_buffer: int(formData, "buffer") || 0,
-    p_lead: (int(formData, "lead_hours") || 0) * 60,
-    p_horizon: int(formData, "horizon"),
-    p_reminder: formData.get("reminder") === "on",
+    p_service_id: id(formData, "service_id"),
+    p_starts_at: new Date(startsAt).toISOString(),
+    p_resource_id: id(formData, "resource_id"),
+    p_people: Math.min(Math.max(Math.floor(Number(formData.get("people")) || 1), 1), 500),
+    p_contact_id: id(formData, "contact_id"),
+    p_name: text(formData, "name", 120) || null,
+    p_phone: text(formData, "phone", 40) || null,
+    p_note: text(formData, "note", 500) || null,
   });
-  redirect(page({ view: "settings", ...(error ? { err: error.message === "no_plan" ? "err_no_plan" : "err_settings" } : { ok: "ok_settings" }) }));
+  page(error ? { new: "1", err: reason(error.message) } : { ok: "ok_created" });
 }
 
-/** Potvrdená / Zrušená / Neprišiel. */
-export async function setBookingStatus(formData: FormData) {
+/** "Presunúť": a new day and time in the shop's time zone (checked again like a new booking; the customer gets an SMS). */
+export async function moveBooking(formData: FormData) {
   const { session, page } = await start(formData);
-  const id = String(formData.get("booking_id") ?? "");
-  const status = String(formData.get("status") ?? "");
-  if (!UUID.test(id) || !STATUSES.includes(status)) redirect(page({ err: "err_failed" }));
-  const { error } = await session.supabase.rpc("owner_set_booking_status", { p_id: id, p_status: status });
-  redirect(page(error ? { err: error.message === "slot_taken" ? "err_slot_taken" : "err_failed" } : { ok: "ok_status" }));
+  const booking = id(formData, "booking_id");
+  const [day, time] = text(formData, "to", 16).split("T");
+  const to = localInstant(day ?? "", time ?? "", text(formData, "timezone", 60) || "UTC");
+  if (!booking || !to) page({ err: "err_time" });
+  const { error } = await session.supabase.rpc("owner_booking_move", { p_id: booking, p_starts_at: to!.toISOString(), p_resource_id: null });
+  page(error ? { err: reason(error.message) } : { ok: "ok_moved", day: day ?? "" });
+}
+
+export async function cancelBooking(formData: FormData) {
+  const { session, page } = await start(formData);
+  const booking = id(formData, "booking_id");
+  const { error } = booking ? await session.supabase.rpc("owner_booking_cancel", { p_id: booking }) : { error: { message: "not_found" } };
+  page(error ? { err: reason(error.message) } : { ok: "ok_cancelled" });
+}
+
+/** "Prišiel" (done) / "Neprišiel" (no_show). */
+export async function markBooking(formData: FormData) {
+  const { session, page } = await start(formData);
+  const booking = id(formData, "booking_id");
+  const status = formData.get("status") === "no_show" ? "no_show" : "done";
+  const { error } = booking ? await session.supabase.rpc("owner_booking_mark", { p_id: booking, p_status: status }) : { error: { message: "not_found" } };
+  page(error ? { err: reason(error.message) } : { ok: "ok_marked" });
 }
 
 /** "Pripojiť Google Kalendár": the bookings function returns Google's consent page (PKCE, the two scopes only). */
 export async function connectGoogle(formData: FormData) {
   const { lang, session, shopId, slug, page } = await start(formData);
+  // Google comes back to this page (the function accepts only /dashboard/bookings), which forwards to Nastavenia.
   const back = `${siteUrl()}/${lang}/dashboard/bookings?${new URLSearchParams({ shop: slug, view: "settings" })}`;
   const { data, error } = await session.supabase.functions.invoke<{ url?: string }>("bookings", {
     body: { action: "google_connect", shop_id: shopId, return_url: back },
   });
-  if (error || !data?.url) redirect(page({ view: "settings", err: "calendar_failed" }));
-  redirect(data.url);
+  if (error || !data?.url) page({ view: "settings", err: "calendar_failed" });
+  redirect(data!.url!);
 }
 
-/** "Odpojiť": the token is revoked at Google and deleted here. */
+/** "Odpojiť": the token is revoked at Google and deleted here; no booking changes. */
 export async function disconnectGoogle(formData: FormData) {
   const { session, shopId, page } = await start(formData);
   const { error } = await session.supabase.functions.invoke("bookings", { body: { action: "google_disconnect", shop_id: shopId } });
-  redirect(page({ view: "settings", ...(error ? { err: "err_failed" } : { ok: "calendar_disconnected" }) }));
+  page({ view: "settings", ...(error ? { err: "err_failed" } : { ok: "calendar_disconnected" }) });
 }

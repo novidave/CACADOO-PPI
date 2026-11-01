@@ -1,7 +1,7 @@
 import type { requireUser } from "@/lib/auth";
 import type { Dictionary } from "@/i18n/dictionaries";
 import type { MyShop } from "@/lib/myShops";
-import { TEMPLATE_VARIABLES, variableToken } from "@/lib/crm";
+import { SK_VARIABLES, TEMPLATE_VARIABLES, variableToken } from "@/lib/crm";
 import { inputClass } from "../shared";
 
 /** The parts "Kontakty" and a contact's page share (database update 56). */
@@ -47,6 +47,11 @@ export function VariableList({ dict }: { dict: Dictionary }) {
     <div className="text-xs">
       <p className="text-muted">{c.variables}</p>
       <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+        {SK_VARIABLES.map((v) => (
+          <li key={v}>
+            <code className="font-mono">{`{${v}}`}</code> <span className="text-muted">– {c[`var_${v}`]}</span>
+          </li>
+        ))}
         {TEMPLATE_VARIABLES.map((v) => (
           <li key={v}>
             <code className="font-mono">{variableToken(v)}</code> <span className="text-muted">– {c[`var_${v}`]}</span>

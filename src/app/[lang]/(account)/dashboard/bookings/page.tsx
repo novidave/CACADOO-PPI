@@ -2,16 +2,20 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
-import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
+import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
+import { localMidnight, shopToday } from "@/lib/bookingTools";
+import { assistantTabUrl } from "@/lib/dashboardPages";
+import { formatDate, utcToLocalInput } from "@/lib/format";
+import { addDays, displayTime, rangesFor, validRanges, weekdayOf } from "@/lib/hours";
+import { loadSmsUsage, quotaLeft } from "@/lib/smsUsage";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { SmsUsage } from "@/components/SmsUsage";
-import { formatDate } from "@/lib/format";
-import { loadSmsUsage, quotaLeft } from "@/lib/smsUsage";
-import { hiddenFields, inputClass, ProOnly, ShopSwitcher } from "../shared";
+import { AssistantTabs, waitingCount } from "../AssistantTabs";
+import type { BookingSetup } from "../AssistantSettings";
 import { chooseShop } from "../contacts/parts";
-import { connectGoogle, disconnectGoogle, saveBookingSettings, setBookingStatus } from "./actions";
+import { hiddenFields, inputClass, ProOnly, ShopSwitcher } from "../shared";
+import { cancelBooking, createBooking, markBooking, moveBooking } from "./actions";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/bookings">): Promise<Metadata> {
   const { lang } = await params;
@@ -21,348 +25,352 @@ export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const VIEWS = ["list", "calendar", "settings"] as const;
-type View = (typeof VIEWS)[number];
-const STATUSES = ["confirmed", "cancelled", "no_show"] as const;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface Booking {
   id: string;
   starts_at: string;
   ends_at: string;
-  status: "confirmed" | "cancelled" | "no_show";
+  status: "confirmed" | "done" | "no_show" | "cancelled";
   service_name: string | null;
-  name: string;
-  phone: string;
-  email: string | null;
-  address: string | null;
+  resource_name: string | null;
+  people: number;
+  name: string | null;
+  phone: string | null;
   note: string | null;
   contact_id: string | null;
   conversation_id: string | null;
-  google_status: "none" | "created" | "failed";
-  reminder_sent_at: string | null;
+  source: string;
+  google_status: string | null;
 }
 
-interface Settings {
-  enabled: boolean;
-  service_name: string | null;
-  duration_minutes: number;
-  step_minutes: number;
-  buffer_minutes: number;
-  lead_minutes: number;
-  horizon_days: number;
-  reminder: boolean;
+interface CalendarRow {
+  special_closed: boolean | null;
+  special_ranges: unknown;
+  holiday_kind: "day_off" | "shops_closed" | null;
 }
 
-/** "2026-11-10" of an instant in the shop's time zone. */
-const localDay = (date: Date, timeZone: string) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-const addDays = (day: string, n: number) => {
-  const d = new Date(`${day}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-};
-/** The Monday of a day's week. */
-const monday = (day: string) => {
-  const dow = new Date(`${day}T12:00:00Z`).getUTCDay();
-  return addDays(day, -((dow + 6) % 7));
-};
+/** "+421 911 ··· 207": enough to recognise a number in a list (the contact's page shows it whole). */
+const masked = (phone: string | null) => (phone ? `${phone.slice(0, 4)} ${phone.slice(4, 7)} ··· ${phone.slice(-3)}` : "");
+const time = (iso: string, timeZone: string) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+const minutes = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 60_000);
 
 /**
- * "Rezervácie" (database update 57, CRM phase 3; Pro): the bookings made through the shop assistant — a list (from today
- * on, by status), a week calendar, and the settings (on/off, what and how long, the Google Calendar, the day-before
- * reminder SMS). Potvrdená / Zrušená / Neprišiel per booking; the database decides every rule.
+ * Asistent → Rezervácie (update 63, the Rezervacie screen): Cacaduu's own bookings — they work without any outside
+ * calendar. A week strip, the chosen day's opening hours and bookings (service · length · resource, the contact, where it
+ * came from), "Presunúť" / "Zrušiť" / "Prišiel" / "Neprišiel" per booking, and "+ Rezervácia": a service and a day → the
+ * free times from booking_free_slots (the same rule as the assistant), then a contact or a name and phone. Old addresses
+ * (?view=list|calendar) show the day view; ?view=settings goes to Nastavenia.
  */
 export default async function BookingsPage({ params, searchParams }: PageProps<"/[lang]/dashboard/bookings">) {
   const { lang } = await params;
   if (!isLocale(lang)) notFound();
   const sp = await searchParams;
+  if (first(sp.view) === "settings") {
+    const q = new URLSearchParams({ at: "settings", part: "calendar" });
+    for (const k of ["shop", "ok", "err"]) if (first(sp[k])) q.set(k, first(sp[k])!);
+    redirect(`/${lang}/dashboard/assistant?${q}#calendar`);
+  }
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
   const { supabase } = session;
-  const b = dict.bookings;
+  const a = dict.asst;
   const chosen = await chooseShop(supabase, first(sp.shop));
   if (chosen.error) return <DbError message={chosen.error} dict={dict} />;
   const shop = chosen.shop;
   if (!shop) redirect(`/${lang}/dashboard`);
-  const view: View = VIEWS.includes(first(sp.view) as View) ? (first(sp.view) as View) : "list";
   const tz = shop.timezone;
-  const today = localDay(new Date(), tz);
-  const week = monday(DAY.test(first(sp.week) ?? "") ? first(sp.week)! : today);
-  const status = STATUSES.includes(first(sp.status) as (typeof STATUSES)[number]) ? first(sp.status)! : "";
+  const today = shopToday(tz);
+  const day = DAY.test(first(sp.day) ?? "") ? first(sp.day)! : today;
+  const dow = (new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7;
+  const monday = addDays(day, -dow);
+  const from = localMidnight(day, tz);
+  const to = localMidnight(addDays(day, 1), tz);
+  const adding = first(sp.new) === "1";
+  const newService = UUID.test(first(sp.service) ?? "") ? first(sp.service)! : "";
+  const newDay = DAY.test(first(sp.on) ?? "") ? first(sp.on)! : day;
+  const contactId = UUID.test(first(sp.contact) ?? "") ? first(sp.contact)! : "";
 
-  const [plan, settingsRes, googleRes, list, sms] = await Promise.all([
+  const [plan, list, setupRes, calendarRes, sms, waiting, free] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
-    supabase.from("shop_booking_settings").select("*").eq("shop_id", shop.id).maybeSingle<Settings>(),
-    supabase.from("booking_google_connections").select("status, last_error, connected_at").eq("shop_id", shop.id).maybeSingle(),
-    view === "settings"
-      ? Promise.resolve({ data: [], error: null })
-      : supabase.rpc("owner_bookings", {
-          p_shop_id: shop.id,
-          p_from: view === "calendar" ? week : today,
-          p_to: view === "calendar" ? addDays(week, 6) : null,
-          p_status: view === "calendar" ? null : status || null,
-          p_limit: 300,
-          p_offset: 0,
-        }),
-    // The booking's SMS this month (database update 58): at the limit the assistant offers no times.
+    supabase.rpc("owner_booking_list", { p_shop_id: shop.id, p_from: from.toISOString(), p_to: to.toISOString(), p_status: null }),
+    supabase.rpc("owner_booking_setup", { p_shop_id: shop.id }),
+    supabase.rpc("shop_calendar", { p_shop_ids: [shop.id], p_from: day, p_to: day }),
     loadSmsUsage(supabase, shop.id),
+    waitingCount(supabase, shop.id),
+    adding && newService
+      ? supabase.rpc("owner_booking_free_slots", {
+          p_shop_id: shop.id,
+          p_service_id: newService,
+          p_from: localMidnight(newDay, tz).toISOString(),
+          p_to: localMidnight(addDays(newDay, 1), tz).toISOString(),
+          p_resource_id: null,
+          p_people: 1,
+        })
+      : Promise.resolve({ data: null, error: null }),
   ]);
   const hasPlan = !plan.error && plan.data === true;
-  const unavailable = Boolean(settingsRes.error || list.error);
+  const setup = setupRes.error ? null : (setupRes.data as BookingSetup);
   const bookings = (list.data ?? []) as Booking[];
-  const settings = settingsRes.data ?? null;
-  const google = googleRes.error ? null : (googleRes.data as { status: string; last_error: string | null; connected_at: string } | null);
   const hidden = hiddenFields(lang, shop);
   const url = (query: Record<string, string>) => `/${lang}/dashboard/bookings?${new URLSearchParams({ shop: shop.slug, ...query })}`;
-  const labels: Record<View, string> = { list: b.tab_list, calendar: b.tab_calendar, settings: b.tab_settings };
-  const notice = (() => {
-    const texts = b as Record<string, string>;
-    const ok = first(sp.ok);
-    const err = first(sp.err);
-    if (ok && texts[ok]) return <p role="status" className="border border-foreground p-3 font-medium">{texts[ok]}</p>;
-    if (err) return <p className="border border-line p-3">{texts[err] ?? texts.err_failed}</p>;
-    return null;
-  })();
+  const settings = (part: string) => `${assistantTabUrl(lang, "settings", shop.slug, { part })}#${part}`;
+  const texts = a as Record<string, string>;
+  const ok = first(sp.ok);
+  const err = first(sp.err);
+  const dayName = (d: string, style: "short" | "long") =>
+    new Intl.DateTimeFormat(lang as Locale, { timeZone: "UTC", weekday: style }).format(new Date(`${d}T12:00:00Z`));
+  const month = new Intl.DateTimeFormat(lang as Locale, { timeZone: "UTC", month: "long", year: "numeric" }).format(new Date(`${day}T12:00:00Z`));
+
+  // the day's opening hours: a special day > a holiday > the regular hours
+  const cal = ((calendarRes.data ?? []) as CalendarRow[])[0];
+  const ranges: [string, string][] =
+    cal?.special_closed === true
+      ? []
+      : cal?.special_closed === false
+        ? validRanges(cal.special_ranges)
+        : cal?.holiday_kind === "shops_closed"
+          ? []
+          : rangesFor(shop.opening_hours, weekdayOf(day));
+  const hoursLine = ranges.length ? t(a.open_ranges, { ranges: ranges.map(([s, e]) => `${displayTime(s)}–${displayTime(e)}`).join(", ") }) : a.closed_day;
+  const services = (setup?.services ?? []).filter((s) => s.active);
+  const freeSlots = (free.data ?? []) as { starts_at: string; resource_id: string | null; seats_left: number }[];
+  const resourceName = (id: string | null) => setup?.resources.find((r) => r.id === id)?.name ?? null;
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{b.title}</h1>
+    <div className="flex max-w-3xl flex-col gap-5">
+      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current="bookings" waiting={waiting}>
         <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/bookings?shop=${slug}`} />
-        <p className="text-muted">{shop.name}</p>
-        <p className="text-sm">{b.intro}</p>
+        {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
         {!hasPlan && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
-        {settings && !settings.enabled && hasPlan && view !== "settings" && (
-          <p className="border border-line p-3 text-sm">
-            {b.off}{" "}
-            <Link href={url({ view: "settings" })} className="underline underline-offset-4">
-              {b.tab_settings}
-            </Link>
-          </p>
-        )}
-        {hasPlan && settings?.enabled && sms && quotaLeft(sms.booking) === 0 && (
-          <p role="alert" className="border border-foreground p-3 text-sm font-semibold" data-booking-paused>
-            {t(b.sms_paused, { date: formatDate(sms.resets_at, lang, tz) })}
-          </p>
-        )}
-        {notice}
-        {hasPlan && sms && view === "settings" && <SmsUsage usage={sms} lang={lang} timeZone={tz} dict={dict} only="booking" />}
-      </header>
+      </AssistantTabs>
 
-      <nav aria-label={b.tabs} className="flex flex-wrap gap-1 border-b border-line" data-booking-tabs>
-        {VIEWS.map((to) => (
-          <Link
-            key={to}
-            href={url(to === "list" ? {} : { view: to })}
-            aria-current={view === to ? "page" : undefined}
-            className={`-mb-px flex min-h-11 items-center border-b-2 px-3 text-sm ${view === to ? "border-foreground font-semibold" : "border-transparent text-muted"}`}
-            data-tab={to}
-          >
-            {labels[to]}
+      <section className="flex flex-col gap-3.5" data-tab-panel="bookings">
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-line px-3 py-2.5 text-sm">
+          <span>
+            <strong>{a.bookings_source}</strong>{" "}
+            <span className="text-muted">· {setup?.google?.status === "ok" ? a.bookings_google_on : a.bookings_google_optional}</span>
+          </span>
+          <Link href={settings("calendar")} className="flex min-h-11 flex-none items-center underline underline-offset-4">
+            {a.set_up}
           </Link>
-        ))}
-      </nav>
+        </div>
+        {hasPlan && setup && !setup.rules.enabled && (
+          <p className="border border-line p-3 text-sm">
+            {a.bookings_off}{" "}
+            <Link href={settings("rules")} className="underline underline-offset-4">
+              {a.tab_settings}
+            </Link>
+          </p>
+        )}
+        {hasPlan && setup?.rules.enabled && sms && quotaLeft(sms.booking) === 0 && (
+          <p role="alert" className="border border-foreground p-3 text-sm font-semibold" data-booking-paused>
+            {t(dict.bookings.sms_paused, { date: formatDate(sms.resets_at, lang, tz) })}
+          </p>
+        )}
+        {ok && texts[ok] && <p role="status" className="border border-foreground p-3 font-medium">{texts[ok]}</p>}
+        {err && <p role="alert" className="border border-line p-3">{texts[err] ?? (dict.bookings as Record<string, string>)[err] ?? a.err_failed}</p>}
 
-      {unavailable ? (
-        <p className="text-sm text-muted">{b.unavailable}</p>
-      ) : view === "settings" ? (
-        <SettingsView dict={dict} settings={settings} google={google} hidden={hidden} hasPlan={hasPlan} />
-      ) : view === "calendar" ? (
-        <section className="flex flex-col gap-3" data-tab-panel="calendar">
-          <nav className="flex items-center justify-between text-sm">
-            <Link href={url({ view: "calendar", week: addDays(week, -7) })} className="min-h-11 py-2 underline underline-offset-4">
-              {b.prev_week}
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-[17px] font-bold first-letter:uppercase">{month}</h2>
+          {hasPlan && (
+            <Link href={url({ day, new: "1", on: day })} className="flex min-h-11 items-center rounded-[10px] border border-foreground bg-foreground px-4 text-[15px] font-semibold text-white" data-booking-add>
+              {a.booking_add}
             </Link>
-            <span className="font-medium">
-              {formatDay(week, lang)} – {formatDay(addDays(week, 6), lang)}
-            </span>
-            <Link href={url({ view: "calendar", week: addDays(week, 7) })} className="min-h-11 py-2 underline underline-offset-4">
-              {b.next_week}
-            </Link>
-          </nav>
-          <ol className="grid grid-cols-1 gap-2 sm:grid-cols-7" data-week={week}>
-            {Array.from({ length: 7 }, (_, i) => addDays(week, i)).map((day) => {
-              const items = bookings.filter((x) => localDay(new Date(x.starts_at), tz) === day);
-              return (
-                <li key={day} className={`flex min-h-24 flex-col gap-1 border p-2 ${day === today ? "border-foreground" : "border-line"}`} data-day={day}>
-                  <span className={`text-xs ${day === today ? "font-semibold" : "text-muted"}`}>{formatDay(day, lang, true)}</span>
-                  {items.length === 0 ? (
-                    <span className="text-xs text-muted">–</span>
-                  ) : (
-                    items.map((x) => (
-                      <span key={x.id} className={`text-xs ${x.status === "confirmed" ? "" : "text-muted line-through"}`} data-calendar-booking={x.status}>
-                        <span className="font-semibold">{time(x.starts_at, tz)}</span> {x.name}
-                        <span className="sr-only"> · {statusText(x.status, dict)}</span>
-                      </span>
-                    ))
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-      ) : (
-        <section className="flex flex-col gap-3" data-tab-panel="list">
-          <nav className="flex flex-wrap gap-x-3 gap-y-1 text-sm" aria-label={b.status}>
-            {(["", ...STATUSES] as const).map((s) => (
-              <Link key={s || "all"} href={url(s ? { status: s } : {})} aria-current={status === s ? "page" : undefined} className={status === s ? "font-semibold underline underline-offset-4" : "text-muted"}>
-                {s ? statusText(s, dict) : b.status_all}
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Link href={url({ day: addDays(monday, -7) })} aria-label={dict.bookings.prev_week} className="flex h-14 w-8 flex-none items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+          </Link>
+          <nav aria-label={a.day_picker} className="flex flex-1 gap-1.5">
+            {Array.from({ length: 7 }, (_, i) => addDays(monday, i)).map((d) => (
+              <Link
+                key={d}
+                href={url({ day: d })}
+                aria-current={d === day ? "date" : undefined}
+                className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 rounded-[10px] border text-[13px] font-semibold ${
+                  d === day ? "border-foreground bg-foreground text-white" : d === today ? "border-foreground" : "border-line"
+                }`}
+              >
+                <span>{dayName(d, "short")}</span>
+                <span className="text-base">{Number(d.slice(8))}</span>
               </Link>
             ))}
           </nav>
-          {bookings.length === 0 ? (
-            <p className="text-sm text-muted">{b.none}</p>
-          ) : (
-            <ul className="flex flex-col divide-y divide-line border-y border-line" data-booking-list>
-              {bookings.map((x) => (
-                <li key={x.id} className="flex flex-col gap-2 py-3" data-booking={x.status}>
-                  <span className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
-                    <span className="font-semibold">
-                      {formatDay(localDay(new Date(x.starts_at), tz), lang, true)} {time(x.starts_at, tz)}–{time(x.ends_at, tz)}
-                    </span>
-                    <span className={x.status === "confirmed" ? "font-semibold" : "text-muted"}>{statusText(x.status, dict)}</span>
-                    {x.service_name && <span className="text-muted">{x.service_name}</span>}
-                  </span>
-                  <span className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+          <Link href={url({ day: addDays(monday, 7) })} aria-label={dict.bookings.next_week} className="flex h-14 w-8 flex-none items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
+          </Link>
+        </div>
+        <p className="text-[13px] text-muted">
+          <span className="first-letter:uppercase">{dayName(day, "long")}</span> {formatDate(`${day}T12:00:00Z`, lang, "UTC")} · {hoursLine}
+        </p>
+
+        {adding && hasPlan && (
+          <section className="flex flex-col gap-3 rounded-xl border-2 border-foreground p-4" data-booking-new>
+            <h3 className="text-[17px] font-bold">{a.booking_new_title}</h3>
+            {services.length === 0 ? (
+              <p className="text-sm">
+                {a.services_none}{" "}
+                <Link href={settings("services")} className="underline underline-offset-4">
+                  {a.tab_settings}
+                </Link>
+              </p>
+            ) : (
+              <>
+                <form method="get" action={`/${lang}/dashboard/bookings`} className="flex flex-col gap-3">
+                  <input type="hidden" name="shop" value={shop.slug} />
+                  <input type="hidden" name="day" value={day} />
+                  <input type="hidden" name="new" value="1" />
+                  {contactId && <input type="hidden" name="contact" value={contactId} />}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1 text-sm">
+                      {a.booking_service}
+                      <select name="service" defaultValue={newService} required className={`${inputClass} min-h-11 bg-white text-[15px]`}>
+                        <option value="" disabled>
+                          {a.choose}
+                        </option>
+                        {services.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} · {t(a.minutes, { n: s.duration })}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm">
+                      {a.booking_day}
+                      <input type="date" name="on" defaultValue={newDay} required className={`${inputClass} min-h-11 text-[15px]`} />
+                    </label>
+                  </div>
+                  <button type="submit" className="min-h-11 self-start rounded-[10px] border border-line bg-white px-4 text-[15px] font-semibold">
+                    {a.booking_show_times}
+                  </button>
+                </form>
+                {newService && (
+                  <form action={createBooking} className="flex flex-col gap-3 border-t border-line pt-3">
+                    {hidden({ day, service_id: newService, ...(contactId ? { contact_id: contactId } : {}) })}
+                    {free.error ? (
+                      <p className="text-sm">{a.err_failed}</p>
+                    ) : freeSlots.length === 0 ? (
+                      <p className="text-sm font-semibold">{a.booking_no_times}</p>
+                    ) : (
+                      <fieldset className="flex flex-col gap-2">
+                        <legend className="mb-1 text-sm">{a.booking_time}</legend>
+                        <div className="flex flex-wrap gap-2">
+                          {freeSlots.slice(0, 60).map((s, i) => (
+                            <label key={`${s.starts_at}-${s.resource_id ?? ""}`} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-[10px] border border-line px-3 text-[15px] has-[:checked]:border-foreground has-[:checked]:font-semibold">
+                              <input type="radio" name="starts_at" value={s.starts_at} required defaultChecked={i === 0} className="accent-foreground" />
+                              {time(s.starts_at, tz)}
+                              {resourceName(s.resource_id) && <span className="text-[13px] text-muted">· {resourceName(s.resource_id)}</span>}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    )}
+                    {!contactId && (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label className="flex flex-col gap-1 text-sm">
+                          {a.booking_name}
+                          <input name="name" required maxLength={120} autoComplete="off" className={`${inputClass} min-h-11 text-[15px]`} />
+                        </label>
+                        <label className="flex flex-col gap-1 text-sm">
+                          {a.booking_phone}
+                          <input name="phone" type="tel" maxLength={40} autoComplete="off" className={`${inputClass} min-h-11 text-[15px]`} />
+                        </label>
+                      </div>
+                    )}
+                    {contactId && <p className="text-sm text-muted">{a.booking_for_contact}</p>}
+                    <label className="flex flex-col gap-1 text-sm">
+                      {a.booking_note}
+                      <input name="note" maxLength={500} className={`${inputClass} min-h-11 text-[15px]`} />
+                    </label>
+                    {freeSlots.length > 0 && <PendingButton pending={dict.owner.saving}>{a.booking_save}</PendingButton>}
+                  </form>
+                )}
+              </>
+            )}
+            <Link href={url({ day })} className="flex min-h-11 items-center self-start text-sm underline underline-offset-4">
+              {a.cancel}
+            </Link>
+          </section>
+        )}
+
+        {list.error ? (
+          <p className="text-sm text-muted">{dict.bookings.unavailable}</p>
+        ) : bookings.length === 0 ? (
+          <p className="border-t border-line pt-3 text-sm text-muted">{a.day_none}</p>
+        ) : (
+          <ul className="flex flex-col border-t border-line" data-booking-list>
+            {bookings.map((x) => {
+              const live = x.status === "confirmed";
+              return (
+                <li key={x.id} className={`grid grid-cols-[56px_1fr] gap-3 border-b border-line py-3 ${live ? "" : "text-muted"}`} data-booking={x.status}>
+                  <strong className={`text-[15px] ${live ? "" : "line-through"}`}>{time(x.starts_at, tz)}</strong>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <strong className="text-[15px]">
+                      {[x.service_name ?? dict.bookings.title, t(a.minutes, { n: minutes(x.starts_at, x.ends_at) }), x.resource_name].filter(Boolean).join(" · ")}
+                      {x.people > 1 ? ` · ${t(a.people_n, { n: x.people })}` : ""}
+                    </strong>
                     {x.contact_id ? (
-                      <Link href={`/${lang}/dashboard/contacts/${x.contact_id}?tab=bookings`} className="underline underline-offset-4">
-                        {x.name}
+                      <Link href={`/${lang}/dashboard/contacts/${x.contact_id}?tab=bookings`} className="text-sm underline underline-offset-4">
+                        {[x.name, masked(x.phone)].filter(Boolean).join(" · ")}
                       </Link>
                     ) : (
-                      <span>{x.name}</span>
+                      <span className="text-sm">{[x.name, masked(x.phone)].filter(Boolean).join(" · ")}</span>
                     )}
-                    <a href={`tel:${x.phone}`} className="underline underline-offset-4">
-                      {x.phone}
-                    </a>
-                    {x.email && <span className="break-all">{x.email}</span>}
-                    {x.conversation_id && (
-                      <Link href={`/${lang}/dashboard/conversations/${x.conversation_id}`} className="text-muted underline underline-offset-4">
-                        {b.conversation}
-                      </Link>
+                    {x.note && <span className="whitespace-pre-line break-words text-[13px] text-muted">{x.note}</span>}
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="inline-flex h-[22px] items-center rounded-md border border-line px-2 text-xs font-semibold">
+                        {x.source === "assistant" ? a.source_assistant : x.source === "api" ? a.source_api : x.source === "app" ? a.source_app : a.source_owner}
+                      </span>
+                      {!live && <span className="inline-flex h-[22px] items-center rounded-md border border-foreground px-2 text-xs font-bold">{texts[`status_${x.status}`] ?? x.status}</span>}
+                      {x.google_status === "failed" && <span className="inline-flex h-[22px] items-center rounded-md border border-line px-2 text-xs font-semibold">{dict.bookings.google_failed}</span>}
+                      {x.conversation_id && (
+                        <Link href={`/${lang}/dashboard/conversations/${x.conversation_id}`} className="inline-flex h-[22px] items-center text-xs underline underline-offset-4">
+                          {dict.bookings.conversation}
+                        </Link>
+                      )}
+                    </div>
+                    {live && hasPlan && (
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        <details className="w-full" data-booking-move>
+                          <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold underline underline-offset-4">{a.move}</summary>
+                          <form action={moveBooking} className="mt-2 flex flex-wrap items-end gap-2">
+                            {hidden({ day, booking_id: x.id, timezone: tz })}
+                            <label className="flex flex-col gap-1 text-sm">
+                              {a.move_to}
+                              <input type="datetime-local" name="to" required defaultValue={utcToLocalInput(x.starts_at, tz)} className={`${inputClass} min-h-11`} />
+                            </label>
+                            <PendingButton pending={dict.owner.saving}>{a.move_save}</PendingButton>
+                          </form>
+                          <p className="mt-1 text-[13px] text-muted">{a.move_hint}</p>
+                        </details>
+                        {(
+                          [
+                            { action: markBooking, label: a.mark_done, extra: { status: "done" } },
+                            { action: markBooking, label: a.mark_no_show, extra: { status: "no_show" } },
+                            { action: cancelBooking, label: a.cancel_booking, extra: {} },
+                          ] as { action: (f: FormData) => Promise<void>; label: string; extra: Record<string, string> }[]
+                        ).map((b) => (
+                          <form key={b.label} action={b.action}>
+                            {hidden({ day, booking_id: x.id, ...b.extra })}
+                            <button type="submit" className="min-h-11 rounded-[10px] border border-line bg-white px-3 text-sm font-semibold">
+                              {b.label}
+                            </button>
+                          </form>
+                        ))}
+                      </div>
                     )}
-                  </span>
-                  {x.note && <span className="whitespace-pre-line break-words text-sm text-muted">{x.note}</span>}
-                  <span className="text-xs text-muted">
-                    {x.google_status === "created" ? b.google_created : x.google_status === "failed" ? b.google_failed : b.google_none}
-                    {x.reminder_sent_at && ` · ${b.reminder_sent}`}
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    {STATUSES.filter((s) => s !== x.status).map((s) => (
-                      <form key={s} action={setBookingStatus}>
-                        {hidden({ booking_id: x.id, status: s, view: "list" })}
-                        <button type="submit" className="min-h-11 rounded border border-line px-3 text-sm" data-set-status={s}>
-                          {(b as Record<string, string>)[`set_${s}`]}
-                        </button>
-                      </form>
-                    ))}
                   </div>
                 </li>
-              ))}
-            </ul>
-          )}
-          <p className="text-xs text-muted">{b.cancel_hint}</p>
-        </section>
-      )}
+              );
+            })}
+          </ul>
+        )}
+        <p className="text-[13px] text-muted">{a.bookings_footer}</p>
+      </section>
     </div>
-  );
-}
-
-function formatDay(day: string, lang: string, weekday = false) {
-  return new Intl.DateTimeFormat(lang as Locale, { timeZone: "UTC", day: "numeric", month: "numeric", ...(weekday ? { weekday: "short" } : {}) }).format(
-    new Date(`${day}T12:00:00Z`),
-  );
-}
-
-const time = (iso: string, timeZone: string) =>
-  new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
-
-function statusText(s: string, dict: Dictionary) {
-  return (dict.bookings as Record<string, string>)[`status_${s}`] ?? s;
-}
-
-/** "Nastavenia": on/off, what is booked, the times, the reminder, the Google Calendar. */
-function SettingsView({
-  dict,
-  settings,
-  google,
-  hidden,
-  hasPlan,
-}: {
-  dict: Dictionary;
-  settings: Settings | null;
-  google: { status: string; last_error: string | null; connected_at: string } | null;
-  hidden: (extra?: Record<string, string>) => React.ReactNode;
-  hasPlan: boolean;
-}) {
-  const b = dict.bookings;
-  const s = settings ?? { enabled: false, service_name: null, duration_minutes: 30, step_minutes: 30, buffer_minutes: 0, lead_minutes: 120, horizon_days: 30, reminder: false };
-  const number = (name: string, label: string, value: number, min: number, max: number, hint?: string) => (
-    <label className="flex flex-col gap-1">
-      <span className="text-sm">{label}</span>
-      <input type="number" name={name} required min={min} max={max} defaultValue={value} className={`${inputClass} w-32`} />
-      {hint && <span className="text-xs text-muted">{hint}</span>}
-    </label>
-  );
-  return (
-    <section className="flex flex-col gap-6" data-tab-panel="settings">
-      <form action={saveBookingSettings} className="flex flex-col gap-3" data-booking-settings>
-        {hidden({ view: "settings" })}
-        <label className="flex min-h-11 items-center gap-2 font-medium">
-          <input type="checkbox" name="enabled" defaultChecked={s.enabled} className="h-4 w-4 accent-foreground" />
-          {b.enabled}
-        </label>
-        <p className="text-xs text-muted">{b.enabled_hint}</p>
-        <label className="flex flex-col gap-1">
-          <span className="text-sm">{b.service_name}</span>
-          <input name="service_name" maxLength={80} defaultValue={s.service_name ?? ""} className={inputClass} />
-        </label>
-        <div className="flex flex-wrap gap-4">
-          {number("duration", b.duration, s.duration_minutes, 5, 480)}
-          {number("step", b.step, s.step_minutes, 5, 240)}
-          {number("buffer", b.buffer, s.buffer_minutes, 0, 120)}
-          {number("lead_hours", b.lead_hours, Math.round(s.lead_minutes / 60), 0, 168)}
-          {number("horizon", b.horizon, s.horizon_days, 1, 180)}
-        </div>
-        <p className="text-xs text-muted">{b.hours_hint}</p>
-        <label className="flex min-h-11 items-center gap-2 text-sm">
-          <input type="checkbox" name="reminder" defaultChecked={s.reminder} className="h-4 w-4 accent-foreground" />
-          {b.reminder}
-        </label>
-        <p className="text-xs text-muted">{b.reminder_hint}</p>
-        {hasPlan && <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>}
-      </form>
-
-      <div className="flex flex-col gap-2 border-t border-line pt-4" data-google>
-        <h2 className="font-semibold">{b.google_title}</h2>
-        <p className="text-sm">{b.google_intro}</p>
-        {google ? (
-          <>
-            <p className="text-sm font-medium" data-google-status={google.status}>
-              {google.status === "ok" ? b.google_ok : t(b.google_problem, { reason: google.last_error ?? "–" })}
-            </p>
-            <form action={disconnectGoogle}>
-              {hidden({ view: "settings" })}
-              <button type="submit" className="min-h-11 text-sm underline underline-offset-4">
-                {b.google_disconnect}
-              </button>
-            </form>
-          </>
-        ) : (
-          hasPlan && (
-            <form action={connectGoogle}>
-              {hidden({ view: "settings" })}
-              <PendingButton pending={dict.owner.saving}>{b.google_connect}</PendingButton>
-            </form>
-          )
-        )}
-        {google && google.status !== "ok" && hasPlan && (
-          <form action={connectGoogle}>
-            {hidden({ view: "settings" })}
-            <PendingButton pending={dict.owner.saving}>{b.google_connect}</PendingButton>
-          </form>
-        )}
-        <p className="text-xs text-muted">{b.google_hint}</p>
-      </div>
-    </section>
   );
 }
 

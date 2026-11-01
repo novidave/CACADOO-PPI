@@ -8,6 +8,9 @@
 export const TEMPLATE_VARIABLES = ["name", "first_name", "shop", "shop_phone", "shop_email", "shop_address", "shop_web"] as const;
 export type TemplateVariable = (typeof TEMPLATE_VARIABLES)[number];
 
+/** Update 63: the Slovak variables of the screens, filled only by crm_render(): {meno} {obchod} {produkt} {datum} {cas}. */
+export const SK_VARIABLES = ["meno", "obchod", "produkt", "datum", "cas"] as const;
+
 /** "{{name}}" as the owner writes it in a template. */
 export const variableToken = (v: TemplateVariable) => `{{${v}}}`;
 

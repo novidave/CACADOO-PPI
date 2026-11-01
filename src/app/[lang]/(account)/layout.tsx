@@ -26,9 +26,9 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
       shopPage: true,
       badge: waiting,
       badgeLabel: t(dict.callbacks.badge, { n: waiting }),
+      // update 63: Kontakty, Rezervácie and the conversations are tabs of Asistent
+      also: [`/${lang}/dashboard/contacts`, `/${lang}/dashboard/bookings`, `/${lang}/dashboard/conversations`],
     },
-    { href: `/${lang}/dashboard/contacts`, label: dict.account.contacts_page, shopPage: true },
-    { href: `/${lang}/dashboard/bookings`, label: dict.account.bookings_page, shopPage: true },
     { href: `/${lang}/dashboard/hours-sms`, label: dict.account.hours_sms_page, shopPage: true },
     { href: `/${lang}/dashboard/ai`, label: dict.account.ai_page },
     { href: `/${lang}/dashboard/translations`, label: dict.account.translations_page, shopPage: true },
