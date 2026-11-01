@@ -11,6 +11,7 @@ import { PendingButton } from "@/components/PendingButton";
 import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDomainSettings, saveSectionLimits } from "./actions";
 import { BlogAdmin, type BlogAdminInfo } from "./BlogAdmin";
 import { SmsAdmin, type SmsQuotaRow } from "./SmsAdmin";
+import { TelegramAdmin, type TelegramSettings, type TelegramWebhookInfo } from "./TelegramAdmin";
 import { InventoryAdmin, type InventoryOverview } from "./InventoryAdmin";
 import { ErrorsAdmin, type ServerErrorRow } from "./ErrorsAdmin";
 import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
@@ -111,7 +112,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     hyear: String(hyear),
   })}`;
 
-  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo, serverErrors, inventory, smsQuotas, smsProvider] = await Promise.all([
+  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo, serverErrors, inventory, smsQuotas, smsProvider, telegramInfo, telegramSettings] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
@@ -145,6 +146,12 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
       .invoke<{ sms?: string; sms_live?: boolean }>("crm-messages", { body: { action: "config" } })
       .then(({ data, error }) => (error || !data?.sms ? null : { name: data.sms, live: data.sms_live === true }))
       .catch(() => null),
+    // "Telegram bot" (database update 66): the webhook at Telegram (through the telegram function) and the limits.
+    session.supabase.functions
+      .invoke<TelegramWebhookInfo>("telegram", { body: { action: "webhook_info" } })
+      .then(({ data, error }) => (error || !data ? null : data))
+      .catch(() => null),
+    session.supabase.rpc("admin_telegram_settings"),
   ]);
   const limitRows = sectionLimits.error ? null : ((sectionLimits.data ?? []) as LimitsRow[]);
   if (overview.error) return <DbError message={overview.error.message} dict={dict} />;
@@ -186,7 +193,11 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
                   ? dict.admin_inventory.saved
                   : ok === "sms"
                     ? dict.admin_sms.saved
-                    : a.done}
+                    : ok === "telegram"
+                      ? dict.admin_telegram.saved
+                      : ok === "telegram_webhook"
+                        ? dict.admin_telegram.webhook_set
+                        : a.done}
           </p>
         )}
         {err && (
@@ -198,6 +209,10 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
                   ? dict.admin_inventory.error
                   : err === "sms"
                     ? dict.admin_sms.error
+                    : err === "telegram"
+                      ? dict.admin_telegram.error
+                      : err === "telegram_webhook"
+                        ? dict.admin_telegram.webhook_failed
                     : t(a.failed, { message: err }))}
           </p>
         )}
@@ -478,6 +493,14 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
       <InventoryAdmin overview={inventory.error ? null : (inventory.data as InventoryOverview)} lang={lang} dict={dict} hidden={hidden} />
 
       <SmsAdmin rows={smsQuotas.error ? null : ((smsQuotas.data ?? []) as SmsQuotaRow[])} provider={smsProvider} dict={dict} hidden={hidden} />
+
+      <TelegramAdmin
+        info={telegramInfo}
+        settings={telegramSettings.error ? null : (telegramSettings.data as TelegramSettings | null)}
+        lang={lang as Locale}
+        dict={dict}
+        hidden={hidden}
+      />
 
       <BlogAdmin
         limits={blogLimits.error ? null : ((blogLimits.data ?? []) as { plan: "free" | "pro"; max_posts: number | null }[])}

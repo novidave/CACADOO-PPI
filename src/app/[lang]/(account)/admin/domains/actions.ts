@@ -264,3 +264,24 @@ export async function deleteWebDomain(formData: FormData) {
   const { error } = await session.supabase.rpc("admin_delete_web_domain", { p_domain: String(formData.get("domain") ?? "") });
   back(error ? { err: searchError(error.message) } : { ok: "domain" }, "web-domains");
 }
+
+/** "Telegram bot" (database update 66): the limits for AI answers and notifications. */
+export async function saveTelegramSettings(formData: FormData) {
+  const { session, back } = await start(formData);
+  const ai = Number(formData.get("ai_daily_limit"));
+  const notify = Number(formData.get("notify_daily_cap"));
+  if (!Number.isInteger(ai) || ai < 0 || ai > 1000 || !Number.isInteger(notify) || notify < 0 || notify > 200) back({ err: "telegram" }, "telegram");
+  const { error } = await session.supabase.rpc("admin_save_telegram_settings", {
+    p_ai_enabled: formData.get("ai_enabled") === "on",
+    p_ai_daily_limit: ai,
+    p_notify_daily_cap: notify,
+  });
+  back(error ? { err: "telegram" } : { ok: "telegram" }, "telegram");
+}
+
+/** "Nastaviť webhook": the telegram function tells Telegram its address and the secret header (is_admin checked there). */
+export async function setTelegramWebhook(formData: FormData) {
+  const { session, back } = await start(formData);
+  const { data, error } = await session.supabase.functions.invoke<{ set?: boolean }>("telegram", { body: { action: "set_webhook" } });
+  back(error || !data?.set ? { err: "telegram_webhook" } : { ok: "telegram_webhook" }, "telegram");
+}

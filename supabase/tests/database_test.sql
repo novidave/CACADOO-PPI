@@ -9361,14 +9361,15 @@ begin
   assert (select body from public.shop_outgoing_messages where kind = 'booking_code' order by created_at desc limit 1) = 'Váš kód je ••••••.';
   assert (select count(*) from public.shop_outgoing_messages where kind = 'owner' and booking_id is not null) = 0;
 
-  -- day-before reminders: only with the reminder on, tomorrow in the shop's time, from 09:00 there
+  -- day-before reminders: only with the reminder on, tomorrow in the shop's time — since update 63 from 18:00 there
+  -- (crm_settings' default "day_before_18"; before update 63 it was from 09:00)
   update public.shop_booking_settings set reminder = true where shop_id = v_a;
   insert into public.shop_bookings (shop_id, starts_at, ends_at, status, name, phone, consent_at, consent_version, token_hash, confirmed_at)
   values (v_a, ((now() at time zone 'Europe/Bratislava')::date + 1 + time '06:00') at time zone 'Europe/Bratislava',
           ((now() at time zone 'Europe/Bratislava')::date + 1 + time '06:30') at time zone 'Europe/Bratislava',
           'confirmed', 'Zajtra', '+421905121212', now(), 'v', 'x', now());
   assert (select count(*) from public.booking_reminders_due() where name = 'Zajtra')
-       = case when (now() at time zone 'Europe/Bratislava')::time >= time '09:00' then 1 else 0 end, 'tomorrow, from 09:00';
+       = case when (now() at time zone 'Europe/Bratislava')::time >= time '18:00' then 1 else 0 end, 'tomorrow, from 18:00';
   update public.shop_booking_settings set reminder = false where shop_id = v_a;
   assert not exists (select 1 from public.booking_reminders_due() where name = 'Zajtra'), 'reminders off by default';
 end $$;
@@ -9591,7 +9592,8 @@ begin
           ((current_date + 1) + time '15:30') at time zone 'Europe/Bratislava', 'confirmed', 'Pripomienka', '+421905777990',
           now(), 'v1', 'sq-token')
   returning id into v_r;
-  if (now() at time zone 'Europe/Bratislava')::time >= time '09:00' then
+  -- the day-before reminder is due from 18:00 in the shop's time (update 63; from 09:00 before it)
+  if (now() at time zone 'Europe/Bratislava')::time >= time '18:00' then
     assert exists (select 1 from public.booking_reminders_due() where id = v_r), 'due while the quota has room';
   end if;
   v_m := public.booking_sms_claim(v_r, 'booking_reminder', 'Zajtra 15:00 Potraviny');
@@ -11492,5 +11494,203 @@ begin
 end $$;
 reset role;
 drop table t63;
+
+\echo '--- update 66: Telegram — one-time code, private chats, consent = an owner-MCP grant in the Vault, one door, confirmations, source telegram'
+create temporary table t66 (k text primary key, v text);
+grant all on t66 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  insert into t66 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text), ('d', (current_date + 30)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_66')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_66');
+end $$;
+reset role;
+
+-- the owner asks for a code (≤ 5 an hour)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  vj jsonb := public.owner_telegram_link_start();
+begin
+  assert vj ->> 'code' ~ '^tg[0-9a-f]{40}$', vj::text;
+  insert into t66 values ('code', vj ->> 'code');
+  insert into t66 values ('code2', public.owner_telegram_link_start() ->> 'code');
+  assert public.owner_telegram_status() is null, 'not linked yet';
+  begin perform public.owner_telegram_consent(array[(select id from public.shops where slug = 'potraviny-centrum')], array['shop.read']);
+    raise exception 'consent before linking';
+  exception when no_data_found then if sqlerrm <> 'not_linked' then raise; end if; end;
+end $$;
+reset role;
+
+-- the bot: private chats only, the code once, within 10 minutes
+set role service_role;
+do $$
+declare
+  vj jsonb;
+begin
+  begin perform public.telegram_claim((select v from t66 where k = 'code'), 9001, -5001, 'group', 'davide', 'sk');
+    raise exception 'a group was linked';
+  exception when invalid_parameter_value then if sqlerrm <> 'chat' then raise; end if; end;
+  vj := public.telegram_claim((select v from t66 where k = 'code'), 9001, 9001, 'private', 'davide', 'sk');
+  assert (vj ->> 'ok')::boolean, vj::text;
+  begin perform public.telegram_claim((select v from t66 where k = 'code'), 9001, 9001, 'private', 'davide', 'sk');
+    raise exception 'code used twice';
+  exception when invalid_parameter_value then if sqlerrm <> 'code' then raise; end if; end;
+  update public.telegram_link_codes set expires_at = now() - interval '1 second' where code_hash = public.mcp_hash((select v from t66 where k = 'code2'));
+  begin perform public.telegram_claim((select v from t66 where k = 'code2'), 9001, 9001, 'private', 'davide', 'sk');
+    raise exception 'expired code';
+  exception when invalid_parameter_value then if sqlerrm <> 'code' then raise; end if; end;
+  vj := public.telegram_whoami(9001);
+  assert (vj ->> 'linked')::boolean and not (vj ->> 'granted')::boolean, 'linked, no permissions yet: ' || vj::text;
+  assert not (public.telegram_whoami(4242) ->> 'linked')::boolean, 'unknown users are not linked';
+  begin perform public.telegram_call(9001, 'list_shops', '{}'); raise exception 'tools before consent';
+  exception when invalid_authorization_specification then null; end;
+end $$;
+reset role;
+
+-- consent: Pro shops of the owner only; a grant of kind telegram with its token only in the Vault
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  vj jsonb;
+begin
+  begin perform public.owner_telegram_consent(array[v_b], array['shop.read']); raise exception 'another owner''s shop';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_telegram_consent(array[v_a], array['shop.write']); raise exception 'without shop.read';
+  exception when invalid_parameter_value then null; end;
+  vj := public.owner_telegram_consent(array[v_a], array['shop.read', 'shop.write']);
+  assert (vj ->> 'ok')::boolean;
+  vj := public.owner_telegram_status();
+  assert vj ->> 'username' = 'davide' and vj -> 'scopes' = '["shop.read", "shop.write"]'::jsonb
+     and vj -> 'shops' -> 0 ->> 'slug' = 'potraviny-centrum', vj::text;
+  begin perform count(*) from public.telegram_links; raise exception 'owner read the links table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- (as the database owner: the Vault is not readable by the service role's queries)
+do $$ begin
+  assert exists (select 1 from vault.secrets s join public.telegram_links l on l.vault_id = s.id
+                 where l.tg_user_id = 9001 and s.secret ~ '^ctg_[0-9a-f]{64}$'), 'the token only in the Vault';
+  assert not exists (select 1 from public.telegram_links l join public.owner_mcp_tokens t on t.id = l.grant_id
+                     join vault.secrets s on s.id = l.vault_id where t.access_hash = s.secret), 'the table keeps only its hash';
+end $$;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t66 where k = 'd');
+  vj jsonb;
+  v_p uuid;
+begin
+  assert exists (select 1 from public.owner_mcp_tokens t join public.telegram_links l on l.grant_id = t.id
+                 where l.tg_user_id = 9001 and t.kind = 'telegram' and t.revoked_at is null), 'a telegram grant';
+  assert (select vault_id is not null from public.telegram_links where tg_user_id = 9001), 'its token is in the Vault';
+  -- reads through the one door
+  vj := public.telegram_call(9001, 'get_shop_details', '{}');
+  assert vj ->> 'shop' = 'potraviny-centrum', vj::text;
+  -- a write only through a confirmation; read tools never wait for one
+  begin perform public.telegram_pending_new(9001, 'get_shop_details', '{}', '{}'); raise exception 'pending read tool';
+  exception when invalid_parameter_value then if sqlerrm <> 'unknown_tool' then raise; end if; end;
+  -- the database refuses a write outside "Potvrdiť"; update_stock without confirm only previews
+  begin perform public.telegram_call(9001, 'set_opening_hours', jsonb_build_object('special',
+          jsonb_build_array(jsonb_build_object('from', v_d, 'closed', true)))); raise exception 'write without Potvrdiť';
+  exception when insufficient_privilege then if sqlerrm <> 'needs_confirmation' then raise; end if; end;
+  begin perform public.telegram_call(9001, 'update_stock', jsonb_build_object('item_id', gen_random_uuid(), 'quantity', 1, 'confirm', true));
+    raise exception 'stock write without Potvrdiť';
+  exception when insufficient_privilege then if sqlerrm <> 'needs_confirmation' then raise; end if; end;
+  begin perform public.telegram_call(9001, 'update_stock', jsonb_build_object('item_id', gen_random_uuid(), 'quantity', 1));
+    raise exception 'unknown item previewed';
+  exception when no_data_found then null; end;
+  v_p := public.telegram_pending_new(9001, 'set_opening_hours', jsonb_build_object('special',
+           jsonb_build_array(jsonb_build_object('from', v_d, 'closed', true))), '{"what":"close"}');
+  assert not exists (select 1 from public.shop_special_hours where shop_id = v_a and date = v_d), 'nothing before Potvrdiť';
+  begin perform public.telegram_confirm(4242, v_p); raise exception 'another Telegram user confirmed';
+  exception when no_data_found then null; end;
+  vj := public.telegram_confirm(9001, v_p);
+  assert exists (select 1 from public.shop_special_hours where shop_id = v_a and date = v_d and closed), 'closed that day';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'hours_changed' and details ->> 'source' = 'telegram'),
+    'the activity log says telegram';
+  begin perform public.telegram_confirm(9001, v_p); raise exception 'confirmed twice';
+  exception when invalid_parameter_value then if sqlerrm <> 'used' then raise; end if; end;
+  v_p := public.telegram_pending_new(9001, 'set_opening_hours', '{"special": []}', '{}');
+  update public.telegram_pending set expires_at = now() - interval '1 second' where id = v_p;
+  begin perform public.telegram_confirm(9001, v_p); raise exception 'expired confirmation';
+  exception when invalid_parameter_value then if sqlerrm <> 'expired' then raise; end if; end;
+  assert public.telegram_cancel(9001, public.telegram_pending_new(9001, 'set_opening_hours', '{"special": []}', '{}'));
+  -- the bot's shop: only one of the grant
+  assert public.telegram_set(9001, 'potraviny-centrum', '{"await":"qty"}');
+  begin perform public.telegram_set(9001, 'drogeria-kostolne', null); raise exception 'shop outside the grant';
+  exception when insufficient_privilege then null; end;
+  -- 30 messages a minute per Telegram user
+  update public.telegram_links set window_start = now(), window_count = 30 where tg_user_id = 9001;
+  begin perform public.telegram_whoami(9001); raise exception 'no rate limit';
+  exception when program_limit_exceeded then null; end;
+  update public.telegram_links set window_count = 0 where tg_user_id = 9001;
+  -- Pro ended: the bot stops for that shop
+  update public.subscriptions set status = 'canceled', current_period_end = now() - interval '1 day' where shop_id = v_a;
+  begin perform public.telegram_call(9001, 'get_shop_details', '{}'); raise exception 'works without Pro';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+  assert not ((public.telegram_whoami(9001, false) -> 'shops' -> 0 ->> 'usable')::boolean), 'shown as not usable';
+  update public.subscriptions set status = 'active', current_period_end = now() + interval '30 days' where shop_id = v_a;
+  -- /odpojit: the grant revoked, the token gone, the link gone
+  assert public.telegram_unlink_by_bot(9001);
+  assert not exists (select 1 from public.telegram_links where tg_user_id = 9001);
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'telegram_disconnected');
+  begin perform public.telegram_call(9001, 'get_shop_details', '{}'); raise exception 'works after unlinking';
+  exception when invalid_authorization_specification then null; end;
+end $$;
+reset role;
+
+do $$ begin
+  assert not exists (select 1 from vault.secrets where name like 'ppi_tg_grant_%'), 'the token is deleted';
+end $$;
+
+-- visitors and other owners never reach the bot's functions
+set role anon;
+do $$ begin
+  begin perform public.telegram_whoami(9001); raise exception 'anon whoami';
+  exception when insufficient_privilege then null; end;
+  begin perform public.telegram_call(9001, 'list_shops', '{}'); raise exception 'anon call';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  begin perform public.telegram_claim('x', 1, 1, 'private', null, null); raise exception 'owner claimed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.admin_save_telegram_settings(false, 1, 1); raise exception 'not admin';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t66 where k = 'd');
+  delete from public.telegram_link_codes;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t66 where k = 'sub'))
+  where (select v from t66 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t66 where k = 'had_plan');
+end $$;
+reset role;
+drop table t66;
 
 \echo 'ALL DATABASE CHECKS PASSED'

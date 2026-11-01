@@ -50,6 +50,40 @@ OPEN
    b) Claude shows exactly what would be deleted and waits for your "OK" (deleting data always needs it).
 
 
+9. Create the Cacaduu Telegram bot and add its 3 settings
+   Why: the Telegram bot for shop owners (Môj obchod → AI asistenti → Telegram) stays switched off until then.
+   Steps:
+   a) In Telegram open @BotFather → /newbot → name "Cacaduu" → a username ending in "bot" (e.g. CacaduuBot).
+      BotFather answers with a token (a long text with ":"). Keep that chat open.
+   b) Make a webhook secret: 40 or more random letters and digits (e.g. from a password manager). Only A–Z, a–z,
+      0–9, "_" and "-".
+   c) Supabase → project szhotccxyaepjhwsqdqx → Edge Functions → Secrets → add
+      TELEGRAM_BOT_TOKEN = the token from a), and TELEGRAM_WEBHOOK_SECRET = the text from b).
+   d) Vercel → the cacaduu project → Settings → Environment Variables → add TELEGRAM_BOT_USERNAME = the bot's
+      username without "@" (Production and Preview). This one is public, not a secret. Then Deployments → the latest
+      production deployment → "Redeploy".
+   e) Write "done 9" to Claude.
+
+10. Switch on the bot's webhook (after item 9)
+   Steps:
+   a) cacaduu.com → log in → Predplatné a domény (admin) → "Telegram bot" → "Nastaviť webhook".
+   b) It should then say "Webhook: nastavený" and show the bot's name.
+
+11. Try the Telegram bot with Davide Paint (after item 10)
+   Steps:
+   a) cacaduu.com → Môj obchod → AI asistenti → Telegram → "Vytvoriť odkaz na prepojenie" → scan the QR code with
+      the phone → Telegram opens → "Štart".
+   b) Reload the page → tick Davide Paint and "Meniť …" → "Uložiť povolenia".
+   c) In Telegram: tap "Dnes" (today's hours, bookings, new conversations); "Hodiny" → "Zajtra zatvorené" →
+      "Potvrdiť"; write "sklad <a product>" → "Zmeniť množstvo" → type a number → read the warning → "Potvrdiť"
+      (then put the right number back the same way).
+   d) Tell Claude what happened (a screenshot is enough if something fails).
+
+12. Privacy page: Telegram as a processor (waits for your OK)
+   Why: owners who link Telegram send their shop's data through Telegram (Telegram FZ-LLC, Dubai).
+   Steps: Claude will show you the exact new lines for the privacy page; write "OK" or your changes.
+
+
 DONE
 ----
 (nothing yet)
