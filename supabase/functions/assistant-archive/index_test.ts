@@ -1025,3 +1025,25 @@ Deno.test("'Stiahnuť túto konverzáciu (PDF)': only with the conversation's to
     eq(r.status, 404, label);
   }
 });
+
+// ---------------------------------------------------------------- update 63: "Vymazať moje údaje" → "Všetko o mne"
+
+Deno.test("'Všetko o mne': only with the website's secret and a verified code; every conversation forgotten (files first), then finished", async () => {
+  const CODE = "77777777-2222-4333-8444-555555555555";
+  const world = archiveWorld({ rpc: {
+    shopper_forget_all_plan: () => ok({ shop_id: SHOP, contact_id: null, conversation_ids: [CONV] }),
+    shopper_forget_all_finish: () => ok({ ok: true, bookings_cancelled: 2, had_data: true }),
+    assistant_shopper_forget: () => ok("deleted"),
+  } });
+  const { deps, log } = fakes(world);
+  eq(await call(deps, { action: "forget_all", code_id: CODE }, {}), [401, { error: "secret" }], "no website secret");
+  eq(await call(deps, { action: "forget_all", code_id: CODE }), [200, { deleted: true, bookings_cancelled: 2 }], "done");
+  const order = ["rpc shopper_forget_all_plan", "rpc assistant_shopper_forget", "rpc shopper_forget_all_finish"].map((p) =>
+    log.findIndex((l) => l.startsWith(p)));
+  eq(order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])), true, "plan → forget each → finish");
+  eq(log.some((l) => l.startsWith("remove ")), true, "the conversation's files removed from storage");
+  const refused = fakes(archiveWorld({ rpc: { shopper_forget_all_plan: () => ({ data: null, error: { message: "not_verified" } }) } }));
+  eq(await call(refused.deps, { action: "forget_all", code_id: CODE }), [403, { error: "not_verified" }], "a code not verified");
+  eq(refused.log.some((l) => l.startsWith("rpc shopper_forget_all_finish")), false, "nothing deleted");
+  eq(await call(deps, { action: "forget_all", code_id: "x" }), [400, { error: "bad_request" }], "a bad id");
+});

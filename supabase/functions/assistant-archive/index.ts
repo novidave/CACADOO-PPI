@@ -424,7 +424,7 @@ interface PdfCard {
 }
 
 interface PdfMessage {
-  role: "shopper" | "assistant";
+  role: "shopper" | "assistant" | "owner";
   body: string;
   body_owner: string | null;
   lang: string | null;
@@ -479,6 +479,7 @@ const TEXTS = {
   title: "Konverzácia s asistentom obchodu",
   shopper: "Zákazník",
   assistant: "Asistent",
+  owner: "Obchod",
   started: "Začiatok",
   ended: "Koniec",
   shopperLang: "Jazyk zákazníka",
@@ -509,6 +510,7 @@ export const SHOPPER_TEXTS: Record<"sk" | "hu" | "en", Texts> = {
     title: "Beszélgetés az üzlet asszisztensével",
     shopper: "Ügyfél",
     assistant: "Asszisztens",
+    owner: "Üzlet",
     started: "Kezdete",
     ended: "Vége",
     item: "Termék",
@@ -526,6 +528,7 @@ export const SHOPPER_TEXTS: Record<"sk" | "hu" | "en", Texts> = {
     title: "Conversation with the shop's assistant",
     shopper: "You",
     assistant: "Assistant",
+    owner: "Shop",
     started: "Started",
     ended: "Ended",
     item: "Item",
@@ -801,7 +804,7 @@ export async function buildPdf(data: PdfData, assets: PdfAssets, options: { shop
 
   for (const m of data.messages) {
     w.room(40);
-    w.write(`${timeText(m.created_at, tz)} · ${m.role === "shopper" ? TEXTS.shopper : TEXTS.assistant}`, {
+    w.write(`${timeText(m.created_at, tz)} · ${m.role === "shopper" ? TEXTS.shopper : m.role === "owner" ? TEXTS.owner : TEXTS.assistant}`, {
       size: 9,
       font: bold,
       color: GREY,
@@ -911,6 +914,25 @@ async function forgetForShopper(deps: Deps, id: string): Promise<boolean> {
   if (!(await removeFiles(deps, id))) return false;
   const { error } = await deps.db.rpc("assistant_shopper_forget", { p_id: id });
   return !error;
+}
+
+/**
+ * Update 63 "Vymazať moje údaje" → "Všetko o mne", after the shopper's delete_all SMS code was verified: every
+ * conversation of that number is forgotten like "Len túto konverzáciu" (files and PDFs first; a copied one keeps its
+ * content-free line), then shopper_forget_all_finish cancels the future bookings, empties every other row of personal
+ * data, deletes the contact and queues one e-mail to the owners.
+ */
+async function forgetAll(body: Json, deps: Deps) {
+  const code = String(body.code_id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(code)) return reply(400, { error: "bad_request" });
+  const { data: plan, error } = await deps.db.rpc("shopper_forget_all_plan", { p_code_id: code });
+  if (error || !plan) return reply(403, { error: "not_verified" });
+  for (const id of ((plan as Json).conversation_ids ?? []) as string[]) {
+    if (!(await forgetForShopper(deps, id))) return reply(502, { error: "storage" });
+  }
+  const { data: done, error: finishError } = await deps.db.rpc("shopper_forget_all_finish", { p_code_id: code });
+  if (finishError) return reply(403, { error: "not_verified" });
+  return reply(200, { deleted: true, bookings_cancelled: Number((done as Json)?.bookings_cancelled ?? 0) });
 }
 
 async function download(deps: Deps, bucket: string, path: string): Promise<Uint8Array | null> {
@@ -1239,6 +1261,10 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
     }
     // The shopper's browser, with the conversation's own token (no website secret).
     if (action === "shopper_pdf") return await shopperPdf(body, deps);
+    if (action === "forget_all") {
+      if (!sameSecret(req.headers.get("x-ppi-archive"), deps.websiteSecret)) return reply(401, { error: "secret" });
+      return await forgetAll(body, deps);
+    }
     if (action === "start" || action === "record" || action === "end" || action === "delete" || action === "discard") {
       if (!sameSecret(req.headers.get("x-ppi-archive"), deps.websiteSecret)) return reply(401, { error: "secret" });
       if (action === "start") return await start(body, deps);

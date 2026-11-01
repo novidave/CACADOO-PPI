@@ -14,8 +14,22 @@
 //                                    then booking_confirm (contact by the number, conversation linked). No confirmation SMS.
 //   - owners (their login): google_connect {shop_id, return_url} → {url}; google_disconnect {shop_id}
 //   - GET /bookings/oauth: Google's answer (code + PKCE, state SHA-256, single use, 10 minutes)
-//   - the hourly job (x-ppi-cron = Vault ppi_bookings_cron): tick → the day-before reminder SMS (only when the shop
-//     switched it on; never a cancel link)
+//   - website, update 63 (the shop assistant's tools; every rule is in SQL, nothing is trusted from the browser or the AI):
+//       code_start  {slug, purpose contact|delete_all, phone, name?, consent_version?, caller, conversation_id?,
+//                    conversation_token?, lang?}  a 6-digit SMS code (sms_code_start: 10 min, 5 tries, 3/number and
+//                    10/caller an hour, the booking SMS quota); the code is typed into the page's own field, never
+//                    sent to the AI, never stored or logged (the message log masks it)
+//       code_verify {id, code, conversation_id?, conversation_token?}  sms_code_verify: contact made or merged by the
+//                    number, the conversation may book for it
+//       services    {slug}  the services the assistant may offer
+//       offer       {slug, conversation_id, conversation_token, service_id, from, to, people?}  free starts with short
+//                    refs (booking_offer_slots = booking_free_slots); a connected calendar's busy times are read first
+//       book        {slug, conversation_id, conversation_token, ref, people?}  booking_assistant_book → booking_create
+//                    checks the slot again; confirmed at once (no confirmation SMS, no cancel link)
+//   - the job every 5 minutes (x-ppi-cron = Vault ppi_bookings_cron): tick → reminders (2 h before, or the day before
+//     from 18:00 — crm_settings), the customer's SMS when the owner moved or cancelled (3 tries), the calendar pushes
+//     (only events Cacaduu made: create / update / delete by google_event_id; 3 tries; a failure never blocks a
+//     booking) and the busy times of connected calendars (booking_calendar_busy)
 // SMS go through the SmsProvider interface (SMS_PROVIDER: brevo, twilio; unset = "test": written down, never sent).
 // Every SMS is written down first and takes its parts of the shop's monthly "booking" quota (database update 58:
 // booking_sms_claim → send → booking_sms_settle; at the limit nothing is sent: sms_quota). For testing without a
@@ -222,15 +236,45 @@ export function smsProvider(name: string | undefined, env: SmsEnv = () => undefi
 // ---------------------------------------------------------------- end of the SMS providers
 
 /** The texts the shopper gets by SMS, in the booking's language (Slovak, Hungarian, else English). */
-export function smsText(kind: "code" | "reminder", lang: string | null, v: { shop: string; code?: string; time?: string; service?: string | null }) {
+export function smsText(
+  kind: "code" | "reminder" | "contact_code" | "forget_code" | "moved" | "cancelled" | "reminder_at",
+  lang: string | null,
+  v: { shop: string; code?: string; time?: string; day?: string; service?: string | null; phone?: string | null },
+) {
   const l = (lang ?? "").slice(0, 2);
   const shop = v.shop.slice(0, 40);
+  const what = v.service ? ` (${v.service.slice(0, 40)})` : "";
+  const call = v.phone ? (l === "hu" ? ` Kérdés: ${v.phone}` : l === "sk" ? ` Otázky: ${v.phone}` : ` Questions: ${v.phone}`) : "";
+  if (kind === "contact_code") {
+    if (l === "sk") return `${shop}: váš overovací kód je ${v.code}. Platí 10 minút. Nikomu ho neposielajte.`;
+    if (l === "hu") return `${shop}: az ellenőrző kódja ${v.code}. 10 percig érvényes. Ne adja tovább senkinek.`;
+    return `${shop}: your verification code is ${v.code}. Valid for 10 minutes. Do not share it.`;
+  }
+  if (kind === "forget_code") {
+    if (l === "sk") return `${shop}: kód na vymazanie vašich údajov je ${v.code}. Platí 10 minút.`;
+    if (l === "hu") return `${shop}: az adatai törlésének kódja ${v.code}. 10 percig érvényes.`;
+    return `${shop}: the code to delete your data is ${v.code}. Valid for 10 minutes.`;
+  }
+  if (kind === "moved") {
+    if (l === "sk") return `${shop}: vaša rezervácia${what} bola presunutá na ${v.day} o ${v.time}.${call}`;
+    if (l === "hu") return `${shop}: foglalását${what} áthelyeztük: ${v.day}, ${v.time}.${call}`;
+    return `${shop}: your booking${what} was moved to ${v.day} at ${v.time}.${call}`;
+  }
+  if (kind === "cancelled") {
+    if (l === "sk") return `${shop}: vaša rezervácia${what} ${v.day} o ${v.time} bola zrušená.${call}`;
+    if (l === "hu") return `${shop}: foglalását${what} (${v.day}, ${v.time}) lemondtuk.${call}`;
+    return `${shop}: your booking${what} on ${v.day} at ${v.time} was cancelled.${call}`;
+  }
+  if (kind === "reminder_at") {
+    if (l === "sk") return `${shop}: pripomíname vašu rezerváciu${what} ${v.day} o ${v.time}.`;
+    if (l === "hu") return `${shop}: emlékeztetjük a foglalására${what}: ${v.day}, ${v.time}.`;
+    return `${shop}: a reminder of your booking${what} on ${v.day} at ${v.time}.`;
+  }
   if (kind === "code") {
     if (l === "sk") return `${shop}: kód pre vašu rezerváciu je ${v.code}. Platí 10 minút.`;
     if (l === "hu") return `${shop}: a foglalás kódja ${v.code}. 10 percig érvényes.`;
     return `${shop}: your booking code is ${v.code}. Valid for 10 minutes.`;
   }
-  const what = v.service ? ` (${v.service.slice(0, 40)})` : "";
   if (l === "sk") return `${shop}: pripomíname vašu rezerváciu${what} zajtra o ${v.time}.`;
   if (l === "hu") return `${shop}: emlékeztetjük a holnapi foglalására${what}, ${v.time}.`;
   return `${shop}: a reminder of your booking${what} tomorrow at ${v.time}.`;
@@ -239,6 +283,10 @@ export function smsText(kind: "code" | "reminder", lang: string | null, v: { sho
 /** "14:30" in the shop's time zone. */
 export const localTime = (iso: string, timeZone: string) =>
   new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+
+/** "10. 11." in the shop's time zone (day and month, the shopper's own date). */
+export const localDay = (iso: string, timeZone: string) =>
+  new Intl.DateTimeFormat("sk-SK", { timeZone, day: "numeric", month: "numeric" }).format(new Date(iso)).replace(/\s/g, " ");
 
 /** "+421 ••• ••• 222": enough for the shopper to recognise the number. */
 export const maskPhone = (phone: string) => `${phone.slice(0, 4)} ••• ••• ${phone.slice(-3)}`;
@@ -307,6 +355,10 @@ interface RpcResult {
 }
 interface Db {
   rpc(name: string, args?: Record<string, unknown>): PromiseLike<RpcResult>;
+  /** the service client's table reads (only the job's list of connected calendars) */
+  from?(table: string): {
+    select(columns: string): { eq(column: string, value: unknown): { limit(n: number): PromiseLike<{ data: unknown }> } };
+  };
 }
 interface Caller extends Db {
   auth: { getUser(token: string): PromiseLike<{ data: { user: { id: string } | null } | null }> };
@@ -676,17 +728,282 @@ async function oauthBack(url: URL, deps: Deps) {
   return backTo(st.return_url, "ok=calendar_connected");
 }
 
+// ---------------------------------------------------------------- update 63: the assistant's tools (website)
+
+export const CODE_REASONS = ["not_available", "purpose", "phone", "name", "conversation", "too_many", "sms_quota"] as const;
+export const BOOK_REASONS = ["not_available", "conversation", "not_verified", "ref", "people", "contact_limit", "slot_taken", "service", "contact"] as const;
+
+const str = (body: Record<string, unknown>, k: string, max: number) =>
+  typeof body[k] === "string" ? (body[k] as string).slice(0, max) : null;
+const conversationOf = (body: Record<string, unknown>) => ({
+  p_conversation_id: UUID.test(String(body.conversation_id ?? "")) ? String(body.conversation_id) : null,
+  p_conversation_token: str(body, "conversation_token", 200),
+});
+
+/** One SMS that is not a booking's own (a code; an owner change): claimed by the caller's RPC, sent, settled once. */
+async function sendClaimed(deps: Deps, claim: RpcResult, phone: string, text: string): Promise<"sent" | "test" | "failed" | "quota"> {
+  if (claim.error) return claim.error.message === "sms_quota" ? "quota" : "failed";
+  const result = await deps.sms.send(phone, text).catch((e) => ({ ok: false, error: String(e).slice(0, 200) }) as SmsResult);
+  const status = !result.ok ? "failed" : deps.sms.live ? "sent" : "test";
+  await deps.db.rpc("booking_sms_settle", {
+    p_id: claim.data as string,
+    p_status: status,
+    p_provider: deps.sms.name,
+    p_ref: result.ref ?? null,
+    p_error: result.error ?? null,
+  });
+  return status;
+}
+
+async function codeStart(body: Record<string, unknown>, deps: Deps) {
+  const slug = String(body.slug ?? "");
+  const purpose = body.purpose === "delete_all" ? "delete_all" : body.purpose === "contact" ? "contact" : null;
+  const caller = String(body.caller ?? "");
+  if (!SLUG.test(slug) || !purpose || caller.length < 16 || caller.length > 128) return reply(400, { error: "bad_request" });
+  const started = await deps.db.rpc("sms_code_start", {
+    p_slug: slug,
+    p_purpose: purpose,
+    p_phone: str(body, "phone", 40),
+    p_name: str(body, "name", 80),
+    p_caller_hash: caller,
+    ...conversationOf(body),
+    p_consent_version: str(body, "consent_version", 40),
+  });
+  if (started.error) {
+    const why = CODE_REASONS.find((r) => r === started.error!.message) ?? "failed";
+    return reply(why === "failed" ? 500 : why === "too_many" || why === "sms_quota" ? 429 : 400, { error: why });
+  }
+  const c = started.data as { id: string; code: string; phone: string; shop_name: string; expires_at: string };
+  const text = smsText(purpose === "delete_all" ? "forget_code" : "contact_code", str(body, "lang", 12), { shop: c.shop_name, code: c.code });
+  const claim = await deps.db.rpc("sms_code_claim", { p_code_id: c.id, p_body: text });
+  const status = await sendClaimed(deps, claim as RpcResult, c.phone, text);
+  if (status === "quota") return reply(429, { error: "sms_quota" });
+  if (status === "failed") return reply(502, { error: "sms_failed" });
+  return reply(200, {
+    id: c.id,
+    expires_at: c.expires_at,
+    phone: maskPhone(c.phone),
+    // test mode only (no SMS provider and BOOKING_TEST_CODES=on): the code goes back to the page, never to the AI
+    ...(status === "test" && deps.showTestCodes ? { test_code: c.code } : {}),
+  });
+}
+
+async function codeVerify(body: Record<string, unknown>, deps: Deps) {
+  const id = String(body.id ?? "");
+  if (!UUID.test(id)) return reply(400, { error: "bad_request" });
+  const { data, error } = await deps.db.rpc("sms_code_verify", {
+    p_code_id: id,
+    p_code: String(body.code ?? "").replace(/\s/g, "").slice(0, 12),
+    ...conversationOf(body),
+  });
+  if (error) return reply(500, { error: "failed" });
+  const v = data as { ok: boolean; reason?: string; attempts_left?: number; purpose?: string };
+  if (!v.ok) return reply(400, { error: v.reason ?? "failed", attempts_left: v.attempts_left ?? null });
+  return reply(200, { ok: true, purpose: v.purpose });
+}
+
+async function services(body: Record<string, unknown>, deps: Deps) {
+  const slug = String(body.slug ?? "");
+  if (!SLUG.test(slug)) return reply(400, { error: "bad_request" });
+  const { data, error } = await deps.db.rpc("shop_booking_services", { p_slug: slug });
+  if (error) return reply(500, { error: "failed" });
+  return reply(200, { services: data ?? [] });
+}
+
+/** Reads a connected calendar's busy times for a window into booking_calendar_busy (failures only logged). */
+export async function refreshBusy(deps: Deps, shopId: string, from: string, to: string): Promise<boolean> {
+  const access = await googleAccess(deps, shopId);
+  if (!access) return false;
+  try {
+    const busy = await freeBusy(deps.fetch, access, from, to);
+    await deps.db.rpc("booking_calendar_busy_set", { p_shop_id: shopId, p_from: from, p_to: to, p_ranges: busy });
+    return true;
+  } catch (e) {
+    console.error("bookings: busy times", shopId, (e instanceof Error ? e.message : String(e)).slice(0, 80));
+    return false;
+  }
+}
+
+async function offer(body: Record<string, unknown>, deps: Deps) {
+  const slug = String(body.slug ?? "");
+  const service = String(body.service_id ?? "");
+  const from = Date.parse(String(body.from ?? ""));
+  const to = Date.parse(String(body.to ?? ""));
+  if (!SLUG.test(slug) || !UUID.test(service) || Number.isNaN(from) || Number.isNaN(to) || to <= from) {
+    return reply(400, { error: "bad_request" });
+  }
+  const shop = await bookableShop(deps, slug);
+  if (!shop) return reply(200, { available: false, slots: [] });
+  const fromIso = new Date(from).toISOString();
+  const toIso = new Date(Math.min(to, from + 14 * 86_400_000)).toISOString();
+  if (shop.google) await refreshBusy(deps, shop.shop_id, fromIso, toIso);
+  const { data, error } = await deps.db.rpc("booking_offer_slots", {
+    p_slug: slug,
+    ...conversationOf(body),
+    p_service_id: service,
+    p_from: fromIso,
+    p_to: toIso,
+    p_people: Math.min(Math.max(Math.floor(Number(body.people) || 1), 1), 500),
+  });
+  if (error) return reply(500, { error: "failed" });
+  return reply(200, { available: true, timezone: shop.timezone, slots: data ?? [] });
+}
+
+async function book(body: Record<string, unknown>, deps: Deps) {
+  const slug = String(body.slug ?? "");
+  const ref = String(body.ref ?? "");
+  if (!SLUG.test(slug) || !/^s[0-9]{1,3}$/.test(ref)) return reply(400, { error: "bad_request" });
+  const { data, error } = await deps.db.rpc("booking_assistant_book", {
+    p_slug: slug,
+    ...conversationOf(body),
+    p_ref: ref,
+    p_people: Math.min(Math.max(Math.floor(Number(body.people) || 1), 1), 500),
+  });
+  if (error) {
+    const why = BOOK_REASONS.find((r) => r === error.message) ?? "failed";
+    return reply(why === "failed" ? 500 : why === "slot_taken" ? 409 : 400, { error: why });
+  }
+  return reply(200, { ok: true, booking: data });
+}
+
 // ---------------------------------------------------------------- the job
 
-async function tick(deps: Deps) {
+interface Due {
+  id: string;
+  shop_name: string;
+  timezone: string;
+  phone: string;
+  starts_at: string;
+  lang: string | null;
+  service_name: string | null;
+}
+
+async function reminders(deps: Deps): Promise<number> {
   const { data } = await deps.db.rpc("booking_reminders_due", { p_limit: 50 });
   let sent = 0;
-  for (const b of (data ?? []) as { id: string; shop_name: string; timezone: string; phone: string; starts_at: string; lang: string | null; service_name: string | null }[]) {
-    const text = smsText("reminder", b.lang, { shop: b.shop_name, time: localTime(b.starts_at, b.timezone), service: b.service_name });
+  for (const b of (data ?? []) as Due[]) {
+    const text = smsText("reminder_at", b.lang, {
+      shop: b.shop_name, day: localDay(b.starts_at, b.timezone), time: localTime(b.starts_at, b.timezone), service: b.service_name,
+    });
     const status = await sendSms(deps, b.id, "booking_reminder", b.phone, text);
     if (status === "sent" || status === "test") sent++;
   }
-  return reply(200, { reminders: sent });
+  return sent;
+}
+
+/** The customer's SMS after the owner moved or cancelled (booking_notifications; 3 tries, then failed). */
+async function ownerChanges(deps: Deps): Promise<number> {
+  const { data } = await deps.db.rpc("booking_notifications_due", { p_limit: 50 });
+  let sent = 0;
+  for (const n of (data ?? []) as (Due & { kind: "moved" | "cancelled"; shop_phone: string | null })[]) {
+    const text = smsText(n.kind, n.lang, {
+      shop: n.shop_name, day: localDay(n.starts_at, n.timezone), time: localTime(n.starts_at, n.timezone), service: n.service_name,
+      phone: n.shop_phone,
+    });
+    const claim = await deps.db.rpc("booking_notification_claim", { p_id: n.id, p_body: text });
+    const status = await sendClaimed(deps, claim as RpcResult, n.phone, text);
+    const ok = status === "sent" || status === "test";
+    await deps.db.rpc("booking_notification_result", { p_id: n.id, p_ok: ok, p_error: ok ? null : status });
+    if (ok) sent++;
+  }
+  return sent;
+}
+
+interface SyncJob {
+  id: number;
+  shop_id: string;
+  booking_id: string | null;
+  op: "create" | "update" | "delete";
+  google_event_id: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  timezone: string;
+  summary: string;
+  status: string | null;
+}
+
+/** The event Cacaduu keeps in the shop's calendar: the service, the first name and the resource only. */
+export const syncEvent = (j: SyncJob) => ({
+  summary: j.summary.slice(0, 200),
+  description: "Cacaduu",
+  start: { dateTime: j.starts_at, timeZone: j.timezone },
+  end: { dateTime: j.ends_at, timeZone: j.timezone },
+  reminders: { useDefault: true },
+});
+
+/** One push to Google: only the event Cacaduu made (its id), never another one; a deleted event counts as done. */
+export async function pushSync(deps: Deps, j: SyncJob): Promise<{ ok: boolean; eventId: string | null; error: string | null }> {
+  const access = await googleAccess(deps, j.shop_id);
+  if (!access) return { ok: false, eventId: null, error: "Kalendár nie je pripojený" };
+  const live = j.status === "confirmed" && j.starts_at && j.ends_at;
+  const headers = { Authorization: `Bearer ${access}`, "Content-Type": "application/json" };
+  const events = `${CALENDAR}/calendars/primary/events`;
+  try {
+    if (j.op === "delete" || !live) {
+      if (!j.google_event_id) return { ok: true, eventId: null, error: null };
+      const res = await deps.fetch(`${events}/${encodeURIComponent(j.google_event_id)}?sendUpdates=none`, {
+        method: "DELETE", headers, signal: AbortSignal.timeout(10_000),
+      });
+      return res.ok || res.status === 404 || res.status === 410
+        ? { ok: true, eventId: null, error: null }
+        : { ok: false, eventId: null, error: `Google ${res.status}` };
+    }
+    if (j.op === "update" && j.google_event_id) {
+      const res = await deps.fetch(`${events}/${encodeURIComponent(j.google_event_id)}?sendUpdates=none`, {
+        method: "PATCH", headers, body: JSON.stringify(syncEvent(j)), signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) return { ok: true, eventId: j.google_event_id, error: null };
+      if (res.status !== 404 && res.status !== 410) return { ok: false, eventId: null, error: `Google ${res.status}` };
+      // the owner deleted it in Google: Cacaduu makes it again
+    }
+    const res = await deps.fetch(`${events}?sendUpdates=none`, {
+      method: "POST", headers, body: JSON.stringify(syncEvent(j)), signal: AbortSignal.timeout(10_000),
+    });
+    const created = res.ok ? ((await res.json().catch(() => ({}))) as { id?: string }) : null;
+    return created?.id ? { ok: true, eventId: created.id, error: null } : { ok: false, eventId: null, error: `Google ${res.status}` };
+  } catch (e) {
+    return { ok: false, eventId: null, error: (e instanceof Error ? e.message : String(e)).slice(0, 100) };
+  }
+}
+
+async function calendarSync(deps: Deps): Promise<number> {
+  const { data } = await deps.db.rpc("booking_sync_due", { p_limit: 50 });
+  let done = 0;
+  for (const j of (data ?? []) as SyncJob[]) {
+    const r = await pushSync(deps, j);
+    await deps.db.rpc("booking_sync_result", { p_id: j.id, p_ok: r.ok, p_event_id: r.eventId, p_error: r.error });
+    if (r.ok) done++;
+    else console.error("bookings: calendar push", j.shop_id, j.op, (r.error ?? "").slice(0, 60));
+  }
+  return done;
+}
+
+/** The busy times of every working calendar connection for the next 60 days (at most 20 shops a tick). */
+async function busyTimes(deps: Deps): Promise<number> {
+  if (!deps.google || !deps.key || !deps.db.from) return 0;
+  const { data } = await deps.db.from("booking_google_connections").select("shop_id").eq("status", "ok").limit(20);
+  const from = new Date().toISOString();
+  const to = new Date(Date.now() + 60 * 86_400_000).toISOString();
+  let n = 0;
+  for (const row of (data ?? []) as { shop_id: string }[]) if (await refreshBusy(deps, row.shop_id, from, to)) n++;
+  return n;
+}
+
+async function tick(deps: Deps) {
+  const run = async (name: string, f: () => Promise<number>) => {
+    try {
+      return await f();
+    } catch (e) {
+      console.error("bookings: tick", name, (e instanceof Error ? e.message : String(e)).slice(0, 120));
+      return 0;
+    }
+  };
+  return reply(200, {
+    reminders: await run("reminders", () => reminders(deps)),
+    owner_changes: await run("owner_changes", () => ownerChanges(deps)),
+    calendar: await run("calendar", () => calendarSync(deps)),
+    busy: await run("busy", () => busyTimes(deps)),
+  });
 }
 
 // ---------------------------------------------------------------- the request
@@ -712,6 +1029,11 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
       if (action === "start") return await start(body, deps);
       if (action === "resend") return await resend(body, deps);
       if (action === "verify") return await verify(body, deps);
+      if (action === "code_start") return await codeStart(body, deps);
+      if (action === "code_verify") return await codeVerify(body, deps);
+      if (action === "services") return await services(body, deps);
+      if (action === "offer") return await offer(body, deps);
+      if (action === "book") return await book(body, deps);
       return reply(400, { error: "bad_request" });
     }
     if (action === "google_connect" || action === "google_disconnect") return await owner(req, body, deps);
@@ -733,7 +1055,7 @@ export async function handler(req: Request): Promise<Response> {
   const secret = (Deno.env.get("BOOKING_TOKEN_ENCRYPTION_KEY") ?? Deno.env.get("EXPORT_TOKEN_ENCRYPTION_KEY") ?? "").trim();
   const sms = smsProvider(Deno.env.get("SMS_PROVIDER"), (name) => Deno.env.get(name), fetch);
   return await handle(req, {
-    db: createClient(url, serviceKey, options),
+    db: createClient(url, serviceKey, options) as unknown as Db,
     asCaller: (authorization) =>
       createClient(url, anonKey, { ...options, global: { headers: { Authorization: authorization } } }) as unknown as Caller,
     websiteSecret: Deno.env.get("ASSISTANT_ARCHIVE_SECRET")?.trim() || null,

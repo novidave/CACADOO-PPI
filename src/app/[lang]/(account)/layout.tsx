@@ -34,6 +34,7 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
     { href: `/${lang}/dashboard/translations`, label: dict.account.translations_page, shopPage: true },
     { href: `/${lang}/sync`, label: dict.account.sync, shopPage: true },
     { href: `/${lang}/dashboard/plan`, label: dict.account.plan_page, shopPage: true },
+    { href: `/${lang}/dashboard/legal`, label: dict.shop_legal.admin_title, shopPage: true },
     { href: `/${lang}/password`, label: dict.account.password },
     ...(session.isAdmin
       ? [

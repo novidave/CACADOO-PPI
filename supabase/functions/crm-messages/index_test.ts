@@ -249,3 +249,31 @@ Deno.test("MCP: refusals are passed on; bad requests touch nothing", async () =>
   eq((await handle(mcpPost({ action: "mcp_send", confirmation_id: CONTACT }, "short"), deps)).status, 400, "short token");
   eq(log.length, 0, "nothing read");
 });
+
+// ---------------------------------------------------------------- update 63
+
+Deno.test("reply: the owner answers in a conversation; refusals are passed on; the e-mail's reply-to is the shop", async () => {
+  const { deps, log } = setup();
+  const res = await handle(post({ action: "reply", conversation_id: CONTACT, channel: "email", body: "Áno, máme." }), deps);
+  eq((await res.json()).status, "sent", "sent");
+  eq(log.find((l) => l.startsWith("caller owner_reply"))!.includes(`"p_conversation_id":"${CONTACT}"`), true, "as the owner");
+  const brevo = JSON.parse(log.find((l) => l.startsWith("fetch "))!.split(" ").slice(2).join(" "));
+  eq(brevo.replyTo.email, "obchod@example.invalid", "reply-to = the shop's e-mail");
+  eq((await handle(post({ action: "reply", conversation_id: "x", channel: "email" }), deps)).status, 400, "bad id");
+  const none = setup({ queueError: { message: "no_contact", code: "22023" } });
+  eq(await (await handle(post({ action: "reply", conversation_id: CONTACT, channel: "sms" }), none.deps)).json(), { error: "no_contact" },
+    "a conversation without a contact");
+  const quota = setup({ queueError: { message: "sms_quota", code: "54000" } });
+  eq(await (await handle(post({ action: "reply", conversation_id: CONTACT, channel: "sms" }), quota.deps)).json(), { error: "sms_quota" },
+    "over the quota: a clear reason");
+});
+
+Deno.test("Všetko o mne: the owners' e-mail says what was deleted and that copies outside Cacaduu are theirs to delete", () => {
+  const row = { id: "a", shop_name: "Farby", kind: "forget_all" as const, conversation_id: null, question: null, has_phone: false,
+    has_email: false, recipients: [] };
+  const sk = alertMail(row, "sk", "https://cacaduu.com");
+  eq(sk.subject, "Zákazník vymazal svoje údaje – Farby", "subject");
+  eq(sk.text.includes("cloudovom priečinku") && sk.text.includes("zrušili jeho budúce rezervácie"), true, "copies + bookings");
+  eq(/\+?\d{9,}|@/.test(sk.text), false, "no number or address of the shopper");
+  eq(alertMail(row, "de", null).subject, "A customer deleted their data – Farby", "English otherwise");
+});

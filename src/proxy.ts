@@ -146,15 +146,21 @@ async function shopDomain(request: NextRequest, host: string): Promise<NextRespo
     const r = blog(site.lang, second);
     if (r) return r;
   }
+  // The shop's own "Právne informácie" (database update 65).
+  if (first === "pravne-informacie" && parts.length === 1) return to(`/site/${site.lang}/${site.slug}/pravne-informacie`);
   if (isLocale(first)) {
     if (parts.length === 1) return rememberLocale(request, to(`/site/${first}/${site.slug}`), first);
     if (second === "items" && third && parts.length === 3) return to(`/site/${first}/${site.slug}/items/${third}`);
+    if (second === "pravne-informacie" && parts.length === 2) return to(`/site/${first}/${site.slug}/pravne-informacie`);
     if (second === "blog" && parts.length <= 3) {
       const r = blog(first, third);
       if (r) return r;
     }
     // The shop's own Cacaduu path → its address on the domain.
     if (second === "shops" && third === site.slug && parts.length === 3) return goTo(first === site.lang ? "/" : `/${first}`);
+    if (second === "shops" && third === site.slug && fourth === "pravne-informacie" && parts.length === 4) {
+      return goTo(`${first === site.lang ? "" : `/${first}`}/pravne-informacie`);
+    }
     if (second === "shops" && third === site.slug && fourth === "blog" && parts.length <= 5) {
       return goTo(`${first === site.lang ? "" : `/${first}`}/blog${fifth ? `/${fifth}` : ""}`);
     }

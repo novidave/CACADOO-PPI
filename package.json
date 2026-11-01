@@ -28,6 +28,7 @@
     "test:list": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/shoppingList_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/shoppingList_test.ts",
     "test:conversations": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/conversationExport_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/conversationExport_test.ts",
     "test:crm": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts",
+    "test:booking": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts",
     "test:e2e": "playwright test",
     "test:telegram": "node scripts/telegram-texts.mjs --check"
   },

@@ -1,8 +1,8 @@
 // Unit tests of the bookings function: who may call what, the code SMS, Google free/busy and the event, the reminder.
 // Run: npm run test:functions
 import {
-  cleanReturnUrl, decryptToken, type Deps, encryptToken, eventBody, handle, hashText, localTime, maskPhone, overlaps,
-  SCOPE, smsProvider, smsText, testSms, tokenKey,
+  cleanReturnUrl, decryptToken, type Deps, encryptToken, eventBody, handle, hashText, localDay, localTime, maskPhone, overlaps,
+  pushSync, SCOPE, smsProvider, smsText, syncEvent, testSms, tokenKey,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -196,13 +196,14 @@ Deno.test("Google connect: owners with the plan, PKCE, only the two scopes; the 
 Deno.test("the day-before reminder goes by SMS and is logged", async () => {
   const { deps, log } = await setup();
   const res = await handle(new Request("https://x/functions/v1/bookings", { method: "POST", headers: { "x-ppi-cron": "c".repeat(40) }, body: JSON.stringify({ action: "tick" }) }), deps);
-  eq(await res.json(), { reminders: 1 }, "one");
+  eq(await res.json(), { reminders: 1, owner_changes: 0, calendar: 0, busy: 0 }, "one");
   const logged = log.find((l) => l.startsWith("db booking_sms_claim"))!;
-  eq(logged.includes('"p_kind":"booking_reminder"') && logged.includes("zajtra o 09:00"), true, "the shop's local time");
+  // update 63: the reminder may come 2 hours before or the day before from 18:00, so it names the day
+  eq(logged.includes('"p_kind":"booking_reminder"') && logged.includes("10. 11. o 09:00"), true, "the shop's local day and time");
   eq(log.some((l) => l.startsWith("db booking_sms_settle")), true, "settled");
   const full = await setup({ rpc: { booking_sms_claim: { error: { message: "sms_quota" } } } });
   const r2 = await handle(new Request("https://x/functions/v1/bookings", { method: "POST", headers: { "x-ppi-cron": "c".repeat(40) }, body: JSON.stringify({ action: "tick" }) }), full.deps);
-  eq(await r2.json(), { reminders: 0 }, "quota used up: none sent");
+  eq((await r2.json()).reminders, 0, "quota used up: none sent");
 });
 
 Deno.test("small rules", async () => {
@@ -217,4 +218,118 @@ Deno.test("small rules", async () => {
   eq(cleanReturnUrl("http://localhost:3000/sk/dashboard/bookings"), "http://localhost:3000/sk/dashboard/bookings", "local");
   eq(cleanReturnUrl("http://cacaduu.example/sk/dashboard/bookings"), null, "plain http elsewhere");
   eq(smsProvider(undefined).live, false, "test by default");
+});
+
+// ---------------------------------------------------------------- update 63: the assistant's tools and the job
+
+const CODE = "77777777-2222-4333-8444-555555555555";
+const cron = (body: unknown) =>
+  new Request("https://x/functions/v1/bookings", { method: "POST", headers: { "x-ppi-cron": "c".repeat(40) }, body: JSON.stringify(body) });
+const codeRow = { data: { id: CODE, code: "654321", phone: "+421905111222", shop_name: "Kaderníctvo Eva", expires_at: "x" } };
+
+Deno.test("code_start: the page's own code SMS (masked in the log, test code only with BOOKING_TEST_CODES), quota and limits", async () => {
+  const body = { action: "code_start", slug: "eva", purpose: "contact", phone: "0905111222", name: "Jana", caller: "c".repeat(32),
+    conversation_id: BOOKING, conversation_token: "tok", consent_version: "chat-v1", lang: "sk" };
+  const { deps, log } = await setup({ rpc: { sms_code_start: codeRow, sms_code_claim: { data: "msg-2" } } });
+  const res = await (await handle(website(body), deps)).json();
+  eq([res.id, res.phone, "test_code" in res], [CODE, "+421 ••• ••• 222", false], "sent; the code never goes back");
+  const claim = log.find((l) => l.startsWith("db sms_code_claim"))!;
+  eq(claim.includes("overovací kód je 654321"), true, "the SMS text (the database masks it in the log)");
+  eq(log.some((l) => l.startsWith("db booking_sms_settle") && l.includes('"p_id":"msg-2"')), true, "settled once");
+  const started = log.find((l) => l.startsWith("db sms_code_start"))!;
+  eq(started.includes('"p_purpose":"contact"') && started.includes('"p_conversation_token":"tok"'), true, "the conversation goes along");
+  const shown = await setup({ showTestCodes: true, rpc: { sms_code_start: codeRow, sms_code_claim: { data: "m" } } });
+  eq((await (await handle(website(body), shown.deps)).json()).test_code, "654321", "test mode, switched on: shown to the page");
+  const live = await setup({ showTestCodes: true, sms: { name: "brevo", live: true, send: () => Promise.resolve({ ok: true }) },
+    rpc: { sms_code_start: codeRow, sms_code_claim: { data: "m" } } });
+  eq("test_code" in await (await handle(website(body), live.deps)).json(), false, "a real provider: never shown");
+  const many = await setup({ rpc: { sms_code_start: { error: { message: "too_many", code: "54000" } } } });
+  const r = await handle(website(body), many.deps);
+  eq([r.status, (await r.json()).error], [429, "too_many"], "3 a number / 10 a caller an hour");
+  let sent = false;
+  const full = await setup({ rpc: { sms_code_start: codeRow, sms_code_claim: { error: { message: "sms_quota" } } },
+    sms: { name: "brevo", live: true, send: () => { sent = true; return Promise.resolve({ ok: true }); } } });
+  const q = await handle(website(body), full.deps);
+  eq([q.status, (await q.json()).error, sent], [429, "sms_quota", false], "over the quota: nothing sent");
+  eq((await handle(website({ ...body, purpose: "anything" }), deps)).status, 400, "purpose");
+  const forget = await setup({ rpc: { sms_code_start: codeRow, sms_code_claim: { data: "m" } } });
+  await handle(website({ ...body, purpose: "delete_all", lang: "en" }), forget.deps);
+  eq(forget.log.find((l) => l.startsWith("db sms_code_claim"))!.includes("the code to delete your data"), true, "delete-all text");
+});
+
+Deno.test("code_verify: the database decides; the reason and the tries left go back", async () => {
+  const ok = await setup({ rpc: { sms_code_verify: { data: { ok: true, purpose: "contact", contact_id: "x" } } } });
+  eq(await (await handle(website({ action: "code_verify", id: CODE, code: "65 43 21" }), ok.deps)).json(), { ok: true, purpose: "contact" },
+    "never the contact id");
+  eq(ok.log.find((l) => l.startsWith("db sms_code_verify"))!.includes('"p_code":"654321"'), true, "spaces dropped");
+  const wrong = await setup({ rpc: { sms_code_verify: { data: { ok: false, reason: "wrong_code", attempts_left: 3 } } } });
+  eq(await (await handle(website({ action: "code_verify", id: CODE, code: "1" }), wrong.deps)).json(), { error: "wrong_code", attempts_left: 3 }, "tries");
+  eq((await handle(website({ action: "code_verify", id: "x", code: "1" }), wrong.deps)).status, 400, "bad id");
+});
+
+Deno.test("offer reads a connected calendar's busy times first; book maps the database's refusals", async () => {
+  const { deps, log } = await setup({ connected: true, busy: [{ start: "2026-11-10T08:00:00Z", end: "2026-11-10T09:00:00Z" }],
+    rpc: { booking_offer_slots: { data: [{ ref: "s1", starts_at: "2026-11-10T09:00:00Z" }] } } });
+  const res = await (await handle(website({ action: "offer", slug: "eva", service_id: SHOP, conversation_id: BOOKING,
+    conversation_token: "tok", from: "2026-11-10T00:00:00Z", to: "2026-12-31T00:00:00Z" }), deps)).json();
+  eq(res.slots, [{ ref: "s1", starts_at: "2026-11-10T09:00:00Z" }], "refs from SQL");
+  const busySet = log.findIndex((l) => l.startsWith("db booking_calendar_busy_set"));
+  eq(busySet >= 0 && busySet < log.findIndex((l) => l.startsWith("db booking_offer_slots")), true, "busy times before the slots");
+  eq(log.find((l) => l.startsWith("db booking_offer_slots"))!.includes('"p_to":"2026-11-24T00:00:00.000Z"'), true, "at most 14 days");
+  const offline = await setup({ connected: false, rpc: { booking_offer_slots: { data: [] } } });
+  await handle(website({ action: "offer", slug: "eva", service_id: SHOP, from: "2026-11-10T00:00:00Z", to: "2026-11-11T00:00:00Z" }), offline.deps);
+  eq(offline.log.some((l) => l.includes("freeBusy")), false, "no calendar: Cacaduu alone decides");
+  for (const [error, status] of [["not_verified", 400], ["slot_taken", 409], ["contact_limit", 400], ["boom", 500]] as const) {
+    const s = await setup({ rpc: { booking_assistant_book: { error: { message: error } } } });
+    const r = await handle(website({ action: "book", slug: "eva", ref: "s3", conversation_id: BOOKING, conversation_token: "t" }), s.deps);
+    eq([r.status, (await r.json()).error], [status, error === "boom" ? "failed" : error], `book: ${error}`);
+  }
+  eq((await handle(website({ action: "book", slug: "eva", ref: "2026-11-10T09:00" }), deps)).status, 400, "only short refs");
+});
+
+Deno.test("the job: the owner-change SMS (3 tries), calendar pushes only Cacaduu's events, busy times", async () => {
+  const note = { id: 5, booking_id: BOOKING, kind: "moved", shop_id: SHOP, shop_name: "Eva", shop_phone: "+421905000000",
+    timezone: "Europe/Bratislava", phone: "+421905111222", name: "Jana", starts_at: "2026-11-12T13:30:00Z", lang: "sk", service_name: "Strih" };
+  const { deps, log } = await setup({ rpc: { booking_reminders_due: { data: [] }, booking_notifications_due: { data: [note] },
+    booking_notification_claim: { data: "msg-3" } } });
+  const res = await (await handle(cron({ action: "tick" }), deps)).json();
+  eq(res.owner_changes, 1, "one sent");
+  eq(log.find((l) => l.startsWith("db booking_notification_claim"))!.includes("presunutá na 12. 11. o 14:30. Otázky: +421905000000"), true,
+    "the new day and time, the shop's number");
+  eq(log.some((l) => l.startsWith("db booking_notification_result") && l.includes('"p_ok":true')), true, "result stored");
+  const failing = await setup({ sms: { name: "x", live: true, send: () => Promise.resolve({ ok: false, error: "down" }) },
+    rpc: { booking_reminders_due: { data: [] }, booking_notifications_due: { data: [note] }, booking_notification_claim: { data: "m" } } });
+  await handle(cron({ action: "tick" }), failing.deps);
+  eq(failing.log.some((l) => l.startsWith("db booking_notification_result") && l.includes('"p_ok":false')), true, "a failure is retried by SQL");
+
+  const job = { id: 1, shop_id: SHOP, booking_id: BOOKING, op: "create" as const, google_event_id: null, starts_at: "2026-11-12T13:30:00Z",
+    ends_at: "2026-11-12T14:00:00Z", timezone: "Europe/Bratislava", summary: "Strih – Jana – Eva", status: "confirmed" };
+  const g = await setup({ connected: true });
+  eq(await pushSync(g.deps, job), { ok: true, eventId: "evt_9", error: null }, "created");
+  const posted = JSON.parse(g.log.find((l) => l.includes("/events?sendUpdates=none"))!.split(" ").slice(2).join(" "));
+  eq([posted.summary, posted.description, "attendees" in posted], ["Strih – Jana – Eva", "Cacaduu", false], "no phone, no attendees");
+  await pushSync(g.deps, { ...job, op: "update", google_event_id: "evt_1" });
+  eq(g.log.some((l) => l.includes("/events/evt_1?sendUpdates=none")), true, "only its own event, by id");
+  const gone = await setup({ connected: true, eventStatus: 410 });
+  eq((await pushSync(gone.deps, { ...job, op: "delete", google_event_id: "evt_1" })).ok, true, "already deleted in Google = done");
+  eq((await pushSync(g.deps, { ...job, op: "delete", google_event_id: null })).ok, true, "nothing to delete");
+  const broken = await setup({ connected: true, eventStatus: 500 });
+  eq(await pushSync(broken.deps, job), { ok: false, eventId: null, error: "Google 500" }, "a failure is reported for a retry");
+  const none = await setup({ connected: false });
+  eq((await pushSync(none.deps, job)).ok, false, "not connected: never pretends");
+  eq(syncEvent(job).start, { dateTime: "2026-11-12T13:30:00Z", timeZone: "Europe/Bratislava" }, "the shop's time zone");
+
+  const withConn = await setup({ connected: true, rpc: { booking_reminders_due: { data: [] } } });
+  withConn.deps.db.from = () => ({ select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: [{ shop_id: SHOP }] }) }) }) });
+  eq((await (await handle(cron({ action: "tick" }), withConn.deps)).json()).busy, 1, "busy times read for a connected shop");
+  eq(withConn.log.some((l) => l.startsWith("db booking_calendar_busy_set")), true, "stored as busy rows");
+});
+
+Deno.test("update 63 SMS texts and the local day", () => {
+  eq(smsText("cancelled", "en", { shop: "Eva", day: "12. 11.", time: "14:30", service: "Cut" }), "Eva: your booking (Cut) on 12. 11. at 14:30 was cancelled.", "cancelled");
+  eq(smsText("reminder_at", "hu", { shop: "Bolt", day: "1. 3.", time: "08:00" }), "Bolt: emlékeztetjük a foglalására: 1. 3., 08:00.", "Hungarian reminder");
+  eq(localDay("2027-03-28T00:30:00Z", "Europe/Bratislava"), "28. 3.", "local day");
+  for (const k of ["contact_code", "forget_code", "moved", "cancelled", "reminder_at"] as const) {
+    eq(/https?:/.test(smsText(k, "sk", { shop: "Eva", code: "1", day: "1. 1.", time: "1:00" })), false, `${k}: no links`);
+  }
 });
