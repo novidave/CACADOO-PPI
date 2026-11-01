@@ -86,6 +86,15 @@ OPEN
    Why: owners who link Telegram send their shop's data through Telegram (Telegram FZ-LLC, Dubai).
    Steps: Claude will show you the exact new lines for the privacy page; write "OK" or your changes.
 
+14. Deploy the new "telegram" function (one paste)
+   Why: the Telegram bot's code (the database part is already applied).
+   Steps:
+   a) Supabase → Edge Functions → "Deploy a new function" → "Via Editor" → name exactly: telegram
+   b) Delete the example code, paste the whole file telegram.txt that Claude sent you → Deploy.
+   c) Function → Settings: switch "Verify JWT" OFF → Save.
+   d) Write "done 14". Claude checks that the code is the same as in the repository.
+
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
