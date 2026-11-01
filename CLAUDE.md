@@ -200,6 +200,8 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
 - `npm run test:content` — unit tests (Deno) of "Obsah stránky" (`src/lib/content_test.ts`): the slide rule
   (pinned never repeated, fewer posts, hidden files, plan limits), counters, srcset, excerpts and where Môj obchod's
   sections live (old addresses forwarded)
+- `npm run test:telegram` — the Telegram bot's texts in `supabase/functions/telegram/index.ts` match the message
+  files (`node scripts/telegram-texts.mjs` writes them)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook, page-sections PDF cleaning and limits, partner-feeds formats, parts and size limit
@@ -563,6 +565,45 @@ with `x-ppi-mcp` → `owner_mcp_message_queue()`: same grant, once, refused `pre
 differs, then `owner_message_queue` as the owner — quota, 100/day, log). Every write is in `shop_activity` as the owner
 (`mcp_connected`, `mcp_disconnected`, `mcp_key_created`, `mcp_message_queued`, `hours_changed`,
 `shop_details_changed`, `stock_edited` + the owner_* functions' own). The consent page is never framed (`next.config.ts` headers). Texts `owner_mcp`; login keeps a safe `next`.
+
+## Telegram bot for owners (Pro, update 66, phase T1)
+
+`supabase/sql/66_telegram.sql` + `supabase/functions/telegram` (one file, Verify JWT off; `index_test.ts`) + `dashboard/ai`
+section `#telegram` (`@/components/TelegramLinkForm`, actions `startTelegramLink` / `saveTelegramConsent` /
+`unlinkTelegram`, `@/lib/telegram`) + admin `TelegramAdmin.tsx`. **The bot is another client of the owner MCP's one door
+— never a second write path:** linking = a one-time code (`owner_telegram_link_start()`: `tg` + 40 hex, hash only, 10
+minutes, once, ≤ 5/hour) in `t.me/<TELEGRAM_BOT_USERNAME>?start=<code>` (button + QR code, `qrcode` on the server) →
+`telegram_claim()` (private chats only; one Telegram user per account) → the owner ticks Pro shops + scopes
+(`owner_telegram_consent()` = an `owner_mcp_tokens` grant of kind `telegram`, token `ctg_…` **only in the Vault**, never
+leaves the database). Every tool: `telegram_call()` → `owner_mcp_call()` (scopes, the grant's shops, membership,
+`shop_has_plan`, 120/min) with `ppi.source = telegram` → the `shop_activity` trigger adds `details.source`. **Every
+write waits for "Potvrdiť"**: `telegram_pending_new()` (write scopes only, before → after shown) → `telegram_confirm()`
+(same Telegram user, 10 minutes, once); `telegram_call()` itself refuses a write outside a confirmation
+(`needs_confirmation`; `update_stock` without `confirm` only previews, with the warning that the next file / agent /
+program overwrites it). Webhook: `X-Telegram-Bot-Api-Secret-Token` = `TELEGRAM_WEBHOOK_SECRET` (constant-time) or 401;
+groups/channels refused with a message; unknown users only get "Prepojte Telegram…"; 30 messages/min per Telegram user
+(`telegram_whoami`). Buttons (no AI): Dnes · Hodiny (Dnes/Zajtra zatvorené, a day's hours) · Rezervácie (today /
+tomorrow / week, Potvrdiť / Zrušiť) · Sklad (quantity / price) · Správy (mark handled) · Kontakty (phone masked until
+"Zobraziť") · Stav obchodu; commands in sk/hu/en (`ALIASES`, `COMMAND_NAMES`, `/odpojit`). Shop data are shown escaped,
+never read as instructions; never secrets, keys, purchase prices or other shops' data. Texts: `telegram` (the bot,
+copied into the function by `scripts/telegram-texts.mjs`; `npm run test:telegram` fails when the copy differs — edit
+the message files, then run the script), `owner_tg`, `admin_telegram`. Tables (no grants, functions only):
+`telegram_settings` (AI on/off, AI 50/day, notifications 30/day — admin only), `telegram_link_codes`, `telegram_links`,
+`telegram_pending`, `telegram_shop_prefs`. Without `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` the function
+sends nothing and the admin page says "nie je nastavené"; without `TELEGRAM_BOT_USERNAME` (Vercel, public) the website
+offers no link. **Free text (T2):** Claude (`AI_MODEL`, `ANTHROPIC_API_KEY`; injected as `deps.ai`) with read tools
+through the same door and `propose_*` tools only (hours, booking status, stock, mark handled → the same "Potvrdiť"
+message, ≤ 3 per message; the AI never confirms); tool results reach it through `forAi()` (phones masked; e-mails,
+addresses, notes dropped); `telegram_ai_hit()` = the admin's switch + the owner's per shop (`telegram_shop_prefs.ai_on`)
++ `ai_daily_limit` per Telegram user (`telegram_ai_usage`); history = the last 4 short turns in `telegram_links.state`.
+**Notifications (T3, opt-in per shop):** `booking_new` / `booking_cancelled` (trigger on `shop_bookings`: a customer's,
+never the owner's own — `auth.uid()` a member) and `callback` (trigger on `shop_owner_alerts`) → `telegram_notify()` →
+`telegram_outbox` (once per link/kind/ref) → `telegram_kick()` (pg_net) or the job `ppi-telegram-tick` (5 min, Vault
+`ppi_telegram_cron`, header `x-ppi-cron`) → action notify → `telegram_notify_due()` (quiet hours in the shop's time
+wait, `notify_daily_cap` per link and 24 h, access/plan re-checked; only time, service, name or the question — never a
+phone) → `telegram_notify_result()` (5 tries). Owners: `owner_telegram_prefs()` / `owner_telegram_save_prefs()`,
+"Poslať skúšobné upozornenie" = `owner_telegram_test()` (5/hour). T4 (setup helper, files/photos/blog drafts) needs a
+Pomocník, which does not exist yet.
 
 ## Cloud folder (paid, update 23)
 

@@ -29,7 +29,8 @@
     "test:conversations": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/conversationExport_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/conversationExport_test.ts",
     "test:crm": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts",
     "test:booking": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:telegram": "node scripts/telegram-texts.mjs --check"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -45,6 +46,7 @@
     "opening_hours": "^3.15.0",
     "opentype.js": "2.0.0",
     "pdfjs-dist": "6.4.299",
+    "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
@@ -55,6 +57,7 @@
     "@playwright/test": "1.56.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "date-holidays": "^3.37.0",

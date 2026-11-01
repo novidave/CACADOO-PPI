@@ -4,16 +4,19 @@ test("AI search → shop → product", async ({ page }) => {
   const c = watchConsole(page);
   await page.goto("/sk");
   const box = page.locator("[data-chat-input]");
-  await box.fill("káva");
+  await box.fill("interiérová farba");
   const pressed = Date.now();
   await box.press("Enter");
   // The question shows at once (tap feedback), the cards follow (AI or the plain results).
   await expect(page.locator("[data-chat-question]")).toBeVisible();
   expect(Date.now() - pressed).toBeLessThan(1500);
-  // A card on this site (a shop with its own domain links there instead).
-  const card = page.locator("[data-chat-cards] a[href^='/'][href*='/items/']").first();
+  // A product card: on this site, or on the shop's own domain when it has a live one (https://<domain>/sk/items/<id>).
+  // The own-domain address is opened as the same path on the site under test, so the preview itself is checked.
+  const card = page.locator("[data-chat-cards] a[href*='/items/']").first();
   await expect(card).toBeVisible({ timeout: 30_000 });
-  await card.click();
+  const href = (await card.getAttribute("href")) ?? "";
+  if (href.startsWith("/")) await card.click();
+  else await page.goto(new URL(href).pathname);
   await expect(page).toHaveURL(/\/items\//);
   // Availability is written out (from the database; a stale shop says it is not available), the shop is one tap away.
   await expect(page.locator("main")).toContainText(/na sklade|Vypredané|nie je dostupná/);
