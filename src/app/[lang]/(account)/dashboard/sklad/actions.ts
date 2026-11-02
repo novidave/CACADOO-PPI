@@ -22,6 +22,8 @@ const REASONS = [
   "no_price", "empty", "no_iban", "cancelled", "done", "iban", "bic", "payee", "payment",
   // update 69 (Príjemky)
   "discarded", "date", "supplier", "invoice_no", "bad_argument",
+  // update 70 (Inventúra)
+  "closed", "counter", "shelf", "zero_shelf", "too_late",
 ] as const;
 const reason = (message: string | undefined) => REASONS.find((r) => r === message) ?? "failed";
 
@@ -37,7 +39,7 @@ async function start(formData: FormData) {
     redirect(`/${lang}/dashboard/sklad${path}?${new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...query })}`);
   // only our own Sklad pages as the way back
   const page = (query: Record<string, string>): never =>
-    go(/^(\/(products(\/[0-9a-f-]{36}|\/new)?|movements|settings|sale(\/[0-9a-f-]{36})?|terminal|receipts(\/[0-9a-f-]{36})?))?$/.test(back) ? back : "", query);
+    go(/^(\/(products(\/[0-9a-f-]{36}|\/new)?|movements|settings|sale(\/[0-9a-f-]{36})?|terminal|receipts(\/[0-9a-f-]{36})?|counts(\/[0-9a-f-]{36}(\/diff)?)?))?$/.test(back) ? back : "", query);
   return { lang, session, shopId: UUID.test(shopId) ? shopId : "", slug, page, go };
 }
 
@@ -404,4 +406,124 @@ export async function readInvoiceLines(input: {
   });
   if (error) return { ok: false, error: reason(error.message) };
   return { ok: true, invoice, matches: data as InvoiceMatch[], addsUp: invoiceAddsUp(invoice) };
+}
+
+// ---------------------------------------------------------------- Inventúra (database update 70)
+
+/** "Spustiť inventúru": a count of one location (or one shelf of it), blind unless unticked; then its counting screen. */
+export async function startCount(formData: FormData) {
+  const { session, shopId, go } = await start(formData);
+  const cid = id(formData, "count_id");
+  if (!cid) go("/counts", { err: "failed" });
+  const scope = String(formData.get("scope") ?? "location");
+  const { data, error } = await session.supabase.rpc("owner_sklad_count_start", {
+    p_shop_id: shopId,
+    p_id: cid,
+    p_name: text(formData, "name", 80) || null,
+    p_location_id: id(formData, "location_id"),
+    p_shelf: scope === "shelf" ? text(formData, "shelf", 80) || null : null,
+    p_blind: formData.get("blind") === "on",
+  });
+  if (error) go("/counts", { err: reason(error.message) });
+  go(`/counts/${String((data as { id: string }).id)}`, {});
+}
+
+export interface CountItem {
+  item_id: string;
+  name: string;
+  code: string | null;
+  total: number;
+  counters: { counter: string; qty: number; at: string }[];
+  expected: number | null;
+}
+
+/** A phone's total for one product (the + / − buttons and "Zadať počet naraz" all send the total). */
+export async function countSet(input: {
+  lang: string;
+  shopId: string;
+  countId: string;
+  itemId: string;
+  counter: string;
+  qty: number;
+  onlyMine?: boolean;
+}): Promise<{ ok: boolean; error?: string; item?: CountItem }> {
+  const { session } = await seller(input.lang);
+  if (!session || !UUID.test(input.shopId) || !UUID.test(input.countId) || !UUID.test(input.itemId)) return { ok: false, error: "failed" };
+  const qty = Math.round(Number(input.qty) * 1000) / 1000;
+  if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: "qty" };
+  const { data, error } = await session.supabase.rpc("owner_sklad_count_set", {
+    p_shop_id: input.shopId,
+    p_count_id: input.countId,
+    p_item_id: input.itemId,
+    p_counter: String(input.counter ?? "").slice(0, 60),
+    p_qty: qty,
+    p_only_mine: !!input.onlyMine,
+  });
+  if (error) return { ok: false, error: reason(error.message) };
+  return { ok: true, item: data as CountItem };
+}
+
+/** This phone's own counts so far (by its name; the phone keeps only its name). */
+export async function countMine(input: { lang: string; shopId: string; countId: string; counter: string }): Promise<{ item_id: string; qty: number }[]> {
+  const { session } = await seller(input.lang);
+  if (!session || !UUID.test(input.shopId) || !UUID.test(input.countId)) return [];
+  const { data, error } = await session.supabase.rpc("owner_sklad_count", {
+    p_shop_id: input.shopId,
+    p_count_id: input.countId,
+    p_counter: String(input.counter ?? "").slice(0, 60),
+  });
+  if (error || !data) return [];
+  return ((data as { mine: { item_id: string; qty: number }[] }).mine ?? []).map((m) => ({ item_id: m.item_id, qty: Number(m.qty) }));
+}
+
+/** "Prepočítať" / "Prijať napočítané" on the differences. */
+export async function countMark(formData: FormData) {
+  const { session, shopId, go } = await start(formData);
+  const cid = id(formData, "count_id");
+  const item = id(formData, "item_id");
+  if (!cid || !item) go("/counts", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_count_mark", {
+    p_shop_id: shopId,
+    p_count_id: cid,
+    p_item_id: item,
+    p_recount: formData.get("recount") === "1",
+  });
+  if (error) go(`/counts/${cid}/diff`, { err: reason(error.message) });
+  go(`/counts/${cid}/diff`, {});
+}
+
+/** "Schváliť inventúru" (+ "Nastaviť na 0" for the products not counted, a whole location only). */
+export async function approveCount(formData: FormData) {
+  const { session, shopId, slug, go } = await start(formData);
+  const cid = id(formData, "count_id");
+  if (!cid) go("/counts", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_count_approve", {
+    p_shop_id: shopId,
+    p_count_id: cid,
+    p_zero_uncounted: formData.get("uncounted") === "zero",
+  });
+  if (error) go(`/counts/${cid}/diff`, { err: reason(error.message) });
+  refreshShop(slug);
+  go(`/counts/${cid}/diff`, { ok: "count_approved" });
+}
+
+/** "Vrátiť inventúru späť (do 24 h)". */
+export async function undoCount(formData: FormData) {
+  const { session, shopId, slug, go } = await start(formData);
+  const cid = id(formData, "count_id");
+  if (!cid) go("/counts", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_count_undo", { p_shop_id: shopId, p_count_id: cid });
+  if (error) go(`/counts/${cid}/diff`, { err: reason(error.message) });
+  refreshShop(slug);
+  go(`/counts/${cid}/diff`, { ok: "count_undone" });
+}
+
+/** "Zrušiť inventúru": closed without changing the stock. */
+export async function cancelCount(formData: FormData) {
+  const { session, shopId, go } = await start(formData);
+  const cid = id(formData, "count_id");
+  if (!cid) go("/counts", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_count_cancel", { p_shop_id: shopId, p_count_id: cid });
+  if (error) go("/counts", { err: reason(error.message) });
+  go("/counts", { ok: "count_cancelled" });
 }

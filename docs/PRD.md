@@ -57,6 +57,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Sklad v Cacaduu" phase A (Prompt 14, database update 67): a new stock source for shops without stock software — the stock kept as movements (príjem, výdaj, odpis, presun, oprava; never typed over, append-only, each once by its own id), locations ("Predajňa", "Sklad"), the shop page fed from the total and the sale price after every movement, "Stav je správny" once a day (24 h rule), Free 50 products / Pro unlimited, private purchase prices and margin, USB scanner and phone camera, XLSX exports, a daily reminder e-mail | Built and tested; live after database update 67, the "sklad" function and the merge (SETUP.md part AY) |
 | "Sklad v Cacaduu" phase B — Predaj (database update 68): selling at the counter on a phone, tablet or computer — a basket filled by the USB scanner, the camera, the search or a tap; Hotovosť / Karta take the goods off the stock at once (the receipt stays the shop's eKasa), QR platba shows a PAY by square code (IBAN, amount, variable symbol) and waits for "Zaplatené"; each sale once by its own id; a QR terminal on a spare phone for the customer | Built and tested; live after database update 68 and the merge (SETUP.md part AZ) |
 | "Sklad v Cacaduu" phase C — Príjemky (database update 69): goods receipts with many lines — supplier, invoice number, delivery date, the location; lines from the scanner, the search, "+ Nový produkt" or the AI reading an invoice photo / PDF (paired with the shop's products in SQL: EAN, code, name; unsure → choose; new → name, EAN, sale price); a draft until "Potvrdiť príjemku", then stocked once with purchase prices (last and average) and the supplier | Built and tested; live after database update 69 and the merge (SETUP.md part BA) |
+| "Sklad v Cacaduu" phase D — Inventúra (database update 70): a count of one location or one shelf while the shop stays open — blind by default, several phones at once (each under its own name; counts added up or "Platí môj počet"), sales and receipts during the count never make a false difference, the differences with their value, "Prepočítať", the uncounted kept or set to 0, approved once, undone within 24 h, an XLSX report | Built and tested; live after database update 70 and the merge (SETUP.md part BB) |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2255,3 +2256,32 @@ Goods from a supplier come into Sklad as a **príjemka**: Môj obchod → Sklad 
   the shop assistant or logs; the invoice is never stored).
 - **Not in phase C:** a "Dodávatelia" page of its own, several pages of one invoice in one reading, receipts from a POS
   or an e-mail.
+
+
+### 6.42 "Sklad v Cacaduu", phase D: Inventúra (database update 70, 2 November 2026, at the owner's request)
+
+Môj obchod → Sklad → **Inventúra** (designs "Inventúra (mobil, slepá)", "Inventúra – rozdiely", "Inventúra (počítač)").
+The shop does not close.
+
+- **Nová inventúra:** a name, the location, "Celé miesto" or "Jeden regál" (the shelf written on the product cards),
+  "Slepá inventúra" (on by default: whoever counts never sees how many pieces Cacaduu expects). Numbered I-2026-04.
+- **Counting** (any phone, tablet or computer logged in as one of the shop's owners; several at once): each device has
+  its own name ("Telefón 1 · Peter", kept on it). A scan (USB scanner or the camera) adds one piece of that product;
+  − / + and "Zadať počet naraz (napr. 24)" change it; the search or "Nespočítané (n)" picks a product without a code.
+  "Spočítané 31 z 48 produktov". When another device already counted the product: "Sčítať" (another part of the shelf —
+  the counts add up) or "Platí môj počet" (the same pieces — the others' counts become 0). "Odovzdať počty" opens the
+  differences.
+- **Rozdiely inventúry** (the owner's screen): counted / with a difference / without / the value of the differences at
+  the average purchase price; who counted how many; how many sales happened during the count. Per product with a
+  difference: "V Cacaduu" = the stock **at the moment it was counted** (sales and receipts after that count are added
+  on top — never a false difference), Napočítané, Rozdiel, Hodnota, "Chýba" / "Prebytok"; "Prepočítať" leaves it out of
+  the approval (count it again; "Prijať napočítané" takes it back). The products not counted: "Ponechať ich množstvo"
+  (default) or, for a whole location only, "Nastaviť na 0".
+- **"Schváliť inventúru":** one Inventúra movement per corrected product (ref I-2026-04; the new stock = counted + what
+  happened since), once — a second tap changes nothing; the shop page follows. The result: corrections, pieces, value,
+  the **XLSX report** (every counted product: expected, counted, difference, value, who). **"Vrátiť inventúru späť (do
+  24 h)"**: an Oprava with the opposite quantity of every correction ("Vrátenie inventúry I-2026-04") — the movements
+  stay. "Zrušiť inventúru" closes an open count without any change.
+- **Private:** the counts, the expected quantities and the values are the owners' only.
+- **Not in phase D:** a PDF report, counting by a person without an owner login (a QR code to join), a count of every
+  location at once (one count per location).

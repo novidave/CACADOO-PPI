@@ -17,7 +17,8 @@ const PRIVATE = { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const shopId = url.searchParams.get("shop") ?? "";
-  const kind = url.searchParams.get("kind") === "movements" ? "movements" : "products";
+  const kindParam = url.searchParams.get("kind");
+  const kind = kindParam === "movements" ? "movements" : kindParam === "count" ? "count" : "products";
   const langParam = url.searchParams.get("lang") ?? "";
   const lang: Locale = isLocale(langParam) ? langParam : "sk";
   const session = await getSession();
@@ -30,7 +31,20 @@ export async function GET(request: Request) {
   const day = new Intl.DateTimeFormat("sv-SE", { timeZone: shop.timezone }).format(new Date());
 
   let rows: string[][];
-  if (kind === "products") {
+  let countNo = "";
+  if (kind === "count") {
+    // update 70: one count's report — every counted product, expected (at its count time), counted, difference, value
+    const countId = url.searchParams.get("count") ?? "";
+    if (!UUID.test(countId)) return new Response("Not found", { status: 404, headers: PRIVATE });
+    const { data, error } = await supabase.rpc("owner_sklad_count_diff", { p_shop_id: shop.id, p_count_id: countId });
+    if (error || !data) return new Response("Export failed", { status: 500, headers: PRIVATE });
+    const d = data as { count: { number: string }; rows: { name: string; code: string | null; expected: number; counted: number; diff: number; value: number | null; who: string | null; recount: boolean }[] };
+    countNo = d.count.number;
+    rows = [
+      [s.x_product, s.x_code, s.ic_x_expected, s.ic_x_counted, s.ic_x_diff, s.ic_x_value, s.ic_x_who, s.ic_x_recount],
+      ...d.rows.map((r) => [r.name, r.code ?? "", String(r.expected), String(r.counted), String(r.diff), r.value === null ? "" : String(r.value), r.who ?? "", r.recount ? "✓" : ""]),
+    ];
+  } else if (kind === "products") {
     const all: SkladRow[] = [];
     for (let offset = 0; offset < 100_000; offset += 500) {
       const { data, error } = await supabase.rpc("owner_sklad_products", { p_shop_id: shop.id, p_q: null, p_filter: "all", p_limit: 500, p_offset: offset });
@@ -67,8 +81,9 @@ export async function GET(request: Request) {
       shop.timezone,
     );
   }
-  const bytes = await writeXlsx([{ name: kind === "products" ? s.x_sheet_products : s.x_sheet_movements, rows, header: true }]);
-  const file = `${kind === "products" ? "sklad-produkty" : "sklad-pohyby"}-${shop.slug}-${day}.xlsx`;
+  const sheet = kind === "products" ? s.x_sheet_products : kind === "count" ? s.ic_x_sheet : s.x_sheet_movements;
+  const bytes = await writeXlsx([{ name: sheet, rows, header: true }]);
+  const file = kind === "count" ? `inventura-${countNo}-${shop.slug}.xlsx` : `${kind === "products" ? "sklad-produkty" : "sklad-pohyby"}-${shop.slug}-${day}.xlsx`;
   return new Response(bytes as BodyInit, {
     headers: {
       ...PRIVATE,

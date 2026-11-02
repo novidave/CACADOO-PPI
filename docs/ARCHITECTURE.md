@@ -2915,3 +2915,33 @@ upload), `@/lib/exportClient` (update 45's row loading, workbook, ZIP and file r
   product and stocks once, costs and supplier, a second confirm, done never changes, discard, matching, owner B /
   anon, the plan limit rolls the receipt back), `npm run test:sklad`.
 
+## Update 70 — "Sklad v Cacaduu", phase D: Inventúra (2 November 2026)
+
+`supabase/sql/70_sklad_inventura.sql` + `dashboard/sklad/counts` (`page.tsx` new + running + history, `[id]/page.tsx`
+the counting device, `[id]/diff/page.tsx` the differences / approval / result) + `@/components/SkladInventura` +
+`actions.ts` (`startCount`, `countSet`, `countMine`, `countMark`, `approveCount`, `undoCount`, `cancelCount`) +
+`/api/owner/sklad/export?kind=count&count=<id>` (XLSX).
+
+- **Tables:** `sklad_counts` (the client's UUID; I-<year>-<NN> from `sklad_next_count_no()` — `sklad_settings.ic_year` /
+  `ic_seq`; one location, an optional shelf (= `sklad_items.shelf`), blind; status open|approved|cancelled|undone;
+  `result` {fixes, pieces, value, counted}; ≤ 5 open per shop), `sklad_count_lines` (count × product × device name:
+  the total that device counted + `counted_at`), `sklad_count_marks` ("Prepočítať"). RLS, service role only.
+- **The expected quantity** = `sklad_stock_at(product, location, counted_at)` = the stock there now minus every movement
+  there since (a transfer counted on its side). The device gets it only when the count is not blind
+  (`owner_sklad_count_item`); the device's product list carries names, codes and EANs only.
+- **`owner_sklad_count_set(shop, count, item, counter, qty, only_mine)`** (the device's total; `only_mine` sets the
+  other devices' rows of that product to 0) · `owner_sklad_count` (the screen; `mine` = one device's counts by its name)
+  · `owner_sklad_count_diff` (per product counted, expected, diff, value at `avg_cost`, who; sales during; whether 0 is
+  allowed) · `owner_sklad_count_mark` · **`owner_sklad_count_approve(shop, count, zero_uncounted)`** (per product not
+  marked: target = counted + (stock now − stock at its count time), ≥ 0 → `owner_sklad_move(…, md5(count ':' item),
+  'count', target, location, …, ref = number)`; `zero_uncounted` (no shelf) → every product with stock there and no
+  count line → 0; status approved, `result`) · **`owner_sklad_count_undo`** (≤ 24 h: per Inventúra movement of the count
+  — the md5 ids — a `correction` with the opposite quantity and the reason "Vrátenie inventúry <number>") ·
+  `owner_sklad_count_cancel` · `owner_sklad_counts` (+ the shelves).
+- **The device:** the name in localStorage `ppi.sklad.counter` (`useSyncExternalStore`); its earlier counts are read
+  back by name (`countMine`) so a reload never overwrites them; every change sends the total (`countSet`); the scanner
+  event `sklad:scan`; a code outside the first 500 products → `lookupSaleProducts`.
+- Texts `sklad.ic_*`, `tab_counts`. Tests: DB block "update 70" (blind device, added up / mine, a sale during the count,
+  approve with zero, once, closed, undo, a shelf count with "Prepočítať", zero refused on a shelf, 24 h, owner B /
+  anon).
+
