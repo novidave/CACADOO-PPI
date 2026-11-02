@@ -140,15 +140,6 @@ OPEN
    g) Write "secrets done" to Claude. Claude checks that each feature switched on.
    (The SMS number for "Hodiny cez SMS" — INBOUND_SMS_SECRET, HOURS_SMS_NUMBER — waits for item 1.)
 
-20. Deploy the new "telegram" function (one paste; the Sklad button fix)
-   Why: in a shop that keeps its stock in "Sklad v Cacaduu", the bot's "Zmeniť množstvo" ended in "Nepodarilo sa";
-   the new version shows the stock without that button and a link "Otvoriť Sklad" instead.
-   Steps:
-   a) github.com/novidave/CACADOO-PPI → supabase/functions/telegram/index.ts → "Copy raw file" (the copy icon).
-   b) Supabase → project szhotccxyaepjhwsqdqx → Edge Functions → telegram → Code → select all → paste → Deploy.
-   c) Check that "Verify JWT" stays OFF.
-   d) Write "done 20". Claude checks that the deployed code is the same as in the repository.
-
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
@@ -203,3 +194,5 @@ DONE
    b) Delete the example code, paste the whole file telegram.txt that Claude sent you → Deploy.
    c) Function → Settings: switch "Verify JWT" OFF → Save.
    d) Write "done 14". Claude checks that the code is the same as in the repository.
+
+20. Deploy the new "telegram" function (one paste; the Sklad button fix) — done 2026-11-02 (v9, same as the repository, Verify JWT off)
