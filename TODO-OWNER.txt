@@ -109,37 +109,6 @@ OPEN
    d) "Odovzdať počty" → check the differences → "Schváliť inventúru" → the shop page shows the new stock.
    e) If something looks wrong: "Vrátiť inventúru späť" (works for 24 hours) and tell Claude.
 
-19. Add the secrets that are still missing (one list; every feature works without them, just switched off)
-   Already working, nothing to add: Anthropic (AI), Brevo (e-mail + SMS), Stripe, Facebook, OneDrive, Telegram,
-   Websupport + Vercel (own domains), IndexNow, the website's secrets in Vercel.
-   Where: Supabase → project szhotccxyaepjhwsqdqx → Edge Functions → Secrets → "Add new secret" (name exactly as
-   below). First look at the list of names there: skip any that is already in it. Never change a "…_ENCRYPTION_KEY"
-   once it is set (saved connections could no longer be read).
-   a) INVENTORY_TOKEN_ENCRYPTION_KEY — switches on "Pripojiť skladový program (API)" (SuperFaktúra, WooCommerce,
-      Vlastné API). Value: 40 random letters and digits from a password manager.
-   b) GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET — switches on "Pripojiť Google Kalendár" in
-      Rezervácie (busy times read in, Cacaduu's bookings written out). Value: console.cloud.google.com → a project →
-      APIs & Services → Library → enable "Google Calendar API" → OAuth consent screen (External; add your Gmail as a
-      test user) → Credentials → Create credentials → OAuth client ID → Web application → Authorized redirect URI:
-      https://szhotccxyaepjhwsqdqx.supabase.co/functions/v1/bookings/oauth → Create → copy the Client ID and the
-      Client secret.
-   c) GOOGLE_BUSINESS_CLIENT_ID + GOOGLE_BUSINESS_CLIENT_SECRET — only for item 2 (opening hours to Google Maps),
-      after Google approves the Business Profile API. Optional: without them the Calendar client from b) is used —
-      then add a second redirect URI to that client:
-      https://szhotccxyaepjhwsqdqx.supabase.co/functions/v1/hours-sms/oauth
-   d) DROPBOX_APP_KEY + DROPBOX_APP_SECRET — switches on Dropbox next to OneDrive for the conversations' cloud
-      folder (optional). Value: dropbox.com/developers/apps → Create app → Scoped access → Full Dropbox → name
-      "Cacaduu" → Permissions: files.metadata.read, files.content.write, account_info.read → Submit → Settings →
-      Redirect URI: https://szhotccxyaepjhwsqdqx.supabase.co/functions/v1/cloud-export/oauth/dropbox → copy the
-      App key and the App secret.
-   e) Optional, cost money per use: GOOGLE_PLACES_ENABLED = true + GOOGLE_PLACES_API_KEY (the main search's "Obchody
-      v okolí" also from Google; console.cloud.google.com → enable "Places API (New)" → Credentials → API key,
-      restricted to that API); WEB_SEARCH_ENABLED = true (the main search's "Na webe", paid through Anthropic).
-   f) Optional, Vercel (not Supabase) → Settings → Environment Variables: SENTRY_DSN (sentry.io → a Next.js project
-      → its DSN) — errors also go to Sentry; they are already listed on the admin page without it. Then Redeploy.
-   g) Write "secrets done" to Claude. Claude checks that each feature switched on.
-   (The SMS number for "Hodiny cez SMS" — INBOUND_SMS_SECRET, HOURS_SMS_NUMBER — waits for item 1.)
-
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
@@ -196,3 +165,5 @@ DONE
    d) Write "done 14". Claude checks that the code is the same as in the repository.
 
 20. Deploy the new "telegram" function (one paste; the Sklad button fix) — done 2026-11-02 (v9, same as the repository, Verify JWT off)
+
+19. Add the secrets that are still missing — done 2026-11-02 (functions restarted without errors; the screens that switch on are listed in Claude's message)
