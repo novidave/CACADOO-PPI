@@ -11982,4 +11982,254 @@ end $$;
 reset role;
 drop table t66;
 
+\echo '--- update 67: Sklad v Cacaduu — the only writer while it is the source, movements once by their id, per location, transfer, freshness, plan limit, private costs'
+create temporary table t67 (k text primary key, v text);
+grant all on t67 to public;
+create temporary table t67_inv as
+  select inv.* from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  join public.shops s on s.id = si.shop_id where s.slug = 'potraviny-centrum';
+grant all on t67_inv to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  insert into t67 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('fresh', (select latest_file_time from public.sync_sources where shop_id = v_a)::text),
+    ('items', (select count(*) from public.shop_items where shop_id = v_a)::text);
+  delete from public.subscriptions where shop_id = v_a;   -- free: 50 Sklad products
+  assert not public.shop_has_plan(v_a);
+  assert public.sklad_product_limit(v_a) = 50;
+end $$;
+reset role;
+
+-- the owner switches "Zdroj zásob" to Sklad: the existing products are taken over (opening count, the file's price)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  assert (public.owner_stock_source(v_a) ->> 'active') = 'file';
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  vj := public.owner_stock_source(v_a);
+  assert vj ->> 'active' = 'sklad' and (vj ->> 'sklad_products')::int = (select v::int from t67 where k = 'items'), vj::text;
+  vj := public.owner_sklad_overview(v_a);
+  assert jsonb_array_length(vj -> 'locations') = 2 and vj -> 'locations' -> 0 ->> 'name' = 'Predajňa'
+     and (vj -> 'locations' -> 0 ->> 'sale_default')::boolean and (vj -> 'locations' -> 1 ->> 'receipt_default')::boolean, vj::text;
+  insert into t67 values ('shop', (vj -> 'locations' -> 0 ->> 'id')), ('back', (vj -> 'locations' -> 1 ->> 'id'));
+  -- the folder / upload is refused while Sklad is the source
+  begin perform public.upload_check_in(v_a); raise exception 'upload while sklad';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sklad_active' then raise; end if; end;
+  assert public.owner_inventory_can_connect(v_a, 'superfaktura') = 'sklad';
+  -- a new product (price with VAT), then the plan limit
+  insert into t67 values ('p', public.owner_sklad_save_product(v_a, null,
+    '{"name":"Farba fasádna biela 5 l","ean":"8580000102315","sale_price":"24.90","min_qty":5,"supplier":"Dodávateľ s.r.o."}')::text);
+  begin perform public.owner_sklad_save_product(v_a, null, '{"name":"Iná","ean":"8580000102315"}'); raise exception 'EAN twice';
+  exception when unique_violation then if sqlerrm <> 'ean_taken' then raise; end if; end;
+  vj := public.owner_sklad_product(v_a, (select v::uuid from t67 where k = 'p'));
+  assert vj ->> 'code' ~ '^C[0-9]{5}$' and (vj ->> 'sale_price')::numeric = 24.90 and (vj ->> 'total')::numeric = 0
+     and (vj ->> 'public')::boolean, vj::text;
+end $$;
+reset role;
+
+-- movements: once by their id, per location, the total; a transfer keeps the total; the public side follows
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := (select v::uuid from t67 where k = 'p');
+  v_shop uuid := (select v::uuid from t67 where k = 'shop');
+  v_back uuid := (select v::uuid from t67 where k = 'back');
+  v_r uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  -- a receipt into "Sklad" (the receipt default) with a cost: twice with the same id = counted once
+  vj := public.owner_sklad_move(v_a, v_r, v_p, 'receipt', 12, null, null, 15.80, null, 'P-1');
+  assert not (vj ->> 'duplicate')::boolean and (vj ->> 'total')::numeric = 12, vj::text;
+  vj := public.owner_sklad_move(v_a, v_r, v_p, 'receipt', 12, null, null, 15.80, null, 'P-1');
+  assert (vj ->> 'duplicate')::boolean, 'the same id again: ' || vj::text;
+  assert jsonb_array_length(public.owner_sklad_movements(v_a, v_p) -> 'rows') = 1;
+  assert (public.owner_sklad_movements(v_a, v_p) ->> 'total')::int = 1;
+  -- a transfer Sklad → Predajňa keeps the total
+  vj := public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'transfer', 4, v_back, v_shop);
+  assert (vj ->> 'total')::numeric = 12, vj::text;
+  vj := public.owner_sklad_product(v_a, v_p);
+  assert (select (l ->> 'qty')::numeric from jsonb_array_elements(vj -> 'locations') l where l ->> 'location_id' = v_shop::text) = 4
+     and (select (l ->> 'qty')::numeric from jsonb_array_elements(vj -> 'locations') l where l ->> 'location_id' = v_back::text) = 8, vj::text;
+  -- a sale (from Predajňa, the sale default), a write-off needs a reason, a count stores the difference
+  vj := public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'sale', 2);
+  assert (vj ->> 'total')::numeric = 10, vj::text;
+  begin perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'writeoff', 1); raise exception 'write-off without a reason';
+  exception when invalid_parameter_value then if sqlerrm <> 'reason' then raise; end if; end;
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'writeoff', 1, v_shop, null, null, 'poškodené vedro');
+  vj := public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'count', 7, v_back);
+  assert (vj ->> 'total')::numeric = 8, 'Sklad 8 counted 7, Predajňa 1: ' || vj::text;
+  begin perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'correction', 1); raise exception 'correction without a reason';
+  exception when invalid_parameter_value then if sqlerrm <> 'reason' then raise; end if; end;
+  begin perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'transfer', 1, v_shop, v_shop); raise exception 'transfer to itself';
+  exception when invalid_parameter_value then if sqlerrm <> 'to_location' then raise; end if; end;
+  -- the private costs: last 15.80, average 15.80
+  vj := public.owner_sklad_product(v_a, v_p);
+  assert (vj ->> 'last_cost')::numeric = 15.80 and (vj ->> 'avg_cost')::numeric = 15.80 and vj ->> 'supplier' = 'Dodávateľ s.r.o.', vj::text;
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'receipt', 8, v_back, null, 16.80);
+  vj := public.owner_sklad_product(v_a, v_p);
+  assert (vj ->> 'avg_cost')::numeric = 16.3 and (vj ->> 'total')::numeric = 16, 'weighted average of 8 × 15.80 and 8 × 16.80: ' || vj::text;
+end $$;
+reset role;
+
+-- the public side: quantity = the total, price = the sale price, current; nothing private
+set role anon;
+do $$
+declare
+  v_p uuid := (select v::uuid from t67 where k = 'p');
+  r record;
+begin
+  select * into r from public.public_stock where item_id = v_p;
+  assert r.quantity = 16 and r.price = 24.90 and r.currency = 'EUR' and r.freshness_state = 'current', row_to_json(r)::text;
+  assert not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'public_stock'
+                       and column_name in ('last_cost', 'avg_cost', 'supplier', 'unit_cost')), 'costs in public_stock';
+  begin perform count(*) from public.sklad_items; raise exception 'anon read sklad_items';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_movements; raise exception 'anon read sklad_movements';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_stock; raise exception 'anon read sklad_stock';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_product((select id from public.shops where slug = 'potraviny-centrum'), v_p); raise exception 'anon card';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- owner B: nothing of shop A; owners themselves read only through the functions
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := (select v::uuid from t67 where k = 'p');
+begin
+  begin perform public.owner_sklad_product(v_a, v_p); raise exception 'B read A''s card';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'sale', 1); raise exception 'B moved A''s stock';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_confirm(v_a); raise exception 'B confirmed A';
+  exception when insufficient_privilege then null; end;
+  assert public.owner_sklad_find(v_a, '8580000102315') is null, 'B found A''s product';
+  begin perform count(*) from public.sklad_items; raise exception 'owners read the table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- every other writer is refused while Sklad is the source; movements are append-only
+set role service_role;
+do $$
+declare
+  v_p uuid := (select v::uuid from t67 where k = 'p');
+begin
+  begin update public.inventory set quantity = 99 where shop_item_id = v_p; raise exception 'a file wrote the stock';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sklad_active' then raise; end if; end;
+  begin update public.sklad_movements set qty = 99 where shop_item_id = v_p; raise exception 'a movement was changed';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sklad_append_only' then raise; end if; end;
+  begin delete from public.sklad_movements where shop_item_id = v_p; raise exception 'a movement was deleted';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sklad_append_only' then raise; end if; end;
+  begin delete from public.shop_items where id = v_p; raise exception 'a Sklad product was deleted';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sklad_item' then raise; end if; end;
+  -- 25 hours without a movement or a confirmation → stale (no availability on the shop page)
+  update public.sync_sources set latest_file_time = now() - interval '25 hours'
+  where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+  assert (select freshness_state from public.public_stock where item_id = v_p) = 'stale';
+  assert (select availability from public.public_stock where item_id = v_p) is null;
+end $$;
+reset role;
+
+-- "Stav je správny" makes it current again; a product without a sale price is not public; the plan limit
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := (select v::uuid from t67 where k = 'p');
+  vj jsonb;
+  n integer := 0;
+begin
+  assert (public.owner_sklad_overview(v_a) ->> 'needs_check')::boolean is false, 'moved today';
+  perform public.owner_sklad_confirm(v_a);
+  assert (select freshness_state from public.public_stock where item_id = v_p) = 'current';
+  assert (public.owner_sklad_overview(v_a) ->> 'confirmed_at') is not null;
+  perform public.owner_sklad_save_product(v_a, v_p, '{"sale_price":""}');
+  assert not exists (select 1 from public.public_stock where item_id = v_p), 'no price → not public';
+  assert ((public.owner_sklad_products(v_a, null, 'no_price')) -> 'counts' ->> 'no_price')::int >= 1;
+  perform public.owner_sklad_save_product(v_a, v_p, '{"sale_price":"24.90"}');
+  assert (select quantity from public.public_stock where item_id = v_p) = 16;
+  -- search: accent-insensitive name, code, EAN
+  vj := public.owner_sklad_products(v_a, 'fasadna');
+  assert jsonb_array_length(vj -> 'rows') = 1, vj::text;
+  assert public.owner_sklad_find(v_a, '8580000102315') = v_p;
+  -- the plan limit: free 50 products, then plan_limit (no more)
+  loop
+    begin
+      perform public.owner_sklad_save_product(v_a, null, jsonb_build_object('name', 'Test ' || n));
+    exception when raise_exception then
+      if sqlerrm <> 'plan_limit' then raise; end if;
+      exit;
+    end;
+    n := n + 1;
+    if n > 60 then raise exception 'no plan limit'; end if;
+  end loop;
+  assert (public.owner_stock_source(v_a) ->> 'sklad_products')::int = 50, 'stopped at 50';
+end $$;
+reset role;
+
+-- the reminder: due after the reminder time when today had no movement and no confirmation, claimed once
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  update public.sklad_settings set reminder_time = '00:00', confirmed_at = now() - interval '2 days', reminded_on = null where shop_id = v_a;
+  assert not exists (select 1 from public.sklad_reminders_due() d where d.shop_id = v_a), 'moved today: no reminder';
+end $$;
+reset role;
+
+-- back to files: allowed, nothing of Sklad is deleted; uploads work again
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  perform public.owner_set_stock_source(v_a, 'file');
+  assert (public.owner_stock_source(v_a) ->> 'active') = 'file';
+  perform public.upload_check_in(v_a);
+  assert (public.owner_stock_source(v_a) ->> 'sklad_products')::int = 50, 'Sklad kept';
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.sklad_items where shop_id = v_a;
+  delete from public.shop_items si where si.shop_id = v_a and not exists (select 1 from t67_inv t where t.shop_item_id = si.id);
+  delete from public.sklad_locations where shop_id = v_a;
+  delete from public.sklad_settings where shop_id = v_a;
+  delete from public.shop_stock_source where shop_id = v_a;
+  delete from public.inventory inv using public.shop_items si where si.id = inv.shop_item_id and si.shop_id = v_a;
+  insert into public.inventory select * from t67_inv;
+  update public.sync_sources set latest_file_time = (select v::timestamptz from t67 where k = 'fresh') where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t67 where k = 'sub'))
+  where (select v from t67 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t67 where k = 'had_plan');
+  assert (select count(*) from public.shop_items where shop_id = v_a) = (select v::int from t67 where k = 'items');
+end $$;
+reset role;
+drop table t67;
+drop table t67_inv;
+
 \echo 'ALL DATABASE CHECKS PASSED'
