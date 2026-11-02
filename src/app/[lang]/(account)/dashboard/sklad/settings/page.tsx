@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
+import { formatDateTime } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { saveLocation, savePayment, saveSettings, setSource } from "../actions";
+import { saveLocation, savePayment, saveSettings, setSaleSource, setSource } from "../actions";
 import { btnGhost, card, first, loadSklad, Notice, PlanCounter, SkladShell } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/sklad/settings">): Promise<Metadata> {
@@ -46,6 +47,13 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
     shop_name?: string;
   };
   const st = o.settings ?? { margin_reports: true, reminder_on: true, reminder_time: "08:00" };
+  // update 71: where sales come from (before update 71 there is no such choice: the card is hidden)
+  const ek = (await session.supabase.rpc("owner_sklad_ekasa_info", { p_shop_id: shop.id })).data as {
+    sale_source: string;
+    waiting_lines: number;
+    imports: { at: string; docs: number; lines: number; pieces: number }[];
+  } | null;
+  const ekasaHref = `/${ctx.lang}/dashboard/sklad/ekasa?${new URLSearchParams({ shop: shop.slug })}`;
   const planHref = `/${ctx.lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
   const syncHref = `/${ctx.lang}/sync?${new URLSearchParams({ shop: shop.slug, at: "source" })}#source`;
   const exportHref = (kind: string) => `/api/owner/sklad/export?${new URLSearchParams({ shop: shop.id, kind, lang: ctx.lang })}`;
@@ -79,6 +87,41 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
           </Link>
         )}
       </section>
+
+      {ek && (
+        <form action={setSaleSource} className={card} id="sales" aria-labelledby="st-sales" data-sklad-sale-source={ek.sale_source}>
+          {hidden({ ...back })}
+          <h2 id="st-sales" className="text-lg font-bold">{s.ss_title}</h2>
+          <span className="text-sm text-muted">{s.ss_hint}</span>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {(["predaj", "ekasa"] as const).map((v) => (
+              <label key={v} className="flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border border-line p-3 has-[:checked]:border-foreground">
+                <input type="radio" name="sale_source" value={v} defaultChecked={ek.sale_source === v} className="mt-1 size-5 flex-none accent-foreground" />
+                <span className="flex flex-col">
+                  <strong className="text-[15px]">{v === "predaj" ? s.ss_predaj : s.ss_ekasa}</strong>
+                  <span className="text-[13px] text-muted">{v === "predaj" ? s.ss_predaj_hint : s.ss_ekasa_hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {ek.sale_source === "ekasa" && (
+            <p className="text-sm" data-sklad-ekasa-last>
+              {ek.imports[0]
+                ? s.ss_last
+                    .replace("{at}", formatDateTime(ek.imports[0].at, ctx.lang, shop.timezone))
+                    .replace("{docs}", String(ek.imports[0].docs))
+                    .replace("{lines}", String(ek.imports[0].lines))
+                    .replace("{pieces}", String(Number(ek.imports[0].pieces)))
+                : s.ek_imports_none}
+              {ek.waiting_lines ? ` · ${s.ek_import_waiting.replace("{n}", String(ek.waiting_lines))}` : ""}{" "}
+              <Link href={ekasaHref} className="font-semibold underline underline-offset-4">
+                {ek.waiting_lines ? s.ss_pair : s.ss_open}
+              </Link>
+            </p>
+          )}
+          <PendingButton pending={dict.owner.saving}>{s.save}</PendingButton>
+        </form>
+      )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <section className={card} aria-labelledby="st-loc">
@@ -203,6 +246,9 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
             </a>
             <a href={exportHref("movements")} className={btnGhost} data-sklad-export="movements">
               {s.export_movements}
+            </a>
+            <a href={exportHref("suppliers")} className={btnGhost} data-sklad-export="suppliers">
+              {s.export_suppliers}
             </a>
           </div>
           <span className="text-[13px] text-muted">{t(s.export_private, {})}</span>

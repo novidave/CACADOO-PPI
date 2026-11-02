@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const shopId = url.searchParams.get("shop") ?? "";
   const kindParam = url.searchParams.get("kind");
-  const kind = kindParam === "movements" ? "movements" : kindParam === "count" ? "count" : "products";
+  const kind = kindParam === "movements" ? "movements" : kindParam === "count" ? "count" : kindParam === "suppliers" ? "suppliers" : "products";
   const langParam = url.searchParams.get("lang") ?? "";
   const lang: Locale = isLocale(langParam) ? langParam : "sk";
   const session = await getSession();
@@ -32,7 +32,17 @@ export async function GET(request: Request) {
 
   let rows: string[][];
   let countNo = "";
-  if (kind === "count") {
+  if (kind === "suppliers") {
+    // update 71: "Dodávatelia (XLSX)" — the suppliers written on products and receipts (private, owners only)
+    const { data, error } = await supabase.rpc("owner_sklad_supplier_list", { p_shop_id: shop.id });
+    if (error) return new Response("Export failed", { status: 500, headers: PRIVATE });
+    const list = (data ?? []) as { name: string; products: number; receipts: number; last_receipt: string | null }[];
+    const dayOf = (at: string | null) => (at ? new Intl.DateTimeFormat("sv-SE", { timeZone: shop.timezone }).format(new Date(at)) : "");
+    rows = [
+      [s.x_supplier, s.x_supplier_products, s.x_supplier_receipts, s.x_supplier_last],
+      ...list.map((r) => [r.name, String(r.products), String(r.receipts), dayOf(r.last_receipt)]),
+    ];
+  } else if (kind === "count") {
     // update 70: one count's report — every counted product, expected (at its count time), counted, difference, value
     const countId = url.searchParams.get("count") ?? "";
     if (!UUID.test(countId)) return new Response("Not found", { status: 404, headers: PRIVATE });
@@ -81,9 +91,12 @@ export async function GET(request: Request) {
       shop.timezone,
     );
   }
-  const sheet = kind === "products" ? s.x_sheet_products : kind === "count" ? s.ic_x_sheet : s.x_sheet_movements;
+  const sheet = kind === "products" ? s.x_sheet_products : kind === "count" ? s.ic_x_sheet : kind === "suppliers" ? s.x_sheet_suppliers : s.x_sheet_movements;
   const bytes = await writeXlsx([{ name: sheet, rows, header: true }]);
-  const file = kind === "count" ? `inventura-${countNo}-${shop.slug}.xlsx` : `${kind === "products" ? "sklad-produkty" : "sklad-pohyby"}-${shop.slug}-${day}.xlsx`;
+  const file =
+    kind === "count"
+      ? `inventura-${countNo}-${shop.slug}.xlsx`
+      : `${kind === "products" ? "sklad-produkty" : kind === "suppliers" ? "sklad-dodavatelia" : "sklad-pohyby"}-${shop.slug}-${day}.xlsx`;
   return new Response(bytes as BodyInit, {
     headers: {
       ...PRIVATE,

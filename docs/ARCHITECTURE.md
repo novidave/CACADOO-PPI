@@ -2945,3 +2945,36 @@ the counting device, `[id]/diff/page.tsx` the differences / approval / result) +
   approve with zero, once, closed, undo, a shelf count with "Prepočítať", zero refused on a shelf, 24 h, owner B /
   anon).
 
+## Update 71 — "Sklad v Cacaduu", phase E: sales from eKasa (2 November 2026)
+
+`supabase/sql/71_sklad_ekasa.sql` + `@/lib/ekasa` (shared with `ekasa_test.ts`, `npm run test:sklad`) +
+`dashboard/sklad/ekasa` (`page.tsx` upload + waiting + history + pairings, `columns/page.tsx`) + `actions.ts`
+(`setSaleSource`, `uploadEkasa`, `saveEkasaColumns`, `pairEkasa`, `forgetEkasa`) + the settings card `#sales` + the
+Predaj page's "off" card + `/api/owner/sklad/export?kind=suppliers`.
+
+- **One source of sales:** `sklad_settings.sale_source` predaj|ekasa (`owner_sklad_set_sale_source`); the trigger
+  `sklad_sales_source_guard` refuses a new `sklad_sales` row while it is ekasa (`sale_source`); the import refuses while
+  it is predaj.
+- **Reading** happens on the website (`readTable`: CSV with the separator of the first line, quotes, BOM / UTF-8 else
+  Windows-1250; XLSX via `@/lib/xlsx`'s reader), `guessColumns` (one column per field by its name), `columnsFit`,
+  `toLines` (numbers "1 234,50", times without an offset in the shop's zone — `localToUtc`, the repeated autumn hour =
+  the first, the skipped spring hour = winter time — Excel date numbers), `fileHash` (SHA-256).
+- **Columns:** `sklad_settings.ekasa_columns` {product, qty, doc, time, price, code, ean} (`owner_sklad_ekasa_save_columns`:
+  product + qty + doc or time). A file whose columns are not approved waits in `sklad_ekasa_imports` (status staged,
+  headers + rows, dropped after a day) → `owner_sklad_ekasa_staged`.
+- **`owner_sklad_ekasa_import(shop, id, name, hash, lines)`** (one per shop at a time — advisory lock): the same done
+  hash → that import; per line `sklad_ekasa_key()` = md5(shop, doc, time, text key = `search_text`, qty, price, n-th
+  identical line) → a line of another import or a movement with that id → `duplicate`; qty 0 → ignored; EAN → code →
+  `sklad_ekasa_pairs` (ignore → ignored) → the one product whose `search_text(name)` equals the key → booked, else
+  unmatched; `sklad_ekasa_lines` keeps every line; booked lines → `sklad_ekasa_book()` (movement id = the key: sale −qty,
+  or correction +qty "Vrátenie – eKasa"; sale location; client_at = the receipt time; ref "eKasa <doc>"; device
+  "eKasa") under the per-product locks, then `sklad_apply`; `sklad_ekasa_count()` keeps the import's numbers.
+- **Pairing:** `owner_sklad_ekasa_unmatched` (per text: lines, pieces, code, EAN, ≤ 3 trigram candidates) ·
+  `owner_sklad_ekasa_pair(shop, key, item, ignore)` (remembered; books / ignores every waiting line of the text) ·
+  `owner_sklad_ekasa_forget` · `owner_sklad_ekasa_info` (source, columns, waiting, the last 20 imports, pairings).
+- **Suppliers:** `owner_sklad_supplier_list` (name, products, done receipts, the last one) → the XLSX.
+- Activity: `sklad_ekasa_imported`, `sklad_ekasa_paired`, `sklad_settings_saved` (sale_source / columns). Tables RLS,
+  service role only. Texts `sklad.ek_*`, `ss_*`, `sale_off_*`, `export_suppliers`, `x_supplier*`. Tests: DB block
+  "update 71" (refused while predaj, columns rule, Predaj refused while eKasa, EAN / code / exact name, two identical
+  lines = two sales, a refund, the same file twice, pairing + ignore remembered, an overlapping export skipped, forget,
+  staging, suppliers, back to predaj, owner B / anon), `ekasa_test.ts`.

@@ -2038,6 +2038,13 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
 3. **Try it:** TODO-OWNER item 18 (Sklad → Inventúra → a shelf or a location → count on a phone → Rozdiely → Schváliť;
    "Vrátiť späť" works for 24 hours).
 
+## Part BC — "Sklad v Cacaduu", phase E: sales from eKasa (update 71, 2 November 2026)
+
+1. **Database:** Claude applies `supabase/sql/71_sklad_ekasa.sql` with the Supabase connector (nothing to paste).
+2. **Secrets:** nothing new.
+3. **Try it:** TODO-OWNER item 21 (Sklad → Nastavenia → Odkiaľ prichádzajú predaje → Import z eKasa → upload one day's
+   export → choose the columns → pair what waits).
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -2100,3 +2107,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 44. "Sklad v Cacaduu" phase B — Predaj: a basket from the scanner, camera, search or tiles; Hotovosť / Karta take the goods off at once (the receipt stays eKasa), QR platba with a PAY by square code waits for "Zaplatené"; each sale once by its id; a QR terminal on a spare phone; the IBAN in Nastavenia | ✅ built — set up Part AZ |
 | 45. "Sklad v Cacaduu" phase C — Príjemky: receipts with many lines (scanner, search, new products, the AI reading an invoice photo / PDF, paired in SQL), a draft until confirmed, stocked once with purchase prices and the supplier | ✅ built — set up Part BA |
 | 46. "Sklad v Cacaduu" phase D — Inventúra: blind counts of a location or a shelf on several phones while the shop stays open, sales during the count accounted for, differences with value, recount, keep or zero the uncounted, approve once, undo within 24 h, XLSX report | ✅ built — set up Part BB |
+| 47. "Sklad v Cacaduu" phase E — sales from eKasa: one source of sales (Predaj screen or the eKasa export), the export's columns approved once, each line taken off once, pairing remembered, refunds, "Dodávatelia (XLSX)" | ✅ built — set up Part BC |

@@ -58,6 +58,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Sklad v Cacaduu" phase B — Predaj (database update 68): selling at the counter on a phone, tablet or computer — a basket filled by the USB scanner, the camera, the search or a tap; Hotovosť / Karta take the goods off the stock at once (the receipt stays the shop's eKasa), QR platba shows a PAY by square code (IBAN, amount, variable symbol) and waits for "Zaplatené"; each sale once by its own id; a QR terminal on a spare phone for the customer | Built and tested; live after database update 68 and the merge (SETUP.md part AZ) |
 | "Sklad v Cacaduu" phase C — Príjemky (database update 69): goods receipts with many lines — supplier, invoice number, delivery date, the location; lines from the scanner, the search, "+ Nový produkt" or the AI reading an invoice photo / PDF (paired with the shop's products in SQL: EAN, code, name; unsure → choose; new → name, EAN, sale price); a draft until "Potvrdiť príjemku", then stocked once with purchase prices (last and average) and the supplier | Built and tested; live after database update 69 and the merge (SETUP.md part BA) |
 | "Sklad v Cacaduu" phase D — Inventúra (database update 70): a count of one location or one shelf while the shop stays open — blind by default, several phones at once (each under its own name; counts added up or "Platí môj počet"), sales and receipts during the count never make a false difference, the differences with their value, "Prepočítať", the uncounted kept or set to 0, approved once, undone within 24 h, an XLSX report | Built and tested; live after database update 70 and the merge (SETUP.md part BB) |
+| "Sklad v Cacaduu" phase E — sales from eKasa (database update 71): "Odkiaľ prichádzajú predaje" = the Predaj screen or the cash register's daily eKasa export (one of them, never both); the export (CSV/XLSX) read as written, its columns approved once, every line taken off the stock once (the same file or overlapping days never twice), unknown texts paired with a product or "Nie je tovar" and remembered, refunds back; "Dodávatelia (XLSX)" | Built and tested; live after database update 71 and the merge (SETUP.md part BC) |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2285,3 +2286,31 @@ The shop does not close.
 - **Private:** the counts, the expected quantities and the values are the owners' only.
 - **Not in phase D:** a PDF report, counting by a person without an owner login (a QR code to join), a count of every
   location at once (one count per location).
+
+### 6.43 "Sklad v Cacaduu", phase E: sales from eKasa (database update 71, 2 November 2026, design screen 15)
+
+Môj obchod → Sklad → Nastavenia → **"Odkiaľ prichádzajú predaje"** — one source, so the same sale is never taken off
+the stock twice:
+
+- **"Obrazovka Predaj v Cacaduu"** (default; update 68): for shops without a cash register or with QR payments.
+- **"Import z eKasa"**: the shop keeps selling on its own cash register and uploads its daily export (from the register or
+  the eKasa portal). The Predaj screen is then off ("Obrazovka Predaj je vypnutá" with a link to the import); a QR sale
+  that already waits can still be marked paid.
+- **Import** (Sklad → Predaj → Import z eKasa): CSV (";", "," or tab; UTF-8 or Windows-1250) or XLSX, ≤ 1.9 MB and 5 000
+  rows. The first file (or "Vybrať stĺpce znova") asks which column is the product, the quantity and the receipt number
+  or the time (required: one of them, so two exports of overlapping days never count a sale twice); price, code and
+  EAN are optional. The columns are guessed from the file's own names and kept ("Stĺpce exportu sú schválené").
+- **Every line once:** its key is the receipt number, the time, the product's text, the quantity, the price and how many
+  identical lines came before it in that file — a later export with the same receipt skips it ("už odpísané skôr"); the
+  same file twice is the same import.
+- **The product:** by EAN, then the code, then a pairing made before, then the exact name. Otherwise the line waits:
+  "Čaká na spárovanie" lists each text once (lines, pieces, a code/EAN seen, up to 3 likely products, "Vybrať iný
+  produkt", "Nie je tovar" for transport, a deposit, a service). A pairing is remembered and books every waiting line of
+  that text at once; "Zabudnúť" asks again next time (what was booked stays — a mistake is an Oprava, as always).
+- **Booking:** a Výdaj movement at the shop's sale location, at the receipt's time (read in the shop's time zone),
+  ref "eKasa <receipt>"; a negative quantity (a refund) is an Oprava back ("Vrátenie – eKasa"). The shop page follows.
+- **Private:** only these columns are kept — never the customer, the payment or the cashier.
+- **"Dodávatelia (XLSX)"** next to the products and movements exports: every supplier written on a product or a
+  receipt, how many products and receipts, the last receipt's day.
+- **Not in phase E:** reading the eKasa portal directly (it has no API for shops), "Zariadenia" (pairing phones by a QR
+  code — a new way to log in, waits for the owner's OK).

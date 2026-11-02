@@ -109,6 +109,18 @@ OPEN
    d) "Odovzdať počty" → check the differences → "Schváliť inventúru" → the shop page shows the new stock.
    e) If something looks wrong: "Vrátiť inventúru späť" (works for 24 hours) and tell Claude.
 
+21. Sklad → Import z eKasa: try one real export (once)
+   Why: the import was tested with made-up files; every cash register writes its export a little differently.
+   Steps:
+   a) Only for a shop that sells on its own cash register: Môj obchod → Sklad → Nastavenia → "Odkiaľ prichádzajú
+      predaje" → "Import z eKasa" → Uložiť (the Predaj screen switches off).
+   b) Export one day of sales from the cash register or from the eKasa portal as CSV or XLSX.
+   c) Sklad → Predaj → "Import z eKasa" → choose the file → "Nahrať a spracovať" → check the columns (product,
+      quantity, receipt number or time) → "Schváliť stĺpce a spracovať".
+   d) Pair the lines that wait (or "Nie je tovar"), then check a product's stock and its Pohyby.
+   e) Upload the same file again: it must say that nothing was taken off twice.
+   f) Send Claude the export's first line (the column names) if a column was not guessed right.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
