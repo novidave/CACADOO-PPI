@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Sklad – Faktúra prečítaná AI</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#111}a:hover{color:#000}
+.muted{color:#5C5C5C}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 14px;border-radius:12px;border:1px solid #111;background:#111;color:#fff;font:700 15px Quicksand,sans-serif;text-decoration:none;cursor:pointer;box-sizing:border-box}
+.btn.ghost{background:#fff;color:#111;border-color:#D6D6D6}
+.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:12px;font-size:12px;font-weight:700}
+.src{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#3D3D3D;background:#F5F5F5;border-radius:6px;padding:3px 6px}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:#3D3D3D}
+.fld input{min-height:44px;border:1px solid #D6D6D6;border-radius:10px;padding:0 12px;font:500 15px Quicksand,sans-serif;color:#111;box-sizing:border-box}
+.chk{width:24px;height:24px;margin:0;accent-color:#111;flex:none;cursor:pointer}
+</style>
+</helmet>
+<div style="width:390px;height:1200px;box-sizing:border-box;background:#fff;color:#111;font-family:Quicksand,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+  <header style="flex:none;display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #E4E4E4">
+    <a href="Prijemka.dc.html" style="display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 6px;font-size:15px;font-weight:600;text-decoration:none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Späť na príjemku</a>
+  </header>
+
+  <main style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px 16px;display:flex;flex-direction:column;gap:12px">
+    <h1 style="margin:0;font-size:22px">Faktúra prečítaná</h1>
+
+    <div style="display:flex;gap:12px;border:1px solid #E4E4E4;border-radius:12px;padding:12px">
+      <div aria-hidden="true" style="flex:none;width:62px;height:82px;border:1px solid #D6D6D6;border-radius:6px;background:#FAFAFA;display:flex;flex-direction:column;gap:5px;padding:8px 7px;box-sizing:border-box">
+        <span style="height:4px;width:60%;background:#C9C9C9;border-radius:2px"></span>
+        <span style="height:3px;background:#DDD;border-radius:2px"></span>
+        <span style="height:3px;background:#DDD;border-radius:2px"></span>
+        <span style="height:3px;background:#DDD;border-radius:2px"></span>
+        <span style="height:3px;width:80%;background:#DDD;border-radius:2px"></span>
+        <span style="height:3px;background:#DDD;border-radius:2px"></span>
+        <span style="height:4px;width:45%;margin-left:auto;background:#C9C9C9;border-radius:2px"></span>
+      </div>
+      <div style="min-width:0;display:flex;flex-direction:column;gap:3px;font-size:13px">
+        <strong style="font-size:14px">faktura_FA2026-0187.jpg</strong>
+        <span class="muted">[Dodávateľ] · FA2026-0187 · 28. 10. 2026</span>
+        <span>Na faktúre bez DPH: <strong>334,40 €</strong></span>
+        <span style="display:flex;align-items:center;gap:4px;color:#146C37;font-weight:700">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#146C37" stroke-width="2.5" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Súčet riadkov sedí s faktúrou</span>
+      </div>
+    </div>
+
+    <p role="status" style="margin:0;padding:10px 12px;border-radius:10px;background:#F2F2F2;font-size:14px">AI prečítala <strong>6 riadkov</strong>. Skontrolujte ich – nič sa neuloží, kým nepotvrdíte príjemku.</p>
+
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+      <div style="border:1px solid #E4E4E4;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;opacity:{{r.opacity}}">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <input class="chk" type="checkbox" checked="{{r.checked}}" onChange="{{r.toggle}}" aria-label="Pridať riadok do príjemky: {{r.product}}">
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+            <span style="font-size:12px" class="muted">Z faktúry: <span class="src">{{r.src}}</span></span>
+            <strong style="font-size:15px">{{r.product}}</strong>
+            <span class="chip" style="align-self:flex-start;background:{{r.chipBg}};color:{{r.chipFg}}">{{r.chip}}</span>
+          </div>
+          <strong style="font-size:15px;flex:none">{{r.total}}</strong>
+        </div>
+        <span style="font-size:13px;padding-left:34px" class="muted">{{r.qtyLine}}</span>
+        <sc-if value="{{r.unsure}}" hint-placeholder-val="{{false}}">
+          <div style="padding-left:34px;display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:13px">Máte 2 podobné produkty: <strong>Valček 25 cm</strong> a <strong>Valček 25 cm mikrovlákno</strong>.</span>
+            <button type="button" class="btn ghost" style="min-height:40px;align-self:flex-start;font-size:14px">Zmeniť produkt</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{r.isNew}}" hint-placeholder-val="{{false}}">
+          <div style="padding-left:34px;display:flex;flex-direction:column;gap:8px">
+            <span style="font-size:13px">Tento produkt v sklade ešte nemáte. AI pripravila návrh – skontrolujte ho:</span>
+            <label class="fld">Názov<input type="text" value="Lazúra na drevo teak 0,75 l"></label>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+              <label class="fld">EAN<input type="text" value="8580000208734"></label>
+              <label class="fld">Kategória<input type="text" value="Farby"></label>
+            </div>
+            <label class="fld">Predajná cena s DPH<input type="text" inputmode="decimal" placeholder="doplňte, napr. 12,90"></label>
+            <span style="font-size:12px" class="muted">Produkt vznikne až po potvrdení príjemky. Bez predajnej ceny sa na stránke obchodu nezobrazí.</span>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </main>
+
+  <section aria-label="Súhrn" style="flex:none;border-top:1px solid #E4E4E4;padding:10px 16px 16px;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <span style="font-size:14px;font-weight:600">Vybrané: {{checkedCount}} z 6 riadkov</span>
+      <span style="display:flex;flex-direction:column;align-items:flex-end"><strong style="font-size:20px">{{total}}</strong><span style="font-size:12px" class="muted">bez DPH</span></span>
+    </div>
+    <a class="btn" href="Prijemka.dc.html" style="min-height:56px;font-size:17px">Pridať do príjemky ({{checkedCount}})</a>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1200}}'>
+class Component extends DCLogic {
+  data() {
+    return [
+      { id: 'a', src: 'Fasád.farba biela 5L', product: 'Farba fasádna biela 5 l', kind: 'ean', qty: 12, price: 15.8 },
+      { id: 'b', src: 'Stetec plochy 50mm', product: 'Štetec plochý 50 mm', kind: 'name', qty: 20, price: 1.35 },
+      { id: 'c', src: 'Pas.maliar. 38mm/50m', product: 'Maliarska páska 38 mm', kind: 'ean', qty: 24, price: 1.1 },
+      { id: 'd', src: 'Lazura teak 0,75L 858...8734', product: 'Lazúra na drevo teak 0,75 l', kind: 'new', qty: 6, price: 7.4 },
+      { id: 'e', src: 'Valcek 25cm', product: 'Valček 25 cm', kind: 'unsure', qty: 10, price: 3.9 },
+      { id: 'f', src: 'Doprava', product: 'Doprava – nie je tovar', kind: 'skip', qty: 1, price: 8 }
+    ];
+  }
+  eur(n) { return n.toFixed(2).replace('.', ',') + ' €'; }
+  renderVals() {
+    const chips = {
+      ean: { t: 'Spárované podľa EAN', bg: '#E3F4EA', fg: '#146C37' },
+      name: { t: 'Spárované podľa názvu', bg: '#E3F4EA', fg: '#146C37' },
+      new: { t: 'Nový produkt – návrh', bg: '#FFF1E0', fg: '#8A3B00' },
+      unsure: { t: 'Skontrolujte produkt', bg: '#FFF6D6', fg: '#6B4E00' },
+      skip: { t: 'Preskočené – nie je tovar', bg: '#EDEDED', fg: '#3D3D3D' }
+    };
+    const s = Object.assign({ off: { f: true } }, this.state || {});
+    let total = 0;
+    let count = 0;
+    const rows = this.data().map(d => {
+      const checked = !s.off[d.id];
+      const c = chips[d.kind];
+      if (checked) { total += d.qty * d.price; count += 1; }
+      return {
+        src: d.src, product: d.product, chip: c.t, chipBg: c.bg, chipFg: c.fg,
+        total: this.eur(d.qty * d.price),
+        qtyLine: d.kind === 'skip' ? 'Nenaskladní sa – je to služba, nie tovar.' : d.qty + ' ks × ' + this.eur(d.price) + ' nákup/ks',
+        checked: checked, opacity: checked ? '1' : '0.55',
+        unsure: d.kind === 'unsure', isNew: d.kind === 'new',
+        toggle: () => { const off = Object.assign({}, s.off); off[d.id] = checked; this.setState({ off: off }); }
+      };
+    });
+    return { rows: rows, total: this.eur(total), checkedCount: count };
+  }
+}
+</script>
+</body>
+</html>

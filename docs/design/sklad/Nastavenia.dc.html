@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Sklad – Nastavenia (notebook)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#111}a:hover{color:#000}
+.muted{color:#5C5C5C}
+.nav a{font-size:15px;font-weight:600;color:#5C5C5C;text-decoration:none;padding:8px 0}
+.nav a.on{color:#111}
+.tab{flex:none;padding:12px 2px;font-size:15px;font-weight:600;color:#5C5C5C;text-decoration:none;border-bottom:2px solid transparent}
+.tab.on{color:#111;border-bottom-color:#111}
+.card{border:1px solid #E4E4E4;border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border-radius:12px;border:1px solid #111;background:#111;color:#fff;font:700 15px Quicksand,sans-serif;text-decoration:none;cursor:pointer;box-sizing:border-box}
+.btn.ghost{background:#fff;color:#111;border-color:#D6D6D6}
+.opt{display:flex;align-items:flex-start;gap:10px;min-height:44px;font-size:15px;cursor:pointer}
+.opt input{width:20px;height:20px;margin:2px 0 0;accent-color:#111;flex:none}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;cursor:pointer}
+.sw input{width:44px;height:26px;margin:0;accent-color:#111;flex:none}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #E4E4E4}
+.dot{flex:none;width:10px;height:10px;border-radius:5px;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+h2{margin:0;font-size:18px;font-weight:700}
+</style>
+</helmet>
+<div style="min-height:1240px;background:#fff;color:#111;font-family:Quicksand,sans-serif">
+  <header style="border-bottom:1px solid #E4E4E4">
+    <div style="max-width:1240px;margin:0 auto;padding:12px 24px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 28px">
+      <strong style="font-size:17px">Môj obchod · Davide – farby</strong>
+      <nav class="nav" aria-label="Môj obchod" style="display:flex;flex-wrap:wrap;gap:4px 22px">
+        <a href="#">Obchod</a><a href="#">Obsah stránky</a><a href="#">Novinky</a><a href="#">Asistent</a><a class="on" href="PredajTablet.dc.html" aria-current="page">Sklad</a><a href="#">Predplatné</a>
+      </nav>
+    </div>
+  </header>
+
+  <div style="max-width:1240px;margin:0 auto;padding:20px 24px 40px;display:flex;flex-direction:column;gap:16px">
+    <h1 style="margin:0;font-size:28px;font-weight:700">Sklad</h1>
+    <nav aria-label="Časti skladu" style="display:flex;flex-wrap:wrap;gap:24px;border-bottom:1px solid #E4E4E4">
+      <a class="tab" href="Prehlad.dc.html">Prehľad</a>
+      <a class="tab" href="PredajTablet.dc.html">Predaj</a>
+      <a class="tab" href="ProduktDesktop.dc.html">Produkty</a>
+      <a class="tab" href="PrijemkaDesktop.dc.html">Príjemky</a>
+      <a class="tab" href="InventuraDesktop.dc.html">Inventúra</a>
+      <a class="tab" href="#">Pohyby</a>
+      <a class="tab on" href="Nastavenia.dc.html" aria-current="page">Nastavenia</a>
+    </nav>
+
+    <section class="card" aria-labelledby="s-src" style="flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:#F7F7F7">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <h2 id="s-src">Zdroj zásob: Sklad v Cacaduu</h2>
+        <span style="font-size:14px" class="muted">Stránka obchodu, vyhľadávanie, asistent aj API čítajú zásobu odtiaľto. Priečinok so súbormi a skladový program sú vypnuté, aby sa stav neprepisoval.</span>
+      </div>
+      <a class="btn ghost" href="#">Zmeniť zdroj zásob</a>
+    </section>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start">
+
+      <section class="card" aria-labelledby="s-sales">
+        <h2 id="s-sales">Odkiaľ prichádzajú predaje</h2>
+        <span style="font-size:14px" class="muted">Vyberte jeden zdroj – ten istý predaj sa tak nikdy nezapočíta dvakrát.</span>
+        <label class="opt"><input type="radio" name="sales">
+          <span style="display:flex;flex-direction:column"><strong>Obrazovka Predaj v Cacaduu</strong><span style="font-size:13px" class="muted">Pre obchody bez pokladnice alebo s QR platbami. Doklad z eKasa vydáte zvlášť.</span></span></label>
+        <label class="opt"><input type="radio" name="sales" checked>
+          <span style="display:flex;flex-direction:column"><strong>Import z eKasa</strong><span style="font-size:13px" class="muted">Denný export z pokladnice alebo z portálu eKasa. Obrazovka Predaj je vypnutá.</span></span></label>
+        <div style="border:1px solid #E4E4E4;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <strong style="font-size:15px">Posledný import: 1. 11. 2026</strong>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#146C37"><span class="dot" style="background:#1E9E5A" aria-hidden="true"></span>Spracované</span>
+          </div>
+          <span style="font-size:14px">42 dokladov · 118 riadkov · odpísané 131 ks · <strong>3 riadky nespárované</strong></span>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <button type="button" class="btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Nahrať export z eKasa</button>
+            <button type="button" class="btn ghost">Spárovať 3 riadky</button>
+          </div>
+          <span style="font-size:13px" class="muted">Stĺpce exportu sú schválené (produkt, množstvo, cena). Spárovanie sa zapamätá. <a href="#" style="font-weight:600">Zmeniť stĺpce</a></span>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="s-loc">
+        <h2 id="s-loc">Miesta skladu</h2>
+        <div style="display:flex;flex-direction:column">
+          <div class="row"><span style="display:flex;flex-direction:column"><strong>Predajňa</strong><span style="font-size:13px" class="muted">Regály A, B, C · predaj sa odpisuje odtiaľto</span></span><button type="button" class="btn ghost" style="min-height:36px;font-size:13px">Upraviť</button></div>
+          <div class="row" style="border-bottom:0"><span style="display:flex;flex-direction:column"><strong>Sklad – zadná miestnosť</strong><span style="font-size:13px" class="muted">Palety 1–3 · príjemky sem predvolene</span></span><button type="button" class="btn ghost" style="min-height:36px;font-size:13px">Upraviť</button></div>
+        </div>
+        <button type="button" class="btn ghost" style="align-self:flex-start">+ Pridať miesto</button>
+        <span style="font-size:13px" class="muted">Zákazníci na stránke obchodu vidia súčet všetkých miest.</span>
+      </section>
+
+      <section class="card" aria-labelledby="s-fresh">
+        <h2 id="s-fresh">Aktuálnosť zásob</h2>
+        <span style="font-size:14px">Ak 24 hodín nie je žiadny pohyb ani potvrdenie „Stav je správny“, zásoba sa na stránke obchodu skryje, aby zákazníci nevideli starý stav.</span>
+        <label class="sw"><span style="display:flex;flex-direction:column"><strong style="font-size:15px">Pripomenúť potvrdenie stavu</strong><span style="font-size:13px" class="muted">Upozornenie v Cacaduu a e-mail, ak dnes nebol pohyb</span></span><input type="checkbox" role="switch" checked></label>
+        <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px"><strong>Čas pripomienky</strong><input type="text" value="8:00" aria-label="Čas pripomienky" style="width:90px;min-height:44px;border:1px solid #D6D6D6;border-radius:10px;padding:0 12px;font:600 15px Quicksand,sans-serif;text-align:center;box-sizing:border-box"></label>
+      </section>
+
+      <section class="card" aria-labelledby="s-margin">
+        <h2 id="s-margin">Maržové prehľady</h2>
+        <label class="sw"><span style="display:flex;flex-direction:column"><strong style="font-size:15px">Zobrazovať maržu a hodnotu zásoby</strong><span style="font-size:13px" class="muted">Na produktovej karte, v inventúre a v reportoch. Vidíte ich len vy.</span></span><input type="checkbox" role="switch" checked></label>
+        <span style="font-size:13px" class="muted">Na karte sa ukazuje posledná nákupná cena, v prehľadoch priemerná.</span>
+      </section>
+
+      <section class="card" aria-labelledby="s-dev">
+        <h2 id="s-dev">Zariadenia</h2>
+        <div style="display:flex;flex-direction:column">
+          <div class="row"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#1E9E5A" aria-hidden="true"></span><strong>Skener pri pokladni</strong><span style="font-size:13px" class="muted">USB · tento počítač</span></span><button type="button" class="btn ghost" style="min-height:36px;font-size:13px">Premenovať</button></div>
+          <div class="row"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#1E9E5A" aria-hidden="true"></span><strong>Telefón 1 · Peter</strong><span style="font-size:13px" class="muted">skener</span></span><button type="button" class="btn ghost" style="min-height:36px;font-size:13px">Odpojiť</button></div>
+          <div class="row"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#9AA5B1" aria-hidden="true"></span><strong>Telefón 2 · Jana</strong><span style="font-size:13px" class="muted">offline od včera</span></span><button type="button" class="btn ghost" style="min-height:36px;font-size:13px">Odpojiť</button></div>
+          <div class="row" style="border-bottom:0"><span style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#1E9E5A" aria-hidden="true"></span><strong>QR terminál na pulte</strong><span style="font-size:13px" class="muted">vždy zapnutý</span></span><button type="button" class="btn ghost" style="min-height:36px;font-size:13px">Odpojiť</button></div>
+        </div>
+        <button type="button" class="btn ghost" style="align-self:flex-start">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z"/></svg>Pripojiť telefón (QR kód)</button>
+      </section>
+
+      <section class="card" aria-labelledby="s-plan">
+        <h2 id="s-plan">Plán</h2>
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><strong style="font-size:15px">Free · 38 z 50 produktov</strong><span style="font-size:13px" class="muted">76 %</span></div>
+        <div aria-hidden="true" style="height:8px;border-radius:4px;background:#EDEDED"><div style="height:8px;border-radius:4px;background:#111;width:76%"></div></div>
+        <span style="font-size:14px">Pro: neobmedzený počet produktov.</span>
+        <a class="btn" href="#" style="align-self:flex-start">Prejsť na Pro</a>
+      </section>
+
+      <section class="card" aria-labelledby="s-exp">
+        <h2 id="s-exp">Export a záloha</h2>
+        <span style="font-size:14px" class="muted">Vaše dáta vždy patria vám – stiahnete ich kedykoľvek.</span>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button type="button" class="btn ghost">Produkty (XLSX)</button>
+          <button type="button" class="btn ghost">Pohyby (XLSX)</button>
+          <button type="button" class="btn ghost">Dodávatelia (XLSX)</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1240}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

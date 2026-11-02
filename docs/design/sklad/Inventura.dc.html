@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Sklad – Inventúra, počítanie</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#111}a:hover{color:#000}
+.muted{color:#5C5C5C}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 14px;border-radius:12px;border:1px solid #111;background:#111;color:#fff;font:700 15px Quicksand,sans-serif;text-decoration:none;cursor:pointer;box-sizing:border-box}
+.btn.ghost{background:#fff;color:#111;border-color:#D6D6D6}
+.big{width:64px;height:64px;border-radius:16px;border:1px solid #D6D6D6;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.dot{flex:none;width:10px;height:10px;border-radius:5px;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+</style>
+</helmet>
+<div style="width:390px;height:844px;box-sizing:border-box;background:#fff;color:#111;font-family:Quicksand,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative">
+  <header style="flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;border-bottom:1px solid #E4E4E4">
+    <div style="display:flex;flex-direction:column;min-width:0">
+      <span style="font-size:12px" class="muted">Inventúra I-2026-04</span>
+      <strong style="font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Predajňa · regál A</strong>
+    </div>
+    <button type="button" onClick="{{openRename}}" style="flex:none;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;border:1px solid #D6D6D6;border-radius:20px;background:#fff;font:700 14px Quicksand,sans-serif;color:#111;cursor:pointer" aria-label="Premenovať tento telefón">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+      {{counterName}}
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5C5C5C" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>
+    </button>
+  </header>
+
+  <div style="flex:none;padding:12px 16px 0;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:600"><span>Spočítané {{done}} z 48 produktov</span><span class="muted">Slepá inventúra</span></div>
+    <div aria-hidden="true" style="height:8px;border-radius:4px;background:#EDEDED"><div style="height:8px;border-radius:4px;background:#111;width:{{pct}}"></div></div>
+  </div>
+
+  <div style="flex:none;padding:12px 16px 0">
+    <button type="button" class="btn" onClick="{{scan}}" style="width:100%;min-height:56px;font-size:17px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>
+      Skenovať ďalší kus
+    </button>
+  </div>
+
+  <sc-if value="{{showShared}}" hint-placeholder-val="{{false}}">
+    <div role="alert" style="flex:none;margin:12px 16px 0;padding:12px;border-radius:12px;background:#FFF6D6;display:flex;flex-direction:column;gap:8px">
+      <strong style="font-size:14px;color:#4D3800">Tento produkt už napočítala Jana (Telefón 2): 6 ks</strong>
+      <span style="font-size:13px;color:#4D3800">Ak ste počítali iný kus regálu, počty sa sčítajú. Ak ste počítali to isté, platí váš počet.</span>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+        <button type="button" class="btn" onClick="{{dismissShared}}" style="min-height:44px;font-size:14px">Sčítať</button>
+        <button type="button" class="btn ghost" onClick="{{dismissShared}}" style="min-height:44px;font-size:14px">Platí môj počet</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <section aria-label="Práve počítaný produkt" style="flex:none;margin:12px 16px 0;border:2px solid #111;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <strong style="font-size:18px">{{curName}}</strong>
+      <span style="font-size:13px" class="muted">Kód {{curCode}} · regál A</span>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <button type="button" class="big" onClick="{{dec}}" aria-label="O jeden kus menej"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.5" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <span style="font-size:13px;font-weight:600" class="muted">Napočítané</span>
+        <strong role="status" style="font-size:56px;line-height:1">{{curCount}}</strong>
+        <span style="font-size:13px" class="muted">ks</span>
+      </div>
+      <button type="button" class="big" onClick="{{inc}}" aria-label="O jeden kus viac"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <sc-if value="{{typing}}" hint-placeholder-val="{{false}}">
+      <div style="display:flex;gap:8px">
+        <label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:#3D3D3D">Celkový počet
+          <input type="number" inputmode="numeric" min="0" value="{{draft}}" onChange="{{setDraft}}" style="min-height:48px;border:1px solid #D6D6D6;border-radius:10px;padding:0 12px;font:700 18px Quicksand,sans-serif;box-sizing:border-box">
+        </label>
+        <button type="button" class="btn" onClick="{{saveTyped}}" style="align-self:flex-end">Uložiť</button>
+      </div>
+    </sc-if>
+    <sc-if value="{{notTyping}}" hint-placeholder-val="{{true}}">
+      <button type="button" class="btn ghost" onClick="{{startTyping}}" style="min-height:44px">Zadať počet naraz (napr. 24)</button>
+    </sc-if>
+  </section>
+
+  <section aria-label="Naposledy spočítané" style="flex:1;min-height:0;overflow-y:auto;padding:12px 16px 0">
+    <h2 style="margin:0 0 4px;font-size:14px;font-weight:700" class="muted">Naposledy spočítané</h2>
+    <sc-for list="{{recent}}" as="r" hint-placeholder-count="3">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #E4E4E4">
+        <span style="font-size:15px;min-width:0">{{r.name}}</span>
+        <strong style="font-size:16px;flex:none">{{r.count}} ks</strong>
+      </div>
+    </sc-for>
+  </section>
+
+  <footer style="flex:none;border-top:1px solid #E4E4E4;padding:10px 16px 16px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <button type="button" class="btn ghost">Nespočítané ({{left}})</button>
+    <a class="btn" href="InventuraRozdiely.dc.html">Odovzdať počty</a>
+  </footer>
+
+  <sc-if value="{{renaming}}" hint-placeholder-val="{{false}}">
+    <div style="position:absolute;inset:0;background:rgba(17,17,17,.45);display:flex;align-items:flex-end">
+      <div role="dialog" aria-label="Premenovať telefón" style="width:100%;background:#fff;border-radius:18px 18px 0 0;padding:20px 16px 24px;display:flex;flex-direction:column;gap:12px;box-sizing:border-box">
+        <h2 style="margin:0;font-size:20px">Kto počíta na tomto telefóne?</h2>
+        <span style="font-size:14px" class="muted">Meno uvidíte v rozdieloch a v reporte inventúry. Účet nie je potrebný.</span>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:#3D3D3D">Názov telefónu
+          <input type="text" value="{{nameDraft}}" onChange="{{setNameDraft}}" style="min-height:48px;border:1px solid #D6D6D6;border-radius:10px;padding:0 12px;font:600 16px Quicksand,sans-serif;box-sizing:border-box">
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
+          <button type="button" class="btn ghost" onClick="{{closeRename}}">Zrušiť</button>
+          <button type="button" class="btn" onClick="{{saveRename}}">Uložiť</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  cat() {
+    return {
+      p1: { name: 'Farba fasádna biela 5 l', code: '10231' },
+      p2: { name: 'Akrylové médium lesklé 250 ml', code: '20417' },
+      p3: { name: 'Štetec plochý 50 mm', code: '30012' },
+      p4: { name: 'Valček 25 cm', code: '30101' },
+      p5: { name: 'Maliarska páska 38 mm', code: '30455' }
+    };
+  }
+  renderVals() {
+    const cat = this.cat();
+    const s = Object.assign({
+      counts: { p1: 5 }, order: ['p1'], cur: 'p1', seq: 0, base: 22,
+      name: 'Telefón 1 · Peter', renaming: false, nameDraft: '', typing: false, draft: '', shared: false
+    }, this.state || {});
+    const seq = ['p1', 'p2', 'p3', 'p3', 'p4', 'p5'];
+    const setCount = (id, n) => {
+      const counts = Object.assign({}, s.counts);
+      counts[id] = Math.max(0, n);
+      this.setState({ counts: counts });
+    };
+    const scan = () => {
+      const id = seq[s.seq % seq.length];
+      const counts = Object.assign({}, s.counts);
+      const isNew = counts[id] === undefined;
+      counts[id] = (counts[id] || 0) + 1;
+      const order = isNew ? [id].concat(s.order) : [id].concat(s.order.filter(x => x !== id));
+      this.setState({ counts: counts, order: order, cur: id, seq: s.seq + 1, shared: id === 'p4' && isNew, typing: false });
+    };
+    const done = s.base + s.order.length;
+    const cur = cat[s.cur];
+    const recent = s.order.filter(id => id !== s.cur).map(id => ({ name: cat[id].name, count: s.counts[id] }));
+    return {
+      counterName: s.name, done: done, left: 48 - done, pct: Math.round(done / 48 * 100) + '%',
+      curName: cur.name, curCode: cur.code, curCount: s.counts[s.cur] || 0,
+      recent: recent, scan: scan,
+      inc: () => setCount(s.cur, (s.counts[s.cur] || 0) + 1),
+      dec: () => setCount(s.cur, (s.counts[s.cur] || 0) - 1),
+      typing: s.typing, notTyping: !s.typing, draft: s.draft,
+      startTyping: () => this.setState({ typing: true, draft: '' }),
+      setDraft: e => this.setState({ draft: e && e.target ? e.target.value : '' }),
+      saveTyped: () => { const n = parseInt(s.draft, 10); if (!isNaN(n)) setCount(s.cur, n); this.setState({ typing: false }); },
+      showShared: s.shared, dismissShared: () => this.setState({ shared: false }),
+      renaming: s.renaming, nameDraft: s.nameDraft,
+      openRename: () => this.setState({ renaming: true, nameDraft: s.name }),
+      setNameDraft: e => this.setState({ nameDraft: e && e.target ? e.target.value : '' }),
+      closeRename: () => this.setState({ renaming: false }),
+      saveRename: () => this.setState({ renaming: false, name: (s.nameDraft || '').trim() || s.name })
+    };
+  }
+}
+</script>
+</body>
+</html>
