@@ -31,7 +31,7 @@
     "test:booking": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts",
     "test:e2e": "playwright test",
     "test:telegram": "node scripts/telegram-texts.mjs --check",
-    "test:sklad": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/sklad_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/sklad_test.ts"
+    "test:sklad": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/sklad_test.ts src/lib/ekasa_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/sklad_test.ts src/lib/ekasa_test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

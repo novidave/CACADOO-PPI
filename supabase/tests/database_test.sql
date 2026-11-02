@@ -12740,4 +12740,179 @@ reset role;
 drop table t70;
 drop table t70_inv;
 
+\echo '--- update 71: Sklad eKasa — one source of sales, columns approved once, each line booked once (overlapping exports, same file twice), pairing remembered, refunds, owners only'
+create temporary table t71 (k text primary key, v text);
+grant all on t71 to public;
+create temporary table t71_inv as
+  select inv.* from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  join public.shops s on s.id = si.shop_id where s.slug = 'potraviny-centrum';
+grant all on t71_inv to public;
+set role service_role;
+insert into t71 values ('fresh', (select latest_file_time::text from public.sync_sources s join public.shops sh on sh.id = s.shop_id where sh.slug = 'potraviny-centrum'));
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid;
+  v_q uuid;
+  v_shop uuid;
+  v_i1 uuid := gen_random_uuid();
+  v_lines jsonb;
+  vj jsonb;
+begin
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  v_shop := (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview(v_a) -> 'locations') l where (l ->> 'sale_default')::boolean);
+  v_p := public.owner_sklad_save_product(v_a, null, '{"name":"Farba fasádna biela 5 l","ean":"8580000102315","sale_price":"24.90"}');
+  v_q := public.owner_sklad_save_product(v_a, null, '{"name":"Valček 25 cm","code":"VAL25","sale_price":"7.50"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'receipt', 10, v_shop, null, 15.20);
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_q, 'receipt', 5, v_shop, null, 3.90);
+  insert into t71 values ('p', v_p::text), ('q', v_q::text), ('i1', v_i1::text);
+  v_lines := '[{"doc":"O-1","time":"2026-11-01T08:10:00+01:00","text":"FARBA FASADNA 5L","ean":"8580000102315","qty":"2","price":"24.90"},
+              {"doc":"O-1","time":"2026-11-01T08:10:00+01:00","text":"Valcek","code":"VAL25","qty":"1","price":"7.50"},
+              {"doc":"O-2","time":"2026-11-01T09:00:00+01:00","text":"Štetec plochý 50","qty":"3","price":"2.10"},
+              {"doc":"O-2","time":"2026-11-01T09:00:00+01:00","text":"Štetec plochý 50","qty":"3","price":"2.10"},
+              {"doc":"O-3","time":"2026-11-01T10:00:00+01:00","text":"Doprava","qty":"1","price":"5.00"},
+              {"doc":"O-4","time":"2026-11-01T11:00:00+01:00","text":"Valček 25 cm","qty":"-1","price":"7.50"}]';
+  insert into t71 values ('lines', v_lines::text);
+  -- while sales come from the Predaj screen, eKasa imports are refused
+  begin perform public.owner_sklad_ekasa_import(v_a, v_i1, 'export.csv', repeat('a', 64), v_lines); raise exception 'eKasa while predaj';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sale_source' then raise; end if; end;
+  -- columns: product + qty + (receipt or time) are required
+  begin perform public.owner_sklad_ekasa_save_columns(v_a, '{"product":"Názov","qty":"Množstvo"}'); raise exception 'columns without doc/time';
+  exception when invalid_parameter_value then if sqlerrm <> 'columns' then raise; end if; end;
+  perform public.owner_sklad_ekasa_save_columns(v_a, '{"product":"Názov","qty":"Množstvo","doc":"Doklad","price":"Cena","junk":"x"}');
+  assert public.owner_sklad_ekasa_info(v_a) -> 'columns' = '{"product":"Názov","qty":"Množstvo","doc":"Doklad","price":"Cena"}'::jsonb;
+  perform public.owner_sklad_set_sale_source(v_a, 'ekasa');
+  -- the Predaj screen sells nothing now
+  begin perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 1)), 'cash');
+    raise exception 'sold on Predaj while eKasa';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sale_source' then raise; end if; end;
+  -- the import: EAN → p (2), code → q (1), the refund of "Valček 25 cm" by its exact name (+1), the brush waits twice
+  -- (two identical lines are two sales), transport waits
+  vj := public.owner_sklad_ekasa_import(v_a, v_i1, 'export.csv', repeat('a', 64), v_lines);
+  assert (vj ->> 'lines')::int = 6 and (vj ->> 'booked')::int = 3 and (vj ->> 'unmatched')::int = 3
+     and (vj ->> 'skipped')::int = 0 and (vj ->> 'docs')::int = 4 and not (vj ->> 'duplicate')::boolean, vj::text;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 8;
+  assert (public.owner_sklad_product(v_a, v_q) ->> 'total')::numeric = 5, 'one sold, one refunded';
+  assert (select quantity from public.public_stock where item_id = v_p) = 8, 'the shop page follows';
+  assert (public.owner_sklad_movements(v_a, v_p, 'sale') -> 'rows' -> 0 ->> 'ref') = 'eKasa O-1';
+  assert (public.owner_sklad_movements(v_a, v_q, 'correction') -> 'rows' -> 0 ->> 'reason') = 'Vrátenie – eKasa';
+  -- the same file again = the same import, nothing booked twice
+  vj := public.owner_sklad_ekasa_import(v_a, gen_random_uuid(), 'export (1).csv', repeat('a', 64), v_lines);
+  assert (vj ->> 'duplicate')::boolean and (vj ->> 'id')::uuid = v_i1, vj::text;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 8;
+  vj := public.owner_sklad_ekasa_unmatched(v_a);
+  assert jsonb_array_length(vj) = 2 and (vj -> 0 ->> 'lines')::int = 2 and (vj -> 0 ->> 'pieces')::numeric = 6, vj::text;
+  insert into t71 values ('brush', vj -> 0 ->> 'key'), ('transport', vj -> 1 ->> 'key');
+end $$;
+reset role;
+
+-- pairing: the brush becomes a product, transport is "Nie je tovar"; both remembered for the next export
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid;
+  v_shop uuid := (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview((select id from public.shops where slug = 'potraviny-centrum')) -> 'locations') l where (l ->> 'sale_default')::boolean);
+  vj jsonb;
+begin
+  v_b := public.owner_sklad_save_product(v_a, null, '{"name":"Štetec 50 mm","sale_price":"2.10"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_b, 'receipt', 20, v_shop, null, 0.80);
+  insert into t71 values ('b', v_b::text);
+  vj := public.owner_sklad_ekasa_pair(v_a, (select v from t71 where k = 'brush'), v_b, false);
+  assert (vj ->> 'lines')::int = 2 and (vj ->> 'pieces')::numeric = 6, vj::text;
+  assert (public.owner_sklad_product(v_a, v_b) ->> 'total')::numeric = 14;
+  vj := public.owner_sklad_ekasa_pair(v_a, (select v from t71 where k = 'transport'), null, true);
+  assert (vj ->> 'lines')::int = 1, vj::text;
+  vj := public.owner_sklad_ekasa_info(v_a);
+  assert (vj ->> 'waiting_lines')::int = 0 and jsonb_array_length(vj -> 'pairs') = 2
+     and (vj -> 'imports' -> 0 ->> 'booked')::int = 5 and (vj -> 'imports' -> 0 ->> 'ignored')::int = 1, vj::text;
+  -- the next day's export overlaps (receipt O-2 again) and adds O-5: O-2 is skipped, the brush and transport are
+  -- recognised by the remembered pairing
+  vj := public.owner_sklad_ekasa_import(v_a, gen_random_uuid(), 'export-2.csv', repeat('b', 64),
+    '[{"doc":"O-2","time":"2026-11-01T09:00:00+01:00","text":"Štetec plochý 50","qty":"3","price":"2.10"},
+      {"doc":"O-2","time":"2026-11-01T09:00:00+01:00","text":"Štetec plochý 50","qty":"3","price":"2.10"},
+      {"doc":"O-5","time":"2026-11-02T08:00:00+01:00","text":"ŠTETEC PLOCHÝ 50","qty":"1","price":"2.10"},
+      {"doc":"O-5","time":"2026-11-02T08:00:00+01:00","text":"Doprava","qty":"1","price":"5.00"},
+      {"doc":"O-5","time":"2026-11-02T08:00:00+01:00","text":"","qty":"1"},
+      {"doc":"O-5","time":"2026-11-02T08:00:00+01:00","text":"Zlá riadka","qty":"abc"}]');
+  assert (vj ->> 'skipped')::int = 2 and (vj ->> 'booked')::int = 1 and (vj ->> 'ignored')::int = 1
+     and (vj ->> 'unmatched')::int = 0 and (vj ->> 'lines')::int = 4, vj::text;
+  assert (public.owner_sklad_product(v_a, v_b) ->> 'total')::numeric = 13;
+  -- forgetting a pairing asks again next time; nothing booked changes
+  perform public.owner_sklad_ekasa_forget(v_a, (select v from t71 where k = 'transport'));
+  assert jsonb_array_length(public.owner_sklad_ekasa_info(v_a) -> 'pairs') = 1;
+  -- a staged file waits for its columns; the same done file is reported as done
+  vj := public.owner_sklad_ekasa_stage(v_a, gen_random_uuid(), 'novy.csv', repeat('c', 64), '["A","B"]', '[["1","2"],["3","4"]]');
+  insert into t71 values ('staged', vj ->> 'staged');
+  assert (public.owner_sklad_ekasa_staged(v_a, (vj ->> 'staged')::uuid) ->> 'count')::int = 2;
+  assert jsonb_array_length(public.owner_sklad_ekasa_staged(v_a, (vj ->> 'staged')::uuid, 1) -> 'rows') = 1;
+  assert public.owner_sklad_ekasa_stage(v_a, gen_random_uuid(), 'x.csv', repeat('a', 64), '["A"]', '[]') ? 'duplicate';
+  -- suppliers for the export
+  perform public.owner_sklad_save_product(v_a, (select v::uuid from t71 where k = 'b'), '{"supplier":"Colorlak a.s."}');
+  vj := public.owner_sklad_supplier_list(v_a);
+  assert exists (select 1 from jsonb_array_elements(vj) x where x ->> 'name' = 'Colorlak a.s.' and (x ->> 'products')::int = 1), vj::text;
+  -- back to the Predaj screen: selling works again, eKasa imports are refused
+  perform public.owner_sklad_set_sale_source(v_a, 'predaj');
+  perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_b, 'qty', 1)), 'cash');
+  assert (public.owner_sklad_product(v_a, v_b) ->> 'total')::numeric = 12;
+end $$;
+reset role;
+
+-- owner B and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_sklad_ekasa_info(v_a); raise exception 'B read A''s eKasa';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_ekasa_import(v_a, gen_random_uuid(), 'x.csv', repeat('d', 64), '[]'); raise exception 'B imported into A';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_ekasa_pair(v_a, 'x', null, true); raise exception 'B paired in A';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_set_sale_source(v_a, 'ekasa'); raise exception 'B switched A''s sales';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_supplier_list(v_a); raise exception 'B read A''s suppliers';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_ekasa_lines; raise exception 'owners read the eKasa lines table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform count(*) from public.sklad_ekasa_imports; raise exception 'anon read eKasa imports';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_ekasa_unmatched((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'anon eKasa';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.sklad_ekasa_imports where shop_id = v_a;
+  delete from public.sklad_ekasa_pairs where shop_id = v_a;
+  delete from public.sklad_sales where shop_id = v_a;
+  delete from public.sklad_items where shop_id = v_a;
+  delete from public.shop_items si where si.shop_id = v_a and not exists (select 1 from t71_inv t where t.shop_item_id = si.id);
+  delete from public.sklad_locations where shop_id = v_a;
+  delete from public.sklad_settings where shop_id = v_a;
+  delete from public.shop_stock_source where shop_id = v_a;
+  delete from public.inventory inv using public.shop_items si where si.id = inv.shop_item_id and si.shop_id = v_a;
+  insert into public.inventory select * from t71_inv;
+  update public.sync_sources set latest_file_time = (select v::timestamptz from t71 where k = 'fresh') where shop_id = v_a;
+end $$;
+reset role;
+drop table t71;
+drop table t71_inv;
+
 \echo 'ALL DATABASE CHECKS PASSED'

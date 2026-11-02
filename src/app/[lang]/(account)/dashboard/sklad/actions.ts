@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
+import { columnsFit, EKASA_MAX_BYTES, EKASA_MAX_ROWS, fileHash, readTable, toLines, type EkasaColumns, type EkasaTable } from "@/lib/ekasa";
 import { readInvoice } from "@/lib/invoiceRead";
 import { refreshShop } from "@/lib/publicCache";
 import { checkMove, cleanTime, isCardAction, isPayment, isUnit, parseAmount, parsePrice, saleProducts, invoiceAddsUp, type Invoice, type ReceiptLine, type SaleProduct, type SkladRow } from "@/lib/sklad";
@@ -24,6 +25,8 @@ const REASONS = [
   "discarded", "date", "supplier", "invoice_no", "bad_argument",
   // update 70 (Inventúra)
   "closed", "counter", "shelf", "zero_shelf", "too_late",
+  // update 71 (eKasa)
+  "sale_source", "columns", "ekasa_file", "ekasa_big", "ekasa_rows", "ekasa_empty",
 ] as const;
 const reason = (message: string | undefined) => REASONS.find((r) => r === message) ?? "failed";
 
@@ -39,7 +42,7 @@ async function start(formData: FormData) {
     redirect(`/${lang}/dashboard/sklad${path}?${new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...query })}`);
   // only our own Sklad pages as the way back
   const page = (query: Record<string, string>): never =>
-    go(/^(\/(products(\/[0-9a-f-]{36}|\/new)?|movements|settings|sale(\/[0-9a-f-]{36})?|terminal|receipts(\/[0-9a-f-]{36})?|counts(\/[0-9a-f-]{36}(\/diff)?)?))?$/.test(back) ? back : "", query);
+    go(/^(\/(products(\/[0-9a-f-]{36}|\/new)?|movements|settings|sale(\/[0-9a-f-]{36})?|terminal|receipts(\/[0-9a-f-]{36})?|counts(\/[0-9a-f-]{36}(\/diff)?)?|ekasa(\/columns)?))?$/.test(back) ? back : "", query);
   return { lang, session, shopId: UUID.test(shopId) ? shopId : "", slug, page, go };
 }
 
@@ -526,4 +529,141 @@ export async function cancelCount(formData: FormData) {
   const { error } = await session.supabase.rpc("owner_sklad_count_cancel", { p_shop_id: shopId, p_count_id: cid });
   if (error) go("/counts", { err: reason(error.message) });
   go("/counts", { ok: "count_cancelled" });
+}
+
+// ---------------------------------------------------------------- eKasa (database update 71)
+
+/** "Odkiaľ prichádzajú predaje": the Predaj screen or the eKasa export — one of them, never both. */
+export async function setSaleSource(formData: FormData) {
+  const { session, shopId, page } = await start(formData);
+  const source = String(formData.get("sale_source") ?? "");
+  if (source !== "predaj" && source !== "ekasa") page({ err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_set_sale_source", { p_shop_id: shopId, p_source: source });
+  if (error) page({ err: reason(error.message) });
+  page({ ok: source === "ekasa" ? "sale_ekasa" : "sale_predaj" });
+}
+
+/** The shop's own time zone (the export's times are its wall-clock times). */
+async function shopZone(session: NonNullable<Awaited<ReturnType<typeof getSession>>>, shopId: string): Promise<string> {
+  const { data } = await session.supabase.from("shops").select("timezone").eq("id", shopId).maybeSingle();
+  return (data as { timezone?: string } | null)?.timezone || "UTC";
+}
+
+async function bookEkasa(
+  session: NonNullable<Awaited<ReturnType<typeof getSession>>>,
+  shopId: string,
+  input: { id: string; name: string; hash: string; table: EkasaTable; cols: EkasaColumns },
+) {
+  const lines = toLines(input.table, input.cols, await shopZone(session, shopId));
+  return await session.supabase.rpc("owner_sklad_ekasa_import", {
+    p_shop_id: shopId,
+    p_id: input.id,
+    p_file_name: input.name,
+    p_file_hash: input.hash,
+    p_lines: lines,
+  });
+}
+
+/**
+ * "Nahrať export z eKasa": the file is read here (CSV or XLSX, ≤ 1.9 MB, ≤ 5 000 rows) and only its lines go on; with
+ * the columns approved before it is booked at once, else it waits for "Stĺpce exportu" (1 day).
+ */
+export async function uploadEkasa(formData: FormData) {
+  const { session, shopId, slug, go } = await start(formData);
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) go("/ekasa", { err: "ekasa_file" });
+  const upload = file as File;
+  if (upload.size > EKASA_MAX_BYTES) go("/ekasa", { err: "ekasa_big" });
+  const bytes = new Uint8Array(await upload.arrayBuffer());
+  let table: EkasaTable | null = null;
+  try {
+    table = await readTable(bytes, upload.name);
+  } catch {
+    table = null;
+  }
+  if (!table) go("/ekasa", { err: "ekasa_file" });
+  const t = table as EkasaTable;
+  if (!t.headers.length || !t.rows.length) go("/ekasa", { err: "ekasa_empty" });
+  if (t.rows.length > EKASA_MAX_ROWS) go("/ekasa", { err: "ekasa_rows" });
+  const hash = await fileHash(bytes);
+  const name = upload.name.trim().slice(0, 200) || "ekasa.csv";
+  const info = await session.supabase.rpc("owner_sklad_ekasa_info", { p_shop_id: shopId });
+  if (info.error) go("/ekasa", { err: reason(info.error.message) });
+  const cols = (info.data as { columns: EkasaColumns | null; sale_source: string }).columns;
+  if ((info.data as { sale_source: string }).sale_source !== "ekasa") go("/ekasa", { err: "sale_source" });
+  const id = crypto.randomUUID();
+  if (columnsFit(cols, t.headers) && formData.get("pick_columns") !== "1") {
+    const { data, error } = await bookEkasa(session, shopId, { id, name, hash, table: t, cols: cols as EkasaColumns });
+    if (error) go("/ekasa", { err: reason(error.message) });
+    refreshShop(slug);
+    go("/ekasa", { ok: (data as { duplicate?: boolean }).duplicate ? "ekasa_duplicate" : "ekasa_imported" });
+  }
+  const { data, error } = await session.supabase.rpc("owner_sklad_ekasa_stage", {
+    p_shop_id: shopId,
+    p_id: id,
+    p_file_name: name,
+    p_file_hash: hash,
+    p_headers: t.headers.slice(0, 60),
+    p_rows: t.rows,
+  });
+  if (error) go("/ekasa", { err: reason(error.message) });
+  if ((data as { duplicate?: string }).duplicate) go("/ekasa", { ok: "ekasa_duplicate" });
+  go("/ekasa/columns", { id });
+}
+
+/** "Schváliť stĺpce": the owner's choice is kept for the next exports, then the waiting file is booked. */
+export async function saveEkasaColumns(formData: FormData) {
+  const { session, shopId, slug, go } = await start(formData);
+  const staged = id(formData, "id");
+  if (!staged) go("/ekasa", { err: "failed" });
+  const cols: EkasaColumns = {};
+  for (const f of ["product", "qty", "doc", "time", "price", "code", "ean"] as const) {
+    const v = text(formData, `col_${f}`, 80);
+    if (v) cols[f] = v;
+  }
+  const saved = await session.supabase.rpc("owner_sklad_ekasa_save_columns", { p_shop_id: shopId, p_columns: cols });
+  if (saved.error) go("/ekasa/columns", { id: staged as string, err: reason(saved.error.message) });
+  const st = await session.supabase.rpc("owner_sklad_ekasa_staged", { p_shop_id: shopId, p_id: staged, p_limit: null });
+  const file = st.data as { file_name: string; file_hash: string; headers: string[]; rows: string[][] } | null;
+  if (st.error || !file) go("/ekasa", { err: "ekasa_file" });
+  const f = file as NonNullable<typeof file>;
+  if (!columnsFit(cols, f.headers)) go("/ekasa/columns", { id: staged as string, err: "columns" });
+  const { data, error } = await bookEkasa(session, shopId, {
+    id: staged as string,
+    name: f.file_name,
+    hash: f.file_hash,
+    table: { headers: f.headers, rows: f.rows },
+    cols,
+  });
+  if (error) go("/ekasa", { err: reason(error.message) });
+  refreshShop(slug);
+  go("/ekasa", { ok: (data as { duplicate?: boolean }).duplicate ? "ekasa_duplicate" : "ekasa_imported" });
+}
+
+/** "Spárovať": a waiting text ↔ a product (or "Nie je tovar"); remembered, every waiting line of it booked. */
+export async function pairEkasa(formData: FormData) {
+  const { session, shopId, slug, go } = await start(formData);
+  const key = text(formData, "key", 200);
+  const ignore = formData.get("ignore") === "1";
+  const item = id(formData, "item_id");
+  if (!key || (!ignore && !item)) go("/ekasa", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_ekasa_pair", {
+    p_shop_id: shopId,
+    p_key: key,
+    p_item_id: ignore ? null : item,
+    p_ignore: ignore,
+  });
+  if (error) go("/ekasa", { err: reason(error.message) });
+  refreshShop(slug);
+  go("/ekasa", { ok: ignore ? "ekasa_ignored" : "ekasa_paired" });
+}
+
+/** "Zabudnúť": the next exports ask about this text again (what was booked stays). */
+export async function forgetEkasa(formData: FormData) {
+  const { session, shopId, go } = await start(formData);
+  const key = text(formData, "key", 200);
+  if (!key) go("/ekasa", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_ekasa_forget", { p_shop_id: shopId, p_key: key });
+  if (error) go("/ekasa", { err: reason(error.message) });
+  go("/ekasa", { ok: "ekasa_forgotten" });
 }

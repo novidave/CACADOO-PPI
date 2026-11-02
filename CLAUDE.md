@@ -205,7 +205,7 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
   contact form shows, the phone calendar feed (iCalendar, first names only)
 - `npm run test:sklad` — unit tests (Deno) of "Sklad v Cacaduu" (`src/lib/sklad_test.ts`): amounts and prices as typed,
   the card's forms (reasons, a different Presun target), a transfer keeps the total, margin / stock value, time left
-  until stale, the scanner's key burst, the XLSX rows
+  until stale, the scanner's key burst, the XLSX rows; the eKasa export (`ekasa_test.ts`: CSV/XLSX, columns, numbers, times)
 - `npm run test:telegram` — the Telegram bot's texts in `supabase/functions/telegram/index.ts` match the message
   files (`node scripts/telegram-texts.mjs` writes them)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
@@ -707,6 +707,21 @@ device counted + when; "Platí môj počet" zeroes the others). **Expected = the
 `owner_sklad_count_approve` = one `count` movement per product not marked "Prepočítať" (target = counted + what happened
 since; id md5(count ':' item) — once), optional zero for the uncounted (whole location only); `owner_sklad_count_undo`
 within 24 h = opposite Opravy. Texts `sklad.ic_*`. Tests: DB block "update 70".
+
+## "Sklad v Cacaduu" phase E: sales from eKasa (update 71, 2026-11-02)
+
+`supabase/sql/71_sklad_ekasa.sql` + `@/lib/ekasa` (`ekasa_test.ts` in `npm run test:sklad`) + `dashboard/sklad/ekasa`
+(+ `columns`) + the settings card `#sales` + `/api/owner/sklad/export?kind=suppliers`. **One source of sales**
+(`sklad_settings.sale_source` predaj|ekasa, `owner_sklad_set_sale_source`): while ekasa the trigger
+`sklad_sales_source_guard` refuses every new sale (`sale_source`) and Predaj shows "Obrazovka Predaj je vypnutá"; while
+predaj the import is refused. The export is **read on the website** (`readTable` CSV/XLSX ≤ 1.9 MB / 5 000 rows,
+`toLines`: numbers as written, times in the shop's zone) and **decided in SQL** (`owner_sklad_ekasa_import`): columns
+approved once (`ekasa_columns`: product + qty + doc or time; else the file waits staged 1 day), each line's key = md5(shop,
+doc, time, `search_text` of the text, qty, price, n-th identical line) = the movement id — **a sale is never booked
+twice** (same file → the same import; an overlapping export → `duplicate`); EAN → code → remembered pairing
+(`sklad_ekasa_pairs`, ignore = "Nie je tovar") → the exact name, else `unmatched` until `owner_sklad_ekasa_pair` (books
+every waiting line of that text); refunds = Oprava "Vrátenie – eKasa"; `sklad_apply` after. Only these columns are kept —
+never the customer, payment or cashier. Texts `sklad.ek_*`, `ss_*`, `sale_off_*`. Tests: DB block "update 71".
 
 ## Cloud folder (paid, update 23)
 
