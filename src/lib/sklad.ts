@@ -241,3 +241,141 @@ export function movementsSheet(
   ]);
   return [header, ...body];
 }
+
+// ---------------------------------------------------------------- Predaj (database update 68)
+
+export const PAYMENTS = ["cash", "card", "qr"] as const;
+export type Payment = (typeof PAYMENTS)[number];
+export const isPayment = (v: unknown): v is Payment => typeof v === "string" && (PAYMENTS as readonly string[]).includes(v);
+
+/** A product the Predaj screen can sell (from owner_sklad_products). */
+export interface SaleProduct {
+  id: string;
+  name: string;
+  code: string | null;
+  ean: string | null;
+  price: number | null;
+  total: number;
+  min: number;
+  unit: string;
+}
+
+export interface BasketLine {
+  item_id: string;
+  qty: number;
+}
+
+/** The basket kept in this browser for the shop: its own sale id, the lines, the payment, a QR sale waiting. */
+export interface Basket {
+  id: string;
+  lines: BasketLine[];
+  pay: Payment;
+  pending: string | null;
+}
+
+const MAX_LINES = 200;
+const MAX_QTY = 99_999;
+
+/** One more piece (a new line at the end), never past 200 lines or 99 999 pieces. */
+export function addToBasket(lines: BasketLine[], itemId: string, n = 1): BasketLine[] {
+  const at = lines.findIndex((l) => l.item_id === itemId);
+  if (at >= 0) return lines.map((l, i) => (i === at ? { ...l, qty: Math.min(MAX_QTY, l.qty + n) } : l));
+  if (lines.length >= MAX_LINES) return lines;
+  return [...lines, { item_id: itemId, qty: Math.min(MAX_QTY, n) }];
+}
+
+/** Sets a line's pieces; 0 or less removes it. */
+export function setBasketQty(lines: BasketLine[], itemId: string, qty: number): BasketLine[] {
+  if (!Number.isFinite(qty) || qty <= 0) return lines.filter((l) => l.item_id !== itemId);
+  return lines.map((l) => (l.item_id === itemId ? { ...l, qty: Math.min(MAX_QTY, Math.round(qty * 1000) / 1000) } : l));
+}
+
+/** A stored basket read back (broken or foreign data → null). */
+export function readBasket(raw: string | null, isId: (v: string) => boolean): Basket | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<Basket>;
+    if (typeof v.id !== "string" || !isId(v.id) || !Array.isArray(v.lines)) return null;
+    const lines = v.lines
+      .filter((l): l is BasketLine => !!l && typeof l.item_id === "string" && isId(l.item_id) && typeof l.qty === "number" && l.qty > 0)
+      .slice(0, MAX_LINES)
+      .map((l) => ({ item_id: l.item_id, qty: Math.min(MAX_QTY, l.qty) }));
+    return {
+      id: v.id,
+      lines,
+      pay: isPayment(v.pay) ? v.pay : "cash",
+      pending: typeof v.pending === "string" && isId(v.pending) ? v.pending : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Cents, so 3 × 3,20 € is exactly 9,60 € (the database rounds each line the same way). */
+const cents = (n: number) => Math.round(n * 100);
+
+/** The basket's lines with their product, line total and what the stock will be; lines of unknown products are left out. */
+export function basketView(lines: BasketLine[], products: Map<string, SaleProduct>) {
+  let totalCents = 0;
+  let pieces = 0;
+  const rows = [];
+  for (const l of lines) {
+    const p = products.get(l.item_id);
+    if (!p) continue;
+    const lineCents = p.price === null ? 0 : cents(p.price * l.qty);
+    totalCents += lineCents;
+    pieces += l.qty;
+    const after = p.total - l.qty;
+    rows.push({ line: l, product: p, lineTotal: lineCents / 100, after, short: after < 0, low: after >= 0 && p.min > 0 && after < p.min, noPrice: p.price === null });
+  }
+  return { rows, total: totalCents / 100, pieces, noPrice: rows.some((r) => r.noPrice) };
+}
+
+/** Lower case without accents (the search finds "fasadna" in "fasádna"). */
+export function fold(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+/** The products whose name, code or EAN contain every word typed (up to `limit`). */
+export function findProducts(products: SaleProduct[], q: string, limit = 30): SaleProduct[] {
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  if (!words.length) return products.slice(0, limit);
+  const out: SaleProduct[] = [];
+  for (const p of products) {
+    const hay = fold(`${p.name} ${p.code ?? ""} ${p.ean ?? ""}`);
+    if (words.every((w) => hay.includes(w))) out.push(p);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** The product a scanned code means: the EAN first, then the shop's code. */
+export function productByCode(products: SaleProduct[], code: string): SaleProduct | null {
+  const c = code.trim();
+  return products.find((p) => p.ean === c) ?? products.find((p) => p.code === c) ?? null;
+}
+
+/** "SK96 1100 0000 0029 1859 9669". */
+export function formatIban(iban: string): string {
+  return iban.replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim();
+}
+
+/** The PAY by square message: "Predaj 2. 11. 2026 13:52" (the time in the shop's time zone, the page's words). */
+export function paymentMessage(word: string, at: Date, timeZone: string, locale: string): string {
+  const when = new Intl.DateTimeFormat(locale, { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone }).format(at);
+  return `${word} ${when}`.replace(/\s+/g, " ").slice(0, 140);
+}
+
+/** owner_sklad_products rows → what the Predaj screen sells. */
+export function saleProducts(rows: SkladRow[]): SaleProduct[] {
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    code: r.code ?? null,
+    ean: r.ean ?? null,
+    price: r.sale_price === null || r.sale_price === undefined ? null : Number(r.sale_price),
+    total: Number(r.total) || 0,
+    min: Number(r.min_qty) || 0,
+    unit: r.unit || "ks",
+  }));
+}

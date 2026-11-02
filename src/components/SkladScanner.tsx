@@ -54,7 +54,8 @@ async function makeDetector(): Promise<Detector> {
  *   scan (`ScanBurst`); it is ignored inside text fields except the search (`data-scan-ok`), so typing stays typing;
  * - "Skenovať" opens the phone's or tablet's camera (EAN-13, EAN-8, Code128, QR; torch where the device has one; the
  *   code can be typed by hand), with a beep and a vibration;
- * either way the page goes to …/sklad/scan?code=…, which opens the product card or "Nový produkt" with the EAN.
+ * either way the page goes to …/sklad/scan?code=…, which opens the product card or "Nový produkt" with the EAN —
+ * unless the page takes the scan itself (Predaj, update 68: it cancels the `sklad:scan` event and fills the basket).
  */
 export function SkladScanner({ scanUrl, shop, labels }: { scanUrl: string; shop: string; labels: Labels }) {
   const router = useRouter();
@@ -70,6 +71,9 @@ export function SkladScanner({ scanUrl, shop, labels }: { scanUrl: string; shop:
     (code: string) => {
       const clean = code.trim();
       if (!SCAN_CODE.test(clean)) return;
+      // a page that takes scans itself (Predaj: into the basket) cancels the event; else the code opens its card
+      const taken = !window.dispatchEvent(new CustomEvent("sklad:scan", { detail: clean, cancelable: true }));
+      if (taken) return;
       router.push(`${scanUrl}?${new URLSearchParams({ shop, code: clean })}`);
     },
     [router, scanUrl, shop],

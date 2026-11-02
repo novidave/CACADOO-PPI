@@ -4,7 +4,7 @@ import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { saveLocation, saveSettings, setSource } from "../actions";
+import { saveLocation, savePayment, saveSettings, setSource } from "../actions";
 import { btnGhost, card, first, loadSklad, Notice, PlanCounter, SkladShell } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/sklad/settings">): Promise<Metadata> {
@@ -39,6 +39,12 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
   const { data, error } = await session.supabase.rpc("owner_sklad_overview", { p_shop_id: shop.id });
   if (error) return <DbError message={error.message} dict={dict} />;
   const o = data as Overview;
+  const pay = ((await session.supabase.rpc("owner_sklad_payment", { p_shop_id: shop.id })).data ?? {}) as {
+    iban?: string | null;
+    bic?: string | null;
+    payee?: string | null;
+    shop_name?: string;
+  };
   const st = o.settings ?? { margin_reports: true, reminder_on: true, reminder_time: "08:00" };
   const planHref = `/${ctx.lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
   const syncHref = `/${ctx.lang}/sync?${new URLSearchParams({ shop: shop.slug, at: "source" })}#source`;
@@ -156,6 +162,31 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
             </label>
           </section>
           <PendingButton pending={dict.owner.saving}>{s.save}</PendingButton>
+        </form>
+
+        <form action={savePayment} className={card} aria-labelledby="st-pay" id="payment" data-sklad-payment>
+          {hidden({ ...back })}
+          <h2 id="st-pay" className="text-lg font-bold">{s.pay_title}</h2>
+          <span className="text-sm text-muted">{s.pay_hint}</span>
+          <label className="flex flex-col gap-1 text-[15px]">
+            <strong>{s.pay_iban}</strong>
+            <input name="iban" defaultValue={pay.iban ?? ""} autoComplete="off" spellCheck={false} placeholder="SK00 0000 0000 0000 0000 0000" className={`${input} font-mono uppercase`} />
+          </label>
+          <label className="flex flex-col gap-1 text-[15px]">
+            <strong>{s.pay_bic}</strong>
+            <input name="bic" defaultValue={pay.bic ?? ""} autoComplete="off" spellCheck={false} maxLength={11} className={`${input} font-mono uppercase`} />
+          </label>
+          <label className="flex flex-col gap-1 text-[15px]">
+            <strong>{s.pay_payee}</strong>
+            <input name="payee" defaultValue={pay.payee ?? ""} placeholder={pay.shop_name ?? ""} maxLength={70} className={input} />
+          </label>
+          <PendingButton pending={dict.owner.saving}>{s.pay_save}</PendingButton>
+          <p className="text-[13px] text-muted">
+            <Link href={`/${ctx.lang}/dashboard/sklad/terminal?${new URLSearchParams({ shop: shop.slug })}`} className="font-semibold text-foreground underline underline-offset-4">
+              {s.pay_terminal_open}
+            </Link>{" "}
+            – {s.pay_terminal_hint}
+          </p>
         </form>
 
         <section className={card} aria-labelledby="st-plan">

@@ -55,6 +55,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
 | "Sklad v Cacaduu" phase A (Prompt 14, database update 67): a new stock source for shops without stock software — the stock kept as movements (príjem, výdaj, odpis, presun, oprava; never typed over, append-only, each once by its own id), locations ("Predajňa", "Sklad"), the shop page fed from the total and the sale price after every movement, "Stav je správny" once a day (24 h rule), Free 50 products / Pro unlimited, private purchase prices and margin, USB scanner and phone camera, XLSX exports, a daily reminder e-mail | Built and tested; live after database update 67, the "sklad" function and the merge (SETUP.md part AY) |
+| "Sklad v Cacaduu" phase B — Predaj (database update 68): selling at the counter on a phone, tablet or computer — a basket filled by the USB scanner, the camera, the search or a tap; Hotovosť / Karta take the goods off the stock at once (the receipt stays the shop's eKasa), QR platba shows a PAY by square code (IBAN, amount, variable symbol) and waits for "Zaplatené"; each sale once by its own id; a QR terminal on a spare phone for the customer | Built and tested; live after database update 68 and the merge (SETUP.md part AZ) |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2181,3 +2182,43 @@ shop page, product page, search, API, MCP, the shop assistant, JSON-LD, IndexNow
   characters ending in Enter; typing in a field stays typing, except the search); "Skenovať" opens the camera (EAN-13,
   EAN-8, Code128, QR; works in iOS Safari; the torch where the device has one; the code can be typed), with a beep and
   a vibration. A known code opens its product card, an unknown one "Nový produkt" with the EAN filled in.
+
+
+### 6.40 "Sklad v Cacaduu", phase B: Predaj (database update 68, 2 November 2026, at the owner's request)
+
+Selling at the counter with the stock kept in Sklad (6.39). Môj obchod → Sklad → **Predaj** (the second tab), on a
+phone, a tablet or a computer; designs "Predaj (mobil)", "Predaj na tablete", "Platba QR", "QR terminál".
+
+- **The basket:** a product goes in from the USB / Bluetooth scanner (anywhere on the page), the camera ("Skenovať"),
+  the search (name without accents, code or EAN; Enter adds the only result) or a tap on a tile (wide screens show the
+  products as tiles beside the basket). Each line: the name, the line total, the code with the stock dot and "18 ks na
+  sklade" / "Vypredané", the unit price, − / pieces / + (a bin at 1). A warning when the sale would take the stock below
+  zero ("Po predaji bude stav −1 ks – skontrolujte zásobu") or below the product's minimum — never a refusal: the shop
+  knows what it hands over. An unknown code offers "Pridať ako nový produkt"; a product without a sale price cannot be
+  sold here ("… nemá predajnú cenu – doplňte ju na karte produktu"). "Vydať z: Predajňa" = the sale location
+  (Nastavenia → Miesta skladu). The basket is kept in this browser until the sale is saved.
+- **Payment:** Hotovosť / Karta → "Potvrdiť predaj · 54,10 €" takes the goods off the stock at once and shows "Predaj
+  uložený" (the pieces and the sum). **The receipt stays the shop's eKasa** — Cacaduu only takes the goods off the
+  stock; it records no payment and talks to no card terminal. QR platba → "Zobraziť QR": the **PAY by square** code
+  (the Slovak banks' standard: the shop's IBAN, the amount in EUR, a variable symbol, the message "Predaj 2. 11. 2026
+  13:52") with the payee, IBAN and VS written out, "Zväčšiť QR" for the customer, "Zaplatí inak" (back to the basket)
+  and "Zrušiť predaj". **Cacaduu never sees the bank:** the sale waits — nothing is taken off — until the owner sees
+  the money and taps **"Zaplatené – potvrdiť predaj"**; a waiting QR sale is cancelled after 24 hours.
+- **Once:** every sale carries its own id made with the basket, so a double tap, a retry after a lost connection or a
+  "Zaplatené" on two devices is counted once. A finished sale is never deleted; a mistake is fixed with an Oprava on
+  the product card (6.39).
+- **The shop page** follows in the same transaction as every sale (the 6.39 rule: quantity = the total of all
+  locations, the 24 h freshness); the sale's Výdaj movements (one per line, "Predaj <VS>") are in Pohyby and the
+  exports.
+- **The variable symbol:** the shop's day (YYMMDD) + the sale's number that day (2611020013).
+- **The QR terminal:** a spare phone on the counter, logged in as an owner, opens Sklad → Predaj → "QR terminál". Its
+  upper half faces the customer (turned upside down): the shop's name, then the amount and the QR code while a QR sale
+  waits, then a green "Zaplatené · Ďakujeme!". The lower half is the shop's: the transaction (VS, time, pieces), its
+  own "Zaplatené" / "Zrušiť" and "Ďalší zákazník". It keeps the screen on where the browser allows it and plays a short
+  sound when the payment is confirmed — there or on the Predaj screen.
+- **Nastavenia → "Platba QR (PAY by square)":** the IBAN (checked; shown only to the owners and, in the code, to the
+  customer), an optional BIC and payee name (else the shop's name). Without an IBAN "QR platba" is off with a link here.
+- **Who:** the shop's owners only (Free and Pro alike); the sales, the IBAN and the terminal are never public, in the
+  API/MCP, the shop assistant or logs. Today's sales: "Dnes: 3 predaje · 54,10 €" on the Predaj tab.
+- **Not in phase B:** a phone scanning into a tablet's basket ("Telefón 1 pripojený"), categories on the tablet's
+  tiles, card terminals, bank connections (automatic confirmation) and eKasa itself.
