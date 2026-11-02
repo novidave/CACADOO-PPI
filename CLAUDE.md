@@ -639,7 +639,9 @@ never the owner's own — `auth.uid()` a member) and `callback` (trigger on `sho
 `ppi_telegram_cron`, header `x-ppi-cron`) → action notify → `telegram_notify_due()` (quiet hours in the shop's time
 wait, `notify_daily_cap` per link and 24 h, access/plan re-checked; only time, service, name or the question — never a
 phone) → `telegram_notify_result()` (5 tries). Owners: `owner_telegram_prefs()` / `owner_telegram_save_prefs()`,
-"Poslať skúšobné upozornenie" = `owner_telegram_test()` (5/hour). T4 (setup helper, files/photos/blog drafts) needs a
+"Poslať skúšobné upozornenie" = `owner_telegram_test()` (5/hour). **A Sklad shop (update 67):** the stock search shows quantity and price but no change buttons;
+`stock_sklad` + an "Otvoriť Sklad" link instead (a proposal, an older button and the AI's `propose_stock_change` too;
+`sklad_active` reads the same). T4 (setup helper, files/photos/blog drafts) needs a
 Pomocník, which does not exist yet.
 
 ## "Sklad v Cacaduu" (phase A, update 67, Prompt 14, 2026-11-02)
