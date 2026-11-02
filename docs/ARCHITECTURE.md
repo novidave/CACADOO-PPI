@@ -2887,3 +2887,31 @@ upload), `@/lib/exportClient` (update 45's row loading, workbook, ZIP and file r
   confirmed without the owner's tap. Texts `sklad.sale_*`, `pay_*`, `qr_*`, `term_*`, `items_*`, `sales_*`. Tests: DB
   block "update 68", `npm run test:sklad` (basket, totals in cents, search, scan, stored basket, IBAN, message).
 
+## Update 69 — "Sklad v Cacaduu", phase C: Príjemky (2 November 2026)
+
+`supabase/sql/69_sklad_prijemky.sql` + `dashboard/sklad/receipts` (`page.tsx` list, `new/page.tsx`, `[id]/page.tsx`,
+`editor.tsx`) + `@/components/SkladPrijemka` + `actions.ts` (`saveReceipt`, `confirmReceipt`, `discardReceipt`,
+`readInvoiceLines`) + `@/lib/invoiceRead` (server only) + `@/lib/sklad` (`receiptTotals`, `addReceiptLine`,
+`cleanInvoice`, `invoiceAddsUp`; `sklad_test.ts`).
+
+- **Tables:** `sklad_receipts` (the client's UUID as PK; `number` P-<year>-<NNN> per shop from `sklad_next_receipt_no()`
+  — `sklad_settings.rc_year` / `rc_seq`, the row locked; status draft|done|discarded; supplier, invoice_no,
+  delivered_on, location; `lines` [{item_id | null, name, ean, qty, unit_cost, sale_price, vat_rate, src}]; total
+  without VAT, pieces), `sklad_ai_usage` (shop, day, n). RLS, service role only.
+- **`owner_sklad_receipt_save(shop, id, p)`** (drafts only; every value checked; an existing line's product must be the
+  shop's Sklad product) · **`owner_sklad_receipt_confirm(shop, id)`** (done → `duplicate`; per line: a new product via
+  `owner_sklad_save_product` (plan limit, EAN unique; the receipt's supplier) or the supplier set on the existing one,
+  then `owner_sklad_move(…, md5(receipt id ':' line number)::uuid, 'receipt', qty, location, null, unit_cost, null,
+  "P-… · <invoice>")` — so a retry is a duplicate movement; any refusal rolls the whole receipt back) ·
+  `owner_sklad_receipt_discard` · `owner_sklad_receipt` · `owner_sklad_receipts` · `owner_sklad_suppliers` ·
+  **`owner_sklad_match(shop, lines)`** (EAN → code → `extensions.similarity` of `search_text(name)`: ≥ 0.55 and 0.1
+  ahead → name; ≥ 0.25 → unsure + 3 candidates; else new) · `sklad_ai_hit(shop)` (Free 5 / Pro 50 a day).
+- **The AI:** the browser makes the input (`SkladPrijemka`: a JPEG ≤ 1568 px via canvas — no EXIF/GPS — or the PDF's
+  text of 3 pages via `@/lib/pdfRead`, a scan's first page as a picture); `readInvoiceLines` → `ANTHROPIC_API_KEY` set
+  (else `ai_off`) → `sklad_ai_hit` → `readInvoice()` (`aiModel()`, structured output: supplier, invoice_no, date,
+  has_total, total_net, lines {text, ean, code, qty, unit_net, line_net, goods}; the document is data) → `cleanInvoice`
+  → `owner_sklad_match`. Never stored or logged; only the owner's "Pridať do príjemky" puts lines into the draft.
+- Texts `sklad.rc_*`, `ai_*`, `err_ai_*`. Tests: DB block "update 69" (draft + number, refusals, confirm makes the new
+  product and stocks once, costs and supplier, a second confirm, done never changes, discard, matching, owner B /
+  anon, the plan limit rolls the receipt back), `npm run test:sklad`.
+

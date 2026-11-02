@@ -2024,6 +2024,13 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
 5. **QR terminal (optional):** on a spare phone log in as the shop's owner → Sklad → Predaj → "QR terminál" → stand it
    on the counter facing the customer. Turn off the phone's auto-lock if the browser does not keep the screen on.
 
+## Part BA — "Sklad v Cacaduu", phase C: Príjemky (update 69, 2 November 2026)
+
+1. **Database:** Claude applies `supabase/sql/69_sklad_prijemky.sql` with the Supabase connector (nothing to paste).
+2. **Secrets:** nothing new — "Faktúra (AI)" uses the website's `ANTHROPIC_API_KEY` (already set for the AI search).
+3. **Try it:** TODO-OWNER item 17 (Sklad → Príjemky → "+ Nová príjemka" → "Faktúra (AI)" → check → "Potvrdiť
+   príjemku").
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -2084,3 +2091,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 42. Tovar is the one place for products and their translations ("Preklady: X z Y jazykov", "Jazyk", ticks with "Preložiť chýbajúce" / "Preložiť znova" / "Zmazať preklady" and "Späť", "Vygenerovať popisy (max. 20)", the translation files downloaded for the filtered or ticked products and uploaded back with a preview); "Texty stránky" (was "Preklady") lists only the page's own texts, one row per original; the old Cacadoo assistant label removed | ✅ built — set up Part AX8 |
 | 43. "Sklad v Cacaduu" phase A: the stock kept in Cacaduu as movements (receipt, issue, write-off, transfer, correction; never typed over, each once by its id), locations, the shop page fed after every movement, "Stav je správny" + a daily reminder e-mail, Free 50 / Pro unlimited, private purchase prices and margin, USB scanner and phone camera, XLSX exports; one stock source at a time | ✅ built — set up Part AY |
 | 44. "Sklad v Cacaduu" phase B — Predaj: a basket from the scanner, camera, search or tiles; Hotovosť / Karta take the goods off at once (the receipt stays eKasa), QR platba with a PAY by square code waits for "Zaplatené"; each sale once by its id; a QR terminal on a spare phone; the IBAN in Nastavenia | ✅ built — set up Part AZ |
+| 45. "Sklad v Cacaduu" phase C — Príjemky: receipts with many lines (scanner, search, new products, the AI reading an invoice photo / PDF, paired in SQL), a draft until confirmed, stocked once with purchase prices and the supplier | ✅ built — set up Part BA |

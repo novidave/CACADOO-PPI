@@ -3,8 +3,9 @@
 import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
+import { readInvoice } from "@/lib/invoiceRead";
 import { refreshShop } from "@/lib/publicCache";
-import { checkMove, cleanTime, isCardAction, isPayment, isUnit, parseAmount, parsePrice, saleProducts, type SaleProduct, type SkladRow } from "@/lib/sklad";
+import { checkMove, cleanTime, isCardAction, isPayment, isUnit, parseAmount, parsePrice, saleProducts, invoiceAddsUp, type Invoice, type ReceiptLine, type SaleProduct, type SkladRow } from "@/lib/sklad";
 
 /**
  * Môj obchod → Sklad (database update 67). Every number is decided in SQL (owner_sklad_*): the movement by its own id
@@ -19,6 +20,8 @@ const REASONS = [
   "code", "unit", "vat_rate", "sale_price", "min_qty", "not_sklad", "api_connected", "no_device", "too_many", "source", "time",
   // update 68 (Predaj)
   "no_price", "empty", "no_iban", "cancelled", "done", "iban", "bic", "payee", "payment",
+  // update 69 (Príjemky)
+  "discarded", "date", "supplier", "invoice_no", "bad_argument",
 ] as const;
 const reason = (message: string | undefined) => REASONS.find((r) => r === message) ?? "failed";
 
@@ -34,7 +37,7 @@ async function start(formData: FormData) {
     redirect(`/${lang}/dashboard/sklad${path}?${new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...query })}`);
   // only our own Sklad pages as the way back
   const page = (query: Record<string, string>): never =>
-    go(/^(\/(products(\/[0-9a-f-]{36}|\/new)?|movements|settings|sale(\/[0-9a-f-]{36})?|terminal))?$/.test(back) ? back : "", query);
+    go(/^(\/(products(\/[0-9a-f-]{36}|\/new)?|movements|settings|sale(\/[0-9a-f-]{36})?|terminal|receipts(\/[0-9a-f-]{36})?))?$/.test(back) ? back : "", query);
   return { lang, session, shopId: UUID.test(shopId) ? shopId : "", slug, page, go };
 }
 
@@ -271,4 +274,134 @@ export async function savePayment(formData: FormData) {
   });
   if (error) page({ err: reason(error.message) });
   page({ ok: "payment" });
+}
+
+// ---------------------------------------------------------------- Príjemky (database update 69)
+
+export interface ReceiptJson {
+  id: string;
+  number: string;
+  status: "draft" | "done" | "discarded";
+  supplier: string | null;
+  invoice_no: string | null;
+  delivered_on: string | null;
+  location_id: string;
+  location: string | null;
+  total: number;
+  pieces: number;
+  lines: (ReceiptLine & { current_sale_price?: number | null })[];
+  duplicate?: boolean;
+}
+
+export interface ReceiptInput {
+  lang: string;
+  shopId: string;
+  shopSlug: string;
+  id: string;
+  supplier: string;
+  invoice_no: string;
+  delivered_on: string;
+  location_id: string;
+  lines: ReceiptLine[];
+}
+
+const cleanLines = (lines: ReceiptLine[]) =>
+  (Array.isArray(lines) ? lines : []).slice(0, 200).map((l) => ({
+    item_id: l.item_id && UUID.test(l.item_id) ? l.item_id : null,
+    name: String(l.name ?? "").slice(0, 300),
+    ean: String(l.ean ?? "").slice(0, 32) || null,
+    qty: String(Math.round(Number(l.qty) * 1000) / 1000),
+    unit_cost: l.unit_cost === null || l.unit_cost === undefined || !Number.isFinite(Number(l.unit_cost)) ? null : String(Math.round(Number(l.unit_cost) * 10_000) / 10_000),
+    sale_price: l.sale_price === null || l.sale_price === undefined || !Number.isFinite(Number(l.sale_price)) ? null : String(Math.round(Number(l.sale_price) * 100) / 100),
+    vat_rate: l.item_id ? null : String(Number.isFinite(Number(l.vat_rate)) ? Number(l.vat_rate) : 23),
+    src: String(l.src ?? "").slice(0, 200) || null,
+  }));
+
+async function saveDraft(session: NonNullable<Awaited<ReturnType<typeof getSession>>>, input: ReceiptInput) {
+  return session.supabase.rpc("owner_sklad_receipt_save", {
+    p_shop_id: input.shopId,
+    p_id: input.id,
+    p: {
+      supplier: String(input.supplier ?? "").slice(0, 120),
+      invoice_no: String(input.invoice_no ?? "").slice(0, 60),
+      delivered_on: /^\d{4}-\d{2}-\d{2}$/.test(input.delivered_on ?? "") ? input.delivered_on : "",
+      location_id: UUID.test(input.location_id ?? "") ? input.location_id : null,
+      lines: cleanLines(input.lines),
+    },
+  });
+}
+
+/** "Uložiť koncept": the draft as it is now (made and numbered on first save). */
+export async function saveReceipt(input: ReceiptInput): Promise<{ ok: boolean; error?: string; receipt?: ReceiptJson }> {
+  const { session } = await seller(input.lang);
+  if (!session || !UUID.test(input.shopId) || !UUID.test(input.id)) return { ok: false, error: "failed" };
+  const { data, error } = await saveDraft(session, input);
+  if (error) return { ok: false, error: reason(error.message) };
+  return { ok: true, receipt: data as ReceiptJson };
+}
+
+/** "Potvrdiť príjemku": saved as shown, then confirmed in one SQL call (new products, Príjem movements, once). */
+export async function confirmReceipt(input: ReceiptInput): Promise<{ ok: boolean; error?: string; receipt?: ReceiptJson }> {
+  const { session } = await seller(input.lang);
+  if (!session || !UUID.test(input.shopId) || !UUID.test(input.id)) return { ok: false, error: "failed" };
+  const saved = await saveDraft(session, input);
+  if (saved.error && reason(saved.error.message) !== "done") return { ok: false, error: reason(saved.error.message) };
+  const { data, error } = await session.supabase.rpc("owner_sklad_receipt_confirm", { p_shop_id: input.shopId, p_id: input.id });
+  if (error) return { ok: false, error: reason(error.message) };
+  refreshShop(input.shopSlug);
+  return { ok: true, receipt: data as ReceiptJson };
+}
+
+/** "Zahodiť koncept" (a form on the receipt page). */
+export async function discardReceipt(formData: FormData) {
+  const { session, shopId, go } = await start(formData);
+  const rid = id(formData, "receipt_id");
+  if (!rid) go("/receipts", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_receipt_discard", { p_shop_id: shopId, p_id: rid });
+  if (error) go(`/receipts/${rid}`, { err: reason(error.message) });
+  go("/receipts", { ok: "receipt_discarded" });
+}
+
+export interface InvoiceMatch {
+  kind: "ean" | "code" | "name" | "unsure" | "new";
+  item_id: string | null;
+  name: string | null;
+  code: string | null;
+  candidates: { id: string; name: string; code: string | null }[];
+}
+
+/**
+ * "Faktúra (AI)": the photo (JPEG, base64) or the PDF's text from the owner's browser → Claude reads the lines →
+ * owner_sklad_match pairs them with the shop's products. Off without ANTHROPIC_API_KEY ("ai_off"); sklad_ai_hit
+ * counts the readings (Free 5, Pro 50 a day: "ai_limit"). Nothing is stored; the invoice is never logged.
+ */
+export async function readInvoiceLines(input: {
+  lang: string;
+  shopId: string;
+  image?: string;
+  text?: string;
+}): Promise<{ ok: boolean; error?: string; invoice?: Invoice; matches?: InvoiceMatch[]; addsUp?: boolean | null }> {
+  const { session } = await seller(input.lang);
+  if (!session || !UUID.test(input.shopId)) return { ok: false, error: "failed" };
+  if (!process.env.ANTHROPIC_API_KEY) return { ok: false, error: "ai_off" };
+  const image = typeof input.image === "string" && /^[A-Za-z0-9+/=]{100,1900000}$/.test(input.image) ? input.image : null;
+  const text = typeof input.text === "string" ? input.text.slice(0, 40_000).trim() : "";
+  if (!image && text.length < 20) return { ok: false, error: "ai_unreadable" };
+  const { data: allowed, error: hitError } = await session.supabase.rpc("sklad_ai_hit", { p_shop_id: input.shopId });
+  if (hitError) return { ok: false, error: reason(hitError.message) };
+  if (allowed !== true) return { ok: false, error: "ai_limit" };
+  let invoice: Invoice;
+  try {
+    invoice = await readInvoice(image ? { kind: "image", base64: image } : { kind: "text", text });
+  } catch (e) {
+    console.error("sklad: invoice reading failed", e instanceof Error ? e.message.slice(0, 80) : "error");
+    return { ok: false, error: "ai_failed" };
+  }
+  if (!invoice.lines.length) return { ok: false, error: "ai_unreadable" };
+  const { data, error } = await session.supabase.rpc("owner_sklad_match", {
+    p_shop_id: input.shopId,
+    p_lines: invoice.lines.map((l) => ({ text: l.text, ean: l.ean, code: l.code })),
+  });
+  if (error) return { ok: false, error: reason(error.message) };
+  return { ok: true, invoice, matches: data as InvoiceMatch[], addsUp: invoiceAddsUp(invoice) };
 }

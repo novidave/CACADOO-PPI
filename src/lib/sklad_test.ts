@@ -189,3 +189,47 @@ Deno.test("Predaj: the IBAN in groups of four, the payment message in the shop's
   assertEquals(paymentMessage("Predaj", at, "Europe/Bratislava", "sk").endsWith("13:52"), true);
   assertEquals(paymentMessage("Predaj", at, "UTC", "sk").endsWith("12:52"), true);
 });
+
+// ---------------------------------------------------------------- Príjemky (update 69)
+
+import { addReceiptLine, cleanInvoice, invoiceAddsUp, receiptTotals } from "./sklad.ts";
+import type { ReceiptLine } from "./sklad.ts";
+
+Deno.test("Príjemka: a product twice is one line; sums without VAT, VAT per line, with VAT", () => {
+  let lines: ReceiptLine[] = [];
+  lines = addReceiptLine(lines, { id: ID(1), name: "Farba", code: "10231", vat_rate: 23, last_cost: 15.8 }, 12);
+  lines = addReceiptLine(lines, { id: ID(3), name: "Štetec", code: "30012", vat_rate: 23, last_cost: 1.35 }, 20);
+  lines = addReceiptLine(lines, { id: ID(1), name: "Farba", code: "10231" });
+  assertEquals(lines.length, 2);
+  assertEquals(lines[0].qty, 13);
+  lines.push({ item_id: null, name: "Lazúra", code: null, ean: "8580000208734", qty: 6, unit_cost: 7.4, sale_price: null, vat_rate: 23, src: null });
+  const t = receiptTotals(lines);
+  assertEquals(t.net, 276.8);
+  assertEquals(t.vat, 63.66);
+  assertEquals(t.gross, 340.46);
+  assertEquals(t.pieces, 39);
+  assertEquals(t.newWithoutPrice, 1);
+});
+
+Deno.test("Príjemka: the AI's invoice made safe, the total checked", () => {
+  const inv = cleanInvoice({
+    supplier: "Dodávateľ s.r.o.\n", invoice_no: "FA2026-0187", date: "28. 10. 2026", total_net: 334.4, has_total: true,
+    lines: [
+      { text: "Fasád.farba biela 5L", ean: "8580000102315", code: "", qty: 12, unit_net: 15.8, line_net: 189.6, goods: true },
+      { text: "Doprava", ean: "x", code: "", qty: 1, unit_net: 8, line_net: 8, goods: false },
+      { text: "Stetec", ean: "", code: "", qty: -3, unit_net: "1,35", line_net: 0, goods: true },
+      { text: "", ean: "", qty: 1 },
+    ],
+  });
+  assertEquals(inv.supplier, "Dodávateľ s.r.o.");
+  assertEquals(inv.date, "");
+  assertEquals(inv.lines.length, 3);
+  assertEquals(inv.lines[1].ean, "");
+  assertEquals(inv.lines[1].goods, false);
+  assertEquals(inv.lines[2].qty, 1);
+  assertEquals(inv.lines[2].unit_net, 1.35);
+  assertEquals(inv.lines[2].line_net, 1.35);
+  assertEquals(invoiceAddsUp(inv), false);
+  assertEquals(invoiceAddsUp({ ...inv, total_net: 198.95 }), true);
+  assertEquals(invoiceAddsUp({ ...inv, total_net: null }), null);
+});
