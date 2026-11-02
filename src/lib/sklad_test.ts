@@ -127,3 +127,65 @@ Deno.test("the exports: a column per location, the kind in words, the shop's tim
   );
   assertEquals(mv[1], ["2026-11-02 13:52", "Farba", "10231", "Výdaj", "-2", "Predajňa", "", "", "", "", "telefón"]);
 });
+
+// ---------------------------------------------------------------- Predaj (update 68)
+
+import { addToBasket, basketView, findProducts, formatIban, paymentMessage, productByCode, readBasket, setBasketQty } from "./sklad.ts";
+import type { SaleProduct } from "./sklad.ts";
+
+const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const isId = (v: string) => /^[0-9a-f-]{36}$/.test(v);
+const products: SaleProduct[] = [
+  { id: ID(1), name: "Farba fasádna biela 5 l", code: "10231", ean: "8580000102315", price: 24.9, total: 18, min: 5, unit: "ks" },
+  { id: ID(2), name: "Akrylové médium lesklé 250 ml", code: "20417", ean: null, price: 6.4, total: 2, min: 5, unit: "ks" },
+  { id: ID(3), name: "Štetec plochý 50 mm", code: "30012", ean: "8580000300124", price: 3.2, total: 42, min: 10, unit: "ks" },
+  { id: ID(4), name: "Bez ceny", code: "C00004", ean: null, price: null, total: 1, min: 0, unit: "ks" },
+];
+const byId = new Map(products.map((p) => [p.id, p]));
+
+Deno.test("Predaj: the basket adds up, steps, removes at 0, never past its limits", () => {
+  let lines = addToBasket([], ID(1));
+  lines = addToBasket(lines, ID(3), 3);
+  lines = addToBasket(lines, ID(1));
+  assertEquals(lines, [{ item_id: ID(1), qty: 2 }, { item_id: ID(3), qty: 3 }]);
+  assertEquals(setBasketQty(lines, ID(1), 0), [{ item_id: ID(3), qty: 3 }]);
+  assertEquals(setBasketQty(lines, ID(3), 1).find((l) => l.item_id === ID(3))?.qty, 1);
+  assertEquals(addToBasket([{ item_id: ID(1), qty: 99_999 }], ID(1))[0].qty, 99_999);
+});
+
+Deno.test("Predaj: totals in cents, the stock after the sale, short and below the minimum, no price", () => {
+  const v = basketView([{ item_id: ID(3), qty: 3 }, { item_id: ID(2), qty: 3 }, { item_id: ID(1), qty: 14 }], byId);
+  assertEquals(v.total, 377.4);
+  assertEquals(v.pieces, 20);
+  assertEquals(v.rows[1].short, true);
+  assertEquals(v.rows[1].after, -1);
+  assertEquals(v.rows[2].low, true);
+  assertEquals(v.rows[0].low, false);
+  assertEquals(basketView([{ item_id: ID(4), qty: 1 }], byId).noPrice, true);
+  assertEquals(basketView([{ item_id: ID(9), qty: 1 }], byId).rows.length, 0);
+});
+
+Deno.test("Predaj: the search without accents, by code and EAN; a scan by EAN then code", () => {
+  assertEquals(findProducts(products, "fasadna").map((p) => p.code), ["10231"]);
+  assertEquals(findProducts(products, "stetec 50").map((p) => p.code), ["30012"]);
+  assertEquals(findProducts(products, "20417").length, 1);
+  assertEquals(productByCode(products, "8580000300124")?.id, ID(3));
+  assertEquals(productByCode(products, "20417")?.id, ID(2));
+  assertEquals(productByCode(products, "0000000000000"), null);
+});
+
+Deno.test("Predaj: a stored basket is read back safely", () => {
+  const ok = readBasket(JSON.stringify({ id: ID(7), lines: [{ item_id: ID(1), qty: 2 }, { item_id: "x", qty: 1 }, { item_id: ID(3), qty: -1 }], pay: "qr", pending: ID(8) }), isId);
+  assertEquals(ok, { id: ID(7), lines: [{ item_id: ID(1), qty: 2 }], pay: "qr", pending: ID(8) });
+  assertEquals(readBasket("{broken", isId), null);
+  assertEquals(readBasket(JSON.stringify({ id: "nope", lines: [] }), isId), null);
+  assertEquals(readBasket(JSON.stringify({ id: ID(7), lines: [], pay: "bitcoin" }), isId)?.pay, "cash");
+});
+
+Deno.test("Predaj: the IBAN in groups of four, the payment message in the shop's time zone", () => {
+  assertEquals(formatIban("SK9611000000002918599669"), "SK96 1100 0000 0029 1859 9669");
+  const at = new Date("2026-11-02T12:52:00Z");
+  assertEquals(paymentMessage("Predaj", at, "Europe/Bratislava", "sk").startsWith("Predaj 2. 11. 2026"), true);
+  assertEquals(paymentMessage("Predaj", at, "Europe/Bratislava", "sk").endsWith("13:52"), true);
+  assertEquals(paymentMessage("Predaj", at, "UTC", "sk").endsWith("12:52"), true);
+});

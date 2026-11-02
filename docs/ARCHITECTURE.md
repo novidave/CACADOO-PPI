@@ -2845,3 +2845,45 @@ upload), `@/lib/exportClient` (update 45's row loading, workbook, ZIP and file r
 - **Scanner:** `ScanBurst` (keys ≤ 50 ms apart, ≥ 6 characters, Enter; Shift allowed; ignored in fields except
   `data-scan-ok`); the camera through `barcode-detector` (zxing-wasm; its `.wasm` copied to `public/zxing/<version>/` by
   `scripts/copy-zxing-wasm.mjs` on dev/build, never a CDN), loaded on the first "Skenovať"; → `/dashboard/sklad/scan`.
+
+## Update 68 — "Sklad v Cacaduu", phase B: Predaj (2 November 2026)
+
+`supabase/sql/68_sklad_predaj.sql` + `dashboard/sklad/sale/page.tsx` (Predaj) + `sale/[id]/page.tsx` (Platba QR) +
+`terminal/page.tsx` (QR terminál) + `actions.ts` (`sellBasket`, `lookupSaleProducts`, `salePaid`, `saleCancel`,
+`terminalAct`, `savePayment`) + `@/components/SkladPredaj` / `SkladTerminal` / `PollRefresh` + `@/lib/payBySquare`
+(server only: `bysquare` + `qrcode`, an SVG) + `/api/owner/sklad/terminal` + `@/lib/sklad` (basket rules, `sklad_test.ts`).
+
+- **Tables:** `sklad_sales` (the client's UUID as PK; status pending|done|cancelled; payment cash|card|qr; the sale
+  location; `lines` as sold [{item_id, name, code, qty, price, total}]; total, pieces, `vs`; paid / cancelled by and
+  when; RLS, service role only). `sklad_movements.sale_id` (no foreign key — movements are never updated).
+  `sklad_settings` gains `iban` / `bic` / `payee` (checked) and the day's VS counter (`vs_day`, `vs_seq`).
+- **`owner_sklad_sell(shop, id, lines, payment, location, device)`:** an id already stored → that sale with
+  `duplicate: true`; the lines added up per product (≤ 200), every product the shop's Sklad product with a sale price
+  (`not_found`, `no_price`), QR only with an IBAN (`no_iban`); the price as sold = the product's sale price; the VS from
+  `sklad_next_vs()` (YYMMDD in the shop's time zone + 4 digits, the settings row locked). cash / card → `done` and
+  `sklad_sale_book()` at once: the per-product advisory locks (sorted), one `sale` movement per line (ref "Predaj
+  <VS>", `sale_id`), `sklad_apply()` — one transaction. qr → `pending`, nothing booked.
+- **`owner_sklad_sale_paid`** (pending → done + booked, once; done → duplicate; cancelled → `cancelled`),
+  **`owner_sklad_sale_cancel`** (only pending; done → `done`), `owner_sklad_sale`, **`owner_sklad_terminal`** (the newest
+  pending sale, else a QR sale paid in the last 2 minutes, else standby), `owner_sklad_sale_info` (the sale location,
+  `qr_ready`, today's count and sum, pending and today's sales), `owner_sklad_save_payment` / `owner_sklad_payment`
+  (`sklad_iban()`: mod 97). `sklad_sales_tidy()` (in every read/write, no cron) cancels pending sales older than 24 h.
+- **The screen:** the products (the first 500 by name; a bigger shop's search and scans call `lookupSaleProducts` →
+  `owner_sklad_products(q)`) and the sale info are read on the server; the basket is the browser's (`useSyncExternalStore`
+  store over localStorage `ppi.sklad.basket.<shop id>`: its own sale id, lines, payment, a pending QR sale; read back
+  with `readBasket`; a QR sale found done clears it, cancelled frees it). `SkladScanner` dispatches a cancelable
+  `sklad:scan` event; Predaj takes it (EAN first, then the code), every other Sklad page opens the card as before.
+  A sale that waits as QR gives the basket a new id (a later payment of the same basket is a new sale) and
+  `sellBasket({replaces})` cancels the waiting one first (if it was paid meanwhile → `done`, the basket is cleared).
+- **PAY by square:** `payBySquareSvg()` on the server (`bysquare` 4.1 → the standard's string: PaymentOrder, EUR, VS,
+  message ≤ 140, payee ≤ 70, IBAN + BIC; `qrcode` → SVG), on the QR page and in the terminal's JSON; the browser loads
+  no QR or LZMA code. The QR page's "Zväčšiť QR" is a `#big` `:target` overlay; `PollRefresh` reads the page every 5 s
+  while the sale waits.
+- **The terminal:** `SkladTerminal` (full screen over the account layout) polls `/api/owner/sklad/terminal` every 3 s
+  (owner's session; `owner_sklad_terminal` decides; `private, no-store`), the customer's half `rotate-180`, Wake Lock
+  where available, a three-note chime + vibration when the sale it showed as waiting turns paid; its buttons call
+  `terminalAct` → the same SQL as Predaj.
+- **Never:** the IBAN, sales or terminal in public pages, the API/MCP, the shop assistant or logs; no payment
+  confirmed without the owner's tap. Texts `sklad.sale_*`, `pay_*`, `qr_*`, `term_*`, `items_*`, `sales_*`. Tests: DB
+  block "update 68", `npm run test:sklad` (basket, totals in cents, search, scan, stored basket, IBAN, message).
+

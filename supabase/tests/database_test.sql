@@ -12232,4 +12232,181 @@ reset role;
 drop table t67;
 drop table t67_inv;
 
+\echo '--- update 68: Sklad Predaj — one sale by its id, lines added up, no price refused, QR waits for Zaplatené, cancel, IBAN, owners only'
+create temporary table t68 (k text primary key, v text);
+grant all on t68 to public;
+create temporary table t68_inv as
+  select inv.* from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  join public.shops s on s.id = si.shop_id where s.slug = 'potraviny-centrum';
+grant all on t68_inv to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  insert into t68 values ('fresh', (select latest_file_time from public.sync_sources where shop_id = v_a)::text);
+  assert public.sklad_iban('SK96 1100 0000 0029 1859 9669') = 'SK9611000000002918599669';
+  assert public.sklad_iban('sk9611000000002918599669') = 'SK9611000000002918599669';
+  assert public.sklad_iban('SK9611000000002918599668') is null, 'wrong check digits';
+  assert public.sklad_iban('nie je iban') is null;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid;
+  v_np uuid;
+  v_s1 uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  v_p := public.owner_sklad_save_product(v_a, null, '{"name":"Štetec plochý 50 mm","ean":"8580000300124","sale_price":"3.20"}');
+  v_np := public.owner_sklad_save_product(v_a, null, '{"name":"Bez ceny","ean":"8580000300131"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'receipt', 10);
+  insert into t68 values ('p', v_p::text), ('np', v_np::text), ('s1', v_s1::text);
+  -- cash: the same product twice is added up; taken off at once; the public side follows
+  vj := public.owner_sklad_sell(v_a, v_s1, jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 2),
+                                                             jsonb_build_object('item_id', v_p, 'qty', 1)), 'cash');
+  assert vj ->> 'status' = 'done' and (vj ->> 'total')::numeric = 9.60 and (vj ->> 'pieces')::numeric = 3
+     and jsonb_array_length(vj -> 'lines') = 1 and vj ->> 'vs' ~ '^[0-9]{10}$' and not (vj ->> 'duplicate')::boolean, vj::text;
+  insert into t68 values ('vs1', vj ->> 'vs');
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 7;
+  assert (select quantity from public.public_stock where item_id = v_p) = 7, 'shop page follows the sale';
+  -- the same sale again (a double tap): nothing more taken off
+  vj := public.owner_sklad_sell(v_a, v_s1, jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 3)), 'cash');
+  assert (vj ->> 'duplicate')::boolean and (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 7, vj::text;
+  assert (public.owner_sklad_movements(v_a, v_p, 'sale') ->> 'total')::int = 1;
+  -- refusals
+  begin perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_np, 'qty', 1)), 'card');
+    raise exception 'sold without a price';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'no_price' then raise; end if; end;
+  begin perform public.owner_sklad_sell(v_a, gen_random_uuid(), '[]', 'cash'); raise exception 'empty basket';
+  exception when invalid_parameter_value then if sqlerrm <> 'empty' then raise; end if; end;
+  begin perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 0)), 'cash');
+    raise exception 'zero pieces';
+  exception when invalid_parameter_value then if sqlerrm <> 'qty' then raise; end if; end;
+  begin perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', gen_random_uuid(), 'qty', 1)), 'cash');
+    raise exception 'unknown product';
+  exception when no_data_found then if sqlerrm <> 'not_found' then raise; end if; end;
+  begin perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 1)), 'qr');
+    raise exception 'QR without an IBAN';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'no_iban' then raise; end if; end;
+  -- the IBAN: checked, kept clean
+  begin perform public.owner_sklad_save_payment(v_a, 'SK9611000000002918599668', null, null); raise exception 'bad IBAN saved';
+  exception when invalid_parameter_value then if sqlerrm <> 'iban' then raise; end if; end;
+  perform public.owner_sklad_save_payment(v_a, 'SK96 1100 0000 0029 1859 9669', 'tatrskbx', 'Potraviny Centrum');
+  vj := public.owner_sklad_payment(v_a);
+  assert vj ->> 'iban' = 'SK9611000000002918599669' and vj ->> 'bic' = 'TATRSKBX' and vj ->> 'payee' = 'Potraviny Centrum', vj::text;
+  assert (public.owner_sklad_sale_info(v_a) ->> 'qr_ready')::boolean;
+end $$;
+reset role;
+
+-- QR: waits (nothing taken off), the terminal shows it, "Zaplatené" takes it off once; cancel only while waiting
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := (select v::uuid from t68 where k = 'p');
+  v_s2 uuid := gen_random_uuid();
+  v_s3 uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  vj := public.owner_sklad_sell(v_a, v_s2, jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 2)), 'qr');
+  assert vj ->> 'status' = 'pending' and vj ->> 'iban' = 'SK9611000000002918599669' and vj ->> 'payee' = 'Potraviny Centrum'
+     and vj ->> 'vs' <> (select v from t68 where k = 'vs1')
+     and right(vj ->> 'vs', 4)::int = right((select v from t68 where k = 'vs1'), 4)::int + 1, vj::text;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 7, 'a waiting QR sale takes nothing off';
+  vj := public.owner_sklad_terminal(v_a);
+  assert vj ->> 'state' = 'waiting' and (vj ->> 'id')::uuid = v_s2 and (vj ->> 'total')::numeric = 6.40, vj::text;
+  vj := public.owner_sklad_sale_paid(v_a, v_s2);
+  assert vj ->> 'status' = 'done' and not (vj ->> 'duplicate')::boolean, vj::text;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 5;
+  vj := public.owner_sklad_sale_paid(v_a, v_s2);
+  assert (vj ->> 'duplicate')::boolean and (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 5, vj::text;
+  assert public.owner_sklad_terminal(v_a) ->> 'state' = 'paid';
+  begin perform public.owner_sklad_sale_cancel(v_a, v_s2); raise exception 'a finished sale cancelled';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'done' then raise; end if; end;
+  -- a second QR sale cancelled: nothing taken off, "Zaplatené" refused afterwards
+  perform public.owner_sklad_sell(v_a, v_s3, jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 1)), 'qr');
+  vj := public.owner_sklad_sale_cancel(v_a, v_s3);
+  assert vj ->> 'status' = 'cancelled', vj::text;
+  begin perform public.owner_sklad_sale_paid(v_a, v_s3); raise exception 'a cancelled sale paid';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'cancelled' then raise; end if; end;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 5;
+  insert into t68 values ('s4', public.owner_sklad_sell(v_a, gen_random_uuid(),
+    jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 1)), 'qr') ->> 'id');
+  vj := public.owner_sklad_sale_info(v_a);
+  assert (vj -> 'today' ->> 'sales')::int = 2 and (vj -> 'today' ->> 'total')::numeric = 16.00
+     and jsonb_array_length(vj -> 'pending') = 1, vj::text;
+end $$;
+reset role;
+
+-- a QR sale left waiting for 24 hours is cancelled
+set role service_role;
+update public.sklad_sales set created_at = now() - interval '25 hours' where id = (select v::uuid from t68 where k = 's4');
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.owner_sklad_sale(v_a, (select v::uuid from t68 where k = 's4')) ->> 'status' = 'cancelled';
+  assert public.owner_sklad_terminal(v_a) ->> 'state' in ('paid', 'standby');
+end $$;
+reset role;
+
+-- owner B and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := (select v::uuid from t68 where k = 'p');
+begin
+  begin perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 1)), 'cash');
+    raise exception 'B sold A''s goods';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_terminal(v_a); raise exception 'B saw A''s terminal';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_payment(v_a); raise exception 'B read A''s IBAN';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_sales; raise exception 'owners read the sales table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform count(*) from public.sklad_sales; raise exception 'anon read sales';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_terminal((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'anon terminal';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.sklad_sales where shop_id = v_a;
+  delete from public.sklad_items where shop_id = v_a;
+  delete from public.shop_items si where si.shop_id = v_a and not exists (select 1 from t68_inv t where t.shop_item_id = si.id);
+  delete from public.sklad_locations where shop_id = v_a;
+  delete from public.sklad_settings where shop_id = v_a;
+  delete from public.shop_stock_source where shop_id = v_a;
+  delete from public.inventory inv using public.shop_items si where si.id = inv.shop_item_id and si.shop_id = v_a;
+  insert into public.inventory select * from t68_inv;
+  update public.sync_sources set latest_file_time = (select v::timestamptz from t68 where k = 'fresh') where shop_id = v_a;
+end $$;
+reset role;
+drop table t68;
+drop table t68_inv;
+
 \echo 'ALL DATABASE CHECKS PASSED'

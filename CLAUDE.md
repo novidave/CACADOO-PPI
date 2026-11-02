@@ -669,6 +669,20 @@ and the camera (`barcode-detector` / zxing-wasm, the `.wasm` self-hosted from `p
 EAN). Touch targets ≥ 44 px. Texts `sklad`, `stock_source.sklad*`, `sync.sklad_active`. Tests: DB block "update 67",
 `npm run test:sklad`, `test:functions` (`sklad/index_test.ts`).
 
+## "Sklad v Cacaduu" phase B: Predaj (update 68, 2026-11-02)
+
+`supabase/sql/68_sklad_predaj.sql` + `dashboard/sklad/sale` (Predaj; `[id]` = Platba QR) + `dashboard/sklad/terminal` +
+`@/components/SkladPredaj` / `SkladTerminal` + `@/lib/payBySquare` (server only) + `/api/owner/sklad/terminal`. A sale =
+one `sklad_sales` row (the basket's own UUID: a retry is the same sale) + one `sale` movement per line (`sale_id`, ref
+"Predaj <VS>") + `sklad_apply()` in one transaction (`owner_sklad_sell` → `sklad_sale_book`). Prices as sold = the sale
+price; no price → `no_price`; short stock only warns. Hotovosť / Karta = done at once (**the receipt stays the shop's
+eKasa; Cacaduu records no payment and talks to no terminal or bank**). QR = PAY by square (`bysquare` + `qrcode` SVG on
+the server; IBAN only via `owner_sklad_save_payment`, mod 97) → pending, nothing booked, until the owner's
+"Zaplatené" (`owner_sklad_sale_paid`, Predaj or the QR terminal) or cancel; pending > 24 h → cancelled
+(`sklad_sales_tidy`). VS = YYMMDD (shop's day) + 4 digits. Scans: `SkladScanner` sends a cancelable `sklad:scan`; Predaj
+takes it. The basket = localStorage `ppi.sklad.basket.<shop id>` through `useSyncExternalStore`. Texts `sklad.sale_*`,
+`pay_*`, `qr_*`, `term_*`. Tests: DB block "update 68", `npm run test:sklad`.
+
 ## Cloud folder (paid, update 23)
 
 `supabase/sql/23_cloud_export.sql` + `supabase/functions/cloud-export` (one file, Verify JWT off) + dashboard

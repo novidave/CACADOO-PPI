@@ -42,6 +42,7 @@
     "@vercel/analytics": "2.0.1",
     "@vercel/speed-insights": "2.0.0",
     "barcode-detector": "^3.2.3",
+    "bysquare": "^4.1.0",
     "heic-to": "1.5.2",
     "maplibre-gl": "^6.11.2",
     "next": "16.3.8",
