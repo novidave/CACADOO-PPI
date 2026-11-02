@@ -59,6 +59,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Sklad v Cacaduu" phase C — Príjemky (database update 69): goods receipts with many lines — supplier, invoice number, delivery date, the location; lines from the scanner, the search, "+ Nový produkt" or the AI reading an invoice photo / PDF (paired with the shop's products in SQL: EAN, code, name; unsure → choose; new → name, EAN, sale price); a draft until "Potvrdiť príjemku", then stocked once with purchase prices (last and average) and the supplier | Built and tested; live after database update 69 and the merge (SETUP.md part BA) |
 | "Sklad v Cacaduu" phase D — Inventúra (database update 70): a count of one location or one shelf while the shop stays open — blind by default, several phones at once (each under its own name; counts added up or "Platí môj počet"), sales and receipts during the count never make a false difference, the differences with their value, "Prepočítať", the uncounted kept or set to 0, approved once, undone within 24 h, an XLSX report | Built and tested; live after database update 70 and the merge (SETUP.md part BB) |
 | "Sklad v Cacaduu" phase E — sales from eKasa (database update 71): "Odkiaľ prichádzajú predaje" = the Predaj screen or the cash register's daily eKasa export (one of them, never both); the export (CSV/XLSX) read as written, its columns approved once, every line taken off the stock once (the same file or overlapping days never twice), unknown texts paired with a product or "Nie je tovar" and remembered, refunds back; "Dodávatelia (XLSX)" | Built and tested; live after database update 71 and the merge (SETUP.md part BC) |
+| "Sklad v Cacaduu" phase F — Zariadenia (database update 72, approved by the owner): a shop assistant's phone or the counter's phone joins one shop's Sklad by a QR code, without the owner's password; only the ticked screens (Predaj, Príjem tovaru — pieces only, Inventúra counting, QR terminál); never purchase prices, suppliers or margins; everything under the phone's name; "Odpojiť" at once, 90 days unused → off, ≤ 10 per shop | Built and tested; live after database update 72 and the merge (SETUP.md part BD) |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2312,5 +2313,23 @@ the stock twice:
 - **Private:** only these columns are kept — never the customer, the payment or the cashier.
 - **"Dodávatelia (XLSX)"** next to the products and movements exports: every supplier written on a product or a
   receipt, how many products and receipts, the last receipt's day.
-- **Not in phase E:** reading the eKasa portal directly (it has no API for shops), "Zariadenia" (pairing phones by a QR
-  code — a new way to log in, waits for the owner's OK).
+- **Not in phase E:** reading the eKasa portal directly (it has no API for shops). "Zariadenia" came as phase F (6.44).
+
+### 6.44 "Sklad v Cacaduu", phase F: Zariadenia (database update 72, 2 November 2026, design screen 15, owner's OK)
+
+Môj obchod → Sklad → Nastavenia → **Zariadenia**: phones that work in the shop's Sklad **without the owner's password**.
+
+- **"Pripojiť telefón (QR kód)":** a name ("Telefón 2 · Jana") and what it may do — **Predaj** (basket, cash, card, QR),
+  **Príjem tovaru** (scan a product, type the pieces; **never a purchase price** — the owner adds prices on the
+  computer), **Inventúra** (counting in a count the owner started; the differences and the approval stay with the owner)
+  and **QR terminál** (the counter's phone shows the customer the QR code). A QR code appears: it works **once, for 10
+  minutes** (or the same link sent by message). The phone scans it and taps "Pripojiť toto zariadenie" — no account, no
+  password; the phone's key stays only in that browser.
+- **On the phone** (`/<lang>/zariadenie`): the shop's name and the phone's name on top, only the ticked screens, the
+  same screens as in Môj obchod (Predaj and its QR page, the counting screen, the terminal) plus "Príjem tovaru";
+  "Odpojiť toto zariadenie".
+- **Never on a phone:** purchase prices, suppliers, margins, stock values, Nastavenia, the product cards, Pohyby,
+  Príjemky, the rest of Môj obchod, another shop. Everything a phone does is in Pohyby under its name.
+- **The list:** each phone with its ticks and state ("čaká na naskenovanie kódu", "online", "naposledy …", "nepoužité 90
+  dní – pripojte znova"), "Upraviť" (name, ticks), "Nový kód" (a new or replaced phone; the one before is disconnected),
+  "Odpojiť" (at once). A phone unused for 90 days is off. At most 10 per shop.

@@ -723,6 +723,22 @@ twice** (same file → the same import; an overlapping export → `duplicate`); 
 every waiting line of that text); refunds = Oprava "Vrátenie – eKasa"; `sklad_apply` after. Only these columns are kept —
 never the customer, payment or cashier. Texts `sklad.ek_*`, `ss_*`, `sale_off_*`. Tests: DB block "update 71".
 
+## "Sklad v Cacaduu" phase F: Zariadenia (update 72, 2026-11-02, the owner's OK)
+
+`supabase/sql/72_sklad_devices.sql` + `@/lib/skladDevice` + `src/app/[lang]/zariadenie/*` + the settings card `#devices`
+(`@/components/SkladDevicePair`) + `@/components/DevicePairScreen` + `dashboard/sklad/SaleQrView` (shared QR page). A
+phone joins ONE shop's Sklad **without the owner's password**: a pairing code (`owner_sklad_device_add` /
+`owner_sklad_device_code`: 10 minutes, once, hash only; the QR address carries it after "#", sent only by the button)
+→ `sklad_device_claim` → a key (`skt_…`) **only in the HttpOnly cookie `ppi_skd`**, hash only in SQL. **Every phone call
+goes through one door, `sklad_device_call(key, fn, args)`** — never a second path: the key (not revoked, used within 90
+days, its owner still a member → `mcp_act_as`), the function on `sklad_device_need`'s list and allowed by the ticks
+(sale | receive | counts | terminal), 120/min, **the phone's own shop and name forced**, `owner_sklad_move` only kind
+receipt **without a purchase price**, the answer through `sklad_device_strip` (costs, margins, suppliers, values out).
+Never on a phone: purchase prices, Nastavenia, product cards, Pohyby, Príjemky, the rest of Môj obchod, other shops.
+The shared actions phones use (`sellBasket`, `lookupSaleProducts`, `terminalAct`, `countSet`, `countMine`) and
+`/api/owner/sklad/terminal` take `skladRpc()` (the owner's login first). ≤ 10 per shop; "Odpojiť" at once. Texts
+`device`, `sklad.dv_*`. Tests: DB block "update 72".
+
 ## Cloud folder (paid, update 23)
 
 `supabase/sql/23_cloud_export.sql` + `supabase/functions/cloud-export` (one file, Verify JWT off) + dashboard

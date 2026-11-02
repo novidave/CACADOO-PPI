@@ -5,7 +5,8 @@ import { getDictionary, t } from "@/i18n/dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { saveLocation, savePayment, saveSettings, setSaleSource, setSource } from "../actions";
+import { revokeDevice, saveDevice, saveLocation, savePayment, saveSettings, setSaleSource, setSource } from "../actions";
+import { SkladDevicePair } from "@/components/SkladDevicePair";
 import { btnGhost, card, first, loadSklad, Notice, PlanCounter, SkladShell } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/sklad/settings">): Promise<Metadata> {
@@ -54,6 +55,15 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
     imports: { at: string; docs: number; lines: number; pieces: number }[];
   } | null;
   const ekasaHref = `/${ctx.lang}/dashboard/sklad/ekasa?${new URLSearchParams({ shop: shop.slug })}`;
+  // update 72: the paired phones (before update 72 the card is hidden)
+  const devRes = await session.supabase.rpc("owner_sklad_devices", { p_shop_id: shop.id });
+  const devices = devRes.error ? null : ((devRes.data ?? []) as { id: string; name: string; perms: string[]; state: string; last_seen_at: string | null }[]);
+  const dvLabels = Object.fromEntries(Object.entries(s as Record<string, string>).filter(([k]) => k.startsWith("dv_") || k.startsWith("err_")));
+  const PERMS = ["sale", "receive", "counts", "terminal"] as const;
+  const st_ = (d: { state: string; last_seen_at: string | null }) =>
+    d.state === "idle" && d.last_seen_at
+      ? s.dv_state_idle.replace("{at}", formatDateTime(d.last_seen_at, ctx.lang, shop.timezone))
+      : ((s as Record<string, string>)[`dv_state_${d.state}`] ?? d.state);
   const planHref = `/${ctx.lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
   const syncHref = `/${ctx.lang}/sync?${new URLSearchParams({ shop: shop.slug, at: "source" })}#source`;
   const exportHref = (kind: string) => `/api/owner/sklad/export?${new URLSearchParams({ shop: shop.id, kind, lang: ctx.lang })}`;
@@ -121,6 +131,58 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
           )}
           <PendingButton pending={dict.owner.saving}>{s.save}</PendingButton>
         </form>
+      )}
+
+      {devices && (
+        <section className={card} id="devices" aria-labelledby="st-dev" data-sklad-devices={devices.length}>
+          <h2 id="st-dev" className="text-lg font-bold">{s.dv_title}</h2>
+          <span className="text-sm text-muted">{s.dv_hint}</span>
+          <ul className="flex flex-col divide-y divide-line">
+            {devices.map((d) => (
+              <li key={d.id} className="flex flex-col gap-2 py-3" data-sklad-device={d.state}>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <strong className="text-[15px]">{d.name}</strong>
+                  <span className="flex items-center gap-1.5 text-[13px] text-muted">
+                    <span
+                      aria-hidden="true"
+                      className={`inline-block size-2.5 rounded-full ${d.state === "online" ? "bg-[#1E9E5A]" : d.state === "waiting" ? "bg-[#F2B705]" : "bg-[#9AA5B1]"}`}
+                    />
+                    {st_(d)}
+                  </span>
+                </div>
+                <span className="text-[13px]">{d.perms.map((x) => (s as Record<string, string>)[`dv_perm_${x}`]).join(" · ")}</span>
+                <details>
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold underline underline-offset-4">{s.dv_edit}</summary>
+                  <form action={saveDevice} className="mt-2 flex flex-col gap-2">
+                    {hidden({ device_id: d.id, ...back })}
+                    <label className="flex flex-col gap-1 text-sm">
+                      {s.dv_name}
+                      <input name="name" required maxLength={60} defaultValue={d.name} className={input} />
+                    </label>
+                    {PERMS.map((x) => (
+                      <label key={x} className="flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" name={`perm_${x}`} defaultChecked={d.perms.includes(x)} className="size-5 accent-foreground" />
+                        {(s as Record<string, string>)[`dv_perm_${x}`]}
+                      </label>
+                    ))}
+                    <PendingButton pending={dict.owner.saving}>{s.save}</PendingButton>
+                  </form>
+                </details>
+                <div className="flex flex-wrap items-start gap-3">
+                  <SkladDevicePair lang={ctx.lang} shopId={shop.id} deviceId={d.id} labels={dvLabels} />
+                  <form action={revokeDevice}>
+                    {hidden({ device_id: d.id, ...back })}
+                    <button type="submit" className="min-h-11 text-sm font-semibold underline underline-offset-4" data-sklad-device-revoke>
+                      {s.dv_revoke}
+                    </button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {devices.length < 10 ? <SkladDevicePair lang={ctx.lang} shopId={shop.id} labels={dvLabels} /> : <span className="text-sm">{s.dv_max}</span>}
+          <span className="text-[13px] text-muted">{s.dv_private}</span>
+        </section>
       )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">

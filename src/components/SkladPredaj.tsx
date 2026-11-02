@@ -84,6 +84,7 @@ interface Props {
   qrReady: boolean;
   /** today's sales by id → status (a QR sale finished or cancelled elsewhere clears or frees the basket) */
   statuses: Record<string, string>;
+  /** settings / movements / newProduct empty = not shown (a paired phone, database update 72) */
   links: { settings: string; movements: string; newProduct: string; salePath: string; query: string };
   labels: PredajLabels;
 }
@@ -286,7 +287,7 @@ export function SkladPredaj(p: Props) {
             {last.kind === "scanned" && <strong>{L.sale_scanned}</strong>}
             {last.kind === "added" && <strong>{L.sale_added}</strong>}
             <span>{last.text}</span>
-            {last.kind === "unknown" && last.code && (
+            {last.kind === "unknown" && last.code && p.links.newProduct && (
               <Link href={`${p.links.newProduct}&${new URLSearchParams({ ean: last.code })}`} className="font-semibold underline underline-offset-4">
                 {L.sale_unknown_add}
               </Link>
@@ -441,9 +442,11 @@ export function SkladPredaj(p: Props) {
           {!p.qrReady && (
             <span className="text-[13px]">
               {L.sale_qr_off}{" "}
-              <Link href={p.links.settings} className="font-semibold underline underline-offset-4">
-                {L.sale_qr_off_link}
-              </Link>
+              {p.links.settings && (
+                <Link href={p.links.settings} className="font-semibold underline underline-offset-4">
+                  {L.sale_qr_off_link}
+                </Link>
+              )}
             </span>
           )}
           <div className="flex items-baseline justify-between gap-2">
@@ -491,9 +494,11 @@ export function SkladPredaj(p: Props) {
             <button type="button" onClick={closeDone} className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-foreground px-4 font-bold text-white" autoFocus>
               {L.sale_new}
             </button>
-            <Link href={p.links.movements} className="min-h-11 font-semibold underline underline-offset-4">
-              {L.sale_show_moves}
-            </Link>
+            {p.links.movements && (
+              <Link href={p.links.movements} className="min-h-11 font-semibold underline underline-offset-4">
+                {L.sale_show_moves}
+              </Link>
+            )}
           </div>
         )}
       </dialog>

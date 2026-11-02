@@ -1,11 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import QRCode from "qrcode";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
+import { siteUrl } from "@/lib/site";
 import { columnsFit, EKASA_MAX_BYTES, EKASA_MAX_ROWS, fileHash, readTable, toLines, type EkasaColumns, type EkasaTable } from "@/lib/ekasa";
 import { readInvoice } from "@/lib/invoiceRead";
 import { refreshShop } from "@/lib/publicCache";
+import { skladRpc } from "@/lib/skladDevice";
 import { checkMove, cleanTime, isCardAction, isPayment, isUnit, parseAmount, parsePrice, saleProducts, invoiceAddsUp, type Invoice, type ReceiptLine, type SaleProduct, type SkladRow } from "@/lib/sklad";
 
 /**
@@ -27,6 +30,8 @@ const REASONS = [
   "closed", "counter", "shelf", "zero_shelf", "too_late",
   // update 71 (eKasa)
   "sale_source", "columns", "ekasa_file", "ekasa_big", "ekasa_rows", "ekasa_empty",
+  // update 72 (Zariadenia)
+  "perms",
 ] as const;
 const reason = (message: string | undefined) => REASONS.find((r) => r === message) ?? "failed";
 
@@ -195,8 +200,8 @@ export async function sellBasket(input: {
   /** a QR sale of this basket still waiting: cancelled first (the customer pays another way) */
   replaces?: string | null;
 }): Promise<SaleResult> {
-  const { session } = await seller(input.lang);
-  if (!session) return { ok: false, error: "failed" };
+  const rpc = await skladRpc();
+  if (!rpc) return { ok: false, error: "failed" };
   if (!UUID.test(input.shopId) || !UUID.test(input.saleId)) return { ok: false, error: "failed" };
   if (!isPayment(input.payment)) return { ok: false, error: "payment" };
   const lines = Array.isArray(input.lines)
@@ -207,10 +212,10 @@ export async function sellBasket(input: {
     : [];
   if (!lines.length) return { ok: false, error: "empty" };
   if (input.replaces && UUID.test(input.replaces) && input.replaces !== input.saleId) {
-    const { error: cancelError } = await session.supabase.rpc("owner_sklad_sale_cancel", { p_shop_id: input.shopId, p_sale_id: input.replaces });
+    const { error: cancelError } = await rpc("owner_sklad_sale_cancel", { p_shop_id: input.shopId, p_sale_id: input.replaces });
     if (cancelError && reason(cancelError.message) === "done") return { ok: false, error: "done" };
   }
-  const { data, error } = await session.supabase.rpc("owner_sklad_sell", {
+  const { data, error } = await rpc("owner_sklad_sell", {
     p_shop_id: input.shopId,
     p_id: input.saleId,
     p_lines: lines,
@@ -225,11 +230,11 @@ export async function sellBasket(input: {
 
 /** The Predaj screen's search / scan in a shop with more products than the screen got (the first 500). */
 export async function lookupSaleProducts(input: { lang: string; shopId: string; q: string }): Promise<SaleProduct[]> {
-  const { session } = await seller(input.lang);
-  if (!session || !UUID.test(input.shopId)) return [];
+  const rpc = await skladRpc();
+  if (!rpc || !UUID.test(input.shopId)) return [];
   const q = String(input.q ?? "").trim().slice(0, 100);
   if (!q) return [];
-  const { data, error } = await session.supabase.rpc("owner_sklad_products", { p_shop_id: input.shopId, p_q: q, p_filter: "all", p_limit: 30, p_offset: 0 });
+  const { data, error } = await rpc("owner_sklad_products", { p_shop_id: input.shopId, p_q: q, p_filter: "all", p_limit: 30, p_offset: 0 });
   if (error || !data) return [];
   return saleProducts((data as { rows: SkladRow[] }).rows);
 }
@@ -257,9 +262,9 @@ export async function saleCancel(formData: FormData) {
 
 /** The QR terminal's buttons (no page change: the terminal reads its state again). */
 export async function terminalAct(input: { lang: string; shopId: string; shopSlug: string; saleId: string; act: "paid" | "cancel" }): Promise<{ ok: boolean; error?: string }> {
-  const { session } = await seller(input.lang);
-  if (!session || !UUID.test(input.shopId) || !UUID.test(input.saleId)) return { ok: false, error: "failed" };
-  const { error } = await session.supabase.rpc(input.act === "paid" ? "owner_sklad_sale_paid" : "owner_sklad_sale_cancel", {
+  const rpc = await skladRpc();
+  if (!rpc || !UUID.test(input.shopId) || !UUID.test(input.saleId)) return { ok: false, error: "failed" };
+  const { error } = await rpc(input.act === "paid" ? "owner_sklad_sale_paid" : "owner_sklad_sale_cancel", {
     p_shop_id: input.shopId,
     p_sale_id: input.saleId,
   });
@@ -450,11 +455,11 @@ export async function countSet(input: {
   qty: number;
   onlyMine?: boolean;
 }): Promise<{ ok: boolean; error?: string; item?: CountItem }> {
-  const { session } = await seller(input.lang);
-  if (!session || !UUID.test(input.shopId) || !UUID.test(input.countId) || !UUID.test(input.itemId)) return { ok: false, error: "failed" };
+  const rpc = await skladRpc();
+  if (!rpc || !UUID.test(input.shopId) || !UUID.test(input.countId) || !UUID.test(input.itemId)) return { ok: false, error: "failed" };
   const qty = Math.round(Number(input.qty) * 1000) / 1000;
   if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: "qty" };
-  const { data, error } = await session.supabase.rpc("owner_sklad_count_set", {
+  const { data, error } = await rpc("owner_sklad_count_set", {
     p_shop_id: input.shopId,
     p_count_id: input.countId,
     p_item_id: input.itemId,
@@ -468,9 +473,9 @@ export async function countSet(input: {
 
 /** This phone's own counts so far (by its name; the phone keeps only its name). */
 export async function countMine(input: { lang: string; shopId: string; countId: string; counter: string }): Promise<{ item_id: string; qty: number }[]> {
-  const { session } = await seller(input.lang);
-  if (!session || !UUID.test(input.shopId) || !UUID.test(input.countId)) return [];
-  const { data, error } = await session.supabase.rpc("owner_sklad_count", {
+  const rpc = await skladRpc();
+  if (!rpc || !UUID.test(input.shopId) || !UUID.test(input.countId)) return [];
+  const { data, error } = await rpc("owner_sklad_count", {
     p_shop_id: input.shopId,
     p_count_id: input.countId,
     p_counter: String(input.counter ?? "").slice(0, 60),
@@ -666,4 +671,72 @@ export async function forgetEkasa(formData: FormData) {
   const { error } = await session.supabase.rpc("owner_sklad_ekasa_forget", { p_shop_id: shopId, p_key: key });
   if (error) go("/ekasa", { err: reason(error.message) });
   go("/ekasa", { ok: "ekasa_forgotten" });
+}
+
+// ---------------------------------------------------------------- Zariadenia (database update 72)
+
+export interface DevicePairing {
+  ok: boolean;
+  error?: string;
+  url?: string;
+  svg?: string;
+  expires?: string;
+}
+
+const PERMS = ["sale", "receive", "counts", "terminal"] as const;
+
+/** The pairing code as a QR code (drawn here; the code goes into the address's #, never to a server log). */
+async function pairing(lang: string, data: unknown): Promise<DevicePairing> {
+  const d = data as { code: string; expires: string };
+  const url = `${siteUrl()}/${isLocale(lang) ? lang : "sk"}/zariadenie/pripojit#${d.code}`;
+  const svg = await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" });
+  return { ok: true, url, svg, expires: d.expires };
+}
+
+/** "Pripojiť telefón (QR kód)": a name and what it may do → a code shown once (10 minutes). */
+export async function addDevice(input: { lang: string; shopId: string; name: string; perms: string[] }): Promise<DevicePairing> {
+  const session = await getSession();
+  if (!session || !UUID.test(input.shopId)) return { ok: false, error: "failed" };
+  const perms = PERMS.filter((x) => (input.perms ?? []).includes(x));
+  const { data, error } = await session.supabase.rpc("owner_sklad_device_add", {
+    p_shop_id: input.shopId,
+    p_name: String(input.name ?? "").trim().slice(0, 60),
+    p_perms: perms,
+  });
+  if (error) return { ok: false, error: reason(error.message) };
+  return await pairing(input.lang, data);
+}
+
+/** "Nový kód": another phone under this name (the one paired before is disconnected). */
+export async function deviceCode(input: { lang: string; shopId: string; id: string }): Promise<DevicePairing> {
+  const session = await getSession();
+  if (!session || !UUID.test(input.shopId) || !UUID.test(input.id)) return { ok: false, error: "failed" };
+  const { data, error } = await session.supabase.rpc("owner_sklad_device_code", { p_shop_id: input.shopId, p_id: input.id });
+  if (error) return { ok: false, error: reason(error.message) };
+  return await pairing(input.lang, data);
+}
+
+/** A phone's name and ticks. */
+export async function saveDevice(formData: FormData) {
+  const { session, shopId, go } = await start(formData);
+  const dev = id(formData, "device_id");
+  if (!dev) go("/settings", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_device_save", {
+    p_shop_id: shopId,
+    p_id: dev,
+    p_name: text(formData, "name", 60),
+    p_perms: PERMS.filter((x) => formData.get(`perm_${x}`) === "on"),
+  });
+  if (error) go("/settings", { err: reason(error.message) });
+  go("/settings", { ok: "device_saved" });
+}
+
+/** "Odpojiť": the phone's key stops working at once. */
+export async function revokeDevice(formData: FormData) {
+  const { session, shopId, go } = await start(formData);
+  const dev = id(formData, "device_id");
+  if (!dev) go("/settings", { err: "failed" });
+  const { error } = await session.supabase.rpc("owner_sklad_device_revoke", { p_shop_id: shopId, p_id: dev });
+  if (error) go("/settings", { err: reason(error.message) });
+  go("/settings", { ok: "device_revoked" });
 }
