@@ -160,7 +160,9 @@ export function FolderSync({
         ? labels.api_connected
         : errorText(e) === "agent_connected"
           ? labels.agent_connected
-          : fill(labels.send_failed, { error: errorText(e) }),
+          : errorText(e) === "sklad_active"
+            ? labels.sklad_active
+            : fill(labels.send_failed, { error: errorText(e) }),
     [labels],
   );
 

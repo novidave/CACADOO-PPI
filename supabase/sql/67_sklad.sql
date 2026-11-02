@@ -908,7 +908,8 @@ begin
     'total', coalesce(t.qty, 0),
     'public', exists (select 1 from public.inventory inv where inv.shop_item_id = si.id),
     'locations', coalesce((select jsonb_agg(jsonb_build_object('location_id', l.id, 'name', l.name, 'note', l.note,
-                                                              'qty', coalesce(s.qty, 0)) order by l.sort, l.created_at)
+                                                              'qty', coalesce(s.qty, 0), 'sale_default', l.is_sale_default,
+                                                              'receipt_default', l.is_receipt_default) order by l.sort, l.created_at)
                            from public.sklad_locations l
                            left join public.sklad_stock s on s.location_id = l.id and s.shop_item_id = si.id
                            where l.shop_id = p_shop_id), '[]'::jsonb),

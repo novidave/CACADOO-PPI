@@ -92,10 +92,14 @@ export interface ConnectorSnapshot {
 
 /** "Zdroj zásob": what changes the stock now ('api' while an inventory program is connected). */
 export interface StockSource {
-  active: "file" | "agent" | "api";
-  chosen: "file" | "agent";
+  active: "file" | "agent" | "api" | "sklad";
+  chosen: "file" | "agent" | "sklad";
   api_provider: string | null;
   devices: number;
+  /** update 67: products kept in "Sklad v Cacaduu", the shop's products, the plan's limit (null = none) */
+  sklad_products?: number;
+  shop_products?: number;
+  sklad_limit?: number | null;
 }
 
 /** The last 10 snapshots (refreshed with the devices). */
@@ -132,12 +136,13 @@ export async function loadStockSource(shopId: string): Promise<Result<StockSourc
   return { ok: true, value: data as StockSource };
 }
 
-/** "Zdroj zásob": files (folder / upload) or the POS agent. */
+/** "Zdroj zásob": files (folder / upload), the POS agent or "Sklad v Cacaduu" (update 67). */
 export async function setStockSource(shopId: string, source: string): Promise<Result<StockSource>> {
   const supabase = await owner();
-  if (!supabase || !UUID.test(shopId) || (source !== "file" && source !== "agent")) return { ok: false, error: "login" };
+  if (!supabase || !UUID.test(shopId) || !["file", "agent", "sklad"].includes(source)) return { ok: false, error: "login" };
   const { error } = await supabase.rpc("owner_set_stock_source", { p_shop_id: shopId, p_source: source });
-  if (error) return { ok: false, error: ["api_connected", "no_device"].includes(error.message) ? error.message : "failed" };
+  if (error) return { ok: false, error: ["api_connected", "no_device", "plan_limit"].includes(error.message) ? error.message : "failed" };
+  await refreshPage(supabase, shopId);
   return loadStockSource(shopId);
 }
 
