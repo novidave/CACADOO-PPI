@@ -99,6 +99,16 @@ OPEN
       products → "Potvrdiť príjemku" → the products' stock goes up.
    c) Tell Claude what was read wrong, if anything.
 
+18. Sklad → Inventúra: count one shelf once (with a second phone if you have one)
+   Why: counting on phones was tested without a real login and a real shelf.
+   Steps:
+   a) On a product card set "Regál" (e.g. A) for a few products.
+   b) Môj obchod → Sklad → Inventúra → "Jeden regál" → A → "Spustiť inventúru".
+   c) On the phone (logged in as the owner): tap the name at the top → write e.g. "Telefón 1 · Peter" → scan the
+      products and count them. Optional: a second phone counts the same shelf.
+   d) "Odovzdať počty" → check the differences → "Schváliť inventúru" → the shop page shows the new stock.
+   e) If something looks wrong: "Vrátiť inventúru späť" (works for 24 hours) and tell Claude.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)

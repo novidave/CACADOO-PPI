@@ -645,8 +645,8 @@ Pomocník, which does not exist yet.
 ## "Sklad v Cacaduu" (phase A, update 67, Prompt 14, 2026-11-02)
 
 `supabase/sql/67_sklad.sql` + `supabase/functions/sklad` (one file, Verify JWT off: the daily reminder e-mail and IndexNow,
-pg_cron `ppi-sklad-tick` 15 min, Vault `ppi_sklad_cron`) + `dashboard/sklad` (Prehľad · Predaj · Príjemky · Produkty · Pohyby ·
-Nastavenia; Inventúra comes with its phase) + `@/components/SkladScanner` + `@/lib/sklad` + `/api/owner/sklad/export`.
+pg_cron `ppi-sklad-tick` 15 min, Vault `ppi_sklad_cron`) + `dashboard/sklad` (Prehľad · Predaj · Príjemky · Inventúra · Produkty ·
+Pohyby · Nastavenia) + `@/components/SkladScanner` + `@/lib/sklad` + `/api/owner/sklad/export`.
 Design: Claude Design canvas "Cacaduu – Sklad (Môj obchod)", screens 4, 5, 13, 14, 15. **A fourth stock source** —
 `shop_stock_source.source = 'sklad'`, `stock_source_of()` = api > agent > sklad > file; while it is active it is the
 **only writer**: `upload_check_in()` raises `sklad_active`, no inventory program, POS snapshots end `test_ok`, and the
@@ -694,6 +694,17 @@ P-<year>-<NNN>, draft|done|discarded — never deleted); `owner_sklad_receipt_sa
 `ai_off`; `sklad_ai_hit` Free 5 / Pro 50 a day) → Claude (`aiModel()`, structured output, the document is data) →
 `cleanInvoice` → **pairing only in SQL** (`owner_sklad_match`: EAN, code, trigram name). Nothing is stored before the
 owner confirms; invoices never logged. Texts `sklad.rc_*`, `ai_*`. Tests: DB block "update 69", `npm run test:sklad`.
+
+## "Sklad v Cacaduu" phase D: Inventúra (update 70, 2026-11-02)
+
+`supabase/sql/70_sklad_inventura.sql` + `dashboard/sklad/counts` (list/new, `[id]` the counting device, `[id]/diff`) +
+`@/components/SkladInventura` + the export's `kind=count`. A count = `sklad_counts` (the client's UUID, I-<year>-<NN>,
+one location ± one shelf, blind by default) + `sklad_count_lines` (per product **and device name**: the total that
+device counted + when; "Platí môj počet" zeroes the others). **Expected = the stock at the moment of counting**
+(`sklad_stock_at`), so sales during the count never make a false difference; a blind device never receives it.
+`owner_sklad_count_approve` = one `count` movement per product not marked "Prepočítať" (target = counted + what happened
+since; id md5(count ':' item) — once), optional zero for the uncounted (whole location only); `owner_sklad_count_undo`
+within 24 h = opposite Opravy. Texts `sklad.ic_*`. Tests: DB block "update 70".
 
 ## Cloud folder (paid, update 23)
 
