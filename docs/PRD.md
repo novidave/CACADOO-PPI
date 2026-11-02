@@ -54,6 +54,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | AI access: server-rendered pages, JSON-LD, robots.txt, sitemap, llms.txt, public API, MCP server | Live; MCP verified with Claude |
 | Found by web search (Google, Bing → ChatGPT, Grok, …) | Waiting: site not yet registered with Google/Bing (SETUP.md part I) |
 | E-mail alerts when a shop's stock stops arriving | Not built |
+| "Sklad v Cacaduu" phase A (Prompt 14, database update 67): a new stock source for shops without stock software — the stock kept as movements (príjem, výdaj, odpis, presun, oprava; never typed over, append-only, each once by its own id), locations ("Predajňa", "Sklad"), the shop page fed from the total and the sale price after every movement, "Stav je správny" once a day (24 h rule), Free 50 products / Pro unlimited, private purchase prices and margin, USB scanner and phone camera, XLSX exports, a daily reminder e-mail | Built and tested; live after database update 67, the "sklad" function and the merge (SETUP.md part AY) |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2139,3 +2140,44 @@ Order:
 "Reduce motion" turns off every animation (the check is shown still). Lists never show the stock sentence; the product
 page keeps it. The first JavaScript of the shop page stays under 150 kB.
 
+### 6.39 "Sklad v Cacaduu", phase A (database update 67, 2 November 2026, at the owner's request)
+
+Shops without stock software keep their stock in Cacaduu itself. "Sklad v Cacaduu" is a fourth choice in "Zdroj zásob"
+(after files, the inventory program and the POS agent); **one source at a time**: while Sklad is the source, the file
+folder and uploads, the inventory program and the POS agent are refused, and nothing else can change the shop's stock
+(a guard in the database refuses every other writer, the owner's AI assistant's `update_stock` too). The public side —
+shop page, product page, search, API, MCP, the shop assistant, JSON-LD, IndexNow — reads the stock exactly as before.
+
+- **Turning it on** (Môj obchod → Sklad, or Nastavenia → Zdroj zásob): the shop's existing products are taken over —
+  the sale price from the last file (EUR only), the quantity as an opening count at "Predajňa". Switching back to
+  files is one click and **never deletes Sklad data**; the next file then replaces the stock on the page.
+- **Movements, never typed quantities:** every change is a movement — Príjem (with an optional purchase price without
+  VAT and a document number), Výdaj, Odpis (reason required), Presun between locations (the total stays), Oprava (± a
+  difference, reason required); Inventúra counts come with their phase. Movements are append-only (never changed or
+  deleted); a mistake is fixed with an Oprava. Every movement carries its own id made with the form, so a second tap,
+  a retry or an offline queue never counts it twice. The stock per location = the sum of its movements.
+- **Locations:** a new shop gets "Predajňa" (sales are taken from here) and "Sklad" (receipts go here); the owner
+  renames them, adds up to 20 and picks the defaults. Shoppers see the total of all locations.
+- **The shop page** follows in the same transaction as every movement: quantity = the total, price = the sale price with
+  VAT (EUR); a product **without a sale price is not public** ("Bez predajnej ceny – na stránke sa nezobrazuje"). The
+  freshness rule stays (6.1): no movement and no **"Stav je správny"** for 24 h → stale, availability hidden. Prehľad
+  shows "Potvrďte dnešný stav skladu" with the time left; a daily reminder (Nastavenia: on by default, 08:00 in the
+  shop's time zone) sends one e-mail to the owners when the day had no movement and no confirmation.
+- **Private:** the purchase prices (last and average), the supplier and the margin are seen only by the shop's owners
+  (the product card's "Nákup", "Vidíte len vy"); the margin and the stock value only with "Maržové prehľady" (on by
+  default). Never on public pages, in the API/MCP, the shop assistant or logs.
+- **Plan:** Free shops keep at most 50 Sklad products, Pro unlimited; at the limit "Nový produkt" becomes "Pre viac
+  produktov prejdite na Pro" (no error). Turning Sklad on with more products than the plan allows is refused with the
+  same message.
+- **Screens** (Môj obchod → Sklad; tabs Prehľad · Produkty · Pohyby · Nastavenia; Predaj, Príjemky and Inventúra come
+  with their phases): Prehľad (the confirmation card, yesterday's numbers, Doobjednať below the minimum, quick actions,
+  the plan counter); Produkty (search by name without accents, code or EAN; Všetko / Pod minimom / Vypredané / Bez
+  ceny with counts; per-location quantities, the total with its dot, the price); the product card (all fields, stock
+  per location, the movement forms, Predaj, the private Nákup, Na stránke produktu, the last 5 movements); Pohyby
+  (filters by product, kind, location and days; XLSX); Nastavenia (Zdroj zásob, Miesta skladu, Aktuálnosť, Maržové
+  prehľady, Plán, Export of products and movements as XLSX). Touch targets ≥ 44 px on phones, iPads and touch PCs;
+  mouse and keyboard on a notebook.
+- **Scanning:** a USB / Bluetooth scanner works as a keyboard anywhere on the Sklad pages (a fast burst of ≥ 6
+  characters ending in Enter; typing in a field stays typing, except the search); "Skenovať" opens the camera (EAN-13,
+  EAN-8, Code128, QR; works in iOS Safari; the torch where the device has one; the code can be typed), with a beep and
+  a vibration. A known code opens its product card, an unknown one "Nový produkt" with the EAN filled in.

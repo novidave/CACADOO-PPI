@@ -203,6 +203,9 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
 - `npm run test:booking` — unit tests (Deno) of the shop assistant's booking tools (`src/lib/bookingTools_test.ts`):
   no personal data in the tools, refs only from the list, the shop's time zone across clock changes, when the
   contact form shows, the phone calendar feed (iCalendar, first names only)
+- `npm run test:sklad` — unit tests (Deno) of "Sklad v Cacaduu" (`src/lib/sklad_test.ts`): amounts and prices as typed,
+  the card's forms (reasons, a different Presun target), a transfer keeps the total, margin / stock value, time left
+  until stale, the scanner's key burst, the XLSX rows
 - `npm run test:telegram` — the Telegram bot's texts in `supabase/functions/telegram/index.ts` match the message
   files (`node scripts/telegram-texts.mjs` writes them)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
@@ -638,6 +641,33 @@ wait, `notify_daily_cap` per link and 24 h, access/plan re-checked; only time, s
 phone) → `telegram_notify_result()` (5 tries). Owners: `owner_telegram_prefs()` / `owner_telegram_save_prefs()`,
 "Poslať skúšobné upozornenie" = `owner_telegram_test()` (5/hour). T4 (setup helper, files/photos/blog drafts) needs a
 Pomocník, which does not exist yet.
+
+## "Sklad v Cacaduu" (phase A, update 67, Prompt 14, 2026-11-02)
+
+`supabase/sql/67_sklad.sql` + `supabase/functions/sklad` (one file, Verify JWT off: the daily reminder e-mail and IndexNow,
+pg_cron `ppi-sklad-tick` 15 min, Vault `ppi_sklad_cron`) + `dashboard/sklad` (Prehľad · Produkty · Pohyby · Nastavenia;
+Predaj, Príjemky, Inventúra come with their phases) + `@/components/SkladScanner` + `@/lib/sklad` + `/api/owner/sklad/export`.
+Design: Claude Design canvas "Cacaduu – Sklad (Môj obchod)", screens 4, 5, 13, 14, 15. **A fourth stock source** —
+`shop_stock_source.source = 'sklad'`, `stock_source_of()` = api > agent > sklad > file; while it is active it is the
+**only writer**: `upload_check_in()` raises `sklad_active`, no inventory program, POS snapshots end `test_ok`, and the
+`inventory_sklad_guard` trigger refuses every other write to the shop's inventory (the owner MCP's `update_stock` too;
+`toolError` explains it). **Quantities are never typed over:** every change is a movement (`sklad_movements`, kinds
+receipt / sale / writeoff / count / correction / transfer, signed qty, append-only by trigger; a mistake = an Oprava with a
+reason) whose id the form carries (a UUID made when the page was drawn) → `owner_sklad_move` stores it once
+(`duplicate`); the stock per location = the sum of movements (`sklad_stock`, a transfer on both sides). **One public
+writer:** `sklad_apply()` (quantity = total, price = sale price with VAT, EUR; no sale price → not public; the shop's
+`latest_file_time` = now) in the same transaction as every movement, product save, switch and "Stav je správny"
+(`owner_sklad_confirm`); the 24 h freshness rule is unchanged; the public side reads `public_stock` as always. Switching
+to Sklad takes the products over (`sklad_adopt`: the file's EUR price, the quantity as an opening count); switching back
+deletes nothing. **Private:** last / average cost, supplier, margin — no grant on any Sklad table but the service role;
+owners only through `owner_sklad_*` (members); never public, in the API/MCP, the assistant or logs; margin and stock
+value only with `margin_reports`. **Plan:** `sklad_product_limit()` = 50 free, NULL with `shop_has_plan`; at the limit
+"Pre viac produktov prejdite na Pro", never an error page. A Sklad product is never deleted while its shop exists
+(`shop_items_sklad_guard`). Scanner: `ScanBurst` (≤ 50 ms, ≥ 6 characters, Enter; fields ignored except `data-scan-ok`)
+and the camera (`barcode-detector` / zxing-wasm, the `.wasm` self-hosted from `public/zxing/<version>/` by
+`scripts/copy-zxing-wasm.mjs`, loaded on the first "Skenovať") → `/dashboard/sklad/scan` (card or "Nový produkt" with the
+EAN). Touch targets ≥ 44 px. Texts `sklad`, `stock_source.sklad*`, `sync.sklad_active`. Tests: DB block "update 67",
+`npm run test:sklad`, `test:functions` (`sklad/index_test.ts`).
 
 ## Cloud folder (paid, update 23)
 

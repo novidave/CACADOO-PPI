@@ -2797,3 +2797,51 @@ upload), `@/lib/exportClient` (update 45's row loading, workbook, ZIP and file r
 `filteredItemIds`, `loadPageTexts`). `@/lib/dashboardPages`: `TRANSLATION_SECTIONS = ["items", "texts"]`,
 `translations` → `texts`. Texts `items_bulk`, `owner_tr.texts*`.
 
+## Update 67 — "Sklad v Cacaduu", phase A (2 November 2026)
+
+`supabase/sql/67_sklad.sql` + `supabase/functions/sklad` (one file, Verify JWT off; `index_test.ts`) + Môj obchod →
+`dashboard/sklad` (`page.tsx` Prehľad, `products/page.tsx`, `products/[id]/page.tsx` the card, `products/new`,
+`movements/page.tsx`, `settings/page.tsx`, `scan/page.tsx`, `actions.ts`, `parts.tsx`, `ProductForm.tsx`) +
+`@/components/SkladScanner` + `@/lib/sklad` (`sklad_test.ts`, `npm run test:sklad`) + `/api/owner/sklad/export`.
+
+- **Tables** (RLS on, no grants but the service role; owners act only through `owner_sklad_*`, members of the shop):
+  `sklad_settings` (margin_reports, reminder_time 08:00, reminder_on, confirmed_at, reminded_on), `sklad_locations`
+  (name, note, sort, one sale default + one receipt default per shop), `sklad_items` (PK `shop_item_id` → `shop_items`;
+  unit, vat_rate 23, sale_price with VAT or NULL, min_qty, shelf, private last_cost / avg_cost / supplier, photos for
+  later), `sklad_movements` (the client's UUID as PK; kind `sklad_kind` receipt|sale|writeoff|count|correction|transfer;
+  signed qty; to_location for transfers; unit_cost only on receipts; reason required for writeoff/correction;
+  append-only by trigger). Views `sklad_stock` (per product and location; a transfer counts on both sides) and
+  `sklad_stock_total`. Products are `shop_items` rows (source_code = the code, `C00001…` when empty; EAN unique per
+  shop; the description = `shop_items.description`, the shop's own).
+- **One source:** `shop_stock_source.source` gains `sklad`; `stock_source_of()` = api > agent > sklad > file;
+  `owner_set_stock_source('sklad')` checks the plan's limit, takes the existing products over (`sklad_adopt()`: the
+  file's EUR price, the quantity as an opening `count` at the sale location) and publishes (`sklad_apply`).
+  `upload_check_in()` raises `sklad_active` (stock-pull 409; the folder shows "Zásoba sa vedie v Sklade v Cacaduu"),
+  `owner_inventory_can_connect()` returns `sklad`, the POS agent's snapshots end `test_ok` (source not the agent).
+  Guards: `inventory_sklad_guard` (no write to the shop's inventory unless `ppi.sklad_apply = on`, set only inside
+  `sklad_apply`; the owner MCP's `update_stock` gets `sklad_active`, explained by `toolError`), `shop_items_sklad_guard`
+  (a Sklad product is never deleted while its shop exists — the inventory reset fails instead), `sklad_movements_frozen`.
+- **`sklad_apply(shop, items[])`** (NULL = all, `{}` = none): inventory quantity = total, price = sale price, EUR,
+  `source_updated_at` now; no sale price → no inventory row (not public); `sync_sources.latest_file_time` = now (the
+  24 h freshness of every shop). Called in the same transaction by `owner_sklad_move`, `owner_sklad_save_product`,
+  `owner_sklad_confirm` ("Stav je správny") and the switch. The website refreshes the shop's cached pages after each
+  (`refreshShop`); IndexNow follows from the job (`indexnow_at` is set by the inventory trigger as for files).
+- **Movements:** `owner_sklad_move(shop, id, item, kind, qty, location, to_location, unit_cost, reason, ref, device,
+  client_at)`: an id already stored → `{duplicate: true}` (nothing counted again); one movement of a product at a time
+  (advisory lock); count = the counted number → the difference is stored (0 → nothing stored, the stock confirmed);
+  receipt with a cost → last_cost and the weighted average cost. Forms carry `mid` = a UUID made when the page was
+  drawn.
+- **Reads:** `owner_sklad_overview` (needs_check, fresh_until, yesterday's sales/receipts, the low list, counts, plan,
+  locations, settings), `owner_sklad_products` (search via `search_text`, filters all/low/out/no_price with counts),
+  `owner_sklad_product` (the card with the private part, margin flags, last 5 movements), `owner_sklad_movements`
+  (filters, ≤ 50 000 for the XLSX), `owner_sklad_find` (the scanner: code or EAN). Writes: `owner_sklad_save_product`
+  (only given keys change; plan limit `sklad_product_limit()` = 50 free / NULL with `shop_has_plan`),
+  `owner_sklad_save_location`, `owner_sklad_save_settings`, `owner_sklad_start` (settings + the two locations).
+- **Job:** pg_cron `ppi-sklad-tick` (15 min, Vault `ppi_sklad_cron`, `sklad_cron_ok`) → function `sklad` action `tick`:
+  `sklad_reminders_due()` (claims each shop once a day after its reminder time with no movement and no confirmation
+  today; owners' e-mails + languages) → one Brevo e-mail each (sk/hu/else en, link to Môj obchod → Sklad); then
+  IndexNow for Sklad shops with changed items (`sklad_indexnow_shops()` → `indexnow_claim_host` / `indexnow_done`, as
+  stock-pull).
+- **Scanner:** `ScanBurst` (keys ≤ 50 ms apart, ≥ 6 characters, Enter; Shift allowed; ignored in fields except
+  `data-scan-ok`); the camera through `barcode-detector` (zxing-wasm; its `.wasm` copied to `public/zxing/<version>/` by
+  `scripts/copy-zxing-wasm.mjs` on dev/build, never a CDN), loaded on the first "Skenovať"; → `/dashboard/sklad/scan`.

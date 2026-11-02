@@ -1996,6 +1996,21 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    `sklad.<jazyk>.xlsx` in Excel, fix one name, save → "Nahrať opravené preklady" → check the change → "Uložiť zmeny".
    **Texty stránky** lists only the page's texts, each original once with its languages under it.
 
+## Part AY — "Sklad v Cacaduu", phase A (update 67, 2 November 2026)
+
+1. **Database:** Claude applies `supabase/sql/67_sklad.sql` with the Supabase connector (nothing to paste). It changes
+   no shop's stock by itself: Sklad starts only when an owner turns it on. It also makes the Vault secret
+   `ppi_sklad_cron` and the job `ppi-sklad-tick` (every 15 minutes).
+2. **Edge Function `sklad`:** Claude deploys it (Verify JWT **OFF**). If that ever fails: Supabase → Edge Functions →
+   Deploy a new function → name `sklad` → paste `supabase/functions/sklad/index.ts` → Deploy → Verify JWT OFF.
+3. **Secrets:** nothing new — the reminder e-mail uses `BREVO_API_KEY` and `ALERT_EMAIL_FROM`, its link `SITE_URL`, and
+   IndexNow `INDEXNOW_KEY` (all already set). Without them the job skips that part; nothing breaks.
+4. **Try it** (this switches the shop's stock source — the folder on the shop PC stops sending files): cacaduu.com →
+   Môj obchod → **Sklad** → "Používať Sklad v Cacaduu" → the products are taken over. Open a product → **Príjem** 5
+   → the shop page shows the new quantity; **Presun** Sklad → Predajňa keeps the total; Prehľad → "Stav je správny".
+   On a phone: "Skenovať" → allow the camera → point it at a barcode. Back to files any time: Sklad → Nastavenia →
+   "Prepnúť späť na súbory" (nothing of Sklad is deleted).
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -2054,3 +2069,4 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 40. Opening hours by SMS: the owner's verified phone texts the shops' number, Claude reads only opening hours, the database checks and changes only the named days on the shop page and in the Google Business Profile, a confirmation SMS or "write it again"; "Hodiny cez SMS" in Môj obchod with phones, the log and the Google connection | ✅ built — set up Part AX6 steps 1, 2, 4; **the receiving SMS number later** (provider not chosen yet, not Twilio) |
 | 41. The owner's own AI assistant: Claude, ChatGPT, Gemini, Grok or any MCP client at /mcp/owner (OAuth consent page or a personal key), works with conversations, contacts, bookings, opening hours, shop details and stock; SMS / e-mail only after a preview the owner approves; stock changes warn that the next file overwrites them; "AI asistenti" in Môj obchod | ✅ built — set up Part AX7 |
 | 42. Tovar is the one place for products and their translations ("Preklady: X z Y jazykov", "Jazyk", ticks with "Preložiť chýbajúce" / "Preložiť znova" / "Zmazať preklady" and "Späť", "Vygenerovať popisy (max. 20)", the translation files downloaded for the filtered or ticked products and uploaded back with a preview); "Texty stránky" (was "Preklady") lists only the page's own texts, one row per original; the old Cacadoo assistant label removed | ✅ built — set up Part AX8 |
+| 43. "Sklad v Cacaduu" phase A: the stock kept in Cacaduu as movements (receipt, issue, write-off, transfer, correction; never typed over, each once by its id), locations, the shop page fed after every movement, "Stav je správny" + a daily reminder e-mail, Free 50 / Pro unlimited, private purchase prices and margin, USB scanner and phone camera, XLSX exports; one stock source at a time | ✅ built — set up Part AY |
