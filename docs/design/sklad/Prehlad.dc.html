@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Sklad – Prehľad (mobil)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#111}a:hover{color:#000}
+.muted{color:#5C5C5C}
+.tab{flex:none;padding:12px 2px;font-size:15px;font-weight:600;color:#5C5C5C;text-decoration:none;border-bottom:2px solid transparent}
+.tab.on{color:#111;border-bottom-color:#111}
+.card{border:1px solid #E4E4E4;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 16px;border-radius:12px;border:1px solid #111;background:#111;color:#fff;font:700 15px Quicksand,sans-serif;text-decoration:none;cursor:pointer;box-sizing:border-box}
+.btn.ghost{background:#fff;color:#111;border-color:#D6D6D6}
+.qa{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:72px;border:1px solid #D6D6D6;border-radius:12px;font-size:14px;font-weight:700;text-decoration:none;color:#111;background:#fff}
+.dot{flex:none;width:10px;height:10px;border-radius:5px;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+h2{margin:0;font-size:17px;font-weight:700}
+</style>
+</helmet>
+<div style="width:390px;height:1000px;box-sizing:border-box;background:#fff;color:#111;font-family:Quicksand,sans-serif;display:flex;flex-direction:column;overflow-y:auto">
+  <header style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #E4E4E4">
+    <div style="display:flex;flex-direction:column">
+      <span style="font-size:12px" class="muted">Môj obchod</span>
+      <strong style="font-size:16px">Davide – farby</strong>
+    </div>
+    <button type="button" aria-label="Menu" style="width:44px;height:44px;border:1px solid #E4E4E4;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+  </header>
+  <div style="flex:none;padding:14px 16px 0;display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <h1 style="margin:0;font-size:26px;font-weight:700">Sklad</h1>
+    <span style="display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border:1px solid #E4E4E4;border-radius:15px;font-size:13px;font-weight:600"><span class="dot" style="background:#1E9E5A" aria-hidden="true"></span>Skener pripojený</span>
+  </div>
+  <nav aria-label="Časti skladu" style="flex:none;display:flex;gap:20px;padding:4px 16px 0;border-bottom:1px solid #E4E4E4;overflow-x:auto;white-space:nowrap">
+    <a class="tab on" href="Prehlad.dc.html" aria-current="page">Prehľad</a>
+    <a class="tab" href="Main.dc.html">Predaj</a>
+    <a class="tab" href="Produkty.dc.html">Produkty</a>
+    <a class="tab" href="Prijemka.dc.html">Príjemky</a>
+    <a class="tab" href="Inventura.dc.html">Inventúra</a>
+    <a class="tab" href="#">Pohyby</a>
+  </nav>
+
+  <main style="padding:14px 16px 24px;display:flex;flex-direction:column;gap:14px">
+    <sc-if value="{{needsCheck}}" hint-placeholder-val="{{true}}">
+      <section class="card" aria-labelledby="h-fresh" style="border:2px solid #F2B705;background:#FFFBEA">
+        <div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#F2B705;width:12px;height:12px;border-radius:6px" aria-hidden="true"></span><h2 id="h-fresh">Potvrďte dnešný stav skladu</h2></div>
+        <p style="margin:0;font-size:14px">Dnes ešte nebol žiadny pohyb. Posledný: <strong>včera 17:40</strong> (predaj). Ak stav sedí, ťuknite nižšie – inak sa zásoba na stránke obchodu o 9 h 35 min skryje.</p>
+        <button type="button" class="btn" onClick="{{confirm}}" style="min-height:56px;font-size:17px">Stav je správny</button>
+      </section>
+    </sc-if>
+    <sc-if value="{{confirmed}}" hint-placeholder-val="{{false}}">
+      <section role="status" class="card" aria-label="Stav potvrdený" style="border:2px solid #1E9E5A;background:#F2FAF5">
+        <div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#1E9E5A;width:12px;height:12px;border-radius:6px" aria-hidden="true"></span><h2>Zásoba na stránke je aktuálna</h2></div>
+        <p style="margin:0;font-size:14px">Potvrdené dnes 8:05 · platí do zajtra 8:05 alebo do najbližšieho pohybu.</p>
+        <button type="button" onClick="{{undo}}" style="all:unset;cursor:pointer;font-size:13px;font-weight:600;text-decoration:underline;min-height:28px">Späť</button>
+      </section>
+    </sc-if>
+
+    <section aria-labelledby="h-y" style="display:flex;flex-direction:column;gap:8px">
+      <h2 id="h-y">Včera</h2>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+        <a href="#" class="card" style="text-decoration:none;gap:2px"><strong style="font-size:24px">286,40 €</strong><span style="font-size:13px" class="muted">14 predajov</span></a>
+        <a href="Prijemka.dc.html" class="card" style="text-decoration:none;gap:2px"><strong style="font-size:24px">+72 ks</strong><span style="font-size:13px" class="muted">1 príjemka</span></a>
+        <a href="Produkty.dc.html" class="card" style="text-decoration:none;gap:2px"><strong style="font-size:24px">3</strong><span style="font-size:13px" class="muted">pod minimom</span></a>
+        <a href="Produkty.dc.html" class="card" style="text-decoration:none;gap:2px"><strong style="font-size:24px">1</strong><span style="font-size:13px" class="muted">vypredaný</span></a>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-low" style="gap:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <h2 id="h-low">Doobjednať</h2>
+        <a href="Produkty.dc.html" style="font-size:14px;font-weight:600">Všetky</a>
+      </div>
+      <sc-for list="{{low}}" as="p" hint-placeholder-count="3">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #E4E4E4">
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+            <strong style="font-size:15px">{{p.name}}</strong>
+            <span style="display:flex;align-items:center;gap:6px;font-size:13px" class="muted"><span class="dot" style="background:{{p.dot}}" aria-hidden="true"></span>{{p.stock}}</span>
+          </div>
+          <sc-if value="{{p.notAdded}}" hint-placeholder-val="{{true}}">
+            <button type="button" class="btn ghost" onClick="{{p.add}}" style="flex:none;min-height:40px;font-size:13px;padding:0 12px">Do príjemky</button>
+          </sc-if>
+          <sc-if value="{{p.added}}" hint-placeholder-val="{{false}}">
+            <span style="flex:none;font-size:13px;font-weight:700;color:#146C37">V príjemke ✓</span>
+          </sc-if>
+        </div>
+      </sc-for>
+      <sc-if value="{{hasAdded}}" hint-placeholder-val="{{false}}">
+        <a class="btn" href="Prijemka.dc.html" style="margin-top:12px">Otvoriť príjemku ({{addedCount}})</a>
+      </sc-if>
+    </section>
+
+    <section aria-label="Rýchle akcie" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+      <a class="qa" href="Main.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg>Predaj</a>
+      <a class="qa" href="Prijemka.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Príjem</a>
+      <a class="qa" href="Inventura.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M9 4h6v3H9zM6 6h12v15H6zM9 12l2 2 4-4"/></svg>Inventúra</a>
+      <a class="qa" href="Produkt.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>Skenovať</a>
+    </section>
+
+    <section class="card" aria-labelledby="h-plan" style="gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><h2 id="h-plan">Free · 38 z 50 produktov</h2><a href="#" style="font-size:14px;font-weight:600">Prejsť na Pro</a></div>
+      <div aria-hidden="true" style="height:8px;border-radius:4px;background:#EDEDED"><div style="height:8px;border-radius:4px;background:#111;width:76%"></div></div>
+      <span style="font-size:13px" class="muted">Pro: neobmedzený počet produktov.</span>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = Object.assign({ ok: false, added: {} }, this.state || {});
+    const items = [
+      { id: 'p4', name: 'Maliarska páska 38 mm', stock: 'Vypredané · minimum 10 ks', dot: '#D64545' },
+      { id: 'p2', name: 'Akrylové médium lesklé 250 ml', stock: '3 ks · minimum 5 ks', dot: '#1E9E5A' },
+      { id: 'p5', name: 'Valček 25 cm', stock: '3 ks · minimum 4 ks', dot: '#1E9E5A' }
+    ];
+    let n = 0;
+    const low = items.map(p => {
+      const a = !!s.added[p.id];
+      if (a) n += 1;
+      return Object.assign({}, p, {
+        added: a, notAdded: !a,
+        add: () => { const x = Object.assign({}, s.added); x[p.id] = true; this.setState({ added: x }); }
+      });
+    });
+    return {
+      needsCheck: !s.ok, confirmed: s.ok,
+      confirm: () => this.setState({ ok: true }),
+      undo: () => this.setState({ ok: false }),
+      low: low, hasAdded: n > 0, addedCount: n
+    };
+  }
+}
+</script>
+</body>
+</html>

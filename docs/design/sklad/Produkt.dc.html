@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Sklad – Produktová karta (mobil)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#111}a:hover{color:#000}
+.muted{color:#5C5C5C}
+.tab{flex:none;padding:12px 2px;font-size:15px;font-weight:600;color:#5C5C5C;text-decoration:none;border-bottom:2px solid transparent}
+.tab.on{color:#111;border-bottom-color:#111}
+.card{border:1px solid #E4E4E4;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 16px;border-radius:12px;border:1px solid #111;background:#111;color:#fff;font:700 15px Quicksand,sans-serif;text-decoration:none;cursor:pointer;box-sizing:border-box}
+.btn.ghost{background:#fff;color:#111;border-color:#D6D6D6}
+.act{min-height:56px;border-radius:12px;border:1px solid #D6D6D6;background:#fff;font:700 15px Quicksand,sans-serif;color:#111;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.dot{flex:none;width:10px;height:10px;border-radius:5px;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+.kv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;font-size:15px;align-items:baseline}
+.kv .k{color:#5C5C5C}
+.kv .v{font-weight:700;text-align:right}
+.mv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:10px 0;border-bottom:1px solid #E4E4E4;font-size:14px}
+h2{margin:0;font-size:17px;font-weight:700}
+</style>
+</helmet>
+<div style="width:390px;height:1640px;box-sizing:border-box;background:#fff;color:#111;font-family:Quicksand,sans-serif;display:flex;flex-direction:column;overflow-y:auto">
+  <header style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #E4E4E4">
+    <div style="display:flex;flex-direction:column">
+      <span style="font-size:12px" class="muted">Môj obchod</span>
+      <strong style="font-size:16px">Davide – farby</strong>
+    </div>
+    <button type="button" aria-label="Menu" style="width:44px;height:44px;border:1px solid #E4E4E4;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+  </header>
+  <nav aria-label="Časti skladu" style="flex:none;display:flex;gap:20px;padding:4px 16px 0;border-bottom:1px solid #E4E4E4;overflow-x:auto;white-space:nowrap">
+    <a class="tab" href="Main.dc.html">Predaj</a>
+    <a class="tab on" href="Produkt.dc.html" aria-current="page">Produkty</a>
+    <a class="tab" href="#">Príjemky</a>
+    <a class="tab" href="#">Inventúra</a>
+    <a class="tab" href="#">Pohyby</a>
+  </nav>
+
+  <main style="padding:12px 16px 24px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <a href="#" style="display:inline-flex;align-items:center;gap:4px;min-height:44px;font-size:15px;font-weight:600;text-decoration:none">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Produkty</a>
+      <button type="button" class="btn ghost" style="min-height:44px">Upraviť</button>
+    </div>
+
+    <button type="button" style="all:unset;box-sizing:border-box;cursor:pointer;height:132px;border:2px dashed #D6D6D6;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#5C5C5C" stroke-width="1.8" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      <strong style="font-size:15px">Pridať fotku</strong>
+      <span style="font-size:13px" class="muted">Nepovinné · zobrazí sa len na stránke produktu</span>
+    </button>
+
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <h1 style="margin:0;font-size:24px;line-height:1.2">Farba fasádna biela 5 l</h1>
+      <span style="font-size:14px" class="muted">Kód 10231 · EAN 8580000102315</span>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <span class="dot" style="background:#1E9E5A;width:12px;height:12px;border-radius:6px" aria-hidden="true"></span>
+        <strong style="font-size:20px">18 ks na sklade</strong>
+      </div>
+      <span style="font-size:13px" class="muted">Na stránke obchodu: „18 ks na sklade“ · aktualizované práve teraz</span>
+    </div>
+
+    <div role="group" aria-label="Pohyb tovaru" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+      <button type="button" class="act"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Príjem</button>
+      <button type="button" class="act"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.2" aria-hidden="true"><path d="M5 12h14"/></svg>Výdaj</button>
+      <button type="button" class="act"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Odpis</button>
+      <button type="button" class="act"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>Presun</button>
+    </div>
+
+    <section class="card" aria-labelledby="h-loc">
+      <h2 id="h-loc">Zásoba podľa miesta</h2>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #E4E4E4">
+          <span style="display:flex;flex-direction:column"><strong style="font-size:15px">Predajňa</strong><span style="font-size:13px" class="muted">Regál A3</span></span>
+          <strong style="font-size:18px">6 ks</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #E4E4E4">
+          <span style="display:flex;flex-direction:column"><strong style="font-size:15px">Sklad – zadná miestnosť</strong><span style="font-size:13px" class="muted">Paleta 2</span></span>
+          <strong style="font-size:18px">12 ks</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 0">
+          <strong style="font-size:15px">Spolu (vidia zákazníci)</strong>
+          <strong style="font-size:18px">18 ks</strong>
+        </div>
+      </div>
+      <div class="kv" style="border-top:1px solid #E4E4E4;padding-top:12px">
+        <span class="k">Minimálna zásoba</span><span class="v">5 ks</span>
+      </div>
+      <span style="font-size:13px" class="muted">Pod minimom sa produkt zobrazí v Prehľade skladu na doobjednanie.</span>
+    </section>
+
+    <section class="card" aria-labelledby="h-sale">
+      <h2 id="h-sale">Predaj</h2>
+      <div class="kv">
+        <span class="k">Predajná cena s DPH</span><span class="v" style="font-size:18px">24,90 €</span>
+        <span class="k">Sadzba DPH</span><span class="v">23 %</span>
+        <span class="k">Cena bez DPH</span><span class="v">20,24 €</span>
+        <span class="k">Jednotka</span><span class="v">ks</span>
+        <span class="k">Kategória</span><span class="v">Farby</span>
+        <span class="k">Značka</span><span class="v">[Značka]</span>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-buy">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <h2 id="h-buy">Nákup</h2>
+        <span style="display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border-radius:13px;background:#F2F2F2;font-size:12px;font-weight:700">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.2" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Vidíte len vy</span>
+      </div>
+      <div class="kv">
+        <span class="k">Posledná nákupná cena<br><span style="font-size:12px">bez DPH · 28. 10. 2026</span></span><span class="v">15,80 €</span>
+        <span class="k">Priemerná nákupná cena<br><span style="font-size:12px">bez DPH · zo zásoby na sklade</span></span><span class="v">15,20 €</span>
+        <span class="k">Marža (z priemeru)</span><span class="v">5,04 € · 24,9 %</span>
+        <span class="k">Hodnota zásoby</span><span class="v">273,60 €</span>
+        <span class="k">Dodávateľ</span><span class="v">[Dodávateľ]</span>
+      </div>
+      <span style="font-size:13px" class="muted">Marža a hodnota zásoby sa zobrazujú, lebo máte zapnuté Maržové prehľady. Nákupné ceny nikdy nie sú na stránke obchodu.</span>
+    </section>
+
+    <section class="card" aria-labelledby="h-page">
+      <h2 id="h-page">Na stránke produktu</h2>
+      <div class="kv">
+        <span class="k">Popis</span><span class="v" style="font-weight:600">Bez popisu</span>
+        <span class="k">Fotky</span><span class="v" style="font-weight:600">0</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn ghost" style="flex:1">Pridať popis</button>
+        <a class="btn ghost" href="#" style="flex:1">Zobraziť stránku</a>
+      </div>
+      <span style="font-size:13px" class="muted">Fotky a popis sa zobrazia len na stránke produktu, nie v zoznamoch.</span>
+    </section>
+
+    <section class="card" aria-labelledby="h-mv" style="gap:0">
+      <h2 id="h-mv" style="margin-bottom:4px">Pohyby</h2>
+      <div class="mv">
+        <strong>Predaj · Predajňa</strong><strong>−2</strong>
+        <span class="muted">dnes 13:52 · David · telefón</span><span class="muted">8 → 6</span>
+      </div>
+      <div class="mv">
+        <strong>Príjemka P-2026-041 · Sklad</strong><strong>+12</strong>
+        <span class="muted">28. 10. · [Dodávateľ] · 15,80 €/ks</span><span class="muted">0 → 12</span>
+      </div>
+      <div class="mv">
+        <strong>Presun Sklad → Predajňa</strong><strong>4</strong>
+        <span class="muted">25. 10. · David</span><span class="muted"></span>
+      </div>
+      <div class="mv">
+        <strong>Inventúra I-2026-03 · Predajňa</strong><strong>−1</strong>
+        <span class="muted">15. 10. · napočítané 7, v Cacaduu 8</span><span class="muted">8 → 7</span>
+      </div>
+      <div class="mv" style="border-bottom:0">
+        <strong>Odpis · Predajňa</strong><strong>−1</strong>
+        <span class="muted">12. 10. · poškodené vedro</span><span class="muted">9 → 8</span>
+      </div>
+      <a href="#" style="font-size:14px;font-weight:600;padding-top:8px;min-height:32px;display:flex;align-items:center">Všetky pohyby (24)</a>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1640}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Sklad – Produkty (mobil)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#111}a:hover{color:#000}
+.muted{color:#5C5C5C}
+.tab{flex:none;padding:12px 2px;font-size:15px;font-weight:600;color:#5C5C5C;text-decoration:none;border-bottom:2px solid transparent}
+.tab.on{color:#111;border-bottom-color:#111}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 16px;border-radius:12px;border:1px solid #111;background:#111;color:#fff;font:700 15px Quicksand,sans-serif;text-decoration:none;cursor:pointer;box-sizing:border-box}
+.btn.ghost{background:#fff;color:#111;border-color:#D6D6D6}
+.chipf{flex:none;min-height:40px;padding:0 14px;border-radius:20px;font:600 14px Quicksand,sans-serif;cursor:pointer;white-space:nowrap}
+.dot{flex:none;width:10px;height:10px;border-radius:5px;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #E4E4E4;text-decoration:none;color:#111}
+</style>
+</helmet>
+<div style="width:390px;height:844px;box-sizing:border-box;background:#fff;color:#111;font-family:Quicksand,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+  <header style="flex:none;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #E4E4E4">
+    <div style="display:flex;flex-direction:column">
+      <span style="font-size:12px" class="muted">Môj obchod</span>
+      <strong style="font-size:16px">Davide – farby</strong>
+    </div>
+    <button type="button" aria-label="Menu" style="width:44px;height:44px;border:1px solid #E4E4E4;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+  </header>
+  <nav aria-label="Časti skladu" style="flex:none;display:flex;gap:20px;padding:4px 16px 0;border-bottom:1px solid #E4E4E4;overflow-x:auto;white-space:nowrap">
+    <a class="tab" href="Prehlad.dc.html">Prehľad</a>
+    <a class="tab" href="Main.dc.html">Predaj</a>
+    <a class="tab on" href="Produkty.dc.html" aria-current="page">Produkty</a>
+    <a class="tab" href="Prijemka.dc.html">Príjemky</a>
+    <a class="tab" href="Inventura.dc.html">Inventúra</a>
+  </nav>
+
+  <div style="flex:none;padding:12px 16px 0;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;gap:8px">
+      <label style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;min-height:48px;padding:0 12px;border:1px solid #D6D6D6;border-radius:12px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5C5C5C" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Hľadať produkt</span>
+        <input type="search" placeholder="Názov, kód alebo EAN" style="border:0;outline:0;font:500 15px Quicksand,sans-serif;flex:1;min-width:0;background:transparent">
+      </label>
+      <a class="btn" href="Produkt.dc.html" aria-label="Skenovať a otvoriť produkt" style="flex:none;padding:0 14px">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg></a>
+    </div>
+    <div role="group" aria-label="Filter" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:2px">
+      <sc-for list="{{filters}}" as="f" hint-placeholder-count="4">
+        <sc-if value="{{f.on}}" hint-placeholder-val="{{false}}">
+          <button type="button" class="chipf" aria-pressed="true" onClick="{{f.pick}}" style="border:2px solid #111;background:#111;color:#fff">{{f.label}}</button>
+        </sc-if>
+        <sc-if value="{{f.off}}" hint-placeholder-val="{{true}}">
+          <button type="button" class="chipf" aria-pressed="false" onClick="{{f.pick}}" style="border:1px solid #D6D6D6;background:#fff;color:#111">{{f.label}}</button>
+        </sc-if>
+      </sc-for>
+    </div>
+  </div>
+
+  <section aria-label="Produkty" style="flex:1;min-height:0;overflow-y:auto;padding:0 16px">
+    <sc-for list="{{rows}}" as="p" hint-placeholder-count="6">
+      <a class="row" href="Produkt.dc.html">
+        <span style="display:flex;flex-direction:column;gap:3px;min-width:0">
+          <strong style="font-size:15px">{{p.name}}</strong>
+          <span style="font-size:13px" class="muted">{{p.code}} · {{p.locs}}</span>
+          <sc-if value="{{p.hasNote}}" hint-placeholder-val="{{false}}">
+            <span style="font-size:13px;font-weight:700;color:{{p.noteColor}}">{{p.note}}</span>
+          </sc-if>
+        </span>
+        <span style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+          <span style="display:flex;align-items:center;gap:6px;font-size:16px;font-weight:700"><span class="dot" style="background:{{p.dot}}" aria-hidden="true"></span>{{p.qty}}</span>
+          <span style="font-size:14px" class="muted">{{p.price}}</span>
+        </span>
+      </a>
+    </sc-for>
+    <sc-if value="{{empty}}" hint-placeholder-val="{{false}}">
+      <p style="margin:24px 0;text-align:center;font-size:15px" class="muted">Žiadne produkty v tomto filtri.</p>
+    </sc-if>
+  </section>
+
+  <footer style="flex:none;border-top:1px solid #E4E4E4;padding:10px 16px 16px;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;justify-content:space-between;font-size:13px"><span class="muted">Free · <strong style="color:#111">38 z 50</strong> produktov</span><a href="#" style="font-weight:600">Prejsť na Pro</a></div>
+    <button type="button" class="btn" style="min-height:52px">+ Nový produkt</button>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  data() {
+    return [
+      { name: 'Farba fasádna biela 5 l', code: '10231', shop: 6, back: 12, min: 5, price: 24.9 },
+      { name: 'Penetrácia hĺbková 5 l', code: '10512', shop: 2, back: 5, min: 3, price: 15.9 },
+      { name: 'Akrylové médium lesklé 250 ml', code: '20417', shop: 3, back: 0, min: 5, price: 6.4 },
+      { name: 'Štetec plochý 50 mm', code: '30012', shop: 30, back: 12, min: 10, price: 3.2 },
+      { name: 'Valček 25 cm', code: '30101', shop: 3, back: 0, min: 4, price: 7.5 },
+      { name: 'Maliarska páska 38 mm', code: '30455', shop: 0, back: 0, min: 10, price: 2.9 },
+      { name: 'Brúsny papier P120', code: '30690', shop: 80, back: 50, min: 20, price: 0.8 },
+      { name: 'Lazúra na drevo teak 0,75 l', code: 'nový', shop: 0, back: 6, min: 0, price: null }
+    ];
+  }
+  renderVals() {
+    const s = Object.assign({ f: 'all' }, this.state || {});
+    const all = this.data().map(p => {
+      const q = p.shop + p.back;
+      const out = q <= 0;
+      const low = !out && q < p.min;
+      const noPrice = p.price === null;
+      let note = '';
+      let noteColor = '#7A4A00';
+      if (out) { note = 'Vypredané · minimum ' + p.min + ' ks'; noteColor = '#B42318'; }
+      else if (low) note = 'Pod minimom (' + p.min + ' ks)';
+      else if (noPrice) note = 'Bez predajnej ceny – na stránke sa nezobrazuje';
+      return {
+        name: p.name, code: p.code, locs: 'Predajňa ' + p.shop + ' · Sklad ' + p.back,
+        qty: out ? 'Vypredané' : q + ' ks', dot: out ? '#D64545' : '#1E9E5A',
+        price: noPrice ? '– €' : p.price.toFixed(2).replace('.', ',') + ' €',
+        note: note, noteColor: noteColor, hasNote: !!note,
+        low: low || out, out: out, noPrice: noPrice
+      };
+    });
+    const defs = [
+      { k: 'all', label: 'Všetko', test: () => true },
+      { k: 'low', label: 'Pod minimom', test: p => p.low },
+      { k: 'out', label: 'Vypredané', test: p => p.out },
+      { k: 'np', label: 'Bez ceny', test: p => p.noPrice }
+    ];
+    const cur = defs.find(d => d.k === s.f) || defs[0];
+    const filters = defs.map(d => {
+      const n = all.filter(d.test).length;
+      return { label: d.k === 'all' ? d.label : d.label + ' (' + n + ')', on: d.k === cur.k, off: d.k !== cur.k, pick: () => this.setState({ f: d.k }) };
+    });
+    const rows = all.filter(cur.test);
+    return { filters: filters, rows: rows, empty: rows.length === 0 };
+  }
+}
+</script>
+</body>
+</html>

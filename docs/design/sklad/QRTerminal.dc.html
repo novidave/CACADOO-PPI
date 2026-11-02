@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Sklad – QR terminál na pulte</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#111}a:hover{color:#000}
+.muted{color:#5C5C5C}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:52px;padding:0 16px;border-radius:12px;border:1px solid #111;background:#111;color:#fff;font:700 16px Quicksand,sans-serif;text-decoration:none;cursor:pointer;box-sizing:border-box}
+.btn.ghost{background:#fff;color:#111;border-color:#D6D6D6}
+.dot{flex:none;width:10px;height:10px;border-radius:5px;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+</style>
+</helmet>
+<div style="width:390px;height:844px;box-sizing:border-box;background:#fff;color:#111;font-family:Quicksand,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+
+  <section aria-label="Strana pre zákazníka (otočená k zákazníkovi)" style="flex:1;min-height:0;transform:rotate(180deg);background:{{halfBg}};color:{{halfFg}};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:20px;text-align:center">
+    <sc-if value="{{standby}}" hint-placeholder-val="{{false}}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+        <span aria-hidden="true" style="width:72px;height:72px;border-radius:36px;border:2px solid #111;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700">D</span>
+        <strong style="font-size:28px">Davide – farby</strong>
+        <span style="font-size:17px" class="muted">Vitajte. Tu môžete zaplatiť cez QR kód v bankovej aplikácii.</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{waiting}}" hint-placeholder-val="{{true}}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <span style="font-size:15px;font-weight:600">Davide – farby · na úhradu</span>
+        <strong style="font-size:46px;line-height:1">54,10 €</strong>
+        <div role="img" aria-label="QR kód na platbu – ukážka" style="padding:12px;border:1px solid #D6D6D6;border-radius:14px;background:#fff;display:flex;flex-direction:column">
+          <sc-for list="{{rows}}" as="row" hint-placeholder-count="25">
+            <div style="display:flex">
+              <sc-for list="{{row.cells}}" as="c" hint-placeholder-count="25">
+                <span style="width:7px;height:7px;background:{{c.bg}}"></span>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+        <span style="font-size:15px;font-weight:600">Naskenujte v bankovej aplikácii</span>
+        <span role="status" style="display:inline-flex;align-items:center;gap:8px;font-size:17px;font-weight:700"><span class="dot" style="background:#F2B705;width:12px;height:12px;border-radius:6px" aria-hidden="true"></span>Čaká na platbu</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{paid}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="display:flex;flex-direction:column;align-items:center;gap:10px">
+        <svg width="88" height="88" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7 12.5l3.2 3.2L17 9"/></svg>
+        <strong style="font-size:38px">Zaplatené</strong>
+        <span style="font-size:20px;font-weight:600">54,10 € · Ďakujeme!</span>
+      </div>
+    </sc-if>
+  </section>
+
+  <div aria-hidden="true" style="flex:none;height:30px;display:flex;align-items:center;gap:10px;padding:0 16px;background:{{lineBg}}">
+    <span style="flex:1;border-top:1px dashed #9A9A9A"></span>
+    <span style="font-size:11px;font-weight:700;color:{{lineFg}};white-space:nowrap">↑ zákazník · obchod ↓</span>
+    <span style="flex:1;border-top:1px dashed #9A9A9A"></span>
+  </div>
+
+  <section aria-label="Strana pre obchod" style="flex:1;min-height:0;background:{{halfBg}};color:{{halfFg}};display:flex;flex-direction:column;gap:12px;padding:18px 18px 16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;font-weight:600">
+      <span style="display:flex;align-items:center;gap:6px"><span class="dot" style="background:#1E9E5A" aria-hidden="true"></span>QR terminál · pripojený</span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{halfFg}}" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg>Vždy zapnuté</span>
+    </div>
+
+    <sc-if value="{{standby}}" hint-placeholder-val="{{false}}">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:10px;text-align:center">
+        <strong style="font-size:22px">Pripravené na ďalší predaj</strong>
+        <span style="font-size:15px" class="muted">Keď na obrazovke Predaj zvolíte QR platbu, suma a QR kód sa ukážu tu aj zákazníkovi.</span>
+        <button type="button" class="btn ghost" onClick="{{start}}" style="margin-top:6px">Ukážka: prišiel QR predaj</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{waiting}}" hint-placeholder-val="{{true}}">
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:13px" class="muted">Transakcia</span>
+            <strong style="font-size:22px;letter-spacing:.02em">TX-2611-0013</strong>
+            <span style="font-size:13px" class="muted">VS 2611020013 · 13:52 · 6 ks</span>
+          </div>
+          <strong style="font-size:30px">54,10 €</strong>
+        </div>
+        <div role="status" style="display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700"><span class="dot" style="background:#F2B705" aria-hidden="true"></span>Čaká na platbu</div>
+        <span style="font-size:13px" class="muted">Platbu potvrdíte na počítači pri Predaji, prípadne tu. Po pripojení banky sa potvrdí sama a zaznie zvuk.</span>
+        <sc-if value="{{useButtons}}" hint-placeholder-val="{{false}}">
+          <div style="margin-top:auto;display:grid;grid-template-columns:2fr 1fr;gap:8px">
+            <button type="button" class="btn" onClick="{{markPaid}}" style="min-height:56px;font-size:17px">Zaplatené</button>
+            <button type="button" class="btn ghost" onClick="{{cancel}}" style="min-height:56px">Zrušiť</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{useDropdown}}" hint-placeholder-val="{{true}}">
+        <div style="margin-top:auto;position:relative;display:flex;justify-content:center">
+          <sc-if value="{{menuOpen}}" hint-placeholder-val="{{false}}">
+            <div role="menu" aria-label="Stav platby" style="position:absolute;left:0;right:0;bottom:50px;background:#fff;border:1px solid #D6D6D6;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px;display:flex;flex-direction:column;gap:4px">
+              <button type="button" role="menuitem" onClick="{{markPaid}}" style="all:unset;box-sizing:border-box;cursor:pointer;min-height:52px;padding:0 14px;border-radius:10px;display:flex;align-items:center;gap:10px;font:700 17px Quicksand,sans-serif;color:#111;background:#EEF8F2">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#146C37" stroke-width="2.4" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Zaplatené</button>
+              <button type="button" role="menuitem" onClick="{{cancel}}" style="all:unset;box-sizing:border-box;cursor:pointer;min-height:52px;padding:0 14px;border-radius:10px;display:flex;align-items:center;gap:10px;font:700 17px Quicksand,sans-serif;color:#B42318">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>Zrušiť predaj</button>
+            </div>
+          </sc-if>
+          <button type="button" aria-haspopup="menu" aria-expanded="{{menuExpanded}}" onClick="{{toggleMenu}}" style="all:unset;box-sizing:border-box;cursor:pointer;min-height:44px;padding:0 8px;display:inline-flex;align-items:center;gap:6px;font:600 15px Quicksand,sans-serif;color:#5C5C5C">
+            Potvrdiť alebo zrušiť
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5C5C5C" stroke-width="2.2" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>
+          </button>
+        </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{paid}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="flex:1;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <strong style="font-size:26px">Zaplatené</strong>
+            <span style="font-size:14px">TX-2611-0013 · 13:54</span>
+          </div>
+          <strong style="font-size:30px">54,10 €</strong>
+        </div>
+        <span style="font-size:15px">Predaj uložený · zo skladu Predajňa odpísané 6 ks.</span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:14px">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>Zvuk Cacaduu zahraný</span>
+        <button type="button" class="btn" onClick="{{next}}" style="margin-top:auto;min-height:56px;font-size:17px;background:#fff;color:#146C37;border-color:#fff">Ďalší zákazník</button>
+      </div>
+    </sc-if>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"controls":{"editor":"enum","options":["Rozbaľovacie menu","Tlačidlá"],"default":"Rozbaľovacie menu"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  qr() {
+    const N = 25;
+    const finder = (r, c, r0, c0) => {
+      const y = r - r0, x = c - c0;
+      if (y < 0 || x < 0 || y > 6 || x > 6) return null;
+      if (y === 0 || y === 6 || x === 0 || x === 6) return true;
+      return y >= 2 && y <= 4 && x >= 2 && x <= 4;
+    };
+    const rows = [];
+    for (let r = 0; r < N; r++) {
+      const cells = [];
+      for (let c = 0; c < N; c++) {
+        let on = finder(r, c, 0, 0);
+        if (on === null) on = finder(r, c, 0, N - 7);
+        if (on === null) on = finder(r, c, N - 7, 0);
+        if (on === null) {
+          const near = (r < 8 && c < 8) || (r < 8 && c > N - 9) || (r > N - 9 && c < 8);
+          on = near ? false : ((r * 13 + c * 29 + r * c * 5) % 5) < 2;
+        }
+        cells.push({ bg: on ? '#111' : '#fff' });
+      }
+      rows.push({ cells: cells });
+    }
+    return rows;
+  }
+  chime() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      [[784, 0], [1047, 0.13], [1319, 0.26]].forEach(function (n) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        const t = ctx.currentTime + n[1];
+        o.type = 'sine';
+        o.frequency.value = n[0];
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start(t);
+        o.stop(t + 0.45);
+      });
+    } catch (e) {}
+  }
+  renderVals() {
+    const s = Object.assign({ mode: 'waiting', menu: false }, this.state || {});
+    if (!this._rows) this._rows = this.qr();
+    const paid = s.mode === 'paid';
+    const useButtons = (this.props.controls ?? 'Rozbaľovacie menu') === 'Tlačidlá';
+    return {
+      useButtons: useButtons, useDropdown: !useButtons,
+      rows: this._rows,
+      standby: s.mode === 'standby', waiting: s.mode === 'waiting', paid: paid,
+      halfBg: paid ? '#146C37' : '#FFFFFF', halfFg: paid ? '#FFFFFF' : '#111111',
+      lineBg: paid ? '#146C37' : '#F2F2F2', lineFg: paid ? '#FFFFFF' : '#3D3D3D',
+      menuOpen: s.menu, menuExpanded: s.menu ? 'true' : 'false',
+      toggleMenu: () => this.setState({ menu: !s.menu }),
+      start: () => this.setState({ mode: 'waiting' }),
+      markPaid: () => { this.chime(); this.setState({ mode: 'paid' }); },
+      cancel: () => this.setState({ mode: 'standby' }),
+      next: () => this.setState({ mode: 'standby' })
+    };
+  }
+}
+</script>
+</body>
+</html>

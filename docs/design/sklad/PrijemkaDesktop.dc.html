@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<title>Sklad – Príjemka (notebook)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#111}a:hover{color:#000}
+.muted{color:#5C5C5C}
+.nav a{font-size:15px;font-weight:600;color:#5C5C5C;text-decoration:none;padding:8px 0}
+.nav a.on{color:#111}
+.tab{flex:none;padding:12px 2px;font-size:15px;font-weight:600;color:#5C5C5C;text-decoration:none;border-bottom:2px solid transparent}
+.tab.on{color:#111;border-bottom-color:#111}
+.card{border:1px solid #E4E4E4;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 16px;border-radius:12px;border:1px solid #111;background:#111;color:#fff;font:700 15px Quicksand,sans-serif;text-decoration:none;cursor:pointer;box-sizing:border-box}
+.btn.ghost{background:#fff;color:#111;border-color:#D6D6D6}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 12px;border:1px solid #E4E4E4;border-radius:17px;font-size:14px;font-weight:600;white-space:nowrap;background:#fff}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:700;color:#3D3D3D;flex:1 1 180px}
+.fld input,.fld .sel{min-height:44px;border:1px solid #D6D6D6;border-radius:10px;padding:0 12px;font:500 15px Quicksand,sans-serif;color:#111;background:#fff;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between}
+.tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap}
+.src{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#3D3D3D}
+table{border-collapse:collapse;width:100%;min-width:860px;font-size:15px}
+th{text-align:left;font-size:13px;font-weight:700;color:#5C5C5C;padding:10px 10px;border-bottom:1px solid #E4E4E4}
+td{padding:10px;border-bottom:1px solid #E4E4E4;vertical-align:top}
+td.n,th.n{text-align:right;white-space:nowrap}
+.cell{width:84px;min-height:40px;border:1px solid #D6D6D6;border-radius:8px;padding:0 8px;font:700 15px Quicksand,sans-serif;text-align:right;box-sizing:border-box}
+.bar{height:6px;border-radius:3px;background:#E1E1E1}
+</style>
+</helmet>
+<div style="min-height:980px;background:#fff;color:#111;font-family:Quicksand,sans-serif">
+  <header style="border-bottom:1px solid #E4E4E4">
+    <div style="max-width:1240px;margin:0 auto;padding:12px 24px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 28px">
+      <strong style="font-size:17px">Môj obchod · Davide – farby</strong>
+      <nav class="nav" aria-label="Môj obchod" style="display:flex;flex-wrap:wrap;gap:4px 22px">
+        <a href="#">Obchod</a><a href="#">Obsah stránky</a><a href="#">Novinky</a><a href="#">Asistent</a><a class="on" href="PredajTablet.dc.html" aria-current="page">Sklad</a><a href="#">Predplatné</a>
+      </nav>
+    </div>
+  </header>
+
+  <div style="max-width:1240px;margin:0 auto;padding:20px 24px 40px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px">
+      <h1 style="margin:0;font-size:28px;font-weight:700">Sklad</h1>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <span class="chip"><span style="width:10px;height:10px;border-radius:5px;background:#1E9E5A" aria-hidden="true"></span>Skener pripojený</span>
+        <span class="chip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Telefón 1 pripojený</span>
+      </div>
+    </div>
+    <nav aria-label="Časti skladu" style="display:flex;flex-wrap:wrap;gap:24px;border-bottom:1px solid #E4E4E4">
+      <a class="tab" href="PredajTablet.dc.html">Predaj</a>
+      <a class="tab" href="ProduktDesktop.dc.html">Produkty</a>
+      <a class="tab on" href="PrijemkaDesktop.dc.html" aria-current="page">Príjemky</a>
+      <a class="tab" href="#">Inventúra</a>
+      <a class="tab" href="#">Pohyby</a>
+      <a class="tab" href="#">Dodávatelia</a>
+    </nav>
+
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px">
+      <h2 style="margin:0;font-size:24px">Príjemka P-2026-042 <span class="muted" style="font-size:16px;font-weight:600">· koncept</span></h2>
+      <span style="font-size:14px" class="muted">Začatá dnes 14:20 · David</span>
+    </div>
+
+    <div class="card" style="flex-direction:row;flex-wrap:wrap;align-items:flex-end;gap:12px">
+      <div class="fld">Dodávateľ<button type="button" class="sel" style="cursor:pointer;font-weight:700">[Dodávateľ] · IČO [IČO]<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
+      <label class="fld">Číslo faktúry<input type="text" value="FA2026-0187"></label>
+      <label class="fld" style="flex:0 1 160px">Dátum dodania<input type="text" value="28. 10. 2026"></label>
+      <div class="fld" style="flex:0 1 200px">Naskladniť do<button type="button" class="sel" style="cursor:pointer;font-weight:700">Sklad – zadná miestnosť<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+      <aside aria-label="Faktúra" style="flex:1 1 260px;max-width:320px;display:flex;flex-direction:column;gap:10px">
+        <div class="card" style="gap:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h3 style="margin:0;font-size:16px">Faktúra</h3>
+            <a href="#" style="font-size:14px;font-weight:600">Otvoriť</a>
+          </div>
+          <div role="img" aria-label="Náhľad nahranej faktúry" style="aspect-ratio:210/297;border:1px solid #D6D6D6;border-radius:8px;background:#FAFAFA;padding:18px 16px;box-sizing:border-box;display:flex;flex-direction:column;gap:9px">
+            <span class="bar" style="width:55%;height:9px;background:#C9C9C9"></span>
+            <span class="bar" style="width:35%"></span>
+            <span class="bar" style="width:45%;margin-bottom:10px"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar" style="background:#FFD9B0"></span>
+            <span class="bar"></span>
+            <span class="bar" style="background:#FFE9A8"></span>
+            <span class="bar" style="background:#E1E1E1"></span>
+            <span class="bar" style="width:40%;margin-left:auto;margin-top:10px;height:8px;background:#C9C9C9"></span>
+          </div>
+          <span style="font-size:13px" class="muted">faktura_FA2026-0187.jpg · nahrané z telefónu</span>
+          <span style="display:flex;align-items:center;gap:6px;font-size:14px;font-weight:700;color:#146C37">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#146C37" stroke-width="2.5" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>AI prečítala 6 riadkov · súčet sedí</span>
+        </div>
+        <button type="button" class="btn ghost">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Nahrať ďalšiu stranu (PDF / foto)</button>
+      </aside>
+
+      <section aria-label="Riadky príjemky" style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:16px">
+        <div class="card" style="gap:8px">
+          <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px">
+            <h3 style="margin:0;font-size:17px">Riadky</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <button type="button" class="btn ghost" style="min-height:40px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>Skenovať</button>
+              <button type="button" class="btn ghost" style="min-height:40px">+ Pridať riadok</button>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Z faktúry</th><th>Produkt v sklade</th><th class="n">Množstvo</th><th class="n">Nákup/ks bez DPH</th><th class="n">Spolu</th><th></th></tr></thead>
+              <tbody>
+                <tr><td><span class="src">Fasád.farba biela 5L</span></td><td><strong>Farba fasádna biela 5 l</strong><br><span class="tag" style="background:#E3F4EA;color:#146C37;margin-top:4px">Spárované podľa EAN</span></td><td class="n"><input class="cell" type="text" value="12" aria-label="Množstvo"></td><td class="n"><input class="cell" type="text" value="15,80" aria-label="Nákupná cena"></td><td class="n"><strong>189,60 €</strong></td><td class="n"><button type="button" aria-label="Odstrániť riadok" style="width:40px;height:40px;border:1px solid #E4E4E4;border-radius:8px;background:#fff;cursor:pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button></td></tr>
+                <tr><td><span class="src">Stetec plochy 50mm</span></td><td><strong>Štetec plochý 50 mm</strong><br><span class="tag" style="background:#E3F4EA;color:#146C37;margin-top:4px">Spárované podľa názvu</span></td><td class="n"><input class="cell" type="text" value="20" aria-label="Množstvo"></td><td class="n"><input class="cell" type="text" value="1,35" aria-label="Nákupná cena"></td><td class="n"><strong>27,00 €</strong></td><td></td></tr>
+                <tr><td><span class="src">Pas.maliar. 38mm/50m</span></td><td><strong>Maliarska páska 38 mm</strong><br><span class="tag" style="background:#E3F4EA;color:#146C37;margin-top:4px">Spárované podľa EAN</span></td><td class="n"><input class="cell" type="text" value="24" aria-label="Množstvo"></td><td class="n"><input class="cell" type="text" value="1,10" aria-label="Nákupná cena"></td><td class="n"><strong>26,40 €</strong></td><td></td></tr>
+                <tr style="background:#FFFAF3"><td><span class="src">Lazura teak 0,75L</span></td><td><strong>Lazúra na drevo teak 0,75 l</strong><br><span class="tag" style="background:#FFF1E0;color:#8A3B00;margin-top:4px">Nový produkt – návrh AI</span><br><a href="PrijemkaAI.dc.html" style="font-size:13px;font-weight:600">Skontrolovať a doplniť predajnú cenu</a></td><td class="n"><input class="cell" type="text" value="6" aria-label="Množstvo"></td><td class="n"><input class="cell" type="text" value="7,40" aria-label="Nákupná cena"></td><td class="n"><strong>44,40 €</strong></td><td></td></tr>
+                <tr style="background:#FFFCEF"><td><span class="src">Valcek 25cm</span></td><td><strong>Valček 25 cm</strong><br><span class="tag" style="background:#FFF6D6;color:#6B4E00;margin-top:4px">Skontrolujte – 2 podobné produkty</span><br><a href="#" style="font-size:13px;font-weight:600">Zmeniť produkt</a></td><td class="n"><input class="cell" type="text" value="10" aria-label="Množstvo"></td><td class="n"><input class="cell" type="text" value="3,90" aria-label="Nákupná cena"></td><td class="n"><strong>39,00 €</strong></td><td></td></tr>
+                <tr style="color:#5C5C5C"><td><span class="src">Doprava</span></td><td>Nie je tovar – nenaskladní sa<br><span class="tag" style="background:#EDEDED;color:#3D3D3D;margin-top:4px">Preskočené</span></td><td class="n">1</td><td class="n">8,00</td><td class="n">8,00 €</td><td></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px">
+          <div style="display:grid;grid-template-columns:auto auto;gap:4px 24px;font-size:15px">
+            <span class="muted">Naskladní sa</span><strong>+72 ks · 5 produktov</strong>
+            <span class="muted">Spolu bez DPH</span><strong>326,40 €</strong>
+            <span class="muted">DPH 23 %</span><strong>75,07 €</strong>
+            <span class="muted">Spolu s DPH</span><strong style="font-size:20px">401,47 €</strong>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+            <span style="font-size:13px;color:#8A3B00;font-weight:600">1 nový produkt nemá predajnú cenu.</span>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <button type="button" class="btn ghost">Uložiť koncept</button>
+              <button type="button" class="btn" style="min-height:52px;font-size:16px">Potvrdiť príjemku</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
