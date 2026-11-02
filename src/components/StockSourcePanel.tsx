@@ -28,7 +28,9 @@ export function StockSourcePanel({
 }) {
   const router = useRouter();
   const [source, setSource] = useState(initial);
-  const [choice, setChoice] = useState<"file" | "agent">(initial.active === "agent" ? "agent" : "file");
+  const [choice, setChoice] = useState<"file" | "agent" | "sklad">(
+    initial.active === "agent" || initial.active === "sklad" ? initial.active : "file",
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const l = labels as Record<string, string>;
@@ -59,7 +61,7 @@ export function StockSourcePanel({
     }
   }
 
-  const option = (value: "file" | "agent", title: string, hint: string, disabled = false) => (
+  const option = (value: "file" | "agent" | "sklad", title: string, hint: string, disabled = false) => (
     <label className={`flex gap-3 border p-3 ${choice === value ? "border-foreground" : "border-line"} ${disabled ? "opacity-60" : "cursor-pointer"}`}>
       <input
         type="radio"
@@ -84,6 +86,13 @@ export function StockSourcePanel({
         <legend className="sr-only">{labels.title}</legend>
         {option("file", labels.file, labels.file_hint)}
         {option("agent", labels.agent, source.devices > 0 ? labels.agent_hint : labels.agent_no_device, source.devices === 0)}
+        {option(
+          "sklad",
+          labels.sklad,
+          source.sklad_limit != null && Math.max(source.shop_products ?? 0, source.sklad_products ?? 0) > source.sklad_limit
+            ? fill(labels.sklad_over_limit, { n: String(source.shop_products ?? 0), limit: String(source.sklad_limit) })
+            : labels.sklad_hint,
+        )}
       </fieldset>
       <button
         type="button"

@@ -55,3 +55,4 @@ supabase/.branches/
 /test-results/
 /playwright-report/
 /.lighthouseci/
+/public/zxing/

@@ -171,12 +171,22 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
       <p className="font-semibold">{sst.agent_lock_note}</p>
       <p>{sst.agent_lock_text}</p>
     </div>
+  ) : source?.active === "sklad" ? (
+    <div className="flex flex-col gap-1 border border-foreground p-3 text-sm" data-sklad-lock>
+      <p className="font-semibold">{sst.sklad_lock_note}</p>
+      <p>
+        {sst.sklad_lock_text}{" "}
+        <a href={`/${lang}/dashboard/sklad?${new URLSearchParams({ shop: shop.slug })}`} className="underline underline-offset-4">
+          {sst.sklad_open}
+        </a>
+      </p>
+    </div>
   ) : null;
   const sourceSummary = !source
     ? ""
     : source.active === "api"
       ? t(sst.summary_api, { program: programName })
-      : source.active === "agent" ? sst.summary_agent : sst.summary_file;
+      : source.active === "agent" ? sst.summary_agent : source.active === "sklad" ? sst.summary_sklad : sst.summary_file;
   const summaries = {
     export: state?.files_cleared
       ? r.files_none
@@ -223,10 +233,10 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
           </DashboardSection>
         )}
 
-        {api && source?.active === "agent" && !apiConn ? (
+        {api && (source?.active === "agent" || source?.active === "sklad") && !apiConn ? (
           <DashboardSection {...m.section("api")} title={ia.title} summary={ia.summary_none}>
             <p className="text-sm" data-api-blocked>
-              {sst.api_blocked}
+              {source?.active === "sklad" ? sst.api_blocked_sklad : sst.api_blocked}
             </p>
           </DashboardSection>
         ) : api && (

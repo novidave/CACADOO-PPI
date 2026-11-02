@@ -153,6 +153,9 @@ export function toolError(message: string): string {
     booking: "The booking link must be an https address.",
     phone: "That phone number is not valid.",
     slot_taken: "That time is already booked.",
+    // update 67: while "Sklad v Cacaduu" is the stock source, only its movements change the stock
+    sklad_active:
+      "This shop keeps its stock in \"Sklad v Cacaduu\": quantities change only as movements (receipt, issue, write-off, transfer, correction) in Môj obchod → Sklad, so update_stock cannot change them.",
   };
   return texts[reason] ?? "The request failed.";
 }

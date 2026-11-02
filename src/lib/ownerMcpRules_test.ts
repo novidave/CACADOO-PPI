@@ -57,5 +57,6 @@ Deno.test("redirects keep the client's own query; refusals become plain texts fo
   eq(redirectWith("http://localhost:7777/cb?x=1", { code: "c", state: null, iss: SITE }), `http://localhost:7777/cb?x=1&code=c&iss=${encodeURIComponent(SITE)}`, "query");
   eq(toolError("scope: shop.write").includes("shop.write"), true, "scope named");
   eq(toolError("bad_argument: quantity / price"), "Invalid argument: quantity / price.", "argument");
+  eq(toolError("sklad_active").includes("Sklad v Cacaduu"), true, "Sklad mode explained");
   eq(toolError("something odd"), "The request failed.", "unknown");
 });
