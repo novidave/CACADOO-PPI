@@ -81,6 +81,24 @@ OPEN
    Steps: Claude will show you the exact new lines for the privacy page; write "OK" or your changes.
 
 
+16. Sklad → Predaj: add the shop's IBAN for QR payments and try one sale
+   Why: "QR platba" stays off until the shop's IBAN is saved; the Predaj screen was tested without a real login.
+   Steps:
+   a) cacaduu.com → log in → Môj obchod → Sklad → Nastavenia → "Platba QR (PAY by square)" → the shop's IBAN (BIC and
+      payee name only if you want) → Uložiť.
+   b) Sklad → Predaj → scan or search a product → Hotovosť → "Potvrdiť predaj" → check the shop page's quantity.
+   c) Choose "QR platba" → "Zobraziť QR" → scan the code with your banking app (check the amount and the VS; you need
+      not send the money) → "Zrušiť predaj".
+
+17. Sklad → Príjemky: read one real invoice with the AI (once)
+   Why: the AI's reading of invoices was tested without a real invoice.
+   Steps:
+   a) Môj obchod → Sklad → Príjemky → "+ Nová príjemka" → "Faktúra (AI)" → take a photo of a supplier's invoice (or
+      choose its PDF).
+   b) Check the lines it found (the product, the pieces, the purchase price), add them, fill in sale prices of new
+      products → "Potvrdiť príjemku" → the products' stock goes up.
+   c) Tell Claude what was read wrong, if anything.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)

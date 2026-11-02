@@ -56,6 +56,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | E-mail alerts when a shop's stock stops arriving | Not built |
 | "Sklad v Cacaduu" phase A (Prompt 14, database update 67): a new stock source for shops without stock software — the stock kept as movements (príjem, výdaj, odpis, presun, oprava; never typed over, append-only, each once by its own id), locations ("Predajňa", "Sklad"), the shop page fed from the total and the sale price after every movement, "Stav je správny" once a day (24 h rule), Free 50 products / Pro unlimited, private purchase prices and margin, USB scanner and phone camera, XLSX exports, a daily reminder e-mail | Built and tested; live after database update 67, the "sklad" function and the merge (SETUP.md part AY) |
 | "Sklad v Cacaduu" phase B — Predaj (database update 68): selling at the counter on a phone, tablet or computer — a basket filled by the USB scanner, the camera, the search or a tap; Hotovosť / Karta take the goods off the stock at once (the receipt stays the shop's eKasa), QR platba shows a PAY by square code (IBAN, amount, variable symbol) and waits for "Zaplatené"; each sale once by its own id; a QR terminal on a spare phone for the customer | Built and tested; live after database update 68 and the merge (SETUP.md part AZ) |
+| "Sklad v Cacaduu" phase C — Príjemky (database update 69): goods receipts with many lines — supplier, invoice number, delivery date, the location; lines from the scanner, the search, "+ Nový produkt" or the AI reading an invoice photo / PDF (paired with the shop's products in SQL: EAN, code, name; unsure → choose; new → name, EAN, sale price); a draft until "Potvrdiť príjemku", then stocked once with purchase prices (last and average) and the supplier | Built and tested; live after database update 69 and the merge (SETUP.md part BA) |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2222,3 +2223,35 @@ phone, a tablet or a computer; designs "Predaj (mobil)", "Predaj na tablete", "P
   API/MCP, the shop assistant or logs. Today's sales: "Dnes: 3 predaje · 54,10 €" on the Predaj tab.
 - **Not in phase B:** a phone scanning into a tablet's basket ("Telefón 1 pripojený"), categories on the tablet's
   tiles, card terminals, bank connections (automatic confirmation) and eKasa itself.
+
+
+### 6.41 "Sklad v Cacaduu", phase C: Príjemky (database update 69, 2 November 2026, at the owner's request)
+
+Goods from a supplier come into Sklad as a **príjemka**: Môj obchod → Sklad → **Príjemky** (designs "Príjemka",
+"Príjemka – faktúra AI", "Príjemka (počítač)").
+
+- **The list:** drafts first, then the confirmed receipts (number P-2026-042, supplier, invoice, date, location, the sum
+  without VAT, lines and pieces); "+ Nová príjemka".
+- **A receipt:** Dodávateľ (the suppliers already written are offered), Číslo faktúry, Dátum dodania, "Naskladniť do"
+  (the receipt location by default, Nastavenia → Miesta skladu). Lines come from the USB scanner or the camera (a
+  known code adds a piece, an unknown one starts a new product with that EAN), the search (name without accents, code,
+  EAN), "+ Nový produkt" or the AI. Each line: pieces (− / + or typed), "Nákup/ks" = the purchase price per piece
+  without VAT; a new product also its name, EAN and sale price with VAT ("Produkt vznikne až po potvrdení príjemky.
+  Bez predajnej ceny sa na stránke obchodu nezobrazí."). The sums: without VAT, VAT per product's rate, with VAT.
+- **"Uložiť koncept"** keeps the draft (numbered on the first save; it stocks nothing). **"Potvrdiť príjemku"** makes
+  the new products (within the plan's 50 / unlimited — over it the whole receipt waits, nothing is stocked), stocks
+  every line once (a Príjem movement "P-2026-042 · FA2026-0187" at the chosen location), updates the last and average
+  purchase prices and the products' supplier (all private), and the shop page shows the new stock. A second tap or a
+  retry stocks nothing twice. A confirmed receipt never changes (a mistake = an Oprava on the product card); a draft
+  can be discarded ("Zahodiť koncept", kept, never deleted).
+- **"Faktúra (AI)":** a photo of an invoice or delivery note (made smaller in the browser, no photo data) or a PDF (its
+  text read in the browser; a scan's first page as a picture). Claude reads the supplier, number, date, the total
+  without VAT and every line as written; the lines are paired with the shop's products **in the database** — "Spárované
+  podľa EAN" / "podľa kódu" / "podľa názvu", "Skontrolujte produkt" (similar products to choose from, or "Ako nový
+  produkt"), "Nový produkt – návrh" (name, EAN, sale price to fill in), "Preskočené – nie je tovar" (transport,
+  deposit…). "Súčet riadkov sedí s faktúrou" when the lines add up. Nothing is saved until the owner adds the lines and
+  confirms the receipt. Free shops 5, Pro 50 readings a day; without the AI key the button explains it is not set up.
+- **Private:** purchase prices, suppliers, invoices and the readings are the owners' only (never public, in the API/MCP,
+  the shop assistant or logs; the invoice is never stored).
+- **Not in phase C:** a "Dodávatelia" page of its own, several pages of one invoice in one reading, receipts from a POS
+  or an e-mail.

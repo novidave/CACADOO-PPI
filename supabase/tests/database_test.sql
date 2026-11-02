@@ -12409,4 +12409,172 @@ reset role;
 drop table t68;
 drop table t68_inv;
 
+\echo '--- update 69: Sklad Príjemky — draft, numbered, new products made on confirm, once by line ids, costs, supplier, AI matching, owners only'
+create temporary table t69 (k text primary key, v text);
+grant all on t69 to public;
+create temporary table t69_inv as
+  select inv.* from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  join public.shops s on s.id = si.shop_id where s.slug = 'potraviny-centrum';
+grant all on t69_inv to public;
+set role service_role;
+insert into t69 values ('fresh', (select latest_file_time::text from public.sync_sources s join public.shops sh on sh.id = s.shop_id where sh.slug = 'potraviny-centrum'));
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid;
+  v_back uuid;
+  v_r uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  v_p := public.owner_sklad_save_product(v_a, null, '{"name":"Farba fasádna biela 5 l","ean":"8580000102315","sale_price":"24.90"}');
+  v_back := (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview(v_a) -> 'locations') l where (l ->> 'receipt_default')::boolean);
+  insert into t69 values ('p', v_p::text), ('r', v_r::text), ('back', v_back::text);
+  -- a draft: numbered, the receipt location by default, totals without VAT
+  vj := public.owner_sklad_receipt_save(v_a, v_r, jsonb_build_object('supplier', 'Dodávateľ s.r.o.', 'invoice_no', 'FA2026-0187',
+          'delivered_on', '2026-10-28', 'lines', jsonb_build_array(
+            jsonb_build_object('item_id', v_p, 'qty', 12, 'unit_cost', '15.80', 'src', 'Fasád.farba biela 5L'),
+            jsonb_build_object('item_id', null, 'name', 'Lazúra na drevo teak 0,75 l', 'ean', '8580000208734', 'qty', 6, 'unit_cost', '7.40', 'sale_price', '12.90'))));
+  assert vj ->> 'status' = 'draft' and vj ->> 'number' ~ '^P-[0-9]{4}-001$' and (vj ->> 'location_id')::uuid = v_back
+     and (vj ->> 'total')::numeric = 234.00 and (vj ->> 'pieces')::numeric = 18, vj::text;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 0, 'a draft stocks nothing';
+  -- saved again: the same number, the lines replaced
+  vj := public.owner_sklad_receipt_save(v_a, v_r, jsonb_build_object('lines', vj -> 'lines'));
+  assert vj ->> 'number' ~ '-001$' and jsonb_array_length(vj -> 'lines') = 2, vj::text;
+  -- refusals
+  begin perform public.owner_sklad_receipt_save(v_a, gen_random_uuid(), '{"lines":[{"item_id":null,"qty":1}]}'); raise exception 'new product without a name';
+  exception when invalid_parameter_value then if sqlerrm <> 'name' then raise; end if; end;
+  begin perform public.owner_sklad_receipt_save(v_a, gen_random_uuid(), '{"lines":[{"item_id":null,"name":"x","qty":0}]}'); raise exception 'zero';
+  exception when invalid_parameter_value then if sqlerrm <> 'qty' then raise; end if; end;
+  begin perform public.owner_sklad_receipt_confirm(v_a, (public.owner_sklad_receipt_save(v_a, gen_random_uuid(), '{}') ->> 'id')::uuid);
+    raise exception 'empty receipt confirmed';
+  exception when invalid_parameter_value then if sqlerrm <> 'empty' then raise; end if; end;
+  -- confirm: the new product made, both stocked once, costs and supplier kept
+  vj := public.owner_sklad_receipt_confirm(v_a, v_r);
+  assert vj ->> 'status' = 'done' and not (vj ->> 'duplicate')::boolean and (vj -> 'lines' -> 1 ->> 'item_id') is not null, vj::text;
+  insert into t69 values ('new', vj -> 'lines' -> 1 ->> 'item_id');
+  vj := public.owner_sklad_product(v_a, v_p);
+  assert (vj ->> 'total')::numeric = 12 and (vj ->> 'last_cost')::numeric = 15.80 and vj ->> 'supplier' = 'Dodávateľ s.r.o.', vj::text;
+  vj := public.owner_sklad_product(v_a, (select v::uuid from t69 where k = 'new'));
+  assert vj ->> 'name' = 'Lazúra na drevo teak 0,75 l' and vj ->> 'ean' = '8580000208734' and (vj ->> 'sale_price')::numeric = 12.90
+     and (vj ->> 'total')::numeric = 6 and (vj ->> 'avg_cost')::numeric = 7.40 and (vj ->> 'public')::boolean, vj::text;
+  assert (select quantity from public.public_stock where item_id = v_p) = 12, 'the shop page follows';
+  -- a second "Potvrdiť": nothing counted twice; a confirmed receipt never changes
+  vj := public.owner_sklad_receipt_confirm(v_a, v_r);
+  assert (vj ->> 'duplicate')::boolean and (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 12, vj::text;
+  assert (public.owner_sklad_movements(v_a, v_p, 'receipt') ->> 'total')::int = 1;
+  assert (public.owner_sklad_movements(v_a, v_p, 'receipt') -> 'rows' -> 0 ->> 'ref') like 'P-%-001 · FA2026-0187';
+  begin perform public.owner_sklad_receipt_save(v_a, v_r, '{"supplier":"iný"}'); raise exception 'done receipt changed';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'done' then raise; end if; end;
+  begin perform public.owner_sklad_receipt_discard(v_a, v_r); raise exception 'done receipt discarded';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'done' then raise; end if; end;
+  -- a second draft numbered 002, discarded: kept, not listed, never confirmable
+  vj := public.owner_sklad_receipt_save(v_a, gen_random_uuid(), jsonb_build_object('lines', jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 1))));
+  assert vj ->> 'number' ~ '-002$' or vj ->> 'number' ~ '-00[2-9]$', vj::text;
+  perform public.owner_sklad_receipt_discard(v_a, (vj ->> 'id')::uuid);
+  begin perform public.owner_sklad_receipt_confirm(v_a, (vj ->> 'id')::uuid); raise exception 'discarded confirmed';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'discarded' then raise; end if; end;
+  vj := public.owner_sklad_receipts(v_a);
+  assert not exists (select 1 from jsonb_array_elements(vj -> 'rows') r where r ->> 'status' = 'discarded')
+     and vj -> 'suppliers' ? 'Dodávateľ s.r.o.', vj::text;
+  -- the AI's lines paired in SQL: EAN, name, a new product
+  vj := public.owner_sklad_match(v_a, jsonb_build_array(
+          jsonb_build_object('text', 'Fasad.farba 5L', 'ean', '8580000102315'),
+          jsonb_build_object('text', 'Lazura na drevo teak 0,75 l'),
+          jsonb_build_object('text', 'Úplne iný tovar XYZ 123')));
+  assert vj -> 0 ->> 'kind' = 'ean' and (vj -> 0 ->> 'item_id')::uuid = v_p
+     and vj -> 1 ->> 'kind' in ('name', 'unsure') and vj -> 2 ->> 'kind' = 'new', vj::text;
+  -- the AI's daily readings
+  assert public.sklad_ai_hit(v_a);
+end $$;
+reset role;
+
+-- owner B and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_sklad_receipt(v_a, (select v::uuid from t69 where k = 'r')); raise exception 'B read A''s receipt';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_receipt_save(v_a, gen_random_uuid(), '{}'); raise exception 'B wrote A''s receipt';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_match(v_a, '[]'); raise exception 'B matched in A';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sklad_ai_hit(v_a); raise exception 'B used A''s readings';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_receipts; raise exception 'owners read the receipts table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform count(*) from public.sklad_receipts; raise exception 'anon read receipts';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_receipts((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'anon list';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the free plan's limit stops a receipt with too many new products as a whole (nothing stocked)
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  insert into t69 values ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text);
+  delete from public.subscriptions where shop_id = v_a;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_lines jsonb := '[]'::jsonb;
+  v_id uuid := gen_random_uuid();
+  v_before integer;
+begin
+  v_before := (public.owner_stock_source(v_a) ->> 'sklad_products')::int;
+  for i in 1..(52 - v_before) loop
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object('name', 'Nový ' || i, 'qty', 1));
+  end loop;
+  perform public.owner_sklad_receipt_save(v_a, v_id, jsonb_build_object('lines', v_lines));
+  begin perform public.owner_sklad_receipt_confirm(v_a, v_id); raise exception 'over the plan limit';
+  exception when raise_exception then if sqlerrm <> 'plan_limit' then raise; end if; end;
+  assert (public.owner_stock_source(v_a) ->> 'sklad_products')::int = v_before, 'nothing made';
+  assert public.owner_sklad_receipt(v_a, v_id) ->> 'status' = 'draft';
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t69 where k = 'sub'))
+  where (select v from t69 where k = 'sub') is not null;
+  delete from public.sklad_receipts where shop_id = v_a;
+  delete from public.sklad_ai_usage where shop_id = v_a;
+  delete from public.sklad_sales where shop_id = v_a;
+  delete from public.sklad_items where shop_id = v_a;
+  delete from public.shop_items si where si.shop_id = v_a and not exists (select 1 from t69_inv t where t.shop_item_id = si.id);
+  delete from public.sklad_locations where shop_id = v_a;
+  delete from public.sklad_settings where shop_id = v_a;
+  delete from public.shop_stock_source where shop_id = v_a;
+  delete from public.inventory inv using public.shop_items si where si.id = inv.shop_item_id and si.shop_id = v_a;
+  insert into public.inventory select * from t69_inv;
+  update public.sync_sources set latest_file_time = (select v::timestamptz from t69 where k = 'fresh') where shop_id = v_a;
+end $$;
+reset role;
+drop table t69;
+drop table t69_inv;
+
 \echo 'ALL DATABASE CHECKS PASSED'

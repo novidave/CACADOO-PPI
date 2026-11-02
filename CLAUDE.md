@@ -645,8 +645,8 @@ Pomocník, which does not exist yet.
 ## "Sklad v Cacaduu" (phase A, update 67, Prompt 14, 2026-11-02)
 
 `supabase/sql/67_sklad.sql` + `supabase/functions/sklad` (one file, Verify JWT off: the daily reminder e-mail and IndexNow,
-pg_cron `ppi-sklad-tick` 15 min, Vault `ppi_sklad_cron`) + `dashboard/sklad` (Prehľad · Produkty · Pohyby · Nastavenia;
-Predaj, Príjemky, Inventúra come with their phases) + `@/components/SkladScanner` + `@/lib/sklad` + `/api/owner/sklad/export`.
+pg_cron `ppi-sklad-tick` 15 min, Vault `ppi_sklad_cron`) + `dashboard/sklad` (Prehľad · Predaj · Príjemky · Produkty · Pohyby ·
+Nastavenia; Inventúra comes with its phase) + `@/components/SkladScanner` + `@/lib/sklad` + `/api/owner/sklad/export`.
 Design: Claude Design canvas "Cacaduu – Sklad (Môj obchod)", screens 4, 5, 13, 14, 15. **A fourth stock source** —
 `shop_stock_source.source = 'sklad'`, `stock_source_of()` = api > agent > sklad > file; while it is active it is the
 **only writer**: `upload_check_in()` raises `sklad_active`, no inventory program, POS snapshots end `test_ok`, and the
@@ -682,6 +682,18 @@ the server; IBAN only via `owner_sklad_save_payment`, mod 97) → pending, nothi
 (`sklad_sales_tidy`). VS = YYMMDD (shop's day) + 4 digits. Scans: `SkladScanner` sends a cancelable `sklad:scan`; Predaj
 takes it. The basket = localStorage `ppi.sklad.basket.<shop id>` through `useSyncExternalStore`. Texts `sklad.sale_*`,
 `pay_*`, `qr_*`, `term_*`. Tests: DB block "update 68", `npm run test:sklad`.
+
+## "Sklad v Cacaduu" phase C: Príjemky (update 69, 2026-11-02)
+
+`supabase/sql/69_sklad_prijemky.sql` + `dashboard/sklad/receipts` (list, `new`, `[id]`, `editor.tsx`) +
+`@/components/SkladPrijemka` + `@/lib/invoiceRead` (server only). A receipt = `sklad_receipts` (the client's UUID,
+P-<year>-<NNN>, draft|done|discarded — never deleted); `owner_sklad_receipt_save` changes drafts only;
+`owner_sklad_receipt_confirm` makes new products (`owner_sklad_save_product`: plan limit, EAN), stocks each line once
+(`owner_sklad_move` with the id md5(receipt id ':' line)), sets the supplier — one transaction, a retry = duplicate.
+"Faktúra (AI)": the browser sends a JPEG ≤ 1568 px or the PDF's text → `readInvoiceLines` (`ANTHROPIC_API_KEY` else
+`ai_off`; `sklad_ai_hit` Free 5 / Pro 50 a day) → Claude (`aiModel()`, structured output, the document is data) →
+`cleanInvoice` → **pairing only in SQL** (`owner_sklad_match`: EAN, code, trigram name). Nothing is stored before the
+owner confirms; invoices never logged. Texts `sklad.rc_*`, `ai_*`. Tests: DB block "update 69", `npm run test:sklad`.
 
 ## Cloud folder (paid, update 23)
 

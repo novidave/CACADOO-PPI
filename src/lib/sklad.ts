@@ -379,3 +379,107 @@ export function saleProducts(rows: SkladRow[]): SaleProduct[] {
     unit: r.unit || "ks",
   }));
 }
+
+// ---------------------------------------------------------------- Príjemky (database update 69)
+
+/** One line of a receipt: a Sklad product (item_id) or a new one (name, EAN, sale price), pieces, cost without VAT. */
+export interface ReceiptLine {
+  item_id: string | null;
+  name: string;
+  code: string | null;
+  ean: string | null;
+  qty: number;
+  unit_cost: number | null;
+  sale_price: number | null;
+  vat_rate: number;
+  src: string | null;
+}
+
+/** One more piece of a product (a new line at the end, at most 200 lines). */
+export function addReceiptLine(lines: ReceiptLine[], p: { id: string; name: string; code: string | null; vat_rate?: number; last_cost?: number | null }, n = 1): ReceiptLine[] {
+  const at = lines.findIndex((l) => l.item_id === p.id);
+  if (at >= 0) return lines.map((l, i) => (i === at ? { ...l, qty: Math.min(MAX_QTY, l.qty + n) } : l));
+  if (lines.length >= MAX_LINES) return lines;
+  return [...lines, { item_id: p.id, name: p.name, code: p.code, ean: null, qty: n, unit_cost: p.last_cost ?? null, sale_price: null, vat_rate: p.vat_rate ?? 23, src: null }];
+}
+
+/** The receipt's sums in cents: without VAT, the VAT per line's rate, with VAT; pieces; new products without a price. */
+export function receiptTotals(lines: ReceiptLine[]) {
+  let net = 0;
+  let vat = 0;
+  let pieces = 0;
+  for (const l of lines) {
+    const lineNet = cents((l.unit_cost ?? 0) * l.qty);
+    net += lineNet;
+    vat += Math.round((lineNet * (l.vat_rate ?? 23)) / 100);
+    pieces += l.qty;
+  }
+  return {
+    net: net / 100,
+    vat: vat / 100,
+    gross: (net + vat) / 100,
+    pieces,
+    products: lines.length,
+    newWithoutPrice: lines.filter((l) => !l.item_id && l.sale_price === null).length,
+    newCount: lines.filter((l) => !l.item_id).length,
+  };
+}
+
+/** A line of the invoice as the AI read it (cleaned by cleanInvoice). */
+export interface InvoiceLine {
+  text: string;
+  ean: string;
+  code: string;
+  qty: number;
+  unit_net: number;
+  line_net: number;
+  goods: boolean;
+}
+
+export interface Invoice {
+  supplier: string;
+  invoice_no: string;
+  date: string;
+  total_net: number | null;
+  lines: InvoiceLine[];
+}
+
+const aiNum = (v: unknown, max = 1_000_000_000): number => {
+  const n = typeof v === "number" ? v : Number(String(v ?? "").replace(",", "."));
+  return Number.isFinite(n) && n >= 0 && n <= max ? Math.round(n * 10_000) / 10_000 : 0;
+};
+const str = (v: unknown, max: number) => String(v ?? "").replace(/[\u0000-\u001f]+/g, " ").trim().slice(0, max);
+
+/** The AI's answer made safe: texts cut, numbers ≥ 0, a date only as YYYY-MM-DD, at most 200 lines. */
+export function cleanInvoice(raw: unknown): Invoice {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const lines = Array.isArray(r.lines) ? r.lines : [];
+  const date = str(r.date, 10);
+  return {
+    supplier: str(r.supplier, 120),
+    invoice_no: str(r.invoice_no, 60),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "",
+    total_net: r.has_total === false ? null : aiNum(r.total_net) || null,
+    lines: lines.slice(0, 200).map((x) => {
+      const l = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
+      const qty = aiNum(l.qty, 1_000_000_000) || 1;
+      const unit = aiNum(l.unit_net);
+      return {
+        text: str(l.text, 200),
+        ean: /^[0-9]{8,14}$/.test(str(l.ean, 32)) ? str(l.ean, 32) : "",
+        code: str(l.code, 60),
+        qty: Math.round(qty * 1000) / 1000,
+        unit_net: unit,
+        line_net: aiNum(l.line_net) || Math.round(unit * qty * 100) / 100,
+        goods: l.goods !== false,
+      };
+    }).filter((l) => l.text || l.ean),
+  };
+}
+
+/** Whether the lines add up to the invoice's total without VAT (to the cent, ± 5 cents for rounding). */
+export function invoiceAddsUp(inv: Invoice): boolean | null {
+  if (inv.total_net === null) return null;
+  const sum = inv.lines.reduce((s, l) => s + cents(l.line_net), 0);
+  return Math.abs(sum - cents(inv.total_net)) <= 5;
+}
