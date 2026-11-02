@@ -539,7 +539,11 @@ SMS names one). Replies and codes take the shop's **owner** SMS quota (`hours_sm
 bound to shop + kind) in `business_profile_connections` (owners: status, location, last error/push only); one
 location per shop (`locations/<id>`); `PATCH {INFO_API}/locations/<id>?updateMask=regularHours,specialHours`
 (overnight closes the next day); "Poslať hodiny do Google teraz" for changes made on the website; 401 → expired;
-"Odpojiť" revokes and deletes. The Business Profile APIs need Google's approval for the project. Never log numbers,
+"Odpojiť" revokes and deletes. The Business Profile APIs need Google's approval for the project. **Google returns through cacaduu.com (2026-11-02):** Google accepts only redirect addresses on a domain the app owns,
+so bookings and hours-sms send `redirect_uri` = `<SITE_URL>/api/google/<function>/oauth` (`googleRedirect`; without
+an https SITE_URL their own `/oauth`), and `src/app/api/google/[fn]/oauth/route.ts` (`@/lib/googleOauth`, only these two
+functions) forwards Google's query unchanged with a 302 to `…/functions/v1/<function>/oauth`; the exchange uses the
+same `redirect_uri`. Both addresses stay registered in the Google OAuth client. Never log numbers,
 SMS texts, codes or tokens. Texts `hours_sms`.
 
 ## The owner's MCP server (paid, update 61, CRM phase 7)
@@ -640,7 +644,11 @@ never the owner's own — `auth.uid()` a member) and `callback` (trigger on `sho
 wait, `notify_daily_cap` per link and 24 h, access/plan re-checked; only time, service, name or the question — never a
 phone) → `telegram_notify_result()` (5 tries). Owners: `owner_telegram_prefs()` / `owner_telegram_save_prefs()`,
 "Poslať skúšobné upozornenie" = `owner_telegram_test()` (5/hour). T4 (setup helper, files/photos/blog drafts) needs a
-Pomocník, which does not exist yet.
+Pomocník, which does not exist yet. **Google Maps (2026-11-02):** a confirmed `set_opening_hours` also sends the week to the shop's Google
+Business Profile — the telegram function calls hours-sms `POST /service` (bearer = the service role key, only
+`google_push` of the named shop, `shopBySlug` → `pushToGoogle`, the same push as "Poslať hodiny do Google teraz");
+the reply adds "Google Mapy: hodiny aktualizované" / a failure line (`google_pushed` / `google_failed`), nothing when
+not connected.
 
 ## "Sklad v Cacaduu" (phase A, update 67, Prompt 14, 2026-11-02)
 

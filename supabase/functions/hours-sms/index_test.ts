@@ -11,6 +11,9 @@ function eq(actual: unknown, expected: unknown, label: string) {
   const b = JSON.stringify(expected);
   if (a !== b) throw new Error(`${label}\n  expected ${b}\n  got      ${a}`);
 }
+function ok(value: unknown, label: string) {
+  if (!value) throw new Error(label);
+}
 
 const SHOP = "11111111-2222-4333-8444-555555555555";
 const SHOP2 = "22222222-2222-4333-8444-555555555555";
@@ -378,4 +381,47 @@ Deno.test("Google's answer: state taken once, scope checked, tokens stored encry
   eq(denied.headers.get("Location"), "https://cacaduu.com/sk/dashboard/hours-sms?err=google_denied", "denied");
   const unknown = await setup();
   eq((await handle(new Request("https://p.supabase.co/functions/v1/hours-sms/oauth?state=zzz&code=c1"), unknown.deps)).status, 400, "unknown state");
+});
+
+Deno.test("through the website: Google's redirect_uri on cacaduu.com, the same one for the code exchange", async () => {
+  const { deps, log } = await setup({
+    rpc: { business_oauth_take: { data: [{ shop_id: SHOP, user_id: "u1", verifier: "v", return_url: "https://cacaduu.com/sk/dashboard/hours-sms" }] } },
+  });
+  deps.googleRedirect = "https://cacaduu.com/api/google/hours-sms/oauth";
+  const res = await handle(owner({ action: "google_connect", shop_id: SHOP, return_url: "https://cacaduu.com/sk/dashboard/hours-sms" }), deps);
+  eq(new URL((await res.json()).url).searchParams.get("redirect_uri"), "https://cacaduu.com/api/google/hours-sms/oauth", "consent");
+  const base = deps.fetch;
+  deps.fetch = ((url: string, init: RequestInit) =>
+    url.includes("oauth2.googleapis.com/token")
+      ? (log.push(`token ${String(init.body)}`), Promise.resolve(new Response(JSON.stringify({ access_token: "a1", refresh_token: "r1", expires_in: 3600, scope: BUSINESS_SCOPE }))))
+      : base(url, init)) as typeof fetch;
+  await handle(new Request("https://p.supabase.co/functions/v1/hours-sms/oauth?state=s1&code=c1"), deps);
+  const exchange = log.find((l) => l.startsWith("token "))!;
+  ok(exchange.includes(encodeURIComponent("https://cacaduu.com/api/google/hours-sms/oauth")), "the same redirect_uri in the exchange");
+});
+
+Deno.test("POST /service: only with the service role key, only google_push of one shop", async () => {
+  const { deps, log } = await setup({ connected: true });
+  deps.serviceKey = "service-role-key-0123456789";
+  deps.shopBySlug = (slug) => Promise.resolve(slug === "kvety-eva" ? { id: SHOP, opening_hours: { tue: [["08:00", "12:00"]] } } : null);
+  const service = (body: unknown, key = "service-role-key-0123456789") =>
+    new Request("https://p.supabase.co/functions/v1/hours-sms/service", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  eq((await handle(service({ action: "google_push", shop: "kvety-eva" }, "owner-jwt"), deps)).status, 401, "an owner's login is not enough");
+  eq((await handle(service({ action: "google_disconnect", shop: "kvety-eva" }), deps)).status, 400, "nothing else");
+  eq((await handle(service({ action: "google_push", shop: "../x" }), deps)).status, 400, "a bad slug");
+  eq((await handle(service({ action: "google_push", shop: "other" }), deps)).status, 404, "an unknown shop");
+  const res = await handle(service({ action: "google_push", shop: "kvety-eva" }), deps);
+  eq(await res.json(), { result: "pushed" }, "pushed");
+  const body = JSON.parse(log.find((l) => l.startsWith("fetch PATCH"))!.split(" ").slice(3).join(" "));
+  eq(body.regularHours.periods, [{ openDay: "TUESDAY", openTime: { hours: 8 }, closeDay: "TUESDAY", closeTime: { hours: 12 } }], "the shop's saved week");
+  const off = await setup();
+  off.deps.serviceKey = "service-role-key-0123456789";
+  off.deps.shopBySlug = () => Promise.resolve({ id: SHOP, opening_hours: {} });
+  eq(await (await handle(service({ action: "google_push", shop: "kvety-eva" }), off.deps)).json(), { result: "not_connected" }, "not connected");
+  const none = await setup();
+  eq((await handle(service({ action: "google_push", shop: "kvety-eva" }), none.deps)).status, 401, "no service key configured");
 });

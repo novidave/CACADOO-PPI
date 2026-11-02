@@ -3468,7 +3468,9 @@
     "ai_off": "AI odpovede sú vypnuté. Použite tlačidlá:",
     "ai_limit": "Dnešný limit AI správ je vyčerpaný. Použite tlačidlá:",
     "ai_failed": "AI teraz neodpovedá. Použite tlačidlá:",
-    "sum_conv_n": "Označiť ako vybavené: {n} konverzácie"
+    "sum_conv_n": "Označiť ako vybavené: {n} konverzácie",
+    "google_pushed": "Google Mapy: hodiny aktualizované.",
+    "google_failed": "Google Mapy: hodiny sa nepodarilo poslať – skúste „Poslať hodiny do Google teraz“ v Môj obchod → Hodiny cez SMS."
   },
   "owner_tg": {
     "title": "Telegram",
