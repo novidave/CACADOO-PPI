@@ -98,18 +98,18 @@ export function cleanCategories(value: unknown): string[] {
 /** Text from the outside, made safe to keep and show: no control characters, trimmed, cut. */
 export function clean(value: unknown, max: number): string | null {
   if (typeof value !== "string") return null;
-  const text = value.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2064\ufeff]/g, " ").replace(/\s+/g, " ").trim();
+  const text = value.replace(/[\u{0000}-\u{001f}\u{007f}-\u{009f}\u{200b}-\u{200f}\u{2028}-\u{202e}\u{2060}-\u{2064}\u{feff}]/gu, " ").replace(/\s+/g, " ").trim();
   return text ? text.slice(0, max) : null;
 }
 
 /** "Košice", "KOSICE " → "kosice": the town's key in the caches. */
 export function townKey(town: string): string {
-  return town.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return town.normalize("NFD").replace(/[\u{0300}-\u{036f}]/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 /** Names compared loosely ("Železiarstvo Východ s.r.o." ~ "zeleziarstvovychod"). */
 export function nameKey(name: string): string {
-  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+  return name.normalize("NFD").replace(/[\u{0300}-\u{036f}]/gu, "").toLowerCase()
     .replace(/\b(s\.?\s?r\.?\s?o\.?|a\.?\s?s\.?|kft\.?|zrt\.?|bt\.?|gmbh|spol)\b/g, "").replace(/[^a-z0-9]/g, "");
 }
 
@@ -188,10 +188,10 @@ export function osmShop(element: unknown, categories: string[], center: { lat: n
 /** A price exactly as a page's cited text shows it ("24,99 €", "€ 9.90", "1 299 Kč"), else null. */
 export function priceIn(text: string | null | undefined): string | null {
   if (!text) return null;
-  const number = "\\d{1,6}(?:[ .\\u00a0\\u202f]\\d{3})*(?:[.,]\\d{1,2})?";
+  const number = "\\d{1,6}(?:[ .\\u{00a0}\\u{202f}]\\d{3})*(?:[.,]\\d{1,2})?";
   const money = "€|EUR|Kč|CZK|Ft|HUF|zł|PLN|lei|RON|CHF|£|kr";
   const found = new RegExp(`(?:(?:${money})\\s?${number}|${number}\\s?(?:${money}))(?![\\p{L}\\d])`, "iu").exec(text);
-  return found ? found[0].replace(/[\s\u00a0\u202f]+/g, " ").trim() : null;
+  return found ? found[0].replace(/[\s\u{00a0}\u{202f}]+/gu, " ").trim() : null;
 }
 
 /** The allowed domain a page belongs to ("www.decathlon.sk/x" → "decathlon.sk"), else null. */
@@ -404,6 +404,19 @@ export async function geocode(deps: Deps, query: string): Promise<TownResult> {
   if (found) return { town: { ...found, source: "nominatim" } };
   const town = await fromCacaduu();
   return town ? { town } : { problem: "not_found" };
+}
+
+/**
+ * Update 73: the town of a food order's delivery address, for the shop's kilometre zones — the same rule as the
+ * search (cached per town in town_geocodes, Nominatim 1/s through external_slot, the daily limit). Only the town goes
+ * out, never the street, the name or the number; never the visitor's location.
+ */
+export async function geocodeTown(body: Json, deps: Deps): Promise<Response> {
+  const town = clean(body?.town, 100);
+  if (!town) return reply(400, { error: "bad_request" });
+  const found = await geocode(deps, town);
+  if ("problem" in found) return reply(200, { status: found.problem });
+  return reply(200, { status: "ok", town: found.town });
 }
 
 // ---------------------------------------------------------------- layer 3: shops nearby
@@ -716,8 +729,9 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   const action = String(body?.action ?? "");
   try {
     if (action === "admin_status") return await adminStatus(req, deps);
-    if (action === "nearby" || action === "web") {
+    if (action === "nearby" || action === "web" || action === "geocode") {
       if (!sameSecret(req.headers.get("x-ppi-sources"), deps.env.secret)) return reply(401, { error: "secret" });
+      if (action === "geocode") return await geocodeTown(body, deps);
       return action === "nearby" ? await nearby(body, deps) : await web(body, deps);
     }
     return reply(400, { error: "bad_request" });
