@@ -406,6 +406,19 @@ export async function geocode(deps: Deps, query: string): Promise<TownResult> {
   return town ? { town } : { problem: "not_found" };
 }
 
+/**
+ * Update 73: the town of a food order's delivery address, for the shop's kilometre zones — the same rule as the
+ * search (cached per town in town_geocodes, Nominatim 1/s through external_slot, the daily limit). Only the town goes
+ * out, never the street, the name or the number; never the visitor's location.
+ */
+export async function geocodeTown(body: Json, deps: Deps): Promise<Response> {
+  const town = clean(body?.town, 100);
+  if (!town) return reply(400, { error: "bad_request" });
+  const found = await geocode(deps, town);
+  if ("problem" in found) return reply(200, { status: found.problem });
+  return reply(200, { status: "ok", town: found.town });
+}
+
 // ---------------------------------------------------------------- layer 3: shops nearby
 
 interface CacaduuShop {
@@ -716,8 +729,9 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   const action = String(body?.action ?? "");
   try {
     if (action === "admin_status") return await adminStatus(req, deps);
-    if (action === "nearby" || action === "web") {
+    if (action === "nearby" || action === "web" || action === "geocode") {
       if (!sameSecret(req.headers.get("x-ppi-sources"), deps.env.secret)) return reply(401, { error: "secret" });
+      if (action === "geocode") return await geocodeTown(body, deps);
       return action === "nearby" ? await nearby(body, deps) : await web(body, deps);
     }
     return reply(400, { error: "bad_request" });

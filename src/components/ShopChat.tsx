@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { AssistantHeading } from "./AssistantHeading";
 import { BookingPanel } from "./BookingPanel";
@@ -14,6 +15,9 @@ import type { ChatCard, ChatDocPrice, ChatListItem, ChatReply, ChatSource, ChatT
 import { FolderAccess, FolderViewer, type ViewTarget } from "./FolderAccess";
 import { KeyRow } from "./KeyRow";
 import { StockDot } from "./StockDot";
+
+/** The food order form (database update 73): loaded only when an answer brings its first cart card. */
+const OrderPanel = dynamic(() => import("./OrderPanel"), { ssr: false });
 
 /** Anthropic's recommended longest side for photos; larger ones only cost more. */
 const MAX_SIDE = 1568;
@@ -1076,6 +1080,17 @@ function Answer({
           slots={reply.booking.slots}
           conversation={booking.conversation}
           privacyHref={`/${booking.lang}/sukromie-asistent#rezervacie`}
+          labels={labels}
+        />
+      )}
+      {reply.order && booking.conversation() && (
+        <OrderPanel
+          base={booking.base}
+          lang={booking.lang}
+          shopName={shopName}
+          order={reply.order}
+          conversation={booking.conversation}
+          privacyHref={`/${booking.lang}/sukromie-asistent`}
           labels={labels}
         />
       )}

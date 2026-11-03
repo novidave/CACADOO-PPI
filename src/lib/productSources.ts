@@ -105,3 +105,13 @@ export async function sourcesStatus(supabase: SupabaseClient) {
     return null;
   }
 }
+
+/**
+ * Update 73: the town of a food order's delivery address (for the shop's kilometre zones), through the same cache and
+ * Nominatim rule as the search. Only the town goes out. Null without EXTERNAL_SEARCH_SECRET or when not found.
+ */
+export async function geocodeTown(town: string): Promise<{ lat: number; lng: number } | null> {
+  const answer = await call<{ status: string; town?: SourceTown }>({ action: "geocode", town: town.slice(0, 100) }, new AbortController().signal, 8_000);
+  if (answer.status !== "ok" || !("town" in answer) || !answer.town) return null;
+  return Number.isFinite(answer.town.lat) && Number.isFinite(answer.town.lng) ? { lat: answer.town.lat, lng: answer.town.lng } : null;
+}

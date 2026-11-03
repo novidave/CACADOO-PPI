@@ -26,6 +26,9 @@
 //                    refs (booking_offer_slots = booking_free_slots); a connected calendar's busy times are read first
 //       book        {slug, conversation_id, conversation_token, ref, people?}  booking_assistant_book → booking_create
 //                    checks the slot again; confirmed at once (no confirmation SMS, no cancel link)
+//   - website, update 73 (food orders): code_start with purpose "order" (the order quota), then
+//       order_place {code_id, code, order_id, lines, kind, pay_method, address?, note?, lat?, lng?, conversation_id,
+//                    conversation_token, lang}  food_order_create: the code and the order in one transaction
 //   - the job every 5 minutes (x-ppi-cron = Vault ppi_bookings_cron): tick → reminders (2 h before, or the day before
 //     from 18:00 — crm_settings), the customer's SMS when the owner moved or cancelled (3 tries), the calendar pushes
 //     (only events Cacaduu made: create / update / delete by google_event_id; 3 tries; a failure never blocks a
@@ -237,7 +240,7 @@ export function smsProvider(name: string | undefined, env: SmsEnv = () => undefi
 
 /** The texts the shopper gets by SMS, in the booking's language (Slovak, Hungarian, else English). */
 export function smsText(
-  kind: "code" | "reminder" | "contact_code" | "forget_code" | "moved" | "cancelled" | "reminder_at",
+  kind: "code" | "reminder" | "contact_code" | "forget_code" | "order_code" | "moved" | "cancelled" | "reminder_at",
   lang: string | null,
   v: { shop: string; code?: string; time?: string; day?: string; service?: string | null; phone?: string | null },
 ) {
@@ -249,6 +252,11 @@ export function smsText(
     if (l === "sk") return `${shop}: váš overovací kód je ${v.code}. Platí 10 minút. Nikomu ho neposielajte.`;
     if (l === "hu") return `${shop}: az ellenőrző kódja ${v.code}. 10 percig érvényes. Ne adja tovább senkinek.`;
     return `${shop}: your verification code is ${v.code}. Valid for 10 minutes. Do not share it.`;
+  }
+  if (kind === "order_code") {
+    if (l === "sk") return `${shop}: kód pre vašu objednávku je ${v.code}. Platí 10 minút. Nikomu ho neposielajte.`;
+    if (l === "hu") return `${shop}: a rendelés kódja ${v.code}. 10 percig érvényes. Ne adja tovább senkinek.`;
+    return `${shop}: your order code is ${v.code}. Valid for 10 minutes. Do not share it.`;
   }
   if (kind === "forget_code") {
     if (l === "sk") return `${shop}: kód na vymazanie vašich údajov je ${v.code}. Platí 10 minút.`;
@@ -759,7 +767,7 @@ async function sendClaimed(deps: Deps, claim: RpcResult, phone: string, text: st
 
 async function codeStart(body: Record<string, unknown>, deps: Deps) {
   const slug = String(body.slug ?? "");
-  const purpose = body.purpose === "delete_all" ? "delete_all" : body.purpose === "contact" ? "contact" : null;
+  const purpose = body.purpose === "delete_all" ? "delete_all" : body.purpose === "contact" ? "contact" : body.purpose === "order" ? "order" : null;
   const caller = String(body.caller ?? "");
   if (!SLUG.test(slug) || !purpose || caller.length < 16 || caller.length > 128) return reply(400, { error: "bad_request" });
   const started = await deps.db.rpc("sms_code_start", {
@@ -776,7 +784,10 @@ async function codeStart(body: Record<string, unknown>, deps: Deps) {
     return reply(why === "failed" ? 500 : why === "too_many" || why === "sms_quota" ? 429 : 400, { error: why });
   }
   const c = started.data as { id: string; code: string; phone: string; shop_name: string; expires_at: string };
-  const text = smsText(purpose === "delete_all" ? "forget_code" : "contact_code", str(body, "lang", 12), { shop: c.shop_name, code: c.code });
+  const text = smsText(purpose === "delete_all" ? "forget_code" : purpose === "order" ? "order_code" : "contact_code", str(body, "lang", 12), {
+    shop: c.shop_name,
+    code: c.code,
+  });
   const claim = await deps.db.rpc("sms_code_claim", { p_code_id: c.id, p_body: text });
   const status = await sendClaimed(deps, claim as RpcResult, c.phone, text);
   if (status === "quota") return reply(429, { error: "sms_quota" });
@@ -866,6 +877,66 @@ async function book(body: Record<string, unknown>, deps: Deps) {
     return reply(why === "failed" ? 500 : why === "slot_taken" ? 409 : 400, { error: why });
   }
   return reply(200, { ok: true, booking: data });
+}
+
+// ---------------------------------------------------------------- update 73: a food order (the page's own form, never the AI)
+
+/** The refusals food_order_create / food_quote raise, passed to the page as they are. */
+export const ORDER_REASONS = [
+  "empty", "kind_off", "no_address", "outside_zone", "sold_out", "below_minimum", "not_accepting", "not_available",
+  "pay_method", "qty", "lines", "extras", "kind", "conflict", "bad_request",
+] as const;
+
+/** The cart as the page sends it: [{item_id, qty, extras: [item_id …]}] — no prices (SQL prices every line). */
+export function cleanOrderLines(value: unknown): { item_id: string; qty: number; extras: string[] }[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 30) return null;
+  const lines: { item_id: string; qty: number; extras: string[] }[] = [];
+  for (const raw of value) {
+    const line = raw as { item_id?: unknown; qty?: unknown; extras?: unknown } | null;
+    const id = String(line?.item_id ?? "");
+    const qty = Math.floor(Number(line?.qty));
+    if (!UUID.test(id) || !Number.isFinite(qty) || qty < 1 || qty > 50) return null;
+    const extras = Array.isArray(line?.extras) ? line.extras.map(String) : [];
+    if (extras.length > 10 || extras.some((x) => !UUID.test(x))) return null;
+    lines.push({ item_id: id, qty, extras });
+  }
+  return lines;
+}
+
+/**
+ * "Objednať": the code typed into the page's own field and the order's own UUID; food_order_create checks the code and
+ * places the order in one transaction (the same UUID again = the same order). The website sends the place (lat/lng)
+ * only when it geocoded the town of the address for a kilometre zone.
+ */
+async function orderPlace(body: Record<string, unknown>, deps: Deps) {
+  const codeId = String(body.code_id ?? "");
+  const orderId = String(body.order_id ?? "");
+  const lines = cleanOrderLines(body.lines);
+  const kind = body.kind === "delivery" ? "delivery" : body.kind === "pickup" ? "pickup" : null;
+  const pay = body.pay_method === "qr" || body.pay_method === "cash" || body.pay_method === "card" ? body.pay_method : null;
+  if (!UUID.test(codeId) || !UUID.test(orderId) || !lines || !kind || !pay) return reply(400, { error: "bad_request" });
+  const num = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
+  const { data, error } = await deps.db.rpc("food_order_create", {
+    p_code_id: codeId,
+    p_code: String(body.code ?? "").replace(/\s/g, "").slice(0, 12),
+    p_order_id: orderId,
+    p_lines: lines,
+    p_kind: kind,
+    p_pay_method: pay,
+    p_address: kind === "delivery" ? str(body, "address", 300) : null,
+    p_note: str(body, "note", 300),
+    p_lat: num(body.lat, -90, 90),
+    p_lng: num(body.lng, -180, 180),
+    ...conversationOf(body),
+    p_lang: str(body, "lang", 12),
+  });
+  if (error) {
+    const why = ORDER_REASONS.find((r) => r === error.message) ?? "failed";
+    return reply(why === "failed" ? 500 : why === "conflict" ? 409 : 400, { error: why });
+  }
+  const r = data as { ok: boolean; reason?: string; attempts_left?: number; duplicate?: boolean; order?: unknown };
+  if (!r.ok) return reply(400, { error: r.reason ?? "failed", attempts_left: r.attempts_left ?? null });
+  return reply(200, { ok: true, duplicate: Boolean(r.duplicate), order: r.order });
 }
 
 // ---------------------------------------------------------------- the job
@@ -1036,6 +1107,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
       if (action === "services") return await services(body, deps);
       if (action === "offer") return await offer(body, deps);
       if (action === "book") return await book(body, deps);
+      if (action === "order_place") return await orderPlace(body, deps);
       return reply(400, { error: "bad_request" });
     }
     if (action === "google_connect" || action === "google_disconnect") return await owner(req, body, deps);

@@ -3056,3 +3056,31 @@ and the courier app (phase F4) only call these functions.
   without name, phone, address, note, place, contact, conversation.
 - Tests: DB block "update 73".
 
+## "Objednávky jedla" phase F2 — ordering in the shop assistant (3 November 2026, boards 9 and 10)
+
+- `@/lib/food` (server only): `foodState` (`food_state`), `foodMenu` (`food_menu`), `foodQuote` (`food_quote`, anon),
+  `quoteWithPlace`: when no town / postcode zone matched, the address's town (`townOf` in `@/lib/foodRules`: the last
+  comma part without its postcode) is geocoded once through product-sources' new `geocode` action (x-ppi-sources =
+  `EXTERNAL_SEARCH_SECRET`; the search's own `geocode()`: `town_geocodes` cache, Nominatim 1/s, the daily limit) and
+  quoted again with lat/lng. Only the town goes out; never the street, the name, the number or the visitor's place.
+  Without `EXTERNAL_SEARCH_SECRET` kilometre zones simply do not match.
+- `@/lib/shopChat`: with `food_state.enabled` and a conversation the tools `food_menu` {query} (refs `f1…`; name,
+  category, price from Sklad, sold out; up to 3 text excerpts of `search_shop_docs` for descriptions and allergens) and
+  `food_quote` {lines [{ref, qty, extras}], kind} (quoted as pickup — the fee comes from the zone of the address the
+  page's form takes; the zones' fees and minimums listed). The answer format gets `order_lines` [{ref, qty, extras}] and
+  `order_kind` none|pickup|delivery; `reply.order` = {order_id (a new UUID), kind, quote, state} built from refs this
+  request's food_menu returned (unknown refs dropped) and priced again by `food_quote`. While not accepting the prompt
+  says why (paused, closed, cutoff, sms_quota) and to offer the shop's phone. The AI never places or confirms an order.
+- `@/components/OrderPanel` (`next/dynamic` in `ShopChat`, so the shop page's first load is unchanged): the cart
+  (Upraviť: − / + / Odstrániť → `quote` again, only the newest answer), pickup / delivery, the payment methods that are
+  on, "Pokračovať" → name, phone, the address (re-quoted: outside every zone → "offer pickup", below the zone's
+  minimum), the note for the courier, the consent (`ORDER_CONSENT`) → `code` → the code field → `place` (the order's
+  UUID, so a retry is the same order) → "Objednané · č. <n>" with the time and the payment.
+- `/api/shops/[slug]/order` (20 a minute per caller): `quote` (`quoteWithPlace`), `code` (bookings `code_start`,
+  purpose `order`, the conversation required), `place` (quoted again on the server, refused when not orderable, then
+  bookings `order_place` with the place found).
+- Bookings function: `code_start` accepts purpose `order` (SMS text `order_code` in sk/hu/en); `order_place` checks the
+  cart's shape (`cleanOrderLines`) and calls `food_order_create`; the database's refusals (`ORDER_REASONS`) and a wrong
+  code's `attempts_left` go back to the page.
+- Texts `chat.order_*` (sk/hu/en).
+

@@ -762,6 +762,17 @@ by the number with `phone_verified_at`, the conversation linked); **every change
 (members; writes + `shop_has_plan`). Off by default (`food_settings.enabled`). "Vymazať moje údaje" clears the orders'
 personal fields (rows and totals stay). Never: a price from the AI or a PDF, an order without the code, a phone number
 or address in a log, Telegram message or the AI's tool data, stock taken twice. Tests: DB block "update 73".
+**F2 — ordering in the shop assistant (boards 9, 10):** `@/lib/food` (server: `foodState`, `foodMenu`, `foodQuote`,
+`quoteWithPlace` — a kilometre zone geocodes only the address's town, once, through product-sources `geocode` =
+the search's Nominatim rule) + `@/lib/foodRules` (shared: `townOf`, `cleanCart`, `changeCents`, `cashChoices`, `money`,
+`plural`, `nextSteps`) + `@/lib/shopChat` (only with food on and a conversation: tools `food_menu` (refs f1…, prices
+from Sklad, document excerpts for allergens) and `food_quote` (never an address); the answer's `order_lines` /
+`order_kind` → `reply.order` built on the server from food_menu's own results, unknown refs dropped, priced again by
+`food_quote`) + `@/components/OrderPanel` (loaded by `next/dynamic` only with the first cart card: Upraviť, pickup /
+delivery, QR / Hotovosť / Kartou (only what is on), "Pokračovať" → the page's own form (name, phone, address, note,
+consent) → "Poslať overovací kód" → the code → "Objednať · <total>" → "Objednané · č. <n>") + `/api/shops/[slug]/order`
+(quote · code · place; 20/min per caller; place re-quotes on the server) + bookings function `code_start` purpose
+`order` (SMS `order_code`) and `order_place` (→ `food_order_create`). The AI never confirms an order. Texts `chat.order_*`.
 
 ## Cloud folder (paid, update 23)
 
