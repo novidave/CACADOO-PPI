@@ -1,63 +1,83 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { isLocale } from "@/i18n/config";
-import { getDictionary, t } from "@/i18n/dictionaries";
+import { enabledLocales, getDictionary, t } from "@/i18n/dictionaries";
+import { languageOf, MAIN_RECOMMENDED } from "@/i18n/languages";
 import { requireUser } from "@/lib/auth";
-import { AccountNav } from "@/components/AccountNav";
+import { loadLiveSites, shopHref } from "@/lib/customDomain";
+import { OWNER_MENU } from "@/lib/dashboardPages";
+import { foodTab } from "@/lib/foodOwner";
+import type { MyShop } from "@/lib/myShops";
+import { LanguagePicker } from "@/components/LanguagePicker";
+import { OwnerNav, type NavItemView, type NavShop } from "@/components/owner/OwnerNav";
 
 // Private pages: never indexed, never cached.
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
+/**
+ * The owner area's one shell (back-end layout, 2026-11-03): the menu (@/components/owner/OwnerNav; the map is
+ * @/lib/dashboardPages OWNER_MENU) beside the page. The site's own header is not shown here (globals.css,
+ * `[data-owner-shell]`); its language picker moves to the end of "Účet a nastavenia". Badges per shop: CRM = new
+ * conversations + shoppers waiting for an answer, Objednávky jedla = orders still new.
+ */
 export default async function AccountLayout({ children, params }: LayoutProps<"/[lang]">) {
   const { lang } = await params;
   if (!isLocale(lang)) notFound();
-  const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
-  // Shoppers waiting for an answer (database update 59: they left a phone or e-mail after an unanswered question).
-  const waitingRes = await session.supabase.rpc("owner_callbacks_waiting");
-  const waiting = waitingRes.error ? 0 : ((waitingRes.data ?? []) as { waiting: number }[]).reduce((n, r) => n + Number(r.waiting), 0);
-  // Shop owners; the admin also gets "Predplatné a domény" (update 25), its only admin page.
-  const links = [
-    { href: `/${lang}/dashboard`, label: dict.account.dashboard, shopPage: true },
-    { href: `/${lang}/dashboard/content`, label: dict.account.content_page, shopPage: true },
-    { href: `/${lang}/dashboard/blog`, label: dict.account.blog_page, shopPage: true },
-    {
-      href: `/${lang}/dashboard/assistant`,
-      label: dict.account.assistant_page,
-      shopPage: true,
-      badge: waiting,
-      badgeLabel: t(dict.callbacks.badge, { n: waiting }),
-      // update 63: Kontakty, Rezervácie and the conversations are tabs of Asistent
-      also: [`/${lang}/dashboard/contacts`, `/${lang}/dashboard/bookings`, `/${lang}/dashboard/conversations`],
-    },
-    // update 67: "Sklad v Cacaduu" (Prehľad · Produkty · Pohyby · Nastavenia)
-    { href: `/${lang}/dashboard/sklad`, label: dict.account.sklad_page, shopPage: true },
-    { href: `/${lang}/dashboard/hours-sms`, label: dict.account.hours_sms_page, shopPage: true },
-    { href: `/${lang}/dashboard/ai`, label: dict.account.ai_page },
-    { href: `/${lang}/dashboard/translations`, label: dict.account.translations_page, shopPage: true },
-    { href: `/${lang}/sync`, label: dict.account.sync, shopPage: true },
-    { href: `/${lang}/dashboard/plan`, label: dict.account.plan_page, shopPage: true },
-    { href: `/${lang}/dashboard/legal`, label: dict.shop_legal.admin_title, shopPage: true },
-    { href: `/${lang}/password`, label: dict.account.password },
-    ...(session.isAdmin
-      ? [
-          { href: `/${lang}/admin/domains`, label: dict.admin_domains.nav },
-          { href: `/${lang}/admin/translations`, label: dict.admin_tr.nav },
-        ]
-      : []),
-  ];
+  const [dict, session, enabled] = await Promise.all([getDictionary(lang), requireUser(lang), enabledLocales()]);
+  const { supabase } = session;
+  const [shopsRes, waitingRes, sites] = await Promise.all([
+    supabase.rpc("my_shops"),
+    // shoppers waiting for an answer (database update 59)
+    supabase.rpc("owner_callbacks_waiting"),
+    loadLiveSites(supabase),
+  ]);
+  const shops = (shopsRes.error ? [] : (shopsRes.data ?? [])) as MyShop[];
+  const waiting = (waitingRes.error ? [] : (waitingRes.data ?? [])) as { shop_id?: string; waiting: number }[];
+  const counts = await Promise.all(
+    shops.map(async (s) => {
+      const [fresh, food] = await Promise.all([supabase.rpc("owner_conversations_new", { p_shop_id: s.id }), foodTab(supabase, s.id)]);
+      const waits = waiting.filter((w) => w.shop_id === s.id).reduce((n, w) => n + Number(w.waiting), 0);
+      return { slug: s.slug, crm: (fresh.error ? 0 : Number(fresh.data ?? 0)) + waits, food: food?.new ?? 0 };
+    }),
+  );
+
+  const n = dict.nav;
+  const items: NavItemView[] = OWNER_MENU.filter((m) => !m.admin || session.isAdmin).map((m) => ({
+    key: m.key,
+    label: n[m.key],
+    ...(m.badge ? { badges: Object.fromEntries(counts.map((c) => [c.slug, c[m.badge!]])), badgeLabel: m.badge === "food" ? n.badge_food : n.badge_crm } : {}),
+  }));
+  const navShops: NavShop[] = shops.map((s) => ({ slug: s.slug, name: s.name, page: s.is_active ? shopHref(sites, lang, s.slug, s.country) : null }));
 
   return (
-    <div className="flex flex-col gap-6">
-      <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line pb-3 text-sm">
-        <AccountNav links={links} />
-        <span className="ml-auto text-muted">{t(dict.account.signed_in_as, { email: session.user.email ?? "" })}</span>
-        <form action="/auth/signout" method="post">
-          <button type="submit" className="underline underline-offset-4">
-            {dict.account.sign_out}
-          </button>
-        </form>
-      </nav>
-      {children}
+    <div className="flex min-h-svh flex-col md:flex-row" data-owner-shell>
+      <OwnerNav
+        lang={lang}
+        items={items}
+        shops={navShops}
+        labels={{
+          nav: n.label,
+          groups: { main: n.group_main, page: n.group_page, account: n.group_account },
+          shop: n.shop_label,
+          shops: n.shops,
+          add_shop: n.add_shop,
+          view_page: n.view_page,
+          open_menu: n.open_menu,
+          close_menu: n.close_menu,
+          items: { one: n.items_one, few: n.items_few, many: n.items_other, other: n.items_other },
+          sign_out: n.sign_out,
+          signed_in: n.signed_in,
+        }}
+        account={
+          <>
+            <LanguagePicker current={lang} currentNative={languageOf(lang)?.native ?? lang} enabled={enabled} recommended={MAIN_RECOMMENDED} labels={dict.languages} />
+            <span className="text-sm text-[#5C5C5C] [overflow-wrap:anywhere]">{t(n.signed_in, { email: session.user.email ?? "" })}</span>
+          </>
+        }
+      />
+      <div className="min-w-0 flex-1 px-4 py-5 md:px-6 lg:px-8" data-owner-page>
+        {children}
+      </div>
     </div>
   );
 }

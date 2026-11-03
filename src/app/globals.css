@@ -314,3 +314,19 @@ dialog.ppi-sheet {
     font-size: clamp(13px, 12.7px + 0.1vw, 14px);
   }
 }
+
+/*
+ * The owner area's shell (back-end layout, 2026-11-03; src/app/[lang]/(account)/layout.tsx): the menu and the page fill
+ * the whole width, so the site's own header is not shown and its <main> loses its column. Outside the layers, so it
+ * wins over the utilities; a browser without :has() keeps the header above the shell.
+ */
+body:has([data-owner-shell]) > [data-site-header] {
+  display: none;
+}
+body:has([data-owner-shell]) > [data-site-main] {
+  max-width: none;
+  padding: 0;
+}
+body:has([data-owner-shell]) > [data-site-footer] {
+  margin-top: 0;
+}
