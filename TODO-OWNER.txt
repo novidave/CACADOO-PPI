@@ -84,6 +84,38 @@ OPEN
       products → "Potvrdiť príjemku" → the products' stock goes up.
    c) Tell Claude what was read wrong, if anything.
 
+18. Sklad → Inventúra: count one shelf once (with a second phone if you have one)
+   Why: counting on phones was tested without a real login and a real shelf.
+   Steps:
+   a) On a product card set "Regál" (e.g. A) for a few products.
+   b) Môj obchod → Sklad → Inventúra → "Jeden regál" → A → "Spustiť inventúru".
+   c) On the phone (logged in as the owner): tap the name at the top → write e.g. "Telefón 1 · Peter" → scan the
+      products and count them. Optional: a second phone counts the same shelf.
+   d) "Odovzdať počty" → check the differences → "Schváliť inventúru" → the shop page shows the new stock.
+   e) If something looks wrong: "Vrátiť inventúru späť" (works for 24 hours) and tell Claude.
+
+21. Sklad → Import z eKasa: try one real export (once)
+   Why: the import was tested with made-up files; every cash register writes its export a little differently.
+   Steps:
+   a) Only for a shop that sells on its own cash register: Môj obchod → Sklad → Nastavenia → "Odkiaľ prichádzajú
+      predaje" → "Import z eKasa" → Uložiť (the Predaj screen switches off).
+   b) Export one day of sales from the cash register or from the eKasa portal as CSV or XLSX.
+   c) Sklad → Predaj → "Import z eKasa" → choose the file → "Nahrať a spracovať" → check the columns (product,
+      quantity, receipt number or time) → "Schváliť stĺpce a spracovať".
+   d) Pair the lines that wait (or "Nie je tovar"), then check a product's stock and its Pohyby.
+   e) Upload the same file again: it must say that nothing was taken off twice.
+   f) Send Claude the export's first line (the column names) if a column was not guessed right.
+
+22. Sklad → Zariadenia: connect a second phone once
+   Why: pairing was tested without a real phone and camera.
+   Steps:
+   a) Môj obchod → Sklad → Nastavenia → Zariadenia → "Pripojiť telefón (QR kód)" → a name (e.g. "Telefón 2") → tick
+      "Predaj" and "Inventúra" → "Vytvoriť QR kód".
+   b) On the second phone (not logged in to Cacaduu): open the camera, scan the code → "Pripojiť toto zariadenie".
+   c) On that phone: Predaj → sell one product for cash. Back in Môj obchod → Sklad → Pohyby: the sale shows the
+      phone's name.
+   d) Back in Zariadenia: "Odpojiť" → on the phone, reload the page: it must say "Telefón nie je pripojený".
+
 DONE
 ----
 9. Create the Cacaduu Telegram bot and add its 3 settings — done 2026-11-02 (@Cacaduu_support_bot)
@@ -157,3 +189,7 @@ DONE
    b) Delete the example code, paste the whole file telegram.txt that Claude sent you → Deploy.
    c) Function → Settings: switch "Verify JWT" OFF → Save.
    d) Write "done 14". Claude checks that the code is the same as in the repository.
+
+20. Deploy the new "telegram" function (one paste; the Sklad button fix) — done 2026-11-02 (v9, same as the repository, Verify JWT off)
+
+19. Add the secrets that are still missing — done 2026-11-02 (functions restarted without errors; the screens that switch on are listed in Claude's message)

@@ -57,6 +57,9 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Sklad v Cacaduu" phase A (Prompt 14, database update 67): a new stock source for shops without stock software — the stock kept as movements (príjem, výdaj, odpis, presun, oprava; never typed over, append-only, each once by its own id), locations ("Predajňa", "Sklad"), the shop page fed from the total and the sale price after every movement, "Stav je správny" once a day (24 h rule), Free 50 products / Pro unlimited, private purchase prices and margin, USB scanner and phone camera, XLSX exports, a daily reminder e-mail | Built and tested; live after database update 67, the "sklad" function and the merge (SETUP.md part AY) |
 | "Sklad v Cacaduu" phase B — Predaj (database update 68): selling at the counter on a phone, tablet or computer — a basket filled by the USB scanner, the camera, the search or a tap; Hotovosť / Karta take the goods off the stock at once (the receipt stays the shop's eKasa), QR platba shows a PAY by square code (IBAN, amount, variable symbol) and waits for "Zaplatené"; each sale once by its own id; a QR terminal on a spare phone for the customer | Built and tested; live after database update 68 and the merge (SETUP.md part AZ) |
 | "Sklad v Cacaduu" phase C — Príjemky (database update 69): goods receipts with many lines — supplier, invoice number, delivery date, the location; lines from the scanner, the search, "+ Nový produkt" or the AI reading an invoice photo / PDF (paired with the shop's products in SQL: EAN, code, name; unsure → choose; new → name, EAN, sale price); a draft until "Potvrdiť príjemku", then stocked once with purchase prices (last and average) and the supplier | Built and tested; live after database update 69 and the merge (SETUP.md part BA) |
+| "Sklad v Cacaduu" phase D — Inventúra (database update 70): a count of one location or one shelf while the shop stays open — blind by default, several phones at once (each under its own name; counts added up or "Platí môj počet"), sales and receipts during the count never make a false difference, the differences with their value, "Prepočítať", the uncounted kept or set to 0, approved once, undone within 24 h, an XLSX report | Built and tested; live after database update 70 and the merge (SETUP.md part BB) |
+| "Sklad v Cacaduu" phase E — sales from eKasa (database update 71): "Odkiaľ prichádzajú predaje" = the Predaj screen or the cash register's daily eKasa export (one of them, never both); the export (CSV/XLSX) read as written, its columns approved once, every line taken off the stock once (the same file or overlapping days never twice), unknown texts paired with a product or "Nie je tovar" and remembered, refunds back; "Dodávatelia (XLSX)" | Built and tested; live after database update 71 and the merge (SETUP.md part BC) |
+| "Sklad v Cacaduu" phase F — Zariadenia (database update 72, approved by the owner): a shop assistant's phone or the counter's phone joins one shop's Sklad by a QR code, without the owner's password; only the ticked screens (Predaj, Príjem tovaru — pieces only, Inventúra counting, QR terminál); never purchase prices, suppliers or margins; everything under the phone's name; "Odpojiť" at once, 90 days unused → off, ≤ 10 per shop | Built and tested; live after database update 72 and the merge (SETUP.md part BD) |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2255,3 +2258,78 @@ Goods from a supplier come into Sklad as a **príjemka**: Môj obchod → Sklad 
   the shop assistant or logs; the invoice is never stored).
 - **Not in phase C:** a "Dodávatelia" page of its own, several pages of one invoice in one reading, receipts from a POS
   or an e-mail.
+
+
+### 6.42 "Sklad v Cacaduu", phase D: Inventúra (database update 70, 2 November 2026, at the owner's request)
+
+Môj obchod → Sklad → **Inventúra** (designs "Inventúra (mobil, slepá)", "Inventúra – rozdiely", "Inventúra (počítač)").
+The shop does not close.
+
+- **Nová inventúra:** a name, the location, "Celé miesto" or "Jeden regál" (the shelf written on the product cards),
+  "Slepá inventúra" (on by default: whoever counts never sees how many pieces Cacaduu expects). Numbered I-2026-04.
+- **Counting** (any phone, tablet or computer logged in as one of the shop's owners; several at once): each device has
+  its own name ("Telefón 1 · Peter", kept on it). A scan (USB scanner or the camera) adds one piece of that product;
+  − / + and "Zadať počet naraz (napr. 24)" change it; the search or "Nespočítané (n)" picks a product without a code.
+  "Spočítané 31 z 48 produktov". When another device already counted the product: "Sčítať" (another part of the shelf —
+  the counts add up) or "Platí môj počet" (the same pieces — the others' counts become 0). "Odovzdať počty" opens the
+  differences.
+- **Rozdiely inventúry** (the owner's screen): counted / with a difference / without / the value of the differences at
+  the average purchase price; who counted how many; how many sales happened during the count. Per product with a
+  difference: "V Cacaduu" = the stock **at the moment it was counted** (sales and receipts after that count are added
+  on top — never a false difference), Napočítané, Rozdiel, Hodnota, "Chýba" / "Prebytok"; "Prepočítať" leaves it out of
+  the approval (count it again; "Prijať napočítané" takes it back). The products not counted: "Ponechať ich množstvo"
+  (default) or, for a whole location only, "Nastaviť na 0".
+- **"Schváliť inventúru":** one Inventúra movement per corrected product (ref I-2026-04; the new stock = counted + what
+  happened since), once — a second tap changes nothing; the shop page follows. The result: corrections, pieces, value,
+  the **XLSX report** (every counted product: expected, counted, difference, value, who). **"Vrátiť inventúru späť (do
+  24 h)"**: an Oprava with the opposite quantity of every correction ("Vrátenie inventúry I-2026-04") — the movements
+  stay. "Zrušiť inventúru" closes an open count without any change.
+- **Private:** the counts, the expected quantities and the values are the owners' only.
+- **Not in phase D:** a PDF report, counting by a person without an owner login (a QR code to join), a count of every
+  location at once (one count per location).
+
+### 6.43 "Sklad v Cacaduu", phase E: sales from eKasa (database update 71, 2 November 2026, design screen 15)
+
+Môj obchod → Sklad → Nastavenia → **"Odkiaľ prichádzajú predaje"** — one source, so the same sale is never taken off
+the stock twice:
+
+- **"Obrazovka Predaj v Cacaduu"** (default; update 68): for shops without a cash register or with QR payments.
+- **"Import z eKasa"**: the shop keeps selling on its own cash register and uploads its daily export (from the register or
+  the eKasa portal). The Predaj screen is then off ("Obrazovka Predaj je vypnutá" with a link to the import); a QR sale
+  that already waits can still be marked paid.
+- **Import** (Sklad → Predaj → Import z eKasa): CSV (";", "," or tab; UTF-8 or Windows-1250) or XLSX, ≤ 1.9 MB and 5 000
+  rows. The first file (or "Vybrať stĺpce znova") asks which column is the product, the quantity and the receipt number
+  or the time (required: one of them, so two exports of overlapping days never count a sale twice); price, code and
+  EAN are optional. The columns are guessed from the file's own names and kept ("Stĺpce exportu sú schválené").
+- **Every line once:** its key is the receipt number, the time, the product's text, the quantity, the price and how many
+  identical lines came before it in that file — a later export with the same receipt skips it ("už odpísané skôr"); the
+  same file twice is the same import.
+- **The product:** by EAN, then the code, then a pairing made before, then the exact name. Otherwise the line waits:
+  "Čaká na spárovanie" lists each text once (lines, pieces, a code/EAN seen, up to 3 likely products, "Vybrať iný
+  produkt", "Nie je tovar" for transport, a deposit, a service). A pairing is remembered and books every waiting line of
+  that text at once; "Zabudnúť" asks again next time (what was booked stays — a mistake is an Oprava, as always).
+- **Booking:** a Výdaj movement at the shop's sale location, at the receipt's time (read in the shop's time zone),
+  ref "eKasa <receipt>"; a negative quantity (a refund) is an Oprava back ("Vrátenie – eKasa"). The shop page follows.
+- **Private:** only these columns are kept — never the customer, the payment or the cashier.
+- **"Dodávatelia (XLSX)"** next to the products and movements exports: every supplier written on a product or a
+  receipt, how many products and receipts, the last receipt's day.
+- **Not in phase E:** reading the eKasa portal directly (it has no API for shops). "Zariadenia" came as phase F (6.44).
+
+### 6.44 "Sklad v Cacaduu", phase F: Zariadenia (database update 72, 2 November 2026, design screen 15, owner's OK)
+
+Môj obchod → Sklad → Nastavenia → **Zariadenia**: phones that work in the shop's Sklad **without the owner's password**.
+
+- **"Pripojiť telefón (QR kód)":** a name ("Telefón 2 · Jana") and what it may do — **Predaj** (basket, cash, card, QR),
+  **Príjem tovaru** (scan a product, type the pieces; **never a purchase price** — the owner adds prices on the
+  computer), **Inventúra** (counting in a count the owner started; the differences and the approval stay with the owner)
+  and **QR terminál** (the counter's phone shows the customer the QR code). A QR code appears: it works **once, for 10
+  minutes** (or the same link sent by message). The phone scans it and taps "Pripojiť toto zariadenie" — no account, no
+  password; the phone's key stays only in that browser.
+- **On the phone** (`/<lang>/zariadenie`): the shop's name and the phone's name on top, only the ticked screens, the
+  same screens as in Môj obchod (Predaj and its QR page, the counting screen, the terminal) plus "Príjem tovaru";
+  "Odpojiť toto zariadenie".
+- **Never on a phone:** purchase prices, suppliers, margins, stock values, Nastavenia, the product cards, Pohyby,
+  Príjemky, the rest of Môj obchod, another shop. Everything a phone does is in Pohyby under its name.
+- **The list:** each phone with its ticks and state ("čaká na naskenovanie kódu", "online", "naposledy …", "nepoužité 90
+  dní – pripojte znova"), "Upraviť" (name, ticks), "Nový kód" (a new or replaced phone; the one before is disconnected),
+  "Odpojiť" (at once). A phone unused for 90 days is off. At most 10 per shop.

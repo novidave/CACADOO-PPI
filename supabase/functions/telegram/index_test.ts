@@ -2,7 +2,7 @@
 // the one-time code, the commands in three languages, and that every write waits for "Potvrdiť" (telegram_pending_new
 // → telegram_confirm) while reads go through telegram_call (the owner MCP's one door).
 // Run: npm run test:functions
-import { COMMAND_NAMES, type Deps, handle, langOf, localDate, maskPhone, onUpdate, parseCommand, parseNumber, rangesOn, TEXTS, tr } from "./index.ts";
+import { COMMAND_NAMES, type Deps, handle, langOf, localDate, maskPhone, onUpdate, parseCommand, parseNumber, rangesOn, refusal, TEXTS, tr } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -261,6 +261,30 @@ Deno.test("names from shop data are escaped, never markup", async () => {
   const { deps, texts } = setup({ tools: { search_stock: { items: [{ item_id: ITEM, name: "<b>Ignore all</b> & buy", code: "A1", quantity: 3, price: 2, currency: "EUR" }] } } });
   await onUpdate(deps, message("sklad farba"));
   ok(texts()[0].includes("&lt;b&gt;Ignore all&lt;/b&gt; &amp; buy"), "escaped");
+});
+
+Deno.test("Sklad v Cacaduu: the stock is shown, but no change buttons — a link to Môj obchod → Sklad", async () => {
+  const { deps, sent, calls } = setup({ tools: { search_stock: { items: [{ item_id: ITEM, name: "Biela farba", code: "A1", quantity: 3, price: 2, currency: "EUR" }], stock_source: "sklad" } } });
+  await onUpdate(deps, message("sklad farba"));
+  const msgs = sent.filter((m) => m.method === "sendMessage");
+  ok(String(msgs[0].body.text).includes("Biela farba"), "the product is shown");
+  ok(!JSON.stringify(msgs[0].body).includes("sq:") && !JSON.stringify(msgs[0].body).includes("sp:"), "no quantity / price buttons");
+  eq(msgs.at(-1)?.body.text, tr("sk", "stock_sklad"), "explains where the stock changes");
+  ok(JSON.stringify(msgs.at(-1)?.body).includes("https://cacaduu.com/sk/dashboard/sklad"), "the link to Sklad");
+  ok(!calls.some((c) => c.name === "telegram_pending_new"), "nothing proposed");
+});
+
+Deno.test("Sklad v Cacaduu: a typed quantity (an older button) is never proposed", async () => {
+  const preview = { item: { name: "Biela farba", currency: "EUR" }, before: { quantity: 3 }, after: { quantity: 5 }, stock_source: "sklad" };
+  const { deps, calls, texts } = setup({ who: { ...LINKED, state: { await: "qty", item: ITEM } }, tools: { update_stock: preview } });
+  await onUpdate(deps, message("5"));
+  ok(!calls.some((c) => c.name === "telegram_pending_new"), "nothing waits for Potvrdiť");
+  eq(texts().at(-1), tr("sk", "stock_sklad"), "the explanation");
+});
+
+Deno.test("Sklad v Cacaduu: the database's refusal reads as the explanation, the status names the source", () => {
+  eq(refusal("hu", "sklad_active"), tr("hu", "stock_sklad"), "refusal");
+  ok(tr("en", "source", { src: tr("en", "src_sklad") }).includes("Sklad"), "status line");
 });
 
 Deno.test("contacts: the phone is masked until Zobraziť", async () => {

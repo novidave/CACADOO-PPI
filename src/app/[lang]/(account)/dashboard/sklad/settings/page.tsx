@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
+import { formatDateTime } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { saveLocation, savePayment, saveSettings, setSource } from "../actions";
+import { revokeDevice, saveDevice, saveLocation, savePayment, saveSettings, setSaleSource, setSource } from "../actions";
+import { SkladDevicePair } from "@/components/SkladDevicePair";
 import { btnGhost, card, first, loadSklad, Notice, PlanCounter, SkladShell } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/sklad/settings">): Promise<Metadata> {
@@ -46,6 +48,22 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
     shop_name?: string;
   };
   const st = o.settings ?? { margin_reports: true, reminder_on: true, reminder_time: "08:00" };
+  // update 71: where sales come from (before update 71 there is no such choice: the card is hidden)
+  const ek = (await session.supabase.rpc("owner_sklad_ekasa_info", { p_shop_id: shop.id })).data as {
+    sale_source: string;
+    waiting_lines: number;
+    imports: { at: string; docs: number; lines: number; pieces: number }[];
+  } | null;
+  const ekasaHref = `/${ctx.lang}/dashboard/sklad/ekasa?${new URLSearchParams({ shop: shop.slug })}`;
+  // update 72: the paired phones (before update 72 the card is hidden)
+  const devRes = await session.supabase.rpc("owner_sklad_devices", { p_shop_id: shop.id });
+  const devices = devRes.error ? null : ((devRes.data ?? []) as { id: string; name: string; perms: string[]; state: string; last_seen_at: string | null }[]);
+  const dvLabels = Object.fromEntries(Object.entries(s as Record<string, string>).filter(([k]) => k.startsWith("dv_") || k.startsWith("err_")));
+  const PERMS = ["sale", "receive", "counts", "terminal"] as const;
+  const st_ = (d: { state: string; last_seen_at: string | null }) =>
+    d.state === "idle" && d.last_seen_at
+      ? s.dv_state_idle.replace("{at}", formatDateTime(d.last_seen_at, ctx.lang, shop.timezone))
+      : ((s as Record<string, string>)[`dv_state_${d.state}`] ?? d.state);
   const planHref = `/${ctx.lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
   const syncHref = `/${ctx.lang}/sync?${new URLSearchParams({ shop: shop.slug, at: "source" })}#source`;
   const exportHref = (kind: string) => `/api/owner/sklad/export?${new URLSearchParams({ shop: shop.id, kind, lang: ctx.lang })}`;
@@ -79,6 +97,93 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
           </Link>
         )}
       </section>
+
+      {ek && (
+        <form action={setSaleSource} className={card} id="sales" aria-labelledby="st-sales" data-sklad-sale-source={ek.sale_source}>
+          {hidden({ ...back })}
+          <h2 id="st-sales" className="text-lg font-bold">{s.ss_title}</h2>
+          <span className="text-sm text-muted">{s.ss_hint}</span>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {(["predaj", "ekasa"] as const).map((v) => (
+              <label key={v} className="flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border border-line p-3 has-[:checked]:border-foreground">
+                <input type="radio" name="sale_source" value={v} defaultChecked={ek.sale_source === v} className="mt-1 size-5 flex-none accent-foreground" />
+                <span className="flex flex-col">
+                  <strong className="text-[15px]">{v === "predaj" ? s.ss_predaj : s.ss_ekasa}</strong>
+                  <span className="text-[13px] text-muted">{v === "predaj" ? s.ss_predaj_hint : s.ss_ekasa_hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {ek.sale_source === "ekasa" && (
+            <p className="text-sm" data-sklad-ekasa-last>
+              {ek.imports[0]
+                ? s.ss_last
+                    .replace("{at}", formatDateTime(ek.imports[0].at, ctx.lang, shop.timezone))
+                    .replace("{docs}", String(ek.imports[0].docs))
+                    .replace("{lines}", String(ek.imports[0].lines))
+                    .replace("{pieces}", String(Number(ek.imports[0].pieces)))
+                : s.ek_imports_none}
+              {ek.waiting_lines ? ` · ${s.ek_import_waiting.replace("{n}", String(ek.waiting_lines))}` : ""}{" "}
+              <Link href={ekasaHref} className="font-semibold underline underline-offset-4">
+                {ek.waiting_lines ? s.ss_pair : s.ss_open}
+              </Link>
+            </p>
+          )}
+          <PendingButton pending={dict.owner.saving}>{s.save}</PendingButton>
+        </form>
+      )}
+
+      {devices && (
+        <section className={card} id="devices" aria-labelledby="st-dev" data-sklad-devices={devices.length}>
+          <h2 id="st-dev" className="text-lg font-bold">{s.dv_title}</h2>
+          <span className="text-sm text-muted">{s.dv_hint}</span>
+          <ul className="flex flex-col divide-y divide-line">
+            {devices.map((d) => (
+              <li key={d.id} className="flex flex-col gap-2 py-3" data-sklad-device={d.state}>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <strong className="text-[15px]">{d.name}</strong>
+                  <span className="flex items-center gap-1.5 text-[13px] text-muted">
+                    <span
+                      aria-hidden="true"
+                      className={`inline-block size-2.5 rounded-full ${d.state === "online" ? "bg-[#1E9E5A]" : d.state === "waiting" ? "bg-[#F2B705]" : "bg-[#9AA5B1]"}`}
+                    />
+                    {st_(d)}
+                  </span>
+                </div>
+                <span className="text-[13px]">{d.perms.map((x) => (s as Record<string, string>)[`dv_perm_${x}`]).join(" · ")}</span>
+                <details>
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold underline underline-offset-4">{s.dv_edit}</summary>
+                  <form action={saveDevice} className="mt-2 flex flex-col gap-2">
+                    {hidden({ device_id: d.id, ...back })}
+                    <label className="flex flex-col gap-1 text-sm">
+                      {s.dv_name}
+                      <input name="name" required maxLength={60} defaultValue={d.name} className={input} />
+                    </label>
+                    {PERMS.map((x) => (
+                      <label key={x} className="flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" name={`perm_${x}`} defaultChecked={d.perms.includes(x)} className="size-5 accent-foreground" />
+                        {(s as Record<string, string>)[`dv_perm_${x}`]}
+                      </label>
+                    ))}
+                    <PendingButton pending={dict.owner.saving}>{s.save}</PendingButton>
+                  </form>
+                </details>
+                <div className="flex flex-wrap items-start gap-3">
+                  <SkladDevicePair lang={ctx.lang} shopId={shop.id} deviceId={d.id} labels={dvLabels} />
+                  <form action={revokeDevice}>
+                    {hidden({ device_id: d.id, ...back })}
+                    <button type="submit" className="min-h-11 text-sm font-semibold underline underline-offset-4" data-sklad-device-revoke>
+                      {s.dv_revoke}
+                    </button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {devices.length < 10 ? <SkladDevicePair lang={ctx.lang} shopId={shop.id} labels={dvLabels} /> : <span className="text-sm">{s.dv_max}</span>}
+          <span className="text-[13px] text-muted">{s.dv_private}</span>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <section className={card} aria-labelledby="st-loc">
@@ -203,6 +308,9 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
             </a>
             <a href={exportHref("movements")} className={btnGhost} data-sklad-export="movements">
               {s.export_movements}
+            </a>
+            <a href={exportHref("suppliers")} className={btnGhost} data-sklad-export="suppliers">
+              {s.export_suppliers}
             </a>
           </div>
           <span className="text-[13px] text-muted">{t(s.export_private, {})}</span>

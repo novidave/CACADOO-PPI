@@ -2915,3 +2915,99 @@ upload), `@/lib/exportClient` (update 45's row loading, workbook, ZIP and file r
   product and stocks once, costs and supplier, a second confirm, done never changes, discard, matching, owner B /
   anon, the plan limit rolls the receipt back), `npm run test:sklad`.
 
+## Update 70 — "Sklad v Cacaduu", phase D: Inventúra (2 November 2026)
+
+`supabase/sql/70_sklad_inventura.sql` + `dashboard/sklad/counts` (`page.tsx` new + running + history, `[id]/page.tsx`
+the counting device, `[id]/diff/page.tsx` the differences / approval / result) + `@/components/SkladInventura` +
+`actions.ts` (`startCount`, `countSet`, `countMine`, `countMark`, `approveCount`, `undoCount`, `cancelCount`) +
+`/api/owner/sklad/export?kind=count&count=<id>` (XLSX).
+
+- **Tables:** `sklad_counts` (the client's UUID; I-<year>-<NN> from `sklad_next_count_no()` — `sklad_settings.ic_year` /
+  `ic_seq`; one location, an optional shelf (= `sklad_items.shelf`), blind; status open|approved|cancelled|undone;
+  `result` {fixes, pieces, value, counted}; ≤ 5 open per shop), `sklad_count_lines` (count × product × device name:
+  the total that device counted + `counted_at`), `sklad_count_marks` ("Prepočítať"). RLS, service role only.
+- **The expected quantity** = `sklad_stock_at(product, location, counted_at)` = the stock there now minus every movement
+  there since (a transfer counted on its side). The device gets it only when the count is not blind
+  (`owner_sklad_count_item`); the device's product list carries names, codes and EANs only.
+- **`owner_sklad_count_set(shop, count, item, counter, qty, only_mine)`** (the device's total; `only_mine` sets the
+  other devices' rows of that product to 0) · `owner_sklad_count` (the screen; `mine` = one device's counts by its name)
+  · `owner_sklad_count_diff` (per product counted, expected, diff, value at `avg_cost`, who; sales during; whether 0 is
+  allowed) · `owner_sklad_count_mark` · **`owner_sklad_count_approve(shop, count, zero_uncounted)`** (per product not
+  marked: target = counted + (stock now − stock at its count time), ≥ 0 → `owner_sklad_move(…, md5(count ':' item),
+  'count', target, location, …, ref = number)`; `zero_uncounted` (no shelf) → every product with stock there and no
+  count line → 0; status approved, `result`) · **`owner_sklad_count_undo`** (≤ 24 h: per Inventúra movement of the count
+  — the md5 ids — a `correction` with the opposite quantity and the reason "Vrátenie inventúry <number>") ·
+  `owner_sklad_count_cancel` · `owner_sklad_counts` (+ the shelves).
+- **The device:** the name in localStorage `ppi.sklad.counter` (`useSyncExternalStore`); its earlier counts are read
+  back by name (`countMine`) so a reload never overwrites them; every change sends the total (`countSet`); the scanner
+  event `sklad:scan`; a code outside the first 500 products → `lookupSaleProducts`.
+- Texts `sklad.ic_*`, `tab_counts`. Tests: DB block "update 70" (blind device, added up / mine, a sale during the count,
+  approve with zero, once, closed, undo, a shelf count with "Prepočítať", zero refused on a shelf, 24 h, owner B /
+  anon).
+
+## Update 71 — "Sklad v Cacaduu", phase E: sales from eKasa (2 November 2026)
+
+`supabase/sql/71_sklad_ekasa.sql` + `@/lib/ekasa` (shared with `ekasa_test.ts`, `npm run test:sklad`) +
+`dashboard/sklad/ekasa` (`page.tsx` upload + waiting + history + pairings, `columns/page.tsx`) + `actions.ts`
+(`setSaleSource`, `uploadEkasa`, `saveEkasaColumns`, `pairEkasa`, `forgetEkasa`) + the settings card `#sales` + the
+Predaj page's "off" card + `/api/owner/sklad/export?kind=suppliers`.
+
+- **One source of sales:** `sklad_settings.sale_source` predaj|ekasa (`owner_sklad_set_sale_source`); the trigger
+  `sklad_sales_source_guard` refuses a new `sklad_sales` row while it is ekasa (`sale_source`); the import refuses while
+  it is predaj.
+- **Reading** happens on the website (`readTable`: CSV with the separator of the first line, quotes, BOM / UTF-8 else
+  Windows-1250; XLSX via `@/lib/xlsx`'s reader), `guessColumns` (one column per field by its name), `columnsFit`,
+  `toLines` (numbers "1 234,50", times without an offset in the shop's zone — `localToUtc`, the repeated autumn hour =
+  the first, the skipped spring hour = winter time — Excel date numbers), `fileHash` (SHA-256).
+- **Columns:** `sklad_settings.ekasa_columns` {product, qty, doc, time, price, code, ean} (`owner_sklad_ekasa_save_columns`:
+  product + qty + doc or time). A file whose columns are not approved waits in `sklad_ekasa_imports` (status staged,
+  headers + rows, dropped after a day) → `owner_sklad_ekasa_staged`.
+- **`owner_sklad_ekasa_import(shop, id, name, hash, lines)`** (one per shop at a time — advisory lock): the same done
+  hash → that import; per line `sklad_ekasa_key()` = md5(shop, doc, time, text key = `search_text`, qty, price, n-th
+  identical line) → a line of another import or a movement with that id → `duplicate`; qty 0 → ignored; EAN → code →
+  `sklad_ekasa_pairs` (ignore → ignored) → the one product whose `search_text(name)` equals the key → booked, else
+  unmatched; `sklad_ekasa_lines` keeps every line; booked lines → `sklad_ekasa_book()` (movement id = the key: sale −qty,
+  or correction +qty "Vrátenie – eKasa"; sale location; client_at = the receipt time; ref "eKasa <doc>"; device
+  "eKasa") under the per-product locks, then `sklad_apply`; `sklad_ekasa_count()` keeps the import's numbers.
+- **Pairing:** `owner_sklad_ekasa_unmatched` (per text: lines, pieces, code, EAN, ≤ 3 trigram candidates) ·
+  `owner_sklad_ekasa_pair(shop, key, item, ignore)` (remembered; books / ignores every waiting line of the text) ·
+  `owner_sklad_ekasa_forget` · `owner_sklad_ekasa_info` (source, columns, waiting, the last 20 imports, pairings).
+- **Suppliers:** `owner_sklad_supplier_list` (name, products, done receipts, the last one) → the XLSX.
+- Activity: `sklad_ekasa_imported`, `sklad_ekasa_paired`, `sklad_settings_saved` (sale_source / columns). Tables RLS,
+  service role only. Texts `sklad.ek_*`, `ss_*`, `sale_off_*`, `export_suppliers`, `x_supplier*`. Tests: DB block
+  "update 71" (refused while predaj, columns rule, Predaj refused while eKasa, EAN / code / exact name, two identical
+  lines = two sales, a refund, the same file twice, pairing + ignore remembered, an overlapping export skipped, forget,
+  staging, suppliers, back to predaj, owner B / anon), `ekasa_test.ts`.
+
+## Update 72 — "Sklad v Cacaduu", phase F: Zariadenia (2 November 2026, the owner's OK)
+
+`supabase/sql/72_sklad_devices.sql` + `@/lib/skladDevice` (server only: the cookie `ppi_skd`, `deviceRpc`,
+`deviceWhoami`, `skladRpc` = the owner's login else the phone) + `src/app/[lang]/zariadenie/*` (start, `pripojit`,
+`predaj` (+ `[id]` via the shared `dashboard/sklad/SaleQrView`), `prijem`, `inventura` (+ `[id]`), `terminal`;
+`actions.ts`: `pairDevice`, `forgetDevice`, `receiveStock`, `deviceSalePaid`, `deviceSaleCancel`) + the settings card
+`#devices` (`@/components/SkladDevicePair`: `addDevice` / `deviceCode` return the QR code drawn on the server;
+`saveDevice`, `revokeDevice`) + `@/components/DevicePairScreen`.
+
+- **Tables** `sklad_devices` (name, `perms` ⊆ sale|receive|counts|terminal, `pair_hash` + `pair_expires`, `token_hash`,
+  `paired_at`, `last_seen_at`, `created_by` = the owner, `revoked_at`) and `sklad_device_hits` (per minute). RLS, service
+  role only.
+- **Pairing:** `owner_sklad_device_add` (≤ 10 active, `sklad_device_perms`) / `owner_sklad_device_code` (the old key
+  cleared) → `skp_` + 64 hex (`mcp_random`), 10 minutes, hash only (`sklad_device_hash`, its own prefix). The QR address
+  is `/<lang>/zariadenie/pripojit#<code>` — the code is after "#" (never in a server log) and is sent only by the button
+  (`pairDevice` → `sklad_device_claim`, anon) → `skt_` + 64 hex in an HttpOnly cookie (SameSite Lax, Secure in
+  production, 400 days; the server's 90 days decide).
+- **The door** `sklad_device_call(key, fn, args)` (anon): `sklad_device_open` (hash, not revoked, used within 90 days,
+  `mcp_act_as(created_by)` + still `is_shop_member`, `last_seen_at`) → `sklad_device_need(fn)` ∩ ticks (the list:
+  products, find, sale_info, sell, sale, sale_paid, sale_cancel, terminal, move, counts, count, count_set, count_item)
+  → 120 calls a minute → `p_shop_id` = the phone's shop, `p_device` / `p_counter` = its name, `owner_sklad_move` only
+  kind receipt without `p_unit_cost` / `p_to_location_id` → the call built from `pg_proc`'s argument names and types
+  (named, `$1 ->> name`) → `sklad_device_strip` (cost, margin, supplier, value keys at every depth). Every owner_sklad_*
+  rule runs as for the owner.
+- **The website:** the shared Sklad actions that phones use (`sellBasket`, `lookupSaleProducts`, `terminalAct`,
+  `countSet`, `countMine`) and `/api/owner/sklad/terminal` take `skladRpc()`; `SkladPredaj` hides empty links,
+  `SkladInventura` takes `fixedName` and an empty `diffHref`. `robots.ts` disallows `/*/zariadenie`.
+- Activity: `sklad_device_saved`, `sklad_device_paired`, `sklad_device_revoked`. Texts `device`, `sklad.dv_*`.
+  Tests: DB block "update 72" (ticks and name required, the code once, the key as the only login, its own shop whatever
+  it names, its own name on sales / receipts / counts, a purchase price dropped, a writeoff / product card / save
+  refused, untick → refused, the strip, 120 a minute, 90 days, a new code disconnects the old phone, ≤ 10, revoke,
+  owner B / anon).

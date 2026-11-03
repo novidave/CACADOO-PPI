@@ -2031,6 +2031,27 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
 3. **Try it:** TODO-OWNER item 17 (Sklad → Príjemky → "+ Nová príjemka" → "Faktúra (AI)" → check → "Potvrdiť
    príjemku").
 
+## Part BB — "Sklad v Cacaduu", phase D: Inventúra (update 70, 2 November 2026)
+
+1. **Database:** Claude applies `supabase/sql/70_sklad_inventura.sql` with the Supabase connector (nothing to paste).
+2. **Secrets:** nothing new.
+3. **Try it:** TODO-OWNER item 18 (Sklad → Inventúra → a shelf or a location → count on a phone → Rozdiely → Schváliť;
+   "Vrátiť späť" works for 24 hours).
+
+## Part BC — "Sklad v Cacaduu", phase E: sales from eKasa (update 71, 2 November 2026)
+
+1. **Database:** Claude applies `supabase/sql/71_sklad_ekasa.sql` with the Supabase connector (nothing to paste).
+2. **Secrets:** nothing new.
+3. **Try it:** TODO-OWNER item 21 (Sklad → Nastavenia → Odkiaľ prichádzajú predaje → Import z eKasa → upload one day's
+   export → choose the columns → pair what waits).
+
+## Part BD — "Sklad v Cacaduu", phase F: Zariadenia (update 72, 2 November 2026)
+
+1. **Database:** Claude applies `supabase/sql/72_sklad_devices.sql` with the Supabase connector (nothing to paste).
+2. **Secrets:** nothing new.
+3. **Try it:** TODO-OWNER item 22 (Sklad → Nastavenia → Zariadenia → "Pripojiť telefón (QR kód)" → scan with a second
+   phone → sell or count on it → "Odpojiť").
+
 ## Part D — later, before launch
 
 **Remove the test data:**
@@ -2092,3 +2113,6 @@ where slug in ('potraviny-centrum', 'drogeria-kostolne', 'zeleziarstvo-vychod', 
 | 43. "Sklad v Cacaduu" phase A: the stock kept in Cacaduu as movements (receipt, issue, write-off, transfer, correction; never typed over, each once by its id), locations, the shop page fed after every movement, "Stav je správny" + a daily reminder e-mail, Free 50 / Pro unlimited, private purchase prices and margin, USB scanner and phone camera, XLSX exports; one stock source at a time | ✅ built — set up Part AY |
 | 44. "Sklad v Cacaduu" phase B — Predaj: a basket from the scanner, camera, search or tiles; Hotovosť / Karta take the goods off at once (the receipt stays eKasa), QR platba with a PAY by square code waits for "Zaplatené"; each sale once by its id; a QR terminal on a spare phone; the IBAN in Nastavenia | ✅ built — set up Part AZ |
 | 45. "Sklad v Cacaduu" phase C — Príjemky: receipts with many lines (scanner, search, new products, the AI reading an invoice photo / PDF, paired in SQL), a draft until confirmed, stocked once with purchase prices and the supplier | ✅ built — set up Part BA |
+| 46. "Sklad v Cacaduu" phase D — Inventúra: blind counts of a location or a shelf on several phones while the shop stays open, sales during the count accounted for, differences with value, recount, keep or zero the uncounted, approve once, undo within 24 h, XLSX report | ✅ built — set up Part BB |
+| 47. "Sklad v Cacaduu" phase E — sales from eKasa: one source of sales (Predaj screen or the eKasa export), the export's columns approved once, each line taken off once, pairing remembered, refunds, "Dodávatelia (XLSX)" | ✅ built — set up Part BC |
+| 48. "Sklad v Cacaduu" phase F — Zariadenia: phones join a shop's Sklad by a QR code without the owner's password, only the ticked screens, never purchase prices, under their own name, "Odpojiť" at once, 90 days, ≤ 10 | ✅ built — set up Part BD |

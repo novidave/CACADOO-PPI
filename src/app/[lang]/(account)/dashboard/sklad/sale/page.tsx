@@ -6,7 +6,7 @@ import { formatPrice } from "@/lib/format";
 import { saleProducts, type SkladRow } from "@/lib/sklad";
 import { DbError } from "@/components/DbError";
 import { type PredajLabels, SkladPredaj } from "@/components/SkladPredaj";
-import { first, loadSklad, Notice, SkladShell } from "../parts";
+import { btnGhost, card, first, loadSklad, Notice, SkladShell } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/sklad/sale">): Promise<Metadata> {
   const { lang } = await params;
@@ -46,10 +46,13 @@ export default async function SkladSale({ params, searchParams }: PageProps<"/[l
   const ctx = await loadSklad(lang, sp);
   if (!ctx.ok) return <DbError message={ctx.error} dict={ctx.dict} />;
   const { dict, s, session, shop, shops, href } = ctx;
-  const [prod, info] = await Promise.all([
+  const [prod, info, ekasa] = await Promise.all([
     session.supabase.rpc("owner_sklad_products", { p_shop_id: shop.id, p_q: null, p_filter: "all", p_limit: LIST + 1, p_offset: 0 }),
     session.supabase.rpc("owner_sklad_sale_info", { p_shop_id: shop.id }),
+    session.supabase.rpc("owner_sklad_ekasa_info", { p_shop_id: shop.id }),
   ]);
+  // update 71: while sales come from the eKasa export the Predaj screen is off (before update 71: always on)
+  const fromEkasa = (ekasa.data as { sale_source?: string } | null)?.sale_source === "ekasa";
   if (prod.error) return <DbError message={prod.error.message} dict={dict} />;
   if (info.error) return <DbError message={info.error.message} dict={dict} />;
   const res = prod.data as { rows: SkladRow[]; source: string };
@@ -83,6 +86,20 @@ export default async function SkladSale({ params, searchParams }: PageProps<"/[l
           ))}
         </ul>
       )}
+      {fromEkasa ? (
+        <section className={card} aria-labelledby="sale-off" data-sklad-sale-off>
+          <h3 id="sale-off" className="text-lg font-bold">{s.sale_off_title}</h3>
+          <p className="text-sm text-muted">{s.sale_off_text}</p>
+          <div className="flex flex-wrap gap-2">
+            <Link href={href("/ekasa")} className={btnGhost}>
+              {s.sale_off_import}
+            </Link>
+            <Link href={href("/settings") + "#sales"} className={btnGhost}>
+              {s.sale_off_settings}
+            </Link>
+          </div>
+        </section>
+      ) : (
       <SkladPredaj
         lang={ctx.lang}
         shopId={shop.id}
@@ -101,6 +118,7 @@ export default async function SkladSale({ params, searchParams }: PageProps<"/[l
         }}
         labels={labels}
       />
+      )}
       <p className="text-sm">
         <Link href={href("/terminal")} className="font-semibold underline underline-offset-4">
           {s.qr_terminal_link}

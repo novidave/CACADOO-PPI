@@ -205,7 +205,7 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
   contact form shows, the phone calendar feed (iCalendar, first names only)
 - `npm run test:sklad` — unit tests (Deno) of "Sklad v Cacaduu" (`src/lib/sklad_test.ts`): amounts and prices as typed,
   the card's forms (reasons, a different Presun target), a transfer keeps the total, margin / stock value, time left
-  until stale, the scanner's key burst, the XLSX rows
+  until stale, the scanner's key burst, the XLSX rows; the eKasa export (`ekasa_test.ts`: CSV/XLSX, columns, numbers, times)
 - `npm run test:telegram` — the Telegram bot's texts in `supabase/functions/telegram/index.ts` match the message
   files (`node scripts/telegram-texts.mjs` writes them)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
@@ -643,18 +643,19 @@ never the owner's own — `auth.uid()` a member) and `callback` (trigger on `sho
 `ppi_telegram_cron`, header `x-ppi-cron`) → action notify → `telegram_notify_due()` (quiet hours in the shop's time
 wait, `notify_daily_cap` per link and 24 h, access/plan re-checked; only time, service, name or the question — never a
 phone) → `telegram_notify_result()` (5 tries). Owners: `owner_telegram_prefs()` / `owner_telegram_save_prefs()`,
-"Poslať skúšobné upozornenie" = `owner_telegram_test()` (5/hour). T4 (setup helper, files/photos/blog drafts) needs a
-Pomocník, which does not exist yet. **Google Maps (2026-11-02):** a confirmed `set_opening_hours` also sends the week to the shop's Google
+"Poslať skúšobné upozornenie" = `owner_telegram_test()` (5/hour). **A Sklad shop (update 67):** the stock search shows quantity and price but no change buttons;
+`stock_sklad` + an "Otvoriť Sklad" link instead (a proposal, an older button and the AI's `propose_stock_change` too;
+`sklad_active` reads the same). **Google Maps (2026-11-02):** a confirmed `set_opening_hours` also sends the week to the shop's Google
 Business Profile — the telegram function calls hours-sms `POST /service` (bearer = the service role key, only
 `google_push` of the named shop, `shopBySlug` → `pushToGoogle`, the same push as "Poslať hodiny do Google teraz");
 the reply adds "Google Mapy: hodiny aktualizované" / a failure line (`google_pushed` / `google_failed`), nothing when
-not connected.
+not connected. T4 (setup helper, files/photos/blog drafts) needs a Pomocník, which does not exist yet.
 
 ## "Sklad v Cacaduu" (phase A, update 67, Prompt 14, 2026-11-02)
 
 `supabase/sql/67_sklad.sql` + `supabase/functions/sklad` (one file, Verify JWT off: the daily reminder e-mail and IndexNow,
-pg_cron `ppi-sklad-tick` 15 min, Vault `ppi_sklad_cron`) + `dashboard/sklad` (Prehľad · Predaj · Príjemky · Produkty · Pohyby ·
-Nastavenia; Inventúra comes with its phase) + `@/components/SkladScanner` + `@/lib/sklad` + `/api/owner/sklad/export`.
+pg_cron `ppi-sklad-tick` 15 min, Vault `ppi_sklad_cron`) + `dashboard/sklad` (Prehľad · Predaj · Príjemky · Inventúra · Produkty ·
+Pohyby · Nastavenia) + `@/components/SkladScanner` + `@/lib/sklad` + `/api/owner/sklad/export`.
 Design: Claude Design canvas "Cacaduu – Sklad (Môj obchod)", screens 4, 5, 13, 14, 15. **A fourth stock source** —
 `shop_stock_source.source = 'sklad'`, `stock_source_of()` = api > agent > sklad > file; while it is active it is the
 **only writer**: `upload_check_in()` raises `sklad_active`, no inventory program, POS snapshots end `test_ok`, and the
@@ -702,6 +703,48 @@ P-<year>-<NNN>, draft|done|discarded — never deleted); `owner_sklad_receipt_sa
 `ai_off`; `sklad_ai_hit` Free 5 / Pro 50 a day) → Claude (`aiModel()`, structured output, the document is data) →
 `cleanInvoice` → **pairing only in SQL** (`owner_sklad_match`: EAN, code, trigram name). Nothing is stored before the
 owner confirms; invoices never logged. Texts `sklad.rc_*`, `ai_*`. Tests: DB block "update 69", `npm run test:sklad`.
+
+## "Sklad v Cacaduu" phase D: Inventúra (update 70, 2026-11-02)
+
+`supabase/sql/70_sklad_inventura.sql` + `dashboard/sklad/counts` (list/new, `[id]` the counting device, `[id]/diff`) +
+`@/components/SkladInventura` + the export's `kind=count`. A count = `sklad_counts` (the client's UUID, I-<year>-<NN>,
+one location ± one shelf, blind by default) + `sklad_count_lines` (per product **and device name**: the total that
+device counted + when; "Platí môj počet" zeroes the others). **Expected = the stock at the moment of counting**
+(`sklad_stock_at`), so sales during the count never make a false difference; a blind device never receives it.
+`owner_sklad_count_approve` = one `count` movement per product not marked "Prepočítať" (target = counted + what happened
+since; id md5(count ':' item) — once), optional zero for the uncounted (whole location only); `owner_sklad_count_undo`
+within 24 h = opposite Opravy. Texts `sklad.ic_*`. Tests: DB block "update 70".
+
+## "Sklad v Cacaduu" phase E: sales from eKasa (update 71, 2026-11-02)
+
+`supabase/sql/71_sklad_ekasa.sql` + `@/lib/ekasa` (`ekasa_test.ts` in `npm run test:sklad`) + `dashboard/sklad/ekasa`
+(+ `columns`) + the settings card `#sales` + `/api/owner/sklad/export?kind=suppliers`. **One source of sales**
+(`sklad_settings.sale_source` predaj|ekasa, `owner_sklad_set_sale_source`): while ekasa the trigger
+`sklad_sales_source_guard` refuses every new sale (`sale_source`) and Predaj shows "Obrazovka Predaj je vypnutá"; while
+predaj the import is refused. The export is **read on the website** (`readTable` CSV/XLSX ≤ 1.9 MB / 5 000 rows,
+`toLines`: numbers as written, times in the shop's zone) and **decided in SQL** (`owner_sklad_ekasa_import`): columns
+approved once (`ekasa_columns`: product + qty + doc or time; else the file waits staged 1 day), each line's key = md5(shop,
+doc, time, `search_text` of the text, qty, price, n-th identical line) = the movement id — **a sale is never booked
+twice** (same file → the same import; an overlapping export → `duplicate`); EAN → code → remembered pairing
+(`sklad_ekasa_pairs`, ignore = "Nie je tovar") → the exact name, else `unmatched` until `owner_sklad_ekasa_pair` (books
+every waiting line of that text); refunds = Oprava "Vrátenie – eKasa"; `sklad_apply` after. Only these columns are kept —
+never the customer, payment or cashier. Texts `sklad.ek_*`, `ss_*`, `sale_off_*`. Tests: DB block "update 71".
+
+## "Sklad v Cacaduu" phase F: Zariadenia (update 72, 2026-11-02, the owner's OK)
+
+`supabase/sql/72_sklad_devices.sql` + `@/lib/skladDevice` + `src/app/[lang]/zariadenie/*` + the settings card `#devices`
+(`@/components/SkladDevicePair`) + `@/components/DevicePairScreen` + `dashboard/sklad/SaleQrView` (shared QR page). A
+phone joins ONE shop's Sklad **without the owner's password**: a pairing code (`owner_sklad_device_add` /
+`owner_sklad_device_code`: 10 minutes, once, hash only; the QR address carries it after "#", sent only by the button)
+→ `sklad_device_claim` → a key (`skt_…`) **only in the HttpOnly cookie `ppi_skd`**, hash only in SQL. **Every phone call
+goes through one door, `sklad_device_call(key, fn, args)`** — never a second path: the key (not revoked, used within 90
+days, its owner still a member → `mcp_act_as`), the function on `sklad_device_need`'s list and allowed by the ticks
+(sale | receive | counts | terminal), 120/min, **the phone's own shop and name forced**, `owner_sklad_move` only kind
+receipt **without a purchase price**, the answer through `sklad_device_strip` (costs, margins, suppliers, values out).
+Never on a phone: purchase prices, Nastavenia, product cards, Pohyby, Príjemky, the rest of Môj obchod, other shops.
+The shared actions phones use (`sellBasket`, `lookupSaleProducts`, `terminalAct`, `countSet`, `countMine`) and
+`/api/owner/sklad/terminal` take `skladRpc()` (the owner's login first). ≤ 10 per shop; "Odpojiť" at once. Texts
+`device`, `sklad.dv_*`. Tests: DB block "update 72".
 
 ## Cloud folder (paid, update 23)
 

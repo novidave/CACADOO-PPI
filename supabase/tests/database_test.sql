@@ -12577,4 +12577,571 @@ reset role;
 drop table t69;
 drop table t69_inv;
 
+\echo '--- update 70: Sklad Inventúra — blind counts per phone, added up or "mine", sales during the count, approve once, zero uncounted, recount, undo 24 h, owners only'
+create temporary table t70 (k text primary key, v text);
+grant all on t70 to public;
+create temporary table t70_inv as
+  select inv.* from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  join public.shops s on s.id = si.shop_id where s.slug = 'potraviny-centrum';
+grant all on t70_inv to public;
+set role service_role;
+insert into t70 values ('fresh', (select latest_file_time::text from public.sync_sources s join public.shops sh on sh.id = s.shop_id where sh.slug = 'potraviny-centrum'));
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid;
+  v_q uuid;
+  v_shop uuid;
+  v_c uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  v_shop := (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview(v_a) -> 'locations') l where (l ->> 'sale_default')::boolean);
+  v_p := public.owner_sklad_save_product(v_a, null, '{"name":"Farba fasádna biela 5 l","ean":"8580000102315","sale_price":"24.90"}');
+  v_q := public.owner_sklad_save_product(v_a, null, '{"name":"Valček 25 cm","ean":"8580000301015","sale_price":"7.50"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'receipt', 10, v_shop, null, 15.20);
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_q, 'receipt', 4, v_shop, null, 3.90);
+  insert into t70 values ('p', v_p::text), ('q', v_q::text), ('c', v_c::text), ('shop', v_shop::text);
+  -- a blind count of the sale location: numbered, the same id again is the same count
+  vj := public.owner_sklad_count_start(v_a, v_c, 'Štvrťročná', v_shop);
+  assert vj ->> 'number' ~ '^I-[0-9]{4}-01$' and not (vj ->> 'duplicate')::boolean, vj::text;
+  assert (public.owner_sklad_count_start(v_a, v_c, 'x', v_shop) ->> 'duplicate')::boolean;
+  -- phone 1 counts 7 (the expected 10 is never shown on a blind count)
+  vj := public.owner_sklad_count_set(v_a, v_c, v_p, 'Telefón 1 · Peter', 7);
+  assert (vj ->> 'total')::numeric = 7 and vj -> 'expected' = 'null'::jsonb, vj::text;
+  -- phone 2 adds 2 (added up), then phone 1 says "mine": phone 2's becomes 0
+  vj := public.owner_sklad_count_set(v_a, v_c, v_p, 'Telefón 2 · Jana', 2);
+  assert (vj ->> 'total')::numeric = 9 and jsonb_array_length(vj -> 'counters') = 2, vj::text;
+  vj := public.owner_sklad_count_set(v_a, v_c, v_p, 'Telefón 1 · Peter', 7, true);
+  assert (vj ->> 'total')::numeric = 7, vj::text;
+  vj := public.owner_sklad_count(v_a, v_c, 'Telefón 1 · Peter');
+  assert (vj ->> 'counted')::int = 1 and (vj ->> 'in_scope')::int = 1 + jsonb_array_length(vj -> 'uncounted')
+     and exists (select 1 from jsonb_array_elements(vj -> 'uncounted') u where (u ->> 'item_id')::uuid = v_q)
+     and jsonb_array_length(vj -> 'mine') = 1, vj::text;
+  begin perform public.owner_sklad_count_set(v_a, v_c, v_p, '', 1); raise exception 'no counter name';
+  exception when invalid_parameter_value then if sqlerrm <> 'counter' then raise; end if; end;
+end $$;
+reset role;
+
+-- a sale during the count (after phone 1 counted): no false difference
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := (select v::uuid from t70 where k = 'p');
+  v_q uuid := (select v::uuid from t70 where k = 'q');
+  v_c uuid := (select v::uuid from t70 where k = 'c');
+  v_shop uuid := (select v::uuid from t70 where k = 'shop');
+  vj jsonb;
+begin
+  perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 2)), 'cash');
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 8;
+  vj := public.owner_sklad_count_diff(v_a, v_c);
+  assert (vj -> 'rows' -> 0 ->> 'expected')::numeric = 10 and (vj -> 'rows' -> 0 ->> 'diff')::numeric = -3
+     and (vj -> 'rows' -> 0 ->> 'value')::numeric = -45.60 and (vj ->> 'sales_during')::int = 1
+     and (vj ->> 'zero_allowed')::boolean, vj::text;
+  -- approve, the uncounted product set to 0: the counted one = 7 counted − 2 sold since = 5
+  vj := public.owner_sklad_count_approve(v_a, v_c, true);
+  assert (vj ->> 'fixes')::int >= 2 and not (vj ->> 'duplicate')::boolean, vj::text;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 5;
+  assert (public.owner_sklad_product(v_a, v_q) ->> 'total')::numeric = 0;
+  assert (select quantity from public.public_stock where item_id = v_p) = 5, 'the shop page follows';
+  -- a second approval counts nothing twice; the closed count takes no more counts
+  vj := public.owner_sklad_count_approve(v_a, v_c, true);
+  assert (vj ->> 'duplicate')::boolean and (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 5, vj::text;
+  begin perform public.owner_sklad_count_set(v_a, v_c, v_p, 'Telefón 1', 1); raise exception 'counted after approval';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'closed' then raise; end if; end;
+  assert (public.owner_sklad_movements(v_a, v_p, 'count') -> 'rows' -> 0 ->> 'ref') ~ '^I-[0-9]{4}-01$';
+  -- undo within 24 h: back to what it was
+  perform public.owner_sklad_count_undo(v_a, v_c);
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 8;
+  assert (public.owner_sklad_product(v_a, v_q) ->> 'total')::numeric = 4;
+  assert public.owner_sklad_count(v_a, v_c) ->> 'status' = 'undone';
+  -- a shelf count: "Prepočítať" leaves a product out; zero is refused for a shelf
+  perform public.owner_sklad_save_product(v_a, v_p, '{"shelf":"A"}');
+  insert into t70 values ('c2', (public.owner_sklad_count_start(v_a, gen_random_uuid(), null, v_shop, 'A') ->> 'id'));
+  vj := public.owner_sklad_count(v_a, (select v::uuid from t70 where k = 'c2'));
+  assert (vj ->> 'in_scope')::int = 1 and vj ->> 'number' ~ '-02$', vj::text;
+  perform public.owner_sklad_count_set(v_a, (select v::uuid from t70 where k = 'c2'), v_p, 'Telefón 1', 1);
+  perform public.owner_sklad_count_mark(v_a, (select v::uuid from t70 where k = 'c2'), v_p, true);
+  begin perform public.owner_sklad_count_approve(v_a, (select v::uuid from t70 where k = 'c2'), true); raise exception 'zero on a shelf';
+  exception when invalid_parameter_value then if sqlerrm <> 'zero_shelf' then raise; end if; end;
+  vj := public.owner_sklad_count_approve(v_a, (select v::uuid from t70 where k = 'c2'));
+  assert (vj ->> 'fixes')::int = 0 and (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 8, vj::text;
+  vj := public.owner_sklad_counts(v_a);
+  assert jsonb_array_length(vj -> 'rows') = 2 and vj -> 'shelves' ? 'A', vj::text;
+end $$;
+reset role;
+
+-- undo only within 24 hours
+set role service_role;
+update public.sklad_counts set approved_at = now() - interval '25 hours' where id = (select v::uuid from t70 where k = 'c2');
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  begin perform public.owner_sklad_count_undo((select id from public.shops where slug = 'potraviny-centrum'), (select v::uuid from t70 where k = 'c2'));
+    raise exception 'undone after 24 h';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'too_late' then raise; end if; end;
+end $$;
+reset role;
+
+-- owner B and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_sklad_count(v_a, (select v::uuid from t70 where k = 'c')); raise exception 'B read A''s count';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_count_diff(v_a, (select v::uuid from t70 where k = 'c')); raise exception 'B read A''s differences';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_count_start(v_a, gen_random_uuid(), null, null); raise exception 'B started a count in A';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_count_lines; raise exception 'owners read the count table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform count(*) from public.sklad_counts; raise exception 'anon read counts';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_counts((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'anon counts';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.sklad_counts where shop_id = v_a;
+  delete from public.sklad_receipts where shop_id = v_a;
+  delete from public.sklad_sales where shop_id = v_a;
+  delete from public.sklad_items where shop_id = v_a;
+  delete from public.shop_items si where si.shop_id = v_a and not exists (select 1 from t70_inv t where t.shop_item_id = si.id);
+  delete from public.sklad_locations where shop_id = v_a;
+  delete from public.sklad_settings where shop_id = v_a;
+  delete from public.shop_stock_source where shop_id = v_a;
+  delete from public.inventory inv using public.shop_items si where si.id = inv.shop_item_id and si.shop_id = v_a;
+  insert into public.inventory select * from t70_inv;
+  update public.sync_sources set latest_file_time = (select v::timestamptz from t70 where k = 'fresh') where shop_id = v_a;
+end $$;
+reset role;
+drop table t70;
+drop table t70_inv;
+
+\echo '--- update 71: Sklad eKasa — one source of sales, columns approved once, each line booked once (overlapping exports, same file twice), pairing remembered, refunds, owners only'
+create temporary table t71 (k text primary key, v text);
+grant all on t71 to public;
+create temporary table t71_inv as
+  select inv.* from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  join public.shops s on s.id = si.shop_id where s.slug = 'potraviny-centrum';
+grant all on t71_inv to public;
+set role service_role;
+insert into t71 values ('fresh', (select latest_file_time::text from public.sync_sources s join public.shops sh on sh.id = s.shop_id where sh.slug = 'potraviny-centrum'));
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid;
+  v_q uuid;
+  v_shop uuid;
+  v_i1 uuid := gen_random_uuid();
+  v_lines jsonb;
+  vj jsonb;
+begin
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  v_shop := (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview(v_a) -> 'locations') l where (l ->> 'sale_default')::boolean);
+  v_p := public.owner_sklad_save_product(v_a, null, '{"name":"Farba fasádna biela 5 l","ean":"8580000102315","sale_price":"24.90"}');
+  v_q := public.owner_sklad_save_product(v_a, null, '{"name":"Valček 25 cm","code":"VAL25","sale_price":"7.50"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'receipt', 10, v_shop, null, 15.20);
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_q, 'receipt', 5, v_shop, null, 3.90);
+  insert into t71 values ('p', v_p::text), ('q', v_q::text), ('i1', v_i1::text);
+  v_lines := '[{"doc":"O-1","time":"2026-11-01T08:10:00+01:00","text":"FARBA FASADNA 5L","ean":"8580000102315","qty":"2","price":"24.90"},
+              {"doc":"O-1","time":"2026-11-01T08:10:00+01:00","text":"Valcek","code":"VAL25","qty":"1","price":"7.50"},
+              {"doc":"O-2","time":"2026-11-01T09:00:00+01:00","text":"Štetec plochý 50","qty":"3","price":"2.10"},
+              {"doc":"O-2","time":"2026-11-01T09:00:00+01:00","text":"Štetec plochý 50","qty":"3","price":"2.10"},
+              {"doc":"O-3","time":"2026-11-01T10:00:00+01:00","text":"Doprava","qty":"1","price":"5.00"},
+              {"doc":"O-4","time":"2026-11-01T11:00:00+01:00","text":"Valček 25 cm","qty":"-1","price":"7.50"}]';
+  insert into t71 values ('lines', v_lines::text);
+  -- while sales come from the Predaj screen, eKasa imports are refused
+  begin perform public.owner_sklad_ekasa_import(v_a, v_i1, 'export.csv', repeat('a', 64), v_lines); raise exception 'eKasa while predaj';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sale_source' then raise; end if; end;
+  -- columns: product + qty + (receipt or time) are required
+  begin perform public.owner_sklad_ekasa_save_columns(v_a, '{"product":"Názov","qty":"Množstvo"}'); raise exception 'columns without doc/time';
+  exception when invalid_parameter_value then if sqlerrm <> 'columns' then raise; end if; end;
+  perform public.owner_sklad_ekasa_save_columns(v_a, '{"product":"Názov","qty":"Množstvo","doc":"Doklad","price":"Cena","junk":"x"}');
+  assert public.owner_sklad_ekasa_info(v_a) -> 'columns' = '{"product":"Názov","qty":"Množstvo","doc":"Doklad","price":"Cena"}'::jsonb;
+  perform public.owner_sklad_set_sale_source(v_a, 'ekasa');
+  -- the Predaj screen sells nothing now
+  begin perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_p, 'qty', 1)), 'cash');
+    raise exception 'sold on Predaj while eKasa';
+  exception when object_not_in_prerequisite_state then if sqlerrm <> 'sale_source' then raise; end if; end;
+  -- the import: EAN → p (2), code → q (1), the refund of "Valček 25 cm" by its exact name (+1), the brush waits twice
+  -- (two identical lines are two sales), transport waits
+  vj := public.owner_sklad_ekasa_import(v_a, v_i1, 'export.csv', repeat('a', 64), v_lines);
+  assert (vj ->> 'lines')::int = 6 and (vj ->> 'booked')::int = 3 and (vj ->> 'unmatched')::int = 3
+     and (vj ->> 'skipped')::int = 0 and (vj ->> 'docs')::int = 4 and not (vj ->> 'duplicate')::boolean, vj::text;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 8;
+  assert (public.owner_sklad_product(v_a, v_q) ->> 'total')::numeric = 5, 'one sold, one refunded';
+  assert (select quantity from public.public_stock where item_id = v_p) = 8, 'the shop page follows';
+  assert (public.owner_sklad_movements(v_a, v_p, 'sale') -> 'rows' -> 0 ->> 'ref') = 'eKasa O-1';
+  assert (public.owner_sklad_movements(v_a, v_q, 'correction') -> 'rows' -> 0 ->> 'reason') = 'Vrátenie – eKasa';
+  -- the same file again = the same import, nothing booked twice
+  vj := public.owner_sklad_ekasa_import(v_a, gen_random_uuid(), 'export (1).csv', repeat('a', 64), v_lines);
+  assert (vj ->> 'duplicate')::boolean and (vj ->> 'id')::uuid = v_i1, vj::text;
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 8;
+  vj := public.owner_sklad_ekasa_unmatched(v_a);
+  assert jsonb_array_length(vj) = 2 and (vj -> 0 ->> 'lines')::int = 2 and (vj -> 0 ->> 'pieces')::numeric = 6, vj::text;
+  insert into t71 values ('brush', vj -> 0 ->> 'key'), ('transport', vj -> 1 ->> 'key');
+end $$;
+reset role;
+
+-- pairing: the brush becomes a product, transport is "Nie je tovar"; both remembered for the next export
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid;
+  v_shop uuid := (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview((select id from public.shops where slug = 'potraviny-centrum')) -> 'locations') l where (l ->> 'sale_default')::boolean);
+  vj jsonb;
+begin
+  v_b := public.owner_sklad_save_product(v_a, null, '{"name":"Štetec 50 mm","sale_price":"2.10"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_b, 'receipt', 20, v_shop, null, 0.80);
+  insert into t71 values ('b', v_b::text);
+  vj := public.owner_sklad_ekasa_pair(v_a, (select v from t71 where k = 'brush'), v_b, false);
+  assert (vj ->> 'lines')::int = 2 and (vj ->> 'pieces')::numeric = 6, vj::text;
+  assert (public.owner_sklad_product(v_a, v_b) ->> 'total')::numeric = 14;
+  vj := public.owner_sklad_ekasa_pair(v_a, (select v from t71 where k = 'transport'), null, true);
+  assert (vj ->> 'lines')::int = 1, vj::text;
+  vj := public.owner_sklad_ekasa_info(v_a);
+  assert (vj ->> 'waiting_lines')::int = 0 and jsonb_array_length(vj -> 'pairs') = 2
+     and (vj -> 'imports' -> 0 ->> 'booked')::int = 5 and (vj -> 'imports' -> 0 ->> 'ignored')::int = 1, vj::text;
+  -- the next day's export overlaps (receipt O-2 again) and adds O-5: O-2 is skipped, the brush and transport are
+  -- recognised by the remembered pairing
+  vj := public.owner_sklad_ekasa_import(v_a, gen_random_uuid(), 'export-2.csv', repeat('b', 64),
+    '[{"doc":"O-2","time":"2026-11-01T09:00:00+01:00","text":"Štetec plochý 50","qty":"3","price":"2.10"},
+      {"doc":"O-2","time":"2026-11-01T09:00:00+01:00","text":"Štetec plochý 50","qty":"3","price":"2.10"},
+      {"doc":"O-5","time":"2026-11-02T08:00:00+01:00","text":"ŠTETEC PLOCHÝ 50","qty":"1","price":"2.10"},
+      {"doc":"O-5","time":"2026-11-02T08:00:00+01:00","text":"Doprava","qty":"1","price":"5.00"},
+      {"doc":"O-5","time":"2026-11-02T08:00:00+01:00","text":"","qty":"1"},
+      {"doc":"O-5","time":"2026-11-02T08:00:00+01:00","text":"Zlá riadka","qty":"abc"}]');
+  assert (vj ->> 'skipped')::int = 2 and (vj ->> 'booked')::int = 1 and (vj ->> 'ignored')::int = 1
+     and (vj ->> 'unmatched')::int = 0 and (vj ->> 'lines')::int = 4, vj::text;
+  assert (public.owner_sklad_product(v_a, v_b) ->> 'total')::numeric = 13;
+  -- forgetting a pairing asks again next time; nothing booked changes
+  perform public.owner_sklad_ekasa_forget(v_a, (select v from t71 where k = 'transport'));
+  assert jsonb_array_length(public.owner_sklad_ekasa_info(v_a) -> 'pairs') = 1;
+  -- a staged file waits for its columns; the same done file is reported as done
+  vj := public.owner_sklad_ekasa_stage(v_a, gen_random_uuid(), 'novy.csv', repeat('c', 64), '["A","B"]', '[["1","2"],["3","4"]]');
+  insert into t71 values ('staged', vj ->> 'staged');
+  assert (public.owner_sklad_ekasa_staged(v_a, (vj ->> 'staged')::uuid) ->> 'count')::int = 2;
+  assert jsonb_array_length(public.owner_sklad_ekasa_staged(v_a, (vj ->> 'staged')::uuid, 1) -> 'rows') = 1;
+  assert public.owner_sklad_ekasa_stage(v_a, gen_random_uuid(), 'x.csv', repeat('a', 64), '["A"]', '[]') ? 'duplicate';
+  -- suppliers for the export
+  perform public.owner_sklad_save_product(v_a, (select v::uuid from t71 where k = 'b'), '{"supplier":"Colorlak a.s."}');
+  vj := public.owner_sklad_supplier_list(v_a);
+  assert exists (select 1 from jsonb_array_elements(vj) x where x ->> 'name' = 'Colorlak a.s.' and (x ->> 'products')::int = 1), vj::text;
+  -- back to the Predaj screen: selling works again, eKasa imports are refused
+  perform public.owner_sklad_set_sale_source(v_a, 'predaj');
+  perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_b, 'qty', 1)), 'cash');
+  assert (public.owner_sklad_product(v_a, v_b) ->> 'total')::numeric = 12;
+end $$;
+reset role;
+
+-- owner B and visitors: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_sklad_ekasa_info(v_a); raise exception 'B read A''s eKasa';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_ekasa_import(v_a, gen_random_uuid(), 'x.csv', repeat('d', 64), '[]'); raise exception 'B imported into A';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_ekasa_pair(v_a, 'x', null, true); raise exception 'B paired in A';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_set_sale_source(v_a, 'ekasa'); raise exception 'B switched A''s sales';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_supplier_list(v_a); raise exception 'B read A''s suppliers';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_ekasa_lines; raise exception 'owners read the eKasa lines table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform count(*) from public.sklad_ekasa_imports; raise exception 'anon read eKasa imports';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_ekasa_unmatched((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'anon eKasa';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.sklad_ekasa_imports where shop_id = v_a;
+  delete from public.sklad_ekasa_pairs where shop_id = v_a;
+  delete from public.sklad_sales where shop_id = v_a;
+  delete from public.sklad_items where shop_id = v_a;
+  delete from public.shop_items si where si.shop_id = v_a and not exists (select 1 from t71_inv t where t.shop_item_id = si.id);
+  delete from public.sklad_locations where shop_id = v_a;
+  delete from public.sklad_settings where shop_id = v_a;
+  delete from public.shop_stock_source where shop_id = v_a;
+  delete from public.inventory inv using public.shop_items si where si.id = inv.shop_item_id and si.shop_id = v_a;
+  insert into public.inventory select * from t71_inv;
+  update public.sync_sources set latest_file_time = (select v::timestamptz from t71 where k = 'fresh') where shop_id = v_a;
+end $$;
+reset role;
+drop table t71;
+drop table t71_inv;
+
+\echo '--- update 72: Sklad Zariadenia — pairing once in 10 min, the key as the only login, ticks, own shop and name, no purchase prices, 120/min, revoke, 90 days, ≤ 10, owners only'
+create temporary table t72 (k text primary key, v text);
+grant all on t72 to public;
+create temporary table t72_inv as
+  select inv.* from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  join public.shops s on s.id = si.shop_id where s.slug = 'potraviny-centrum';
+grant all on t72_inv to public;
+set role service_role;
+insert into t72 values ('fresh', (select latest_file_time::text from public.sync_sources s join public.shops sh on sh.id = s.shop_id where sh.slug = 'potraviny-centrum'));
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_shop uuid;
+  v_p uuid;
+  vj jsonb;
+begin
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  v_shop := (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview(v_a) -> 'locations') l where (l ->> 'sale_default')::boolean);
+  v_p := public.owner_sklad_save_product(v_a, null, '{"name":"Farba fasádna biela 5 l","ean":"8580000102315","sale_price":"24.90"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'receipt', 10, v_shop, null, 15.20);
+  insert into t72 values ('p', v_p::text);
+  -- the ticks are checked; a name is needed
+  begin perform public.owner_sklad_device_add(v_a, 'X', array['admin']); raise exception 'unknown tick';
+  exception when invalid_parameter_value then if sqlerrm <> 'perms' then raise; end if; end;
+  begin perform public.owner_sklad_device_add(v_a, ' ', array['sale']); raise exception 'no name';
+  exception when invalid_parameter_value then if sqlerrm <> 'name' then raise; end if; end;
+  vj := public.owner_sklad_device_add(v_a, 'Telefón 2 · Jana', array['receive', 'sale', 'sale']);
+  assert vj ->> 'code' ~ '^skp_[0-9a-f]{64}$', vj::text;
+  insert into t72 values ('dev', vj ->> 'id'), ('code', vj ->> 'code');
+  vj := public.owner_sklad_devices(v_a);
+  assert jsonb_array_length(vj) = 1 and vj -> 0 ->> 'state' = 'waiting' and vj -> 0 -> 'perms' = '["sale","receive"]'::jsonb, vj::text;
+  assert not exists (select 1 from jsonb_array_elements(vj) x where x ? 'code' or x ? 'token_hash' or x ? 'pair_hash'), 'no secrets listed';
+end $$;
+reset role;
+
+-- the phone (anon): the code once, then only its key
+set role anon;
+do $$
+declare
+  vj jsonb;
+  v_tok text;
+begin
+  vj := public.sklad_device_claim((select v from t72 where k = 'code'));
+  v_tok := vj ->> 'token';
+  assert v_tok ~ '^skt_[0-9a-f]{64}$' and vj ->> 'name' = 'Telefón 2 · Jana', vj::text;
+  insert into t72 values ('tok', v_tok);
+  begin perform public.sklad_device_claim((select v from t72 where k = 'code')); raise exception 'code used twice';
+  exception when invalid_parameter_value then if sqlerrm <> 'code' then raise; end if; end;
+  vj := public.sklad_device_whoami(v_tok);
+  assert vj -> 'shop' ->> 'slug' = 'potraviny-centrum' and vj -> 'perms' = '["sale","receive"]'::jsonb and vj ->> 'source' = 'sklad', vj::text;
+  -- reads and sells in its own shop, under its own name, whatever shop it names
+  vj := public.sklad_device_call(v_tok, 'owner_sklad_products', jsonb_build_object('p_shop_id', (select id from public.shops where slug = 'drogeria-kostolne'), 'p_q', 'farba'));
+  assert jsonb_array_length(vj -> 'rows') = 1 and vj -> 'rows' -> 0 ->> 'id' = (select v from t72 where k = 'p'), vj::text;
+  vj := public.sklad_device_call(v_tok, 'owner_sklad_sell', jsonb_build_object('p_id', gen_random_uuid(),
+          'p_lines', jsonb_build_array(jsonb_build_object('item_id', (select v from t72 where k = 'p'), 'qty', 2)), 'p_payment', 'cash', 'p_device', 'Niekto iný'));
+  assert vj ->> 'status' = 'done', vj::text;
+  -- Príjem tovaru: pieces only; a purchase price sent anyway is dropped; any other kind is refused
+  vj := public.sklad_device_call(v_tok, 'owner_sklad_move', jsonb_build_object('p_id', gen_random_uuid(), 'p_item_id', (select v from t72 where k = 'p'),
+          'p_kind', 'receipt', 'p_qty', 5, 'p_unit_cost', 1));
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_move', jsonb_build_object('p_id', gen_random_uuid(), 'p_item_id', (select v from t72 where k = 'p'),
+          'p_kind', 'writeoff', 'p_qty', 5, 'p_reason', 'x')); raise exception 'writeoff from a phone';
+  exception when insufficient_privilege then if sqlerrm <> 'forbidden' then raise; end if; end;
+  -- not ticked (counts, terminal) and never for a phone (product cards, settings, the cost-bearing product)
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_counts', '{}'); raise exception 'counts without the tick';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_product', jsonb_build_object('p_item_id', (select v from t72 where k = 'p'))); raise exception 'product card from a phone';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_save_product', '{}'); raise exception 'save from a phone';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sklad_device_call('skt_' || repeat('0', 64), 'owner_sklad_products', '{}'); raise exception 'a made-up key';
+  exception when invalid_authorization_specification then null; end;
+  -- the tables are closed to visitors
+  begin perform count(*) from public.sklad_devices; raise exception 'anon read devices';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- what the phone did: as the owner, under the phone's name, the purchase price never set
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := (select v::uuid from t72 where k = 'p');
+  vj jsonb;
+begin
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 13, 'sold 2, received 5';
+  vj := public.owner_sklad_movements(v_a, v_p, 'sale');
+  assert vj -> 'rows' -> 0 ->> 'device_label' = 'Telefón 2 · Jana', vj::text;
+  vj := public.owner_sklad_movements(v_a, v_p, 'receipt');
+  assert vj -> 'rows' -> 0 ->> 'device_label' = 'Telefón 2 · Jana' and (vj -> 'rows' -> 0 -> 'unit_cost') is not distinct from 'null'::jsonb
+     and (public.owner_sklad_product(v_a, v_p) ->> 'last_cost')::numeric = 15.20, vj::text;
+  assert (public.owner_sklad_devices(v_a) -> 0 ->> 'state') = 'online';
+  -- counting: the phone counts under its own name; a new tick needs the owner
+  perform public.owner_sklad_device_save(v_a, (select v::uuid from t72 where k = 'dev'), 'Telefón 2 · Jana', array['counts']);
+  insert into t72 values ('count', (public.owner_sklad_count_start(v_a, gen_random_uuid(), null,
+    (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview(v_a) -> 'locations') l where (l ->> 'sale_default')::boolean)) ->> 'id'));
+end $$;
+reset role;
+
+-- the strip at every depth (an internal function: no role may call it)
+do $$
+begin
+  assert public.sklad_device_strip('{"a":1,"avg_cost":2,"rows":[{"supplier":"S","n":1,"value":3}]}') = '{"a":1,"rows":[{"n":1}]}'::jsonb;
+end $$;
+set role anon;
+do $$
+declare
+  v_tok text := (select v from t72 where k = 'tok');
+  vj jsonb;
+begin
+  vj := public.sklad_device_call(v_tok, 'owner_sklad_count_set', jsonb_build_object('p_count_id', (select v from t72 where k = 'count'),
+          'p_item_id', (select v from t72 where k = 'p'), 'p_counter', 'Niekto iný', 'p_qty', 12));
+  assert vj -> 'counters' -> 0 ->> 'counter' = 'Telefón 2 · Jana' and vj -> 'expected' = 'null'::jsonb, vj::text;
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_sell', '{}'); raise exception 'sale after the tick was removed';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- 120 a minute; unused 90 days; disconnected = gone at once; a new code disconnects the old phone; ≤ 10
+set role service_role;
+insert into public.sklad_device_hits (device_id, minute, n) values ((select v::uuid from t72 where k = 'dev'), date_trunc('minute', now()), 120)
+on conflict (device_id, minute) do update set n = 120;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.sklad_device_call((select v from t72 where k = 'tok'), 'owner_sklad_counts', '{}'); raise exception 'no limit';
+  exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+end $$;
+reset role;
+set role service_role;
+delete from public.sklad_device_hits;
+update public.sklad_devices set last_seen_at = now() - interval '91 days', paired_at = now() - interval '91 days' where id = (select v::uuid from t72 where k = 'dev');
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.sklad_device_whoami((select v from t72 where k = 'tok')); raise exception 'used after 90 days';
+  exception when invalid_authorization_specification then if sqlerrm <> 'device_expired' then raise; end if; end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+  i int;
+begin
+  assert public.owner_sklad_devices(v_a) -> 0 ->> 'state' = 'expired';
+  vj := public.owner_sklad_device_code(v_a, (select v::uuid from t72 where k = 'dev'));
+  insert into t72 values ('code2', vj ->> 'code');
+  for i in 1 .. 9 loop perform public.owner_sklad_device_add(v_a, 'Telefón ' || i, array['sale']); end loop;
+  begin perform public.owner_sklad_device_add(v_a, 'Jedenásty', array['sale']); raise exception 'an 11th phone';
+  exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+end $$;
+reset role;
+
+set role anon;
+do $$
+declare
+  v_new text;
+begin
+  begin perform public.sklad_device_whoami((select v from t72 where k = 'tok')); raise exception 'the old phone after a new code';
+  exception when invalid_authorization_specification then null; end;
+  v_new := public.sklad_device_claim((select v from t72 where k = 'code2')) ->> 'token';
+  insert into t72 values ('tok2', v_new);
+  perform public.sklad_device_whoami(v_new);
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_sklad_device_revoke((select id from public.shops where slug = 'potraviny-centrum'), (select v::uuid from t72 where k = 'dev'));
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.sklad_device_whoami((select v from t72 where k = 'tok2')); raise exception 'used after Odpojiť';
+  exception when invalid_authorization_specification then null; end;
+end $$;
+reset role;
+
+-- owner B: nothing of A's phones
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_sklad_devices(v_a); raise exception 'B listed A''s phones';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_device_add(v_a, 'B', array['sale']); raise exception 'B paired a phone to A';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_devices; raise exception 'owners read the devices table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.sklad_devices where shop_id = v_a;
+  delete from public.sklad_counts where shop_id = v_a;
+  delete from public.sklad_sales where shop_id = v_a;
+  delete from public.sklad_items where shop_id = v_a;
+  delete from public.shop_items si where si.shop_id = v_a and not exists (select 1 from t72_inv t where t.shop_item_id = si.id);
+  delete from public.sklad_locations where shop_id = v_a;
+  delete from public.sklad_settings where shop_id = v_a;
+  delete from public.shop_stock_source where shop_id = v_a;
+  delete from public.inventory inv using public.shop_items si where si.id = inv.shop_item_id and si.shop_id = v_a;
+  insert into public.inventory select * from t72_inv;
+  update public.sync_sources set latest_file_time = (select v::timestamptz from t72 where k = 'fresh') where shop_id = v_a;
+end $$;
+reset role;
+drop table t72;
+drop table t72_inv;
+
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -12,7 +12,7 @@ import { hiddenFields, ShopSwitcher } from "../shared";
 export const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type SkladTab = "overview" | "sale" | "receipts" | "products" | "movements" | "settings";
+export type SkladTab = "overview" | "sale" | "receipts" | "counts" | "products" | "movements" | "settings";
 export type SkladTexts = Dictionary["sklad"];
 
 /** The page's language, texts, login and the shop chosen (?shop=); the owner_sklad_* functions decide what may happen. */
@@ -52,7 +52,7 @@ export function Notice({ s, ok, err }: { s: SkladTexts; ok?: string; err?: strin
 
 /**
  * Môj obchod → Sklad: the title, the shop switcher, the tab row (Prehľad · Predaj (update 68) · Príjemky (update 69) ·
- * Produkty · Pohyby · Nastavenia; Inventúra comes with its phase), the scanner (a USB scanner anywhere on these pages, "Skenovať" with
+ * Inventúra (update 70) · Produkty · Pohyby · Nastavenia), the scanner (a USB scanner anywhere on these pages, "Skenovať" with
  * the camera) and, while Sklad is not the shop's stock source, a line that says so.
  */
 export function SkladShell({
@@ -80,6 +80,7 @@ export function SkladShell({
     { key: "overview", href: `${base}${q}`, label: s.tab_overview },
     { key: "sale", href: `${base}/sale${q}`, label: s.tab_sale },
     { key: "receipts", href: `${base}/receipts${q}`, label: s.tab_receipts },
+    { key: "counts", href: `${base}/counts${q}`, label: s.tab_counts },
     { key: "products", href: `${base}/products${q}`, label: s.tab_products },
     { key: "movements", href: `${base}/movements${q}`, label: s.tab_movements },
     { key: "settings", href: `${base}/settings${q}`, label: s.tab_settings },
