@@ -18,6 +18,7 @@ export function ShopForm({
   defaults,
   action,
   submitLabel,
+  companyElsewhere,
 }: {
   dict: Dictionary;
   lang: Locale;
@@ -25,6 +26,9 @@ export function ShopForm({
   defaults: { country: string; timezone: string };
   action: (formData: FormData) => Promise<void>;
   submitLabel: string;
+  /** Back-end layout L2: an existing shop's company name, IČO and DIČ are edited on Právne informácie (this link); the
+   * form carries their current values unchanged, so saving the details never clears them. */
+  companyElsewhere?: { href: string; label: string; hint: string };
 }) {
   const o = dict.owner;
   const zones = europeanTimeZones();
@@ -51,7 +55,18 @@ export function ShopForm({
           <input name="city" required maxLength={100} defaultValue={shop?.city ?? ""} className={inputClass} />
         </Field>
       </div>
-      {/* The company behind the shop, under the address (update 47; owner data, never shown to visitors). */}
+      {/* The company behind the shop, under the address (update 47). */}
+      {companyElsewhere ? (
+        <p className="text-sm text-muted" data-shop-company="elsewhere">
+          <input type="hidden" name="company_name" value={shop?.company_name ?? ""} />
+          <input type="hidden" name="ico" value={shop?.ico ?? ""} />
+          <input type="hidden" name="dic" value={shop?.dic ?? ""} />
+          {companyElsewhere.hint}{" "}
+          <a href={companyElsewhere.href} className="font-semibold underline underline-offset-4">
+            {companyElsewhere.label}
+          </a>
+        </p>
+      ) : (
       <div className="grid gap-3 sm:grid-cols-2" data-shop-company>
         <div className="sm:col-span-2">
           <Field label={o.company_name}>
@@ -65,6 +80,7 @@ export function ShopForm({
           <input name="dic" maxLength={20} defaultValue={shop?.dic ?? ""} className={inputClass} />
         </Field>
       </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={o.country} hint={o.country_hint}>
           <input

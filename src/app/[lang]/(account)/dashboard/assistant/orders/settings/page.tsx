@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import type { FoodSettings, FoodZone } from "@/lib/foodOwner";
 import { money, plural } from "@/lib/foodRules";
 import { DbError } from "@/components/DbError";
+import { itemTabs, PageHead } from "@/components/owner/PageHead";
 import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, inputClass, ProOnly } from "../../../shared";
 import { checkMenu, deleteZone, saveFoodSettings, saveZone } from "../actions";
@@ -58,33 +59,23 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
   const canWrite = s.has_plan;
   const check = s.menu_check;
   const quota = s.sms?.order;
-  const listHref = `/${lang}/dashboard/assistant/orders?shop=${shop.slug}`;
   const skladHref = `/${lang}/dashboard/sklad?shop=${shop.slug}`;
   const day = (iso: string) => new Intl.DateTimeFormat(lang, { day: "numeric", month: "numeric" }).format(new Date(iso));
   const kinds: FoodZone["kind"][] = ["town", "postcode", "radius_km"];
   const kindText = (k: FoodZone["kind"]) => (f as Record<string, string>)[`s_zone_kind_${k}`];
 
   const minutes = (n: number) => t(f.s_min, { n });
+  // back-end layout L2: "Menu" (?view=menu: the menu's sources and the check) and "Nastavenia" (the switches, the zones)
+  const view = first(sp.view) === "menu" ? "menu" : "settings";
   const withCurrent = (list: number[], v: number) => (list.includes(v) ? list : [...list, v].sort((a, b) => a - b));
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-5" data-food-settings>
-      <Link href={listHref} className="flex min-h-11 items-center gap-2 font-semibold">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-          <path d="m15 18-6-6 6-6" />
-        </svg>
-        {f.back}
-      </Link>
-      <h1 className="text-2xl font-bold">{f.s_title}</h1>
+    <div className="flex w-full max-w-xl flex-col gap-5" data-food-settings={view}>
+      <PageHead title={dict.nav.food} item="food" tabs={itemTabs(dict, lang, "food", shop.slug)} current={view} tabsLabel={dict.nav.tabs_label} />
       {!canWrite && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
       <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />
 
-      <form action={saveFoodSettings} className="flex flex-col gap-5">
-        {hidden()}
-        <section className="rounded-xl border border-line p-4">
-          <Toggle name="enabled" label={f.s_enabled} hint={f.s_enabled_hint} on={s.enabled} />
-        </section>
-
+      {view === "menu" && (
         <section id="menu" className="flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4">
           <h2 className="text-lg font-bold">{f.s_menu}</h2>
           <p className="text-sm text-muted">{f.s_menu_hint}</p>
@@ -127,6 +118,16 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
               <p className="text-xs text-muted">{t(f.s_menu_checked, { date: day(check.checked_at), doc: check.document })}</p>
             </div>
           )}
+        </section>
+      )}
+
+      {view === "settings" && (
+      <form action={saveFoodSettings} className="flex flex-col gap-5">
+        {hidden()}
+        <section className="rounded-xl border border-line p-4">
+          <Toggle name="enabled" label={f.s_enabled} hint={f.s_enabled_hint} on={s.enabled} />
+        </section>
+        <section className="rounded-xl border border-line p-4">
           <Toggle name="deduct_on_delivery" label={f.s_deduct} on={s.deduct_on_delivery} />
         </section>
 
@@ -193,11 +194,12 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           </button>
         )}
       </form>
+      )}
 
       {/* the menu check: Claude lists the dishes of the menu, the pairing with Sklad is decided in SQL */}
-      {canWrite && docs.length > 0 && (
+      {view === "menu" && canWrite && docs.length > 0 && (
         <form action={checkMenu} className="flex flex-col gap-2 rounded-xl border border-line p-4">
-          {hidden()}
+          {hidden({ back: "menu" })}
           <label className="flex flex-col gap-1 text-sm font-semibold">
             {f.s_check_doc}
             <select name="document_id" className={inputClass} defaultValue={check?.document_id ?? docs[0].id}>
@@ -215,6 +217,7 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
         </form>
       )}
 
+      {view === "settings" && (
       <section id="zones" className="flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4">
         <h2 className="text-lg font-bold">{f.s_zones}</h2>
         {s.zones.length === 0 && <p className="text-sm text-muted">{f.s_zones_none}</p>}
@@ -244,6 +247,7 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           </details>
         )}
       </section>
+      )}
     </div>
   );
 }

@@ -2,15 +2,19 @@
 // addresses forward with their query, ?shop= stays on every shop page's link. Run with `npm run test:content`.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
+  assistantTabUrl,
+  bookingPartUrl,
   forwardUrl,
   isBareScreen,
   isWorkScreen,
+  ITEM_TABS,
   menuHref,
   menuItemFor,
   menuOwners,
   movedFrom,
   OWNER_MENU,
   sectionUrl,
+  tabHref,
   withoutLang,
 } from "./dashboardPages.ts";
 
@@ -55,12 +59,13 @@ Deno.test("addresses to items (Hlavné, Stránka obchodu, Účet a nastavenia)",
     ["/dashboard/assistant/orders", "", "food"],
     ["/dashboard/assistant/orders/x0", "", "food"],
     ["/dashboard/bookings", "", "bookings"],
+    ["/dashboard/crm", "", "crm"],
+    ["/dashboard/crm", "conversations", "crm"],
     ["/dashboard/contacts/x0", "", "crm"],
     ["/dashboard/conversations/x0", "", "crm"],
-    ["/dashboard/assistant", "", "crm"],
-    ["/dashboard/assistant", "conversations", "crm"],
-    ["/dashboard/assistant", "cloud", "crm"],
+    ["/dashboard/assistant", "", "assistant"],
     ["/dashboard/assistant", "settings", "assistant"],
+    ["/dashboard/assistant/documents", "", "assistant"],
     ["/dashboard/assistant/folders", "", "assistant"],
     ["/dashboard", "", "shop"],
     ["/dashboard/sections/x0", "", "content"],
@@ -102,19 +107,25 @@ Deno.test("?shop= stays on every shop page's link, never on the account's own pa
     // without a shop in the address nothing is added
     assertEquals(new URL(menuHref(m, "sk", null), "https://x").searchParams.get("shop"), null);
   }
-  assertEquals(menuHref(OWNER_MENU.find((m) => m.key === "assistant")!, "sk", "davide"), "/sk/dashboard/assistant?shop=davide&at=settings");
+  assertEquals(menuHref(OWNER_MENU.find((m) => m.key === "crm")!, "sk", "davide"), "/sk/dashboard/crm?shop=davide");
 });
 
 Deno.test("old addresses forward with every query parameter (sections that moved or were renamed)", () => {
   const old: [page: Parameters<typeof movedFrom>[0], at: string, to: string][] = [
+    // back-end layout L2: Asistent's Prehľad and Konverzácie are CRM, its documents and folders two AI asistent tabs
+    ["assistant", "overview", "/sk/dashboard/crm"],
+    ["assistant", "conversations", "/sk/dashboard/crm"],
+    ["assistant", "cloud", "/sk/dashboard/crm"],
+    ["assistant", "private", "/sk/dashboard/assistant/folders"],
+    ["assistant", "docs", "/sk/dashboard/assistant/documents"],
+    ["folders", "docs", "/sk/dashboard/assistant/documents"],
     ["dashboard", "private", "/sk/dashboard/assistant/folders"],
-    ["assistant", "docs", "/sk/dashboard/assistant/folders"],
     ["dashboard", "sections", "/sk/dashboard/content"],
     ["dashboard", "languages", "/sk/sync"],
     ["dashboard", "columns", "/sk/sync"],
     ["translations", "files", "/sk/sync"],
     ["translations", "translations", "/sk/dashboard/translations"],
-    ["dashboard", "cloud", "/sk/dashboard/assistant"],
+    ["dashboard", "cloud", "/sk/dashboard/crm"],
     ["dashboard", "imports", "/sk/sync"],
     ["assistant", "assistant", "/sk/dashboard/assistant"],
   ];
@@ -127,6 +138,31 @@ Deno.test("old addresses forward with every query parameter (sections that moved
   }
   // a section on its own page is not forwarded
   assert(!movedFrom("sync", "export"));
-  assert(!movedFrom("assistant", "conversations"));
-  assertEquals(sectionUrl("sk", "cloud", { shop: "davide" }), "/sk/dashboard/assistant?shop=davide&at=cloud#cloud");
+  assert(!movedFrom("crm", "conversations"));
+  assert(!movedFrom("folders", "folders"));
+  assertEquals(sectionUrl("sk", "cloud", { shop: "davide" }), "/sk/dashboard/crm?shop=davide&at=cloud#cloud");
+  assertEquals(sectionUrl("sk", "conversations", { shop: "davide" }), "/sk/dashboard/crm?shop=davide&at=conversations#conversations");
+});
+
+Deno.test("the items' tabs (L2): Rezervácie's booking parts, CRM, AI asistent, Objednávky jedla; the old Asistent tabs", () => {
+  assertEquals(tabHref("sk", "bookings", "rules", "davide"), "/sk/dashboard/bookings?shop=davide&tab=rules");
+  assertEquals(tabHref("sk", "crm", "templates", "davide"), "/sk/dashboard/contacts?shop=davide&view=templates");
+  assertEquals(tabHref("hu", "assistant", "folders", "davide"), "/hu/dashboard/assistant/folders?shop=davide");
+  assertEquals(tabHref("sk", "food", "menu", "davide"), "/sk/dashboard/assistant/orders/settings?shop=davide&view=menu");
+  // a booking settings part of update 63 goes back to its Rezervácie tab (the calendar and the messages to Nastavenia)
+  assertEquals(bookingPartUrl("sk", "services", { shop: "davide", ok: "1" }), "/sk/dashboard/bookings?shop=davide&ok=1&tab=services&part=services#services");
+  assertEquals(bookingPartUrl("sk", "calendar", { shop: "davide" }), "/sk/dashboard/bookings?shop=davide&tab=settings&part=calendar#calendar");
+  assertEquals(bookingPartUrl("sk", "messages", { shop: "davide" }), "/sk/dashboard/bookings?shop=davide&tab=settings&part=messages#messages");
+  // links that still name an old Asistent tab land on its new place
+  assertEquals(assistantTabUrl("sk", "overview", "davide"), "/sk/dashboard/crm?shop=davide");
+  assertEquals(assistantTabUrl("sk", "conversations", "davide"), "/sk/dashboard/crm?shop=davide&at=conversations");
+  assertEquals(assistantTabUrl("sk", "bookings", "davide"), "/sk/dashboard/bookings?shop=davide");
+  assertEquals(assistantTabUrl("sk", "settings", "davide"), "/sk/dashboard/assistant?shop=davide");
+  // every tab of a tabbed item is owned by that item
+  for (const [item, tabs] of Object.entries(ITEM_TABS)) {
+    for (const tab of tabs) {
+      const href = new URL(tabHref("sk", item as keyof typeof ITEM_TABS, tab.key, "davide"), "https://x");
+      assertEquals(menuItemFor(withoutLang(href.pathname), href.searchParams.get("at") ?? "")?.key, item, `${item} → ${tab.key}`);
+    }
+  }
 });

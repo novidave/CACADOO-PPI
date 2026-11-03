@@ -3407,7 +3407,18 @@
     "unavailable": "A szövegek most nem tölthetők be.",
     "err_failed": "Nem sikerült. Próbálja újra.",
     "err_email": "Ellenőrizze az e-mailt.",
-    "err_too_long": "Az egyik szöveg túl hosszú (legfeljebb 30 000 karakter)."
+    "err_too_long": "Az egyik szöveg túl hosszú (legfeljebb 30 000 karakter).",
+    "company_form_title": "Cég",
+    "company_form_hint": "A cégnév, a cégjegyzékszám (IČO) és az adószám (DIČ) az üzlet oldalán a cím alatt és ezen a jogi oldalon jelenik meg. A cím és az irányítószám az üzlet adatainál marad.",
+    "company_saved": "A cég adatai elmentve.",
+    "err_company": "A cég adatait nem sikerült elmenteni.",
+    "err_dic": "Az adószám (DIČ) formátuma nem megfelelő.",
+    "domain_owner_title": "Adatok a saját domainhez",
+    "domain_owner_hint": "Ezekkel az adatokkal regisztráljuk az üzlet saját domainjét (Előfizetés és domain). Csak a kitöltött mezők változnak.",
+    "operator_saved": "A domain adatai elmentve.",
+    "err_operator": "A domain adatait nem sikerült elmenteni.",
+    "err_operator_ico": "A szlovák IČO nem érvényes.",
+    "company_moved": "A cégnevet, az IČO-t és a DIČ-et itt módosíthatja:"
   },
   "legal": {
     "footer_label": "Jogi információk",
@@ -4761,6 +4772,25 @@
     "hours_sms": "Nyitvatartás SMS-ben",
     "ai": "AI asszisztensek és Telegram",
     "admin_domains": "Előfizetések és domainek",
-    "admin_translations": "Fordítások"
+    "admin_translations": "Fordítások",
+    "tabs_label": "Az oldal részei",
+    "tabs": {
+      "food_orders": "Rendelések",
+      "food_menu": "Menü",
+      "food_settings": "Beállítások",
+      "bookings_calendar": "Naptár",
+      "bookings_services": "Szolgáltatások",
+      "bookings_resources": "Erőforrások",
+      "bookings_rules": "Szabályok",
+      "bookings_blocks": "Zárolt idők",
+      "bookings_settings": "Beállítások",
+      "crm_overview": "Áttekintés",
+      "crm_conversations": "Beszélgetések",
+      "crm_contacts": "Kapcsolatok",
+      "crm_templates": "Sablonok",
+      "assistant_settings": "Beállítások",
+      "assistant_documents": "Dokumentumok",
+      "assistant_folders": "Privát mappák"
+    }
   }
 }

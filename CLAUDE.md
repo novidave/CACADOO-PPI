@@ -142,7 +142,21 @@ button). The QR terminal has no menu. Active = black, white bold, `aria-current=
 (white on the active item); icons inline SVG (`@/components/owner/navIcons`, 22 px, stroke 2, `currentColor`). The
 site's header is hidden inside the shell (globals.css `body:has([data-owner-shell])`); its language picker and "who is
 signed in" sit at the end of "Účet a nastavenia"; the legal footer stays. Public pages are untouched (budget unchanged).
-e2e `e2e/owner-shell.spec.ts` (1180×820, 820×1180, 390×844; needs an owner login).
+e2e `e2e/owner-shell.spec.ts` (1180×820, 820×1180, 390×844; needs an owner login). **L2 (moves):** each item's tabs are
+`ITEM_TABS` (`tabHref()`), drawn by `@/components/owner/PageHead` (h1 28 px, tabs 56 px, active #111 + 3 px line, `data-item-tabs`):
+**CRM** = `/dashboard/crm` (Prehľad, `?at=conversations` with the cloud folder) + Kontakty / Šablóny (`/dashboard/contacts`),
+the conversation page goes back there; **Rezervácie** = `/dashboard/bookings?tab=` calendar | services | resources | rules
+| blocks | settings (update 63's booking parts of `AssistantSettings`, `only=`; settings = messages + calendar;
+`bookingPartUrl()` is every booking form's way back; `?view=settings` and `/dashboard/assistant?at=settings&part=…`
+forward there); **AI asistent** = `/dashboard/assistant` (texts, the food-ordering card, the folders card),
+`/dashboard/assistant/documents` (`ShopDocuments view="docs"`) and `/dashboard/assistant/folders` (`view="folders"`; the
+forms send `at=folders`); **Objednávky jedla** = Objednávky · Menu (`settings?view=menu`: the sources and the menu check,
+`back=menu`) · Nastavenia (the switches incl. "Odpísať zo skladu", the zones; Kuriéri comes with the courier app);
+**Sklad** tabs Prehľad · Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia; **Právne informácie**
+(`/dashboard/legal`) = Firma (company name, IČO, DIČ — moved out of Údaje obchodu, whose form now carries them hidden;
+`saveCompany` re-saves the shop's row with the new IČO) + Údaje pre vlastnú doménu (`shop_legal`, `saveOperator`, only the
+fields sent; the domain wizard still asks for missing ones) + the legal texts. Old `?at=` names: overview / conversations /
+cloud → CRM, docs → Dokumenty, private / folders → Súkromné priečinky.
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 
@@ -618,9 +632,9 @@ hash only, 10 min, 5 tries, 3/number/hour, 10/caller/hour); templates for SMS an
 conversations are kept until the owner deletes them (no keep-time choice). The shop assistant books **only for a
 contact verified with the page's own SMS code field** (the AI never sees the code); "Vymazať moje údaje" = "Všetko o
 mne" + a verified code → every conversation of that number forgotten. A read-only calendar feed per shop
-(`/api/calendar/<token>`, hash only, confirmed bookings, first names only). **Môj obchod → Asistent** is one tab row
-(Prehľad · Konverzácie · Kontakty · Rezervácie · Šablóny · Nastavenia; Súkromné priečinky on
-`/dashboard/assistant/folders`; old addresses forwarded by `@/lib/dashboardPages`). **Update 64:** owner-MCP tools
+(`/api/calendar/<token>`, hash only, confirmed bookings, first names only). Since the back-end layout (L2) these
+screens are menu items of their own — CRM, Rezervácie, AI asistent (see the Design section); old Asistent addresses are
+forwarded by `@/lib/dashboardPages`. **Update 64:** owner-MCP tools
 `list_booking_services`, `find_free_slots` (shop.read), `create_booking`, `move_booking`, `cancel_booking` (shop.write;
 move / cancel answer before → after until `confirm: true`) in `owner_mcp_call()` — the update-61 door is kept as
 `owner_mcp_call_61` for every other tool; `list_bookings` reads the engine and keeps update 61's `service_name` key

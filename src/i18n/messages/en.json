@@ -3407,7 +3407,18 @@
     "unavailable": "The texts cannot be loaded right now.",
     "err_failed": "That did not work. Please try again.",
     "err_email": "Check the e-mail.",
-    "err_too_long": "One of the texts is too long (at most 30,000 characters)."
+    "err_too_long": "One of the texts is too long (at most 30,000 characters).",
+    "company_form_title": "Company",
+    "company_form_hint": "The company name, IČO and DIČ show on the shop page under the address and on this legal page. The address and postcode stay in the shop's details.",
+    "company_saved": "The company details are saved.",
+    "err_company": "The company details could not be saved.",
+    "err_dic": "The DIČ is not in the right form.",
+    "domain_owner_title": "Details for your own domain",
+    "domain_owner_hint": "Your shop's own domain is registered with these details (Plan and domain). Only what you fill in changes.",
+    "operator_saved": "The domain details are saved.",
+    "err_operator": "The domain details could not be saved.",
+    "err_operator_ico": "The Slovak IČO is not valid.",
+    "company_moved": "The company name, IČO and DIČ are edited in"
   },
   "legal": {
     "footer_label": "Legal information",
@@ -4761,6 +4772,25 @@
     "hours_sms": "Opening hours by SMS",
     "ai": "AI assistants and Telegram",
     "admin_domains": "Subscriptions and domains",
-    "admin_translations": "Translations"
+    "admin_translations": "Translations",
+    "tabs_label": "Parts of the page",
+    "tabs": {
+      "food_orders": "Orders",
+      "food_menu": "Menu",
+      "food_settings": "Settings",
+      "bookings_calendar": "Calendar",
+      "bookings_services": "Services",
+      "bookings_resources": "Resources",
+      "bookings_rules": "Rules",
+      "bookings_blocks": "Blocked times",
+      "bookings_settings": "Settings",
+      "crm_overview": "Overview",
+      "crm_conversations": "Conversations",
+      "crm_contacts": "Contacts",
+      "crm_templates": "Templates",
+      "assistant_settings": "Settings",
+      "assistant_documents": "Documents",
+      "assistant_folders": "Private folders"
+    }
   }
 }

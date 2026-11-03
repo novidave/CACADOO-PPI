@@ -1,28 +1,29 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import { assistantTabUrl, forwardUrl, movedFrom } from "@/lib/dashboardPages";
+import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
+import { itemTabs, PageHead } from "@/components/owner/PageHead";
 import { messages, ProOnly, ShopSwitcher } from "../../shared";
 import { loadShopDocs, ShopDocuments } from "../../ShopDocuments";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/folders">): Promise<Metadata> {
   const { lang } = await params;
   if (!isLocale(lang)) return {};
-  return { title: (await getDictionary(lang)).dashboard.private_folders_title };
+  const dict = await getDictionary(lang);
+  return { title: dict.nav.tabs.assistant_folders };
 }
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
 
 /**
- * Asistent → "Súkromné priečinky" (its own page since update 63; reached from Nastavenia): the documents the assistant
- * answers from, the folders, their access keys and "Len zobraziť" / "Zobraziť a stiahnuť". Old addresses
- * (`/dashboard/assistant?at=docs` or `?at=private`) are forwarded here with their query. Paid parts check shop_has_plan()
- * in SQL; what a free shop already has stays reachable.
+ * AI asistent → Súkromné priečinky (back-end layout L2, 2026-11-03; its own page since update 63): the folders, their
+ * access keys and "Len zobraziť" / "Zobraziť a stiahnuť". The documents themselves are the tab before
+ * (/dashboard/assistant/documents). Old addresses (`/dashboard/assistant?at=private` or `?at=folders`) are forwarded here
+ * with their query. Paid parts check shop_has_plan() in SQL; what a free shop already has stays reachable.
  */
 export default async function FoldersPage({ params, searchParams }: PageProps<"/[lang]/dashboard/assistant/folders">) {
   const { lang } = await params;
@@ -50,11 +51,7 @@ export default async function FoldersPage({ params, searchParams }: PageProps<"/
 
   return (
     <div className="flex max-w-3xl flex-col gap-5">
-      <header className="flex flex-col gap-2">
-        <Link href={assistantTabUrl(lang, "settings", shop.slug)} className="flex min-h-11 items-center gap-1 self-start text-sm underline underline-offset-4">
-          {dict.asst.back_to_settings}
-        </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">{d.private_folders_title}</h1>
+      <PageHead title={dict.nav.assistant} item="assistant" tabs={itemTabs(dict, lang, "assistant", shop.slug)} current="folders" tabsLabel={dict.nav.tabs_label}>
         <ShopSwitcher
           shops={shops}
           current={shop}
@@ -63,16 +60,16 @@ export default async function FoldersPage({ params, searchParams }: PageProps<"/
         />
         {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
         {m.top}
-      </header>
-      <section id="docs" className="flex scroll-mt-4 flex-col gap-3" data-tab-panel="docs">
+      </PageHead>
+      <section id="folders" className="flex scroll-mt-4 flex-col gap-3" data-tab-panel="folders">
         {docsData && showDocs && (
           <p className="text-sm text-muted">{t(d.summary_docs, { documents: docsData.docs.length, pictures: docsData.pictures.length })}</p>
         )}
         {!docsData || showDocs ? (
-          <ShopDocuments supabase={supabase} data={docsData} shop={shop} lang={lang} dict={dict} hasPlan={planActive} notice={m.notice("docs")} />
+          <ShopDocuments supabase={supabase} data={docsData} shop={shop} lang={lang} dict={dict} hasPlan={planActive} notice={m.notice("folders")} view="folders" />
         ) : (
           <>
-            {m.notice("docs")}
+            {m.notice("folders")}
             <p className="text-sm">{dict.docs.intro}</p>
             <ProOnly dict={dict} href={planUrl} />
           </>

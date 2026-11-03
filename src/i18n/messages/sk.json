@@ -3407,7 +3407,18 @@
     "unavailable": "Texty sa teraz nedajú načítať.",
     "err_failed": "Nepodarilo sa. Skúste to znova.",
     "err_email": "Skontrolujte e-mail.",
-    "err_too_long": "Jeden z textov je príliš dlhý (najviac 30 000 znakov)."
+    "err_too_long": "Jeden z textov je príliš dlhý (najviac 30 000 znakov).",
+    "company_form_title": "Firma",
+    "company_form_hint": "Obchodné meno, IČO a DIČ sa zobrazia na stránke obchodu pod adresou a na tejto právnej stránke. Adresa a PSČ zostávajú v Údajoch obchodu.",
+    "company_saved": "Údaje firmy sú uložené.",
+    "err_company": "Údaje firmy sa nepodarilo uložiť.",
+    "err_dic": "DIČ nemá správny tvar.",
+    "domain_owner_title": "Údaje pre vlastnú doménu",
+    "domain_owner_hint": "S týmito údajmi sa registruje vlastná doména obchodu (Predplatné a doména). Zmení sa len to, čo vyplníte.",
+    "operator_saved": "Údaje pre doménu sú uložené.",
+    "err_operator": "Údaje pre doménu sa nepodarilo uložiť.",
+    "err_operator_ico": "Slovenské IČO nie je platné.",
+    "company_moved": "Obchodné meno, IČO a DIČ upravíte v časti"
   },
   "legal": {
     "footer_label": "Právne informácie",
@@ -4761,6 +4772,25 @@
     "hours_sms": "Otváracie hodiny cez SMS",
     "ai": "AI asistenti a Telegram",
     "admin_domains": "Predplatné a domény",
-    "admin_translations": "Preklady"
+    "admin_translations": "Preklady",
+    "tabs_label": "Časti stránky",
+    "tabs": {
+      "food_orders": "Objednávky",
+      "food_menu": "Menu",
+      "food_settings": "Nastavenia",
+      "bookings_calendar": "Kalendár",
+      "bookings_services": "Služby",
+      "bookings_resources": "Zdroje",
+      "bookings_rules": "Pravidlá",
+      "bookings_blocks": "Blokované časy",
+      "bookings_settings": "Nastavenia",
+      "crm_overview": "Prehľad",
+      "crm_conversations": "Konverzácie",
+      "crm_contacts": "Kontakty",
+      "crm_templates": "Šablóny",
+      "assistant_settings": "Nastavenia",
+      "assistant_documents": "Dokumenty",
+      "assistant_folders": "Súkromné priečinky"
+    }
   }
 }
