@@ -372,6 +372,8 @@ export interface Deps {
   key: CryptoKey | null;
   /** https://<project>.supabase.co/functions/v1/bookings */
   selfUrl: string;
+  /** Google's redirect_uri: <SITE_URL>/api/google/bookings/oauth (forwards to selfUrl/oauth); unset = selfUrl/oauth */
+  googleRedirect?: string;
   sms: SmsProvider;
   showTestCodes: boolean;
   fetch: typeof fetch;
@@ -657,7 +659,7 @@ async function owner(req: Request, body: Record<string, unknown>, deps: Deps) {
     });
     const url = `${GOOGLE_AUTH}?${new URLSearchParams({
       client_id: deps.google.clientId,
-      redirect_uri: `${deps.selfUrl}/oauth`,
+      redirect_uri: deps.googleRedirect ?? `${deps.selfUrl}/oauth`,
       response_type: "code",
       scope: SCOPE,
       access_type: "offline",
@@ -706,7 +708,7 @@ async function oauthBack(url: URL, deps: Deps) {
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: `${deps.selfUrl}/oauth`,
+      redirect_uri: deps.googleRedirect ?? `${deps.selfUrl}/oauth`,
       client_id: deps.google.clientId,
       client_secret: deps.google.clientSecret,
       code_verifier: st.verifier,
@@ -1054,6 +1056,14 @@ export async function handler(req: Request): Promise<Response> {
   const clientSecret = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET")?.trim();
   const secret = (Deno.env.get("BOOKING_TOKEN_ENCRYPTION_KEY") ?? Deno.env.get("EXPORT_TOKEN_ENCRYPTION_KEY") ?? "").trim();
   const sms = smsProvider(Deno.env.get("SMS_PROVIDER"), (name) => Deno.env.get(name), fetch);
+  // Google returns only to a domain the app owns: through the website when SITE_URL is https (2026-11-02).
+  let site: string | null = null;
+  try {
+    const s = new URL(Deno.env.get("SITE_URL")?.trim() ?? "");
+    if (s.protocol === "https:") site = s.origin;
+  } catch {
+    // no SITE_URL: Google returns to the function itself
+  }
   return await handle(req, {
     db: createClient(url, serviceKey, options) as unknown as Db,
     asCaller: (authorization) =>
@@ -1062,6 +1072,7 @@ export async function handler(req: Request): Promise<Response> {
     google: clientId && clientSecret ? { clientId, clientSecret } : null,
     key: secret.length >= 32 ? await tokenKey(secret) : null,
     selfUrl: `${url.replace(/\/$/, "")}/functions/v1/bookings`,
+    googleRedirect: site ? `${site}/api/google/bookings/oauth` : undefined,
     sms,
     showTestCodes: !sms.live && (Deno.env.get("BOOKING_TEST_CODES") ?? "").trim().toLowerCase() === "on",
     fetch,

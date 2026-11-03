@@ -3471,7 +3471,9 @@
     "ai_off": "AI answers are switched off. Use the buttons:",
     "ai_limit": "Today's AI message limit is used up. Use the buttons:",
     "ai_failed": "The AI is not answering right now. Use the buttons:",
-    "sum_conv_n": "Mark as handled: {n} conversations"
+    "sum_conv_n": "Mark as handled: {n} conversations",
+    "google_pushed": "Google Maps: hours updated.",
+    "google_failed": "Google Maps: the hours could not be sent – try “Send the hours to Google now” in My shop → Opening hours by SMS."
   },
   "owner_tg": {
     "title": "Telegram",

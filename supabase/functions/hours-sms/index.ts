@@ -580,6 +580,12 @@ export interface Deps {
   google: { clientId: string; clientSecret: string } | null;
   key: CryptoKey | null;
   selfUrl: string;
+  /** Google's redirect_uri: <SITE_URL>/api/google/hours-sms/oauth (forwards to selfUrl/oauth); unset = selfUrl/oauth */
+  googleRedirect?: string;
+  /** SUPABASE_SERVICE_ROLE_KEY: what the telegram function proves itself with on POST /service (push to Google) */
+  serviceKey?: string | null;
+  /** The shop's id and regular week by its slug (service role); for POST /service */
+  shopBySlug?: (slug: string) => Promise<{ id: string; opening_hours: Record<string, string[][]> | null } | null>;
   revalidate: { url: string | null; secret: string | null };
   fetch: typeof fetch;
   now?: () => Date;
@@ -792,7 +798,7 @@ async function owner(req: Request, body: Record<string, unknown>, deps: Deps) {
     await deps.db.rpc("business_oauth_begin", { p_shop_id: shopId, p_user_id: user.id, p_state_hash: await hashText(state), p_verifier: verifier, p_return_url: back });
     const url = `${GOOGLE_AUTH}?${new URLSearchParams({
       client_id: deps.google.clientId,
-      redirect_uri: `${deps.selfUrl}/oauth`,
+      redirect_uri: deps.googleRedirect ?? `${deps.selfUrl}/oauth`,
       response_type: "code",
       scope: BUSINESS_SCOPE,
       access_type: "offline",
@@ -874,7 +880,7 @@ async function oauthBack(url: URL, deps: Deps) {
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: `${deps.selfUrl}/oauth`,
+      redirect_uri: deps.googleRedirect ?? `${deps.selfUrl}/oauth`,
       client_id: deps.google.clientId,
       client_secret: deps.google.clientSecret,
       code_verifier: st.verifier,
@@ -913,6 +919,25 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
     }
   }
   const body = ((await req.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+  // The telegram function after a confirmed change of opening hours (2026-11-02): the same push as "Poslať hodiny do
+  // Google teraz". Only with the service role key; only the shop named; nothing else can be asked here.
+  if (url.pathname.endsWith("/service")) {
+    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+    if (!deps.serviceKey || !bearer || !sameText(bearer, deps.serviceKey)) return reply(401, { error: "unauthorized" });
+    const slug = String(body.shop ?? "");
+    if (body.action !== "google_push" || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) || slug.length > 80 || !deps.shopBySlug) {
+      return reply(400, { error: "bad_request" });
+    }
+    try {
+      const shop = await deps.shopBySlug(slug);
+      if (!shop) return reply(404, { error: "not_found" });
+      const result = await pushToGoogle(deps, shop.id, shop.opening_hours ?? {}, null);
+      return reply(200, { result });
+    } catch (e) {
+      console.error("hours-sms: service push", (e instanceof Error ? e.message : String(e)).slice(0, 120));
+      return reply(500, { error: "failed" });
+    }
+  }
   try {
     return await owner(req, body, deps);
   } catch (e) {
@@ -942,8 +967,13 @@ export async function handler(req: Request): Promise<Response> {
     // no SITE_URL
   }
   const revalidateSecret = env("REVALIDATE_SECRET");
+  const service = createClient(url, serviceKey, options);
   return await handle(req, {
-    db: createClient(url, serviceKey, options),
+    db: service,
+    shopBySlug: async (slug) => {
+      const { data } = await service.from("shops").select("id, opening_hours").eq("slug", slug).maybeSingle();
+      return (data as { id: string; opening_hours: Record<string, string[][]> | null } | null) ?? null;
+    },
     asCaller: (authorization) =>
       createClient(url, anonKey, { ...options, global: { headers: { Authorization: authorization } } }) as unknown as Caller,
     parse: apiKey ? claudeParser(apiKey, env("AI_MODEL") ?? "claude-haiku-5-5") : null,
@@ -954,6 +984,8 @@ export async function handler(req: Request): Promise<Response> {
     google: clientId && clientSecret ? { clientId, clientSecret } : null,
     key: secret.length >= 32 ? await tokenKey(secret) : null,
     selfUrl,
+    googleRedirect: site ? `${site}/api/google/hours-sms/oauth` : undefined,
+    serviceKey,
     revalidate: { url: site, secret: revalidateSecret && revalidateSecret.length >= 16 ? revalidateSecret : null },
     fetch,
   });

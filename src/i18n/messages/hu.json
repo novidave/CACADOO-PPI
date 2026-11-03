@@ -3471,7 +3471,9 @@
     "ai_off": "Az MI-válaszok ki vannak kapcsolva. Használja a gombokat:",
     "ai_limit": "A mai MI-üzenetkeret elfogyott. Használja a gombokat:",
     "ai_failed": "Az MI most nem válaszol. Használja a gombokat:",
-    "sum_conv_n": "Elintézettnek jelölés: {n} beszélgetés"
+    "sum_conv_n": "Elintézettnek jelölés: {n} beszélgetés",
+    "google_pushed": "Google Térkép: a nyitvatartás frissítve.",
+    "google_failed": "Google Térkép: a nyitvatartást nem sikerült elküldeni – próbálja a „Nyitvatartás küldése a Google-nak most” gombot: Saját üzlet → Nyitvatartás SMS-ben."
   },
   "owner_tg": {
     "title": "Telegram",
