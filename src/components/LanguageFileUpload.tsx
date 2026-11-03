@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { compress } from "@/lib/folderStore";
 import { createClient } from "@/lib/supabase/client";
 import { supabaseEnv } from "@/lib/supabase/env";
+import { buttonClass } from "@/components/owner/ui";
 
 export interface LanguageFileLabels {
   target: string;
@@ -158,7 +159,7 @@ export function LanguageFileUpload({
             if (chosen) look(chosen, "");
           }}
         />
-        <button type="button" onClick={() => input.current?.click()} disabled={busy} className="rounded border border-foreground px-4 py-2 font-medium">
+        <button type="button" onClick={() => input.current?.click()} disabled={busy} className={buttonClass}>
           {labels.choose}
         </button>
         {file && <span className="text-sm">{file.name}</span>}
@@ -216,7 +217,7 @@ export function LanguageFileUpload({
             </table>
           </div>
           <div className="flex gap-3">
-            <button type="button" onClick={upload} disabled={busy} className="rounded border border-foreground px-4 py-2 font-medium" data-file-upload>
+            <button type="button" onClick={upload} disabled={busy} className={buttonClass} data-file-upload>
               {busy ? labels.uploading : labels.upload}
             </button>
             <button type="button" onClick={() => (setPreview(null), setFile(null))} className="underline underline-offset-4">

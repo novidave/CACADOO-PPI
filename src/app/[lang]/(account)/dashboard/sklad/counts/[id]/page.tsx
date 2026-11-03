@@ -50,7 +50,7 @@ export default async function SkladCount({ params, searchParams }: PageProps<"/[
   const labels = Object.fromEntries(Object.entries(s as Record<string, string>).filter(([k]) => k.startsWith("ic_") || k.startsWith("err_") || k === "sale_less" || k === "sale_more")) as InventuraLabels;
   const rows = (prod.data as { rows: SkladRow[] }).rows;
   return (
-    <SkladShell lang={ctx.lang} s={s} dict={dict} shops={shops} shop={shop} current="counts" source={null}>
+    <SkladShell lang={ctx.lang} s={s} dict={dict} shops={shops} shop={shop} current="counts" source={null} work>
       <Notice s={s} ok={first(sp.ok)} err={first(sp.err)} />
       <SkladInventura
         lang={ctx.lang}

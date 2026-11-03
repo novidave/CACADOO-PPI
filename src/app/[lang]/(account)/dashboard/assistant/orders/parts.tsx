@@ -4,12 +4,13 @@ import { t } from "@/i18n/dictionaries";
 import type { FoodOrder, FoodOrders, OpenState } from "@/lib/foodOwner";
 import { money, nextSteps, plural, type OrderStatus } from "@/lib/foodRules";
 import { orderStep as stepAction, pauseOrders } from "./actions";
+import { buttonClass, ghostClass } from "@/components/owner/ui";
 
 /** Shared parts of Asistent → Objednávky (boards 11–13): the state strip, an order card, the notices, small helpers. */
 
-export const btn =
-  "inline-flex min-h-11 items-center justify-center rounded-lg bg-foreground px-4 font-semibold text-white disabled:opacity-50";
-export const btnGhost = "inline-flex min-h-11 items-center justify-center rounded-lg border border-line px-4 font-semibold";
+// back-end layout L3: the shared 52 px buttons (@/components/owner/ui)
+export const btn = buttonClass;
+export const btnGhost = ghostClass;
 export const btnOrange = "inline-flex min-h-11 items-center justify-center rounded-lg bg-[#F57C20] px-4 font-semibold text-white";
 
 export const hhmm = (iso: string | null | undefined, timeZone: string) =>

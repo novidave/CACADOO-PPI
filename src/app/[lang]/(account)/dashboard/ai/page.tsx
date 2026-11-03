@@ -10,6 +10,7 @@ import { siteUrl } from "@/lib/site";
 import { TelegramLinkForm } from "@/components/TelegramLinkForm";
 import { telegramBotUsername } from "@/lib/telegram";
 import { createMcpKey, disconnectMcp, saveTelegramConsent, saveTelegramPrefs, sendTelegramTest, startTelegramLink, unlinkTelegram } from "./actions";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/ai">): Promise<Metadata> {
   const { lang } = await params;
@@ -68,7 +69,7 @@ export default async function AiPage({ params, searchParams }: PageProps<"/[lang
   if (shopsRes.error) {
     return (
       <div className="flex max-w-3xl flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">{m.title}</h1>
+        <PageTitle>{m.title}</PageTitle>
         <p className="text-sm text-muted">{m.unavailable}</p>
       </div>
     );
@@ -100,7 +101,7 @@ export default async function AiPage({ params, searchParams }: PageProps<"/[lang
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{m.title}</h1>
+        <PageTitle>{m.title}</PageTitle>
         <p className="text-sm">{m.intro}</p>
         {ok === "disconnected" && <p role="status" className="border border-foreground p-3 font-medium">{m.ok_disconnected}</p>}
         {err && <p className="border border-line p-3">{m.err_failed}</p>}

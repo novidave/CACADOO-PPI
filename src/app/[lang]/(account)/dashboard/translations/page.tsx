@@ -14,6 +14,7 @@ import { itemFilter } from "@/lib/ownerItems";
 import { ItemsSection, loadItems } from "../Inventory";
 import type { LanguageSettings } from "../LanguagesForm";
 import { messages, ShopSwitcher } from "../shared";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/translations">): Promise<Metadata> {
   const { lang } = await params;
@@ -83,7 +84,7 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
   );
   const header = (
     <header className="flex flex-col gap-2">
-      <h1 className="text-2xl font-semibold tracking-tight">{dict.account.translations_page}</h1>
+      <PageTitle>{dict.account.translations_page}</PageTitle>
       <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/translations?${new URLSearchParams({ shop: slug })}`} />
       <p className="text-muted">{shop.name}</p>
       <p className="text-sm">{o.page_intro}</p>

@@ -16,6 +16,8 @@ import { FacebookImportProgress } from "@/components/FacebookImportProgress";
 import { FacebookPagePicker } from "@/components/FacebookPagePicker";
 import { hiddenFields, ShopSwitcher, SubmitButton } from "../shared";
 import { connectFacebook, deleteBlogPost, disconnectFacebook, importFacebook, saveBlogSettings, setBlogPostHidden } from "./actions";
+import { PageTitle } from "@/components/owner/PageHead";
+import { buttonClass } from "@/components/owner/ui";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/blog">): Promise<Metadata> {
   const { lang } = await params;
@@ -124,7 +126,7 @@ export default async function BlogDashboardPage({ params, searchParams }: PagePr
   const hidden = hiddenFields(lang, shop);
   const header = (
     <header className="flex flex-col gap-2">
-      <h1 className="text-2xl font-semibold tracking-tight">{b.title}</h1>
+      <PageTitle>{b.title}</PageTitle>
       <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/blog?${new URLSearchParams({ shop: slug })}`} />
       <p className="text-muted">{shop.name}</p>
       <p className="text-sm">{b.intro}</p>
@@ -169,7 +171,7 @@ export default async function BlogDashboardPage({ params, searchParams }: PagePr
         />
       )}
 
-      <div className="flex flex-col border-t border-line">
+      <div className="flex flex-col gap-3">
         {fbOn && (
           <DashboardSection
             id="facebook"
@@ -229,7 +231,7 @@ export default async function BlogDashboardPage({ params, searchParams }: PagePr
                 </form>
                 <form action={disconnectFacebook}>
                   {hidden({ at: "facebook" })}
-                  <ConfirmButton question={b.fb_disconnect_confirm} className="rounded border border-foreground px-4 py-2 font-medium">
+                  <ConfirmButton question={b.fb_disconnect_confirm} className={buttonClass}>
                     {b.fb_disconnect}
                   </ConfirmButton>
                 </form>

@@ -13,6 +13,8 @@ import { markCallback } from "../../callbackActions";
 import { deleteConversation, markConversation, saveConversationNote } from "../../conversationActions";
 import { linkConversation } from "../../contacts/actions";
 import { conversationPdfUrl, countText, ExportState, languageName, type ExportStatus } from "../../Conversations";
+import { PageTitle } from "@/components/owner/PageHead";
+import { fieldClass } from "@/components/owner/ui";
 
 export const metadata: Metadata = { robots: { index: false } };
 
@@ -212,7 +214,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
         <Link href={back(shop.slug)} className="text-sm underline underline-offset-4">
           {c.back}
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">{t(c.heading, { date: formatDateTime(started, lang, tz) })}</h1>
+        <PageTitle>{t(c.heading, { date: formatDateTime(started, lang, tz) })}</PageTitle>
         <p className="text-sm text-muted">{shop.name}</p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
           <dt className="text-muted">{c.started}</dt>
@@ -391,7 +393,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
           {hiddenShop}
           <label className="flex flex-col gap-1">
             <span className="font-semibold">{c.note_title}</span>
-            <textarea name="note" rows={3} maxLength={2000} defaultValue={marks.owner_note ?? ""} className="rounded border border-line px-3 py-2 outline-none focus:border-foreground" />
+            <textarea name="note" rows={3} maxLength={2000} defaultValue={marks.owner_note ?? ""} className={fieldClass} />
           </label>
           <p className="text-xs text-muted">{c.note_hint}</p>
           {ok === "note" && (

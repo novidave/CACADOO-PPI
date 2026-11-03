@@ -64,7 +64,7 @@ export default async function SkladSale({ params, searchParams }: PageProps<"/[l
   const salesWord = (plural === "one" ? s.sales_one : plural === "few" ? s.sales_few : s.sales_other).replace("{n}", String(sale.today.sales));
 
   return (
-    <SkladShell lang={ctx.lang} s={s} dict={dict} shops={shops} shop={shop} current="sale" source={res.source}>
+    <SkladShell lang={ctx.lang} s={s} dict={dict} shops={shops} shop={shop} current="sale" source={res.source} work>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl font-bold">{s.sale_title}</h2>
         <span className="text-sm text-muted" data-sklad-today>

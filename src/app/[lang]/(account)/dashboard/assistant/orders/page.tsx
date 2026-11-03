@@ -84,6 +84,7 @@ export default async function OrdersPage({ params, searchParams }: PageProps<"/[
           x.key === "orders" && (tab?.new ?? 0) > 0 ? { ...x, badgeLabel: t(f.tab_badge, { n: tab!.new }) } : x,
         )}
         current="orders"
+        compact
         tabsLabel={dict.nav.tabs_label}
       >
         <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/assistant/orders?shop=${slug}`} />

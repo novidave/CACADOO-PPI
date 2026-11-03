@@ -20,6 +20,7 @@ import { PendingButton } from "@/components/PendingButton";
 import { SectionUploader } from "@/components/SectionUploader";
 import { deleteItem, setItemState, updateItem } from "../sectionActions";
 import { hiddenFields, inputClass, messages, ShopSwitcher } from "../shared";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/content">): Promise<Metadata> {
   const { lang } = await params;
@@ -133,7 +134,7 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
   const planUrl = `/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
   const header = (
     <header className="flex flex-col gap-2">
-      <h1 className="text-2xl font-semibold tracking-tight">{dict.account.content_page}</h1>
+      <PageTitle>{dict.account.content_page}</PageTitle>
       <ShopSwitcher shops={shops} current={shop} label={d.shop} href={(slug) => `/${lang}/dashboard/content?${new URLSearchParams({ shop: slug })}`} />
       <p className="text-muted">{shop.name}</p>
       <p className="text-sm">{c.page_intro}</p>
@@ -208,7 +209,7 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
     <div className="flex max-w-3xl flex-col gap-6">
       {header}
 
-      <div className="flex flex-col border-t border-line" data-content-sections>
+      <div className="flex flex-col gap-3" data-content-sections>
         {/* 1. The slider: title, look, slots, order, live preview */}
         <DashboardSection {...m.section("content")} first title={c.slider_title} summary={summaries.content}>
           {m.notice("content")}

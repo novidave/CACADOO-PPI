@@ -14,6 +14,7 @@ import { chooseShop } from "../contacts/parts";
 import {
   connectBusiness, disconnectBusiness, pushBusiness, removePhone, selectLocation, startPhone, verifyPhone,
 } from "./actions";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/hours-sms">): Promise<Metadata> {
   const { lang } = await params;
@@ -83,7 +84,7 @@ export default async function HoursSmsPage({ params, searchParams }: PageProps<"
   if (phonesRes.error) {
     return (
       <div className="flex max-w-3xl flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">{h.title}</h1>
+        <PageTitle>{h.title}</PageTitle>
         <p className="text-sm text-muted">{h.unavailable}</p>
       </div>
     );
@@ -118,7 +119,7 @@ export default async function HoursSmsPage({ params, searchParams }: PageProps<"
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{h.title}</h1>
+        <PageTitle>{h.title}</PageTitle>
         <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/hours-sms?shop=${slug}`} />
         <p className="text-muted">{shop.name}</p>
         <p className="text-sm">{h.intro}</p>

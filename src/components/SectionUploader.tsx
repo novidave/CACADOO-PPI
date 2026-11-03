@@ -8,6 +8,7 @@ import { DEFAULT_RATIO, ratioSize, type ContentLimits, type SliderRatio } from "
 import { createClient } from "@/lib/supabase/client";
 import { openPdf, PictureProblem, preparePicture, sectionPage } from "@/lib/pdfRead";
 import { createItem } from "@/app/[lang]/(account)/dashboard/sectionActions";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 type Labels = Dictionary["sections"];
 type Text = Dictionary["content"];
@@ -262,7 +263,7 @@ export function SectionUploader({
     router.refresh();
   }
 
-  const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const input = fieldClass;
   const id = `${mode}-${itemId ?? "new"}`;
   return (
     <form onSubmit={submit} className="flex flex-col gap-3" data-section-upload={mode}>
@@ -375,7 +376,7 @@ export function SectionUploader({
           </label>
         </>
       )}
-      <button type="submit" disabled={busy} className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:border-line disabled:text-muted">
+      <button type="submit" disabled={busy} className={`self-start ${buttonClass}`}>
         {busy ? labels.uploading : mode === "new" ? text.upload : text.replace_file}
       </button>
       {status && (

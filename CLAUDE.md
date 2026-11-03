@@ -157,6 +157,12 @@ forms send `at=folders`); **Objednávky jedla** = Objednávky · Menu (`settings
 `saveCompany` re-saves the shop's row with the new IČO) + Údaje pre vlastnú doménu (`shop_legal`, `saveOperator`, only the
 fields sent; the domain wizard still asks for missing ones) + the legal texts. Old `?at=` names: overview / conversations /
 cloud → CRM, docs → Dokumenty, private / folders → Súkromné priečinky.
+**L3 (one look):** every owner page uses `@/components/owner/ui` (`fieldClass` 52 px / radius 12 / 17 px, `buttonClass`
+black 52 px, `ghostClass`, `cardClass` 1 px #E4E4E4 / radius 16 / padding 18, `Toggle` = `.ppi-toggle` 56×32 checkbox,
+`Segmented`, `Chip`, `StatusDot`) and `@/components/owner/SaveBar` (sticky "Neuložené zmeny: n" · Zrušiť · Uložiť ≥ 180
+px; `saveLabels()`), never its own copies (`inputClass`, `SubmitButton`, `PendingButton`, `DashboardSection`, the Sklad and
+food `btn`/`card` are these parts); `PageTitle` 28 px on every page, `PageHead compact` on the work screens (title 20 px,
+tabs 60 px). Môj obchod: two columns from 1024 px + the save bar; its plan box lives on Predplatné a doména.
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 

@@ -31,6 +31,7 @@ import { LanguagesForm, type LanguageSettings } from "../dashboard/LanguagesForm
 import { hiddenFields, messages, recentlyText, ShopSwitcher } from "../dashboard/shared";
 import { languageList } from "../dashboard/translationShared";
 import { deleteStockFiles, resetInventory, restoreInventory } from "./inventoryActions";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/sync">): Promise<Metadata> {
   const { lang } = await params;
@@ -76,7 +77,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
     return (
       <div className="flex max-w-3xl flex-col gap-8">
         <header className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{dict.sync.title}</h1>
+          <PageTitle>{dict.sync.title}</PageTitle>
           <p className="text-sm">{dict.sync.intro}</p>
         </header>
         <p className="border border-line p-4">{dict.sync.no_shop}</p>
@@ -213,7 +214,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{dict.sync.title}</h1>
+        <PageTitle>{dict.sync.title}</PageTitle>
         <ShopSwitcher shops={shops} current={shop} label={d.shop} href={(slug) => `/${lang}/sync?${new URLSearchParams({ shop: slug })}`} />
         <p className="text-muted">{shop.name}</p>
         <p className="text-sm">{dict.sync.intro}</p>
@@ -226,7 +227,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
         )}
       </header>
 
-      <div className="flex flex-col border-t border-line">
+      <div className="flex flex-col gap-3">
         {source && (
           <DashboardSection {...m.section("source")} first title={sst.title} summary={sourceSummary}>
             <StockSourcePanel shopId={shop.id} initial={source} programName={apiConn ? programName : null} labels={sst} />

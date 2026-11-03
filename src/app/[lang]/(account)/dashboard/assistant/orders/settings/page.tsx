@@ -8,6 +8,7 @@ import type { FoodSettings, FoodZone } from "@/lib/foodOwner";
 import { money, plural } from "@/lib/foodRules";
 import { DbError } from "@/components/DbError";
 import { itemTabs, PageHead } from "@/components/owner/PageHead";
+import { cardClass, Toggle } from "@/components/owner/ui";
 import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, inputClass, ProOnly } from "../../../shared";
 import { checkMenu, deleteZone, saveFoodSettings, saveZone } from "../actions";
@@ -76,8 +77,8 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
       <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />
 
       {view === "menu" && (
-        <section id="menu" className="flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4">
-          <h2 className="text-lg font-bold">{f.s_menu}</h2>
+        <section id="menu" className={`${cardClass} scroll-mt-4`}>
+          <h2 className="text-[19px] font-bold">{f.s_menu}</h2>
           <p className="text-sm text-muted">{f.s_menu_hint}</p>
           <div className="flex items-center justify-between gap-3 rounded-lg bg-[#F6F7F9] p-3">
             <span className="flex flex-col">
@@ -124,23 +125,23 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
       {view === "settings" && (
       <form action={saveFoodSettings} className="flex flex-col gap-5">
         {hidden()}
-        <section className="rounded-xl border border-line p-4">
-          <Toggle name="enabled" label={f.s_enabled} hint={f.s_enabled_hint} on={s.enabled} />
+        <section className={`${cardClass} gap-0 py-2`}>
+          <Toggle name="enabled" label={f.s_enabled} hint={f.s_enabled_hint} defaultChecked={s.enabled} />
         </section>
-        <section className="rounded-xl border border-line p-4">
-          <Toggle name="deduct_on_delivery" label={f.s_deduct} on={s.deduct_on_delivery} />
+        <section className={`${cardClass} gap-0 py-2`}>
+          <Toggle name="deduct_on_delivery" label={f.s_deduct} defaultChecked={s.deduct_on_delivery} />
         </section>
 
-        <section className="flex flex-col gap-3 rounded-xl border border-line p-4">
-          <h2 className="text-lg font-bold">{f.s_pickup}</h2>
-          <Toggle name="pickup_on" label={f.s_pickup_on} on={s.pickup_on} />
+        <section className={cardClass}>
+          <h2 className="text-[19px] font-bold">{f.s_pickup}</h2>
+          <Toggle name="pickup_on" label={f.s_pickup_on} defaultChecked={s.pickup_on} />
           <span className="text-sm font-semibold">{f.s_prep}</span>
           <Choice name="prep_minutes" value={s.prep_minutes} options={withCurrent([20, 30, 45], s.prep_minutes)} unit={minutes} />
         </section>
 
-        <section className="flex flex-col gap-3 rounded-xl border border-line p-4">
-          <h2 className="text-lg font-bold">{f.s_delivery}</h2>
-          <Toggle name="delivery_on" label={f.s_delivery_on} on={s.delivery_on} />
+        <section className={cardClass}>
+          <h2 className="text-[19px] font-bold">{f.s_delivery}</h2>
+          <Toggle name="delivery_on" label={f.s_delivery_on} defaultChecked={s.delivery_on} />
           <span className="text-sm font-semibold">{f.s_eta}</span>
           <Choice name="delivery_minutes" value={s.delivery_minutes} options={withCurrent([45, 60, 90], s.delivery_minutes)} unit={minutes} />
           <p className="text-sm text-muted">{f.s_zone_hint}</p>
@@ -151,11 +152,11 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           </p>
         </section>
 
-        <section className="flex flex-col gap-3 rounded-xl border border-line p-4">
-          <h2 className="text-lg font-bold">{f.s_pay}</h2>
-          <Toggle name="pay_qr" label={f.s_pay_qr} hint={`${f.s_iban}: ${s.iban_set ? f.s_iban_set : f.s_iban_missing}`} on={s.pay_qr} />
-          <Toggle name="pay_cash" label={f.s_pay_cash} on={s.pay_cash} />
-          <Toggle name="pay_card" label={f.s_pay_card} hint={f.s_pay_card_hint} on={s.pay_card} />
+        <section className={cardClass}>
+          <h2 className="text-[19px] font-bold">{f.s_pay}</h2>
+          <Toggle name="pay_qr" label={f.s_pay_qr} hint={`${f.s_iban}: ${s.iban_set ? f.s_iban_set : f.s_iban_missing}`} defaultChecked={s.pay_qr} />
+          <Toggle name="pay_cash" label={f.s_pay_cash} defaultChecked={s.pay_cash} />
+          <Toggle name="pay_card" label={f.s_pay_card} hint={f.s_pay_card_hint} defaultChecked={s.pay_card} />
           {!s.iban_set && (
             <Link href={`/${lang}/dashboard/sklad/settings?shop=${shop.slug}#payment`} className="text-sm font-semibold underline underline-offset-4">
               {f.s_iban_add}
@@ -164,8 +165,8 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           <p className="text-sm text-muted">{f.s_pay_hint}</p>
         </section>
 
-        <section className="flex flex-col gap-3 rounded-xl border border-line p-4">
-          <h2 className="text-lg font-bold">{f.s_when}</h2>
+        <section className={cardClass}>
+          <h2 className="text-[19px] font-bold">{f.s_when}</h2>
           <span className="text-sm font-semibold">{f.s_last}</span>
           <Choice
             name="last_order_minutes"
@@ -176,12 +177,12 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           <p className="text-sm text-muted">{f.s_when_hint}</p>
         </section>
 
-        <section className="flex flex-col gap-2 rounded-xl border border-line p-4">
-          <h2 className="text-lg font-bold">{f.s_alerts}</h2>
-          <Toggle name="alert_sound" label={f.s_alert_sound} on={s.alert_sound} />
-          <Toggle name="alert_email" label={f.s_alert_email} on={s.alert_email} />
-          <Toggle name="alert_telegram" label={f.s_alert_telegram} hint={f.s_alert_telegram_hint} on={s.alert_telegram} />
-          <Toggle name="sms_on_the_way" label={f.s_sms_way} on={s.sms_on_the_way} />
+        <section className={`${cardClass} gap-1`}>
+          <h2 className="text-[19px] font-bold">{f.s_alerts}</h2>
+          <Toggle name="alert_sound" label={f.s_alert_sound} defaultChecked={s.alert_sound} />
+          <Toggle name="alert_email" label={f.s_alert_email} defaultChecked={s.alert_email} />
+          <Toggle name="alert_telegram" label={f.s_alert_telegram} hint={f.s_alert_telegram_hint} defaultChecked={s.alert_telegram} />
+          <Toggle name="sms_on_the_way" label={f.s_sms_way} defaultChecked={s.sms_on_the_way} />
           <p className="text-sm text-muted">
             {f.s_sms_hint}
             {quota ? ` ${t(f.s_sms_quota, { used: quota.used, limit: quota.limit })}` : ""}
@@ -198,7 +199,7 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
 
       {/* the menu check: Claude lists the dishes of the menu, the pairing with Sklad is decided in SQL */}
       {view === "menu" && canWrite && docs.length > 0 && (
-        <form action={checkMenu} className="flex flex-col gap-2 rounded-xl border border-line p-4">
+        <form action={checkMenu} className={`${cardClass} gap-2`}>
           {hidden({ back: "menu" })}
           <label className="flex flex-col gap-1 text-sm font-semibold">
             {f.s_check_doc}
@@ -218,8 +219,8 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
       )}
 
       {view === "settings" && (
-      <section id="zones" className="flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4">
-        <h2 className="text-lg font-bold">{f.s_zones}</h2>
+      <section id="zones" className={`${cardClass} scroll-mt-4`}>
+        <h2 className="text-[19px] font-bold">{f.s_zones}</h2>
         {s.zones.length === 0 && <p className="text-sm text-muted">{f.s_zones_none}</p>}
         {s.zones.map((z) => (
           <details key={z.id} className="rounded-lg border border-line p-3" data-food-zone={z.kind}>
@@ -249,18 +250,6 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
       </section>
       )}
     </div>
-  );
-}
-
-function Toggle({ name, label, hint, on }: { name: string; label: string; hint?: string; on: boolean }) {
-  return (
-    <label className="flex min-h-11 items-start justify-between gap-4 py-1">
-      <span className="flex flex-col">
-        <span className="font-semibold">{label}</span>
-        {hint && <span className="text-sm text-muted">{hint}</span>}
-      </span>
-      <input type="checkbox" name={name} defaultChecked={on} className="mt-1 size-5 flex-none accent-[#F57C20]" />
-    </label>
   );
 }
 

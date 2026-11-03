@@ -11,6 +11,7 @@ import {
   translateNow,
 } from "@/app/[lang]/(account)/dashboard/translationActions";
 import { cellKey, replaceable, STATES, type Cell, type CellRow, type CellState } from "@/lib/translations";
+import { buttonClass, textareaClass } from "@/components/owner/ui";
 
 export interface TranslationsLabels {
   filter_lang: string;
@@ -341,7 +342,7 @@ export function TranslationsTable({
 
                 {isEditing && (
                   <div className="flex flex-col gap-2 pl-7">
-                    <textarea value={editing.text} onChange={(e) => setEditing({ key, text: e.target.value })} rows={Math.min(8, Math.max(2, Math.ceil(row.source.length / 60)))} lang={row.lang} className="rounded border border-line px-3 py-2" data-edit-text />
+                    <textarea value={editing.text} onChange={(e) => setEditing({ key, text: e.target.value })} rows={Math.min(8, Math.max(2, Math.ceil(row.source.length / 60)))} lang={row.lang} className={textareaClass} data-edit-text />
                     <div className="flex gap-3 text-sm">
                       <button
                         type="button"
@@ -453,7 +454,7 @@ export function TranslationsTable({
             <span>{labels.delete_never}</span>
           </label>
           <div className="flex gap-3">
-            <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium" data-delete-confirm>
+            <button type="submit" className={buttonClass} data-delete-confirm>
               {labels.delete_confirm}
             </button>
             <button type="button" className="underline underline-offset-4" onClick={() => setDeleting(null)}>
@@ -521,7 +522,7 @@ function AddTranslation({
       </div>
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted">{labels.add_text}</span>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} lang={lang} className="rounded border border-line px-3 py-2" data-add-text />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} lang={lang} className={textareaClass} data-add-text />
       </label>
       <div className="flex gap-3 text-sm">
         <button

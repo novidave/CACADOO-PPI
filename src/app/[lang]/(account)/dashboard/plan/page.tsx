@@ -27,6 +27,8 @@ import {
   saveVerificationMeta,
   verifyGoogle,
 } from "./actions";
+import { PageTitle } from "@/components/owner/PageHead";
+import { buttonClass, cardClass, fieldClass, textareaClass } from "@/components/owner/ui";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/plan">): Promise<Metadata> {
   const { lang } = await params;
@@ -165,12 +167,10 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
     (Boolean(plan?.row?.cancel_at) || ["ended", "lapsed"].includes(current.status));
 
   return (
-    <div className="flex max-w-3xl flex-col gap-8">
+    <div className="flex max-w-5xl flex-col gap-6">
+      {/* back-end layout: a menu item of its own (Účet a nastavenia), so no "← Môj obchod" any more */}
       <header className="flex flex-col gap-2">
-        <Link href={`/${lang}/dashboard?${new URLSearchParams({ shop: shop.slug })}`} className="text-sm underline underline-offset-4">
-          {d.back}
-        </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">{d.title}</h1>
+        <PageTitle>{d.title}</PageTitle>
         {shops.length > 1 && (
           <nav className="flex flex-wrap gap-3 text-sm" aria-label={dict.dashboard.shop}>
             {shops.map((s) => (
@@ -187,8 +187,10 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
         <p className="text-muted">{shop.name}</p>
       </header>
 
-      <section id="plan" className="flex flex-col gap-3" aria-labelledby="plan-heading">
-        <h2 id="plan-heading" className="text-lg font-semibold">
+      {/* artboard 15: the plan on the left, the own domain (and "Aby vás našli…") on the right */}
+      <div className="grid gap-[18px] lg:grid-cols-2 lg:items-start">
+      <section id="plan" className={`${cardClass} min-w-0 scroll-mt-4`} aria-labelledby="plan-heading">
+        <h2 id="plan-heading" className="text-[19px] font-bold">
           {d.plan_title}
         </h2>
         {first(sp.plan) === "done" && (
@@ -201,8 +203,8 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
         {plan ? <PlanDetails plan={plan} shop={shop} lang={lang} dict={dict} /> : <p className="text-sm text-muted">{dict.plan.unavailable}</p>}
       </section>
 
-      <section id="domain" className="flex flex-col gap-4" aria-labelledby="domain-heading">
-        <h2 id="domain-heading" className="text-lg font-semibold">
+      <section id="domain" className={`${cardClass} min-w-0 scroll-mt-4`} aria-labelledby="domain-heading">
+        <h2 id="domain-heading" className="text-[19px] font-bold">
           {d.domain_title}
         </h2>
         <p className="text-sm text-muted">{d.domain_intro}</p>
@@ -269,7 +271,7 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
                         name={f.name}
                         defaultValue={f.value ?? ""}
                         maxLength={f.name === "country" ? 2 : 200}
-                        className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+                        className={fieldClass}
                       />
                     </label>
                   ))}
@@ -339,7 +341,7 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
                 href={domains.settings.search_url}
                 target="_blank"
                 rel="noopener"
-                className="self-start rounded border border-foreground px-4 py-2 font-medium"
+                className={`self-start ${buttonClass}`}
                 data-websupport-search
               >
                 {d.search_button}
@@ -394,7 +396,7 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
                       autoCapitalize="none"
                       spellCheck={false}
                       placeholder={d.step2_placeholder}
-                      className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+                      className={fieldClass}
                     />
                   </label>
                   <PendingButton pending={d.checking}>{d.own_button}</PendingButton>
@@ -426,6 +428,7 @@ export default async function PlanPage({ params, searchParams }: PageProps<"/[la
           </section>
         )}
       </section>
+      </div>
     </div>
   );
 }
@@ -503,7 +506,7 @@ function MetaTagForm({
             autoCapitalize="none"
             spellCheck={false}
             placeholder={`<meta name="${name}" content="…" />`}
-            className="rounded border border-line px-3 py-2 font-mono text-sm outline-none focus:border-foreground"
+            className={`${fieldClass} font-mono text-sm outline-none focus:border-foreground`}
           />
         </label>
         <div className="flex flex-wrap items-center gap-3">
@@ -594,7 +597,7 @@ function FindableSection({
           spellCheck={false}
           defaultValue={value ?? ""}
           placeholder="google-site-verification=…"
-          className="rounded border border-line px-3 py-2 font-mono text-sm outline-none focus:border-foreground"
+          className={`${fieldClass} font-mono text-sm outline-none focus:border-foreground`}
         />
       </label>
       <div className="flex flex-wrap items-center gap-3">
@@ -757,7 +760,7 @@ function FindableSection({
               rows={2}
               maxLength={1000}
               defaultValue={findable.categories.join(", ")}
-              className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-foreground"
+              className={`${textareaClass} text-sm outline-none focus:border-foreground`}
             />
           </label>
           <p className="text-xs text-muted">{d.categories_hint}</p>

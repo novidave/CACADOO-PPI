@@ -558,7 +558,9 @@
     "error_special_ranges": "Zadajte čas od – do (napr. 8:00 – 12:00) alebo zvoľte Zatvorené celý deň.",
     "error_special_none": "Vyberte aspoň jeden deň.",
     "col_description": "Popis",
-    "col_category": "Kategória"
+    "col_category": "Kategória",
+    "unsaved": "Neuložené zmeny: {n}",
+    "cancel_changes": "Zrušiť"
   },
   "plan": {
     "title": "Plán",
@@ -3395,6 +3397,7 @@
     "admin_title": "Právne informácie",
     "admin_intro": "Texty pre vašu stránku Právne informácie – na vlastnej doméne (/pravne-informacie) aj na adrese v Cacaduu. Ukážu sa presne tak, ako ich napíšete.",
     "admin_view": "Zobraziť stránku",
+    "texts_title": "Texty pre zákazníkov",
     "admin_company_hint": "Názov firmy, IČO, DIČ a adresa sa berú z Údajov obchodu.",
     "admin_company_link": "Upraviť údaje obchodu",
     "admin_email": "E-mail pre otázky o osobných údajoch",

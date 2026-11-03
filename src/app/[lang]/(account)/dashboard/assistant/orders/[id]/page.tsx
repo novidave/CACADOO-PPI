@@ -14,6 +14,7 @@ import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, inputClass } from "../../../shared";
 import { orderSms, orderStep } from "../actions";
 import { btn, btnGhost, btnOrange, FoodNotice, hhmm, payText, statusText } from "../parts";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders/[id]">): Promise<Metadata> {
   const { lang } = await params;
@@ -94,10 +95,10 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
       <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />
 
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold">
+        <PageTitle>
           #{o.number}
           {o.name ? ` · ${o.name}` : ""}
-        </h1>
+        </PageTitle>
         <p className="text-sm text-muted">
           {created} {hhmm(o.created_at, tz)} ·{" "}
           {o.kind === "delivery" ? t(f.delivery_by, { time: hhmm(o.ready_by, tz) }) : t(f.pickup_by, { time: hhmm(o.ready_by, tz) })} ·{" "}

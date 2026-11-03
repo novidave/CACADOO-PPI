@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { cleanDomain } from "@/lib/domainName";
 import { PendingButton } from "./PendingButton";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 type Labels = Record<string, string>;
 
@@ -100,7 +101,7 @@ export function DomainWizard({
               spellCheck={false}
               maxLength={300}
               required
-              className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+              className={fieldClass}
             />
           </label>
           {cleaned && cleaned !== typed.trim() && (
@@ -109,7 +110,7 @@ export function DomainWizard({
             </p>
           )}
           {tlds.length > 0 && <p className="text-xs text-muted">{labels.tlds.replace("{list}", tlds.map((t) => `.${t}`).join(", "))}</p>}
-          <button type="submit" disabled={checking} className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:text-muted">
+          <button type="submit" disabled={checking} className={`self-start ${buttonClass}`}>
             {checking ? labels.step2_checking : labels.step2_button}
           </button>
         </form>
@@ -158,7 +159,7 @@ export function DomainWizard({
                       name={f.name}
                       required={f.required}
                       maxLength={f.name === "country" ? 2 : 200}
-                      className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+                      className={fieldClass}
                     />
                   </label>
                 ))}
@@ -178,7 +179,7 @@ export function DomainWizard({
                         name={f.name}
                         defaultValue={f.value ?? ""}
                         maxLength={f.name === "country" ? 2 : 200}
-                        className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+                        className={fieldClass}
                       />
                     </label>
                   ))}

@@ -8,6 +8,7 @@ import { formatDateTime, formatTime } from "@/lib/format";
 import { loadSmsUsage, type SmsUsage as Usage } from "@/lib/smsUsage";
 import { SmsUsage } from "@/components/SmsUsage";
 import { loadCallbacks, type CallbackRow } from "./Callbacks";
+import { cardClass } from "@/components/owner/ui";
 
 interface NextBooking {
   id: string;
@@ -55,7 +56,7 @@ export async function loadOverview(supabase: SupabaseClient, shopId: string, tim
   };
 }
 
-const card = "flex flex-col gap-3 rounded-xl border border-line p-4";
+const card = cardClass; // back-end layout L3 (@/components/owner/ui)
 
 /**
  * Asistent → Prehľad (update 63, the Main screen): who waits for an answer (with "Odpovedať"), today's numbers, the next

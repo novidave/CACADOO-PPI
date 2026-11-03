@@ -7,8 +7,11 @@ import { europeanTimeZones } from "@/lib/timezones";
 import { HoursEditor } from "./HoursEditor";
 import { LocationPicker } from "./LocationPicker";
 import { PendingButton } from "./PendingButton";
+import { SaveBar } from "./owner/SaveBar";
+import { cardClass, fieldClass, Toggle } from "./owner/ui";
 
-const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+// back-end layout L3: the owner pages' field (@/components/owner/ui)
+const inputClass = fieldClass;
 
 /** The shop's details, for a new shop (shop = null) or an existing one. */
 export function ShopForm({
@@ -41,6 +44,9 @@ export function ShopForm({
       <input type="hidden" name="lang" value={lang} />
       <input type="hidden" name="shop_id" value={shop?.id ?? ""} />
       <input type="hidden" name="shop_slug" value={shop?.slug ?? ""} />
+      {/* artboard 9: the details on the left, the hours and the switches on the right (one column on a phone) */}
+      <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
+      <div className="flex min-w-0 flex-col gap-3" data-shop-form-details>
       <Field label={o.shop_name}>
         <input name="name" required maxLength={200} defaultValue={shop?.name ?? ""} className={inputClass} />
       </Field>
@@ -156,7 +162,7 @@ export function ShopForm({
       <p className="text-xs text-muted">{dict.contact_buttons.width_hint}</p>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="mb-1 text-sm">{o.location}</legend>
+        <legend className="mb-1 text-sm font-semibold">{o.location}</legend>
         <LocationPicker
           initial={{ lat: shop?.lat ?? null, lng: shop?.lng ?? null }}
           labels={{ lat: o.lat, lng: o.lng, hint: o.map_hint, map: o.location }}
@@ -167,9 +173,11 @@ export function ShopForm({
           {width("navigate")}
         </div>
       </fieldset>
+      </div>
 
-      <div className="flex flex-col gap-1">
-        <span className="text-sm">{dict.dashboard.hours}</span>
+      <div className="flex min-w-0 flex-col gap-3" data-shop-form-hours>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm font-semibold">{dict.dashboard.hours}</span>
         <HoursEditor
           name="opening_hours"
           initial={shop?.opening_hours ?? null}
@@ -189,36 +197,33 @@ export function ShopForm({
         />
       </div>
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-sm">{dict.dashboard.amenities_title}</legend>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="has_toilet" defaultChecked={shop?.has_toilet ?? false} />
-          {dict.shop.toilet}
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="has_douchette" defaultChecked={shop?.has_douchette ?? false} />
-          {dict.shop.douchette}
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="has_card_terminal" defaultChecked={shop?.has_card_terminal ?? false} />
-          {dict.shop.card_terminal}
-        </label>
+      {/* Vybavenie and "Viditeľný pre zákazníkov" (artboard 9): switches, 56 px rows */}
+      <fieldset className={`${cardClass} gap-0 py-2`}>
+        <legend className="sr-only">{dict.dashboard.amenities_title}</legend>
+        <span aria-hidden="true" className="pt-2 text-sm font-semibold">{dict.dashboard.amenities_title}</span>
+        <Toggle name="has_card_terminal" label={dict.shop.card_terminal} defaultChecked={shop?.has_card_terminal ?? false} />
+        <Toggle name="has_toilet" label={dict.shop.toilet} defaultChecked={shop?.has_toilet ?? false} />
+        <Toggle name="has_douchette" label={dict.shop.douchette} defaultChecked={shop?.has_douchette ?? false} />
+        <Toggle name="is_active" label={o.active} defaultChecked={shop?.is_active ?? true} />
       </fieldset>
-      <label className="flex items-center gap-2 font-medium">
-        <input type="checkbox" name="is_active" defaultChecked={shop?.is_active ?? true} />
-        {o.active}
-      </label>
-      <PendingButton pending={o.saving}>{submitLabel}</PendingButton>
+      </div>
+      </div>
+      {/* an existing shop: the save bar sticks to the bottom (Neuložené zmeny · Zrušiť · Uložiť); a new one: one button */}
+      {shop ? (
+        <SaveBar labels={{ unsaved: o.unsaved, cancel: o.cancel_changes, save: submitLabel, saving: o.saving }} />
+      ) : (
+        <PendingButton pending={o.saving}>{submitLabel}</PendingButton>
+      )}
     </form>
   );
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1">
-      <span className="text-sm">{label}</span>
+    <label className="flex min-w-0 flex-col gap-1.5">
+      <span className="text-sm font-semibold">{label}</span>
       {children}
-      {hint && <span className="text-xs text-muted">{hint}</span>}
+      {hint && <span className="text-[13px] text-[#5C5C5C]">{hint}</span>}
     </label>
   );
 }
@@ -234,16 +239,16 @@ function WidthToggle({
   labels: { width_label: string; width_short: string; width_long: string };
 }) {
   return (
-    <fieldset className="flex items-center gap-2 text-sm" data-width-toggle={name}>
+    <fieldset className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-width-toggle={name}>
       <legend className="sr-only">{labels.width_label}</legend>
-      <span aria-hidden="true" className="text-muted">
+      <span aria-hidden="true" className="whitespace-nowrap text-muted">
         {labels.width_label}:
       </span>
-      <span className="inline-flex overflow-hidden rounded border border-line">
+      <span className="inline-flex flex-none overflow-hidden rounded-xl border border-[#D6D6D6]">
         {(["short", "long"] as const).map((w) => (
           <label key={w} className="cursor-pointer">
             <input type="radio" name={name} value={w} defaultChecked={value === w} className="peer sr-only" />
-            <span className="block px-3 py-1 peer-checked:bg-foreground peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2">
+            <span className="flex min-h-11 items-center px-3.5 font-semibold peer-checked:bg-[#111] peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2">
               {w === "short" ? labels.width_short : labels.width_long}
             </span>
           </label>

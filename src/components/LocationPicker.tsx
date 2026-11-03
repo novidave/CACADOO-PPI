@@ -3,6 +3,7 @@
 import { MAP_STYLE } from "@/lib/mapStyle";
 import { useEffect, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { fieldClass } from "@/components/owner/ui";
 
 /**
  * Latitude/longitude inputs plus a map: click the map to move the pin.
@@ -82,7 +83,7 @@ export function LocationPicker({
             inputMode="decimal"
             value={lat}
             onChange={(e) => setLat(e.target.value)}
-            className="w-40 rounded border border-line px-3 py-2 tabular-nums"
+            className={`max-w-40 ${fieldClass} tabular-nums`}
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -92,7 +93,7 @@ export function LocationPicker({
             inputMode="decimal"
             value={lng}
             onChange={(e) => setLng(e.target.value)}
-            className="w-40 rounded border border-line px-3 py-2 tabular-nums"
+            className={`max-w-40 ${fieldClass} tabular-nums`}
           />
         </label>
       </div>

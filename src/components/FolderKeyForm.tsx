@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import type { KeyState } from "@/app/[lang]/(account)/dashboard/docActions";
 import type { FolderOption } from "./DocUpload";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 type Labels = Dictionary["docs"];
 
@@ -24,7 +25,7 @@ export function FolderKeyForm({
   const [state, formAction, pending] = useActionState(action, {});
   const [copied, setCopied] = useState<string | null>(null);
   const errors = labels as Record<string, string>;
-  const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const inputClass = fieldClass;
 
   return (
     <div className="flex min-w-0 flex-col gap-3 border border-line p-3">
@@ -70,7 +71,7 @@ export function FolderKeyForm({
           <input type="date" name="expires" className={`${inputClass} w-48`} />
         </label>
         {state.error && <p className="border border-line p-3 text-sm">{errors[`error_${state.error}`] ?? state.error}</p>}
-        <button type="submit" disabled={pending} className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:text-muted">
+        <button type="submit" disabled={pending} className={`self-start ${buttonClass}`}>
           {pending ? labels.saving : labels.key_create}
         </button>
       </form>

@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { previewMessage, sendMessage, type ComposeState } from "@/app/[lang]/(account)/dashboard/contacts/actions";
 import { SMS_MAX, smsParts, TEMPLATE_VARIABLES, variableToken } from "@/lib/crm";
+import { fieldClass } from "@/components/owner/ui";
 
 export interface ComposerTemplate {
   id: string;
@@ -65,7 +66,7 @@ export function MessageComposer({
   const parts = smsParts(body);
   // the templates for the chosen channel (an older template without a channel is an e-mail one)
   const usable = templates.filter((t) => t.channel === "both" || (t.channel ?? "email") === channel);
-  const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const input = fieldClass;
   const button = "min-h-11 rounded border px-4 font-medium disabled:text-muted";
   const hidden = (
     <>

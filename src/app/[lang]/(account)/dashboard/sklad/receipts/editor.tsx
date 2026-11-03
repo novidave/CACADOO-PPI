@@ -28,7 +28,7 @@ export async function ReceiptEditor({ ctx, receipt, sp }: { ctx: Ctx; receipt: R
   const labels = Object.fromEntries(Object.entries(s as Record<string, string>).filter(([k]) => PREFIXES.some((p) => k.startsWith(p)))) as PrijemkaLabels;
   const def = o.locations.find((l) => l.receipt_default)?.id ?? o.locations[0]?.id ?? "";
   return (
-    <SkladShell lang={ctx.lang} s={s} dict={dict} shops={shops} shop={shop} current="receipts" source={res.source}>
+    <SkladShell lang={ctx.lang} s={s} dict={dict} shops={shops} shop={shop} current="receipts" source={res.source} work>
       <Notice s={s} ok={first(sp.ok)} err={first(sp.err)} />
       <SkladPrijemka
         lang={ctx.lang}

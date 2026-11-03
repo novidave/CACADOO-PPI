@@ -6,6 +6,7 @@ import { formatTime } from "@/lib/format";
 import { formatIban, formatQty } from "@/lib/sklad";
 import { PollRefresh } from "@/components/PollRefresh";
 import { btn, btnGhost, Notice } from "./parts";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export interface SaleJson {
   id: string;
@@ -65,7 +66,7 @@ export function SaleQrView({
       </Link>
       <Notice s={s} ok={ok} err={err} />
       <div className="flex flex-col items-center gap-1 text-center">
-        <h1 className="text-[26px] font-bold">{s.qr_title}</h1>
+        <PageTitle>{s.qr_title}</PageTitle>
         <span className="text-muted">{s.qr_amount}</span>
         <strong className="text-[40px] leading-tight">{total}</strong>
       </div>

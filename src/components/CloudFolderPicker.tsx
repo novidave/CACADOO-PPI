@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import type { FolderList } from "@/app/[lang]/(account)/dashboard/cloudActions";
 import { PendingButton } from "@/components/PendingButton";
+import { fieldClass } from "@/components/owner/ui";
 
 export interface CloudFolderLabels {
   folder: string;
@@ -93,7 +94,7 @@ export function CloudFolderPicker({
     });
 
   const inputs = Object.entries(hidden).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />);
-  const input = "min-w-0 flex-1 rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const input = `min-w-0 flex-1 ${fieldClass}`;
 
   return (
     <div className="flex flex-col gap-3" data-cloud-folder>
