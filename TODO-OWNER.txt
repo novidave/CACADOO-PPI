@@ -116,6 +116,15 @@ OPEN
       phone's name.
    d) Back in Zariadenia: "Odpojiť" → on the phone, reload the page: it must say "Telefón nie je pripojený".
 
+23. When you want "Hodiny cez SMS" again: write "deploy hours-sms" to Claude
+   Why: you paused Hodiny cez SMS on 2026-11-03. The website and "bookings" already send Google back through
+   cacaduu.com, but the live "hours-sms" (v11) and "telegram" (v9) are still the older versions. They must go live
+   together: the new Telegram bot sends confirmed opening hours to Google Maps through hours-sms.
+   Steps:
+   a) Write "deploy hours-sms" to Claude. Claude deploys "hours-sms" and sends you the "telegram" file to paste
+      (as in item 20).
+   b) Then item 2 (connect the Google Business Profile) can be done.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
