@@ -336,11 +336,12 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
               </button>
             </form>
           ) : null}
-          {o.status === "new" && o.kind === "delivery" && (
+          {o.status === "new" && o.kind === "delivery" && forward === "preparing" && (
+            // a delivery may also go out at once (food_step_allowed: new → on_the_way)
             <form action={orderStep}>
-              {formHidden({ to: "preparing", step_id: stepId() })}
-              <button type="submit" className={`${btnGhost} w-full`} data-food-step="preparing">
-                {f.to_preparing}
+              {formHidden({ to: "on_the_way", step_id: stepId() })}
+              <button type="submit" className={`${btnGhost} w-full`} data-food-step="on_the_way">
+                {f.to_on_the_way}
               </button>
             </form>
           )}

@@ -4875,6 +4875,8 @@
     "err_too_many_attempts": "Too many wrong tries. Ask for a new code.",
     "err_not_found": "The code is not valid. Ask for a new one.",
     "err_failed": "Something went wrong. Try again.",
+    "err_not_available": "Signing in doesn't work right now. Try later.",
+    "err_no_plan": "The shop's deliveries in Cacaduu are switched off right now. Contact the shop.",
     "err_unavailable": "Signing in doesn't work right now. Try later.",
     "on_shift": "On shift",
     "next": "Next delivery",

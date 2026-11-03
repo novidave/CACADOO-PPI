@@ -4875,6 +4875,8 @@
     "err_too_many_attempts": "Túl sok hibás próbálkozás. Kérjen új kódot.",
     "err_not_found": "A kód érvénytelen. Kérjen újat.",
     "err_failed": "Valami nem sikerült. Próbálja újra.",
+    "err_not_available": "A bejelentkezés most nem működik. Próbálja később.",
+    "err_no_plan": "Az üzletnél most ki vannak kapcsolva a Cacaduu-s kiszállítások. Keresse az üzletet.",
     "err_unavailable": "A bejelentkezés most nem működik. Próbálja később.",
     "on_shift": "Szolgálatban",
     "next": "Következő kiszállítás",

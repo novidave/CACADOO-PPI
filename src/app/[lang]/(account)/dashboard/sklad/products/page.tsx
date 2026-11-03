@@ -128,7 +128,7 @@ export default async function SkladProducts({ params, searchParams }: PageProps<
                   {note && <span className={`text-[13px] font-bold ${p.is_out ? "text-[#B42318]" : "text-[#7A4A00]"}`}>{note}</span>}
                 </span>
                 <span className="flex flex-none flex-col items-end gap-0.5">
-                  <span className="flex items-center gap-1.5 text-base font-bold">
+                  <span className="flex items-center gap-1.5 text-base font-bold" data-sklad-total={p.total}>
                     <span
                       role="img"
                       aria-label={p.total > 0 ? dict.stock.dot_available : dict.stock.dot_sold_out}

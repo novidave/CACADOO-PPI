@@ -1,6 +1,6 @@
 import "server-only";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { readCourierKey as readKey, signCourierKey as signKey } from "@/lib/courierKey";
 import { createPublicClient } from "@/lib/supabase/public";
 
 /**
@@ -12,31 +12,17 @@ import { createPublicClient } from "@/lib/supabase/public";
 
 export const COURIER_COOKIE = "ppi_kur";
 export const COURIER_COOKIE_DAYS = 30;
-const KEY = /^ckr_[0-9a-f]{64}$/;
 
 function secret(): string | null {
   const value = process.env.SESSION_COOKIE_SECRET?.trim();
   return value && value.length >= 32 ? value : null;
 }
 
-const mac = (key: string, s: string) => createHmac("sha256", s).update(`courier:${key}`).digest("base64url");
+/** The cookie's value for a key ("key.signature" while SESSION_COOKIE_SECRET is set; `@/lib/courierKey`). */
+export const signCourierKey = (key: string) => signKey(key, secret());
 
-/** The cookie's value for a key: "key.signature" with the secret, else the key alone. */
-export function signCourierKey(key: string, s = secret()): string {
-  return s ? `${key}.${mac(key, s)}` : key;
-}
-
-/** The key from a cookie's value, or null (wrong form, or a wrong signature while the secret is set). */
-export function readCourierKey(value: string | undefined, s = secret()): string | null {
-  if (!value) return null;
-  const [key, sig] = value.split(".", 2);
-  if (!KEY.test(key ?? "")) return null;
-  if (!s) return key;
-  if (!sig) return null;
-  const want = Buffer.from(mac(key, s));
-  const got = Buffer.from(sig);
-  return want.length === got.length && timingSafeEqual(want, got) ? key : null;
-}
+/** The key from this website's cookie, or null. */
+export const readCourierKey = (value: string | undefined) => readKey(value, secret());
 
 export async function courierKey(): Promise<string | null> {
   return readCourierKey((await cookies()).get(COURIER_COOKIE)?.value);

@@ -2,8 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, type Dictionary } from "@/i18n/dictionaries";
-import { courierWhoami, type CourierOrder, type CourierPay, type CourierWhoami } from "@/lib/courier";
+import { courierWhoami, type CourierPay, type CourierWhoami } from "@/lib/courier";
 import { money } from "@/lib/foodRules";
+
+export { directionsTo, routeUrl } from "@/lib/foodRules";
 import { ghostClass } from "@/components/owner/ui";
 
 /**
@@ -39,25 +41,6 @@ export function itemsText(c: CourierTexts, n: number, lang: string): string {
 
 export function payLabel(c: CourierTexts, method: CourierPay): string {
   return method === "qr" ? c.pay_qr : method === "cash" ? c.pay_cash : c.pay_card;
-}
-
-/** Google Maps directions to one delivery (its point, else its written address). */
-export function directionsTo(o: Pick<CourierOrder, "lat" | "lng" | "address">): string | null {
-  const place = o.lat !== null && o.lng !== null ? `${o.lat},${o.lng}` : o.address;
-  return place ? `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(place)}` : null;
-}
-
-/** "Navigovať celú trasu": the deliveries in order, the last one the destination, the rest waypoints. */
-export function routeUrl(orders: Pick<CourierOrder, "lat" | "lng" | "address">[]): string | null {
-  const places = orders
-    .map((o) => (o.lat !== null && o.lng !== null ? `${o.lat},${o.lng}` : o.address))
-    .filter((p): p is string => Boolean(p));
-  if (places.length === 0) return null;
-  const destination = places[places.length - 1];
-  const waypoints = places.slice(0, -1).slice(0, 9);
-  const params = new URLSearchParams({ api: "1", travelmode: "driving", destination });
-  if (waypoints.length) params.set("waypoints", waypoints.join("|"));
-  return `https://www.google.com/maps/dir/?${params}`;
 }
 
 /** The top of every courier screen: the shop · kuriér, the courier's name, and a way back. */
@@ -116,7 +99,7 @@ export function stepLabels(c: CourierTexts) {
     failed: c.err_failed,
     errors: {
       step: c.err_step, not_paid: c.err_not_paid, pay_method: c.err_pay_method, cash: c.err_cash, reason: c.err_reason,
-      courier: c.err_courier, already_paid: c.err_already_paid, too_many: c.err_too_many,
+      courier: c.err_courier, already_paid: c.err_already_paid, too_many: c.err_too_many, no_plan: c.err_no_plan,
     } as Record<string, string>,
   };
 }

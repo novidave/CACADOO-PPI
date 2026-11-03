@@ -4875,6 +4875,8 @@
     "err_too_many_attempts": "Priveľa nesprávnych pokusov. Pošlite si nový kód.",
     "err_not_found": "Kód nie je platný. Pošlite si nový.",
     "err_failed": "Niečo sa nepodarilo. Skúste znova.",
+    "err_not_available": "Prihlásenie teraz nefunguje. Skúste neskôr.",
+    "err_no_plan": "Obchod má teraz donášky v Cacaduu vypnuté. Ozvite sa obchodu.",
     "err_unavailable": "Prihlásenie teraz nefunguje. Skúste neskôr.",
     "on_shift": "Na zmene",
     "next": "Najbližšia donáška",

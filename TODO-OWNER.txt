@@ -160,6 +160,17 @@ OPEN
       Doručené". The Kuriéri tab then shows the cash; "Vyúčtovať hotovosť" puts it back to 0.
    f) Tell Claude what happened (a screenshot is enough if something fails). "Deaktivovať" signs the phone out.
 
+27. Optional, later: a test copy of Cacaduu where the phone check can place food orders by itself
+   Why: the automatic phone check (e2e/food.spec.ts) orders twice, delivers as owner and as courier and checks that
+   the stock went down once. It needs SMS codes shown on the page instead of sent, and the live site sends real SMS
+   (Brevo), so today it is skipped. Nothing is broken; item 25 and 26 check the same by hand.
+   Steps (only if you want it):
+   a) Tell Claude "make a test copy". Claude explains the cost first (a second Supabase project or a branch) and
+      waits for your OK, then sets it up with SMS_PROVIDER = test and BOOKING_TEST_CODES = on.
+   b) In that copy: one Pro shop with "Sklad v Cacaduu", one product with a price and stock, "Objednávky jedla" on
+      with Donáška, cash and "Odpísať zo skladu", and a zone.
+   c) Claude runs the check there and tells you the result.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
