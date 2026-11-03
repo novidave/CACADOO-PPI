@@ -297,7 +297,7 @@ export function Conversations({
   );
   const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
   const listUrl = (page: number) =>
-    `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: shop.slug, at: "conversations", ...filterQuery(filter, page) })}#conversations`;
+    `/${lang}/dashboard/crm?${new URLSearchParams({ shop: shop.slug, at: "conversations", ...filterQuery(filter, page) })}#conversations`;
   // The forms come back to the same list (filters and page kept).
   const back = new URLSearchParams(filterQuery(filter)).toString();
   const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
@@ -328,7 +328,7 @@ export function Conversations({
       )}
 
       {data.all > 0 && (
-        <form method="get" action={`/${lang}/dashboard/assistant#conversations`} className="flex flex-col gap-3" role="search" data-conversation-filter>
+        <form method="get" action={`/${lang}/dashboard/crm#conversations`} className="flex flex-col gap-3" role="search" data-conversation-filter>
           <input type="hidden" name="shop" value={shop.slug} />
           <input type="hidden" name="at" value="conversations" />
           <div className="flex flex-wrap items-end gap-2">
@@ -389,7 +389,7 @@ export function Conversations({
               {c.filter}
             </button>
             {filtered && (
-              <Link href={`/${lang}/dashboard/assistant?shop=${shop.slug}&at=conversations#conversations`} className="py-2 text-sm underline underline-offset-4">
+              <Link href={`/${lang}/dashboard/crm?shop=${shop.slug}&at=conversations#conversations`} className="py-2 text-sm underline underline-offset-4">
                 {c.reset}
               </Link>
             )}

@@ -8,7 +8,7 @@ import { foodTab, type FoodOrder, type FoodOrders } from "@/lib/foodOwner";
 import { money } from "@/lib/foodRules";
 import { DbError } from "@/components/DbError";
 import { FoodOrdersLive } from "@/components/FoodOrdersLive";
-import { AssistantTabs, waitingCount } from "../../AssistantTabs";
+import { itemTabs, PageHead } from "@/components/owner/PageHead";
 import { chooseShop } from "../../contacts/parts";
 import { hiddenFields, ProOnly, ShopSwitcher } from "../../shared";
 import { FoodNotice, OrderCard, StateStrip } from "./parts";
@@ -44,11 +44,10 @@ export default async function OrdersPage({ params, searchParams }: PageProps<"/[
   if (!shop) redirect(`/${lang}/dashboard`);
   const filter: Filter = (FILTERS as readonly string[]).includes(first(sp.f) ?? "") ? (first(sp.f) as Filter) : "new";
 
-  const [plan, openRes, doneRes, waiting, tab] = await Promise.all([
+  const [plan, openRes, doneRes, tab] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.rpc("owner_food_orders", { p_shop_id: shop.id, p_filter: "open", p_limit: 200 }),
     supabase.rpc("owner_food_orders", { p_shop_id: shop.id, p_filter: "done", p_limit: 100 }),
-    waitingCount(supabase, shop.id),
     foodTab(supabase, shop.id),
   ]);
   if (openRes.error) return <DbError message={openRes.error.message} dict={dict} />;
@@ -78,11 +77,19 @@ export default async function OrdersPage({ params, searchParams }: PageProps<"/[
 
   return (
     <div className="flex max-w-6xl flex-col gap-5">
-      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current="orders" waiting={waiting} food={tab}>
+      <PageHead
+        title={dict.nav.food}
+        item="food"
+        tabs={itemTabs(dict, lang, "food", shop.slug, { orders: tab?.new ?? 0 }).map((x) =>
+          x.key === "orders" && (tab?.new ?? 0) > 0 ? { ...x, badgeLabel: t(f.tab_badge, { n: tab!.new }) } : x,
+        )}
+        current="orders"
+        tabsLabel={dict.nav.tabs_label}
+      >
         <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/assistant/orders?shop=${slug}`} />
         {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
         {!hasPlan && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
-      </AssistantTabs>
+      </PageHead>
 
       <section className="flex flex-col gap-4" data-tab-panel="orders">
         <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />

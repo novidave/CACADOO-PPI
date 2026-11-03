@@ -79,9 +79,10 @@ export function SkladShell({
   const tabs: { key: SkladTab; href: string; label: string }[] = [
     { key: "overview", href: `${base}${q}`, label: s.tab_overview },
     { key: "sale", href: `${base}/sale${q}`, label: s.tab_sale },
+    // back-end layout L2: Prehľad · Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia (ITEM_TABS.sklad)
+    { key: "products", href: `${base}/products${q}`, label: s.tab_products },
     { key: "receipts", href: `${base}/receipts${q}`, label: s.tab_receipts },
     { key: "counts", href: `${base}/counts${q}`, label: s.tab_counts },
-    { key: "products", href: `${base}/products${q}`, label: s.tab_products },
     { key: "movements", href: `${base}/movements${q}`, label: s.tab_movements },
     { key: "settings", href: `${base}/settings${q}`, label: s.tab_settings },
   ];

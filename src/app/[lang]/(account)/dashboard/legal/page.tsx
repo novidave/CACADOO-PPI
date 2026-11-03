@@ -8,7 +8,8 @@ import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { hiddenFields, inputClass, ShopSwitcher } from "../shared";
-import { saveLegalPage } from "./actions";
+import { OWNER_FIELDS } from "@/lib/domains";
+import { saveCompany, saveLegalPage, saveOperator } from "./actions";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/legal">): Promise<Metadata> {
   const { lang } = await params;
@@ -50,6 +51,10 @@ export default async function LegalAdminPage({ params, searchParams }: PageProps
     .eq("shop_id", shop.id)
     .maybeSingle<LegalRow>();
   const row = error ? null : data;
+  // the details a domain is registered with (update 25; owners only)
+  const operatorRes = await supabase.rpc("domain_owner_details", { p_shop_id: shop.id });
+  const operator = (operatorRes.error ? null : operatorRes.data) as Record<string, string | null> | null;
+  const domainTexts = dict.domains as Record<string, unknown>;
   const hidden = hiddenFields(lang, shop);
   const texts = l as Record<string, string>;
   const ok = first(sp.ok);
@@ -74,17 +79,57 @@ export default async function LegalAdminPage({ params, searchParams }: PageProps
           {l.admin_view}
         </Link>
       </header>
-      {ok && <p role="status" className="border border-foreground p-3 font-medium">{l.saved}</p>}
+      {ok && (
+        <p role="status" className="border border-foreground p-3 font-medium">
+          {ok === "company" ? l.company_saved : ok === "operator" ? l.operator_saved : l.saved}
+        </p>
+      )}
       {err && <p role="alert" className="border border-line p-3">{texts[err] ?? l.err_failed}</p>}
       {error && <p className="border border-line p-3 text-sm">{l.unavailable}</p>}
 
-      <section className="flex flex-col gap-1 rounded-xl border border-line p-4 text-sm" data-legal-company>
-        <h2 className="text-[17px] font-bold">{l.operator_title}</h2>
-        <p className="text-muted">{l.admin_company_hint}</p>
-        <Link href={`/${lang}/dashboard?${new URLSearchParams({ shop: shop.slug })}`} className="flex min-h-11 items-center self-start underline underline-offset-4">
-          {l.admin_company_link}
-        </Link>
+      {/* Firma (back-end layout L2: moved here from Údaje obchodu) */}
+      <section id="company" className="flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4" data-legal-company>
+        <h2 className="text-[17px] font-bold">{l.company_form_title}</h2>
+        <p className="text-sm text-muted">{l.company_form_hint}</p>
+        <form action={saveCompany} className="flex flex-col gap-3">
+          {hidden()}
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-semibold">{dict.owner.company_name}</span>
+            <input name="company_name" maxLength={200} autoComplete="organization" defaultValue={shop.company_name ?? ""} className={inputClass} />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-semibold">{dict.owner.ico}</span>
+              <input name="ico" maxLength={40} defaultValue={shop.ico ?? ""} className={inputClass} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-sm font-semibold">{dict.owner.dic}</span>
+              <input name="dic" maxLength={20} defaultValue={shop.dic ?? ""} className={inputClass} />
+            </label>
+          </div>
+          <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
+        </form>
       </section>
+
+      {/* Údaje pre vlastnú doménu (shop_legal, update 25; the domain wizard asks for the missing ones too) */}
+      {operator && (
+        <section id="operator" className="flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4" data-legal-operator>
+          <h2 className="text-[17px] font-bold">{l.domain_owner_title}</h2>
+          <p className="text-sm text-muted">{l.domain_owner_hint}</p>
+          <form action={saveOperator} className="grid gap-3 sm:grid-cols-2">
+            {hidden()}
+            {OWNER_FIELDS.map((name) => (
+              <label key={name} className={`flex flex-col gap-1 ${name === "company_name" || name === "street" ? "sm:col-span-2" : ""}`}>
+                <span className="text-sm font-semibold">{domainTexts[`field_${name}`] as string}</span>
+                <input name={name} maxLength={name === "country" ? 2 : 200} defaultValue={operator[name] ?? ""} className={inputClass} />
+              </label>
+            ))}
+            <div className="sm:col-span-2">
+              <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
+            </div>
+          </form>
+        </section>
+      )}
 
       <form action={saveLegalPage} className="flex flex-col gap-4" data-legal-form>
         {hidden()}

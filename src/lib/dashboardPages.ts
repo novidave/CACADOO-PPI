@@ -1,34 +1,104 @@
 /**
- * Môj obchod's pages: "Môj obchod" (details, logo, plan, delete), "Obsah stránky" (the shop page's slider and its
- * library of files, database update 38), "Asistent" (update 63: Prehľad, the conversations with their cloud folder,
- * Nastavenia; Kontakty, Rezervácie and Šablóny are tabs on their own pages; the private folders on
- * /dashboard/assistant/folders), "Jazyky a inventár" (update 40: "Tovar" with the products' translations, update 62: "Texty stránky") and "Priečinok s exportom" (the
- * stock folder, update 45's review after an upload with the languages and the columns, the translations folder, the
- * last stock files and, update 43, the danger zone of the stock). A form
- * sends the owner back to the page and section ("at") it came from; a section that moved keeps working under its
- * old name (old links, e-mails, the cloud sign-in coming back with ?at=cloud).
+ * Môj obchod's pages and their sections (back-end layout L2, 2026-11-03): "Môj obchod" (details, logo, plan, delete),
+ * "Obsah stránky" (the slider and its library, update 38), "CRM" (/dashboard/crm: Prehľad and the conversations with
+ * their cloud folder; Kontakty and Šablóny on /dashboard/contacts), "Rezervácie" (/dashboard/bookings: Kalendár, Služby,
+ * Zdroje, Pravidlá, Blokované časy, Nastavenia — the booking parts of update 63's Asistent → Nastavenia), "AI asistent"
+ * (/dashboard/assistant: Nastavenia; Dokumenty on /dashboard/assistant/documents; Súkromné priečinky on
+ * /dashboard/assistant/folders), "Jazyky a inventár" (update 40: "Tovar" with the products' translations, update 62:
+ * "Texty stránky") and "Priečinok s exportom" (the stock folder, update 45's review after an upload with the languages
+ * and the columns, the translations folder, the last stock files and, update 43, the danger zone of the stock). A form
+ * sends the owner back to the page and section ("at") it came from; a section that moved keeps working under its old
+ * name (old links, e-mails, the cloud sign-in coming back with ?at=cloud).
  */
-export const ASSISTANT_SECTIONS = ["overview", "conversations", "cloud", "settings"];
-/** Update 63: "Súkromné priečinky" have their own page under Asistent (/dashboard/assistant/folders). */
-export const FOLDER_SECTIONS = ["docs"];
+export const ASSISTANT_SECTIONS = ["settings"];
+/** CRM (/dashboard/crm): Prehľad and the conversations with the cloud folder they are copied to. */
+export const CRM_SECTIONS = ["overview", "conversations", "cloud"];
+/** AI asistent → Dokumenty (/dashboard/assistant/documents): the documents and pictures the assistant answers from. */
+export const DOC_SECTIONS = ["docs"];
+/** AI asistent → Súkromné priečinky (/dashboard/assistant/folders): the folders and their access keys. */
+export const FOLDER_SECTIONS = ["folders"];
 
 /**
- * Update 63: the Asistent tabs as on the approved screens — Prehľad · Konverzácie · Kontakty · Rezervácie · Šablóny ·
- * Nastavenia. Kontakty and Rezervácie keep their own pages (and their addresses); the row is the same on all of them.
- * Update 74: "Objednávky" (/dashboard/assistant/orders) after Prehľad, shown only while food ordering is on.
+ * The tabs of a menu item, in their order (the back-end layout): plain links under the page's heading. Sklad: Prehľad ·
+ * Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia; Objednávky jedla: Objednávky · Menu · Nastavenia
+ * ("Kuriéri" comes with the courier app); Rezervácie: Kalendár · Služby · Zdroje · Pravidlá · Blokované časy · Nastavenia;
+ * CRM: Prehľad · Konverzácie · Kontakty · Šablóny; AI asistent: Nastavenia · Dokumenty · Súkromné priečinky.
+ */
+export interface ItemTab {
+  key: string;
+  path: string;
+  query?: Record<string, string>;
+}
+export const ITEM_TABS = {
+  sklad: [
+    { key: "overview", path: "/dashboard/sklad" },
+    { key: "sale", path: "/dashboard/sklad/sale" },
+    { key: "products", path: "/dashboard/sklad/products" },
+    { key: "receipts", path: "/dashboard/sklad/receipts" },
+    { key: "counts", path: "/dashboard/sklad/counts" },
+    { key: "movements", path: "/dashboard/sklad/movements" },
+    { key: "settings", path: "/dashboard/sklad/settings" },
+  ],
+  food: [
+    { key: "orders", path: "/dashboard/assistant/orders" },
+    { key: "menu", path: "/dashboard/assistant/orders/settings", query: { view: "menu" } },
+    { key: "settings", path: "/dashboard/assistant/orders/settings" },
+  ],
+  bookings: [
+    { key: "calendar", path: "/dashboard/bookings" },
+    { key: "services", path: "/dashboard/bookings", query: { tab: "services" } },
+    { key: "resources", path: "/dashboard/bookings", query: { tab: "resources" } },
+    { key: "rules", path: "/dashboard/bookings", query: { tab: "rules" } },
+    { key: "blocks", path: "/dashboard/bookings", query: { tab: "blocks" } },
+    { key: "settings", path: "/dashboard/bookings", query: { tab: "settings" } },
+  ],
+  crm: [
+    { key: "overview", path: "/dashboard/crm" },
+    { key: "conversations", path: "/dashboard/crm", query: { at: "conversations" } },
+    { key: "contacts", path: "/dashboard/contacts" },
+    { key: "templates", path: "/dashboard/contacts", query: { view: "templates" } },
+  ],
+  assistant: [
+    { key: "settings", path: "/dashboard/assistant" },
+    { key: "documents", path: "/dashboard/assistant/documents" },
+    { key: "folders", path: "/dashboard/assistant/folders" },
+  ],
+} satisfies Record<string, ItemTab[]>;
+export type TabbedItem = keyof typeof ITEM_TABS;
+
+/** A tab's link with the open shop: "/sk/dashboard/bookings?shop=davide&tab=rules". */
+export function tabHref(lang: string, item: TabbedItem, key: string, shop: string, extra: Record<string, string> = {}): string {
+  const tab: ItemTab = ITEM_TABS[item].find((x) => x.key === key) ?? ITEM_TABS[item][0];
+  return `/${lang}${tab.path}?${new URLSearchParams({ shop, ...(tab.query ?? {}), ...extra })}`;
+}
+
+/** Rezervácie's tabs that hold update 63's booking settings, by the old Nastavenia part's name. */
+export const BOOKING_TAB_OF_PART: Record<string, string> = {
+  services: "services",
+  resources: "resources",
+  rules: "rules",
+  blocks: "blocks",
+  calendar: "settings",
+  messages: "settings",
+};
+
+/** Where a booking settings form goes back to: its Rezervácie tab with the message and the part's anchor. */
+export function bookingPartUrl(lang: string, part: string, query: Record<string, string>): string {
+  const tab = BOOKING_TAB_OF_PART[part] ?? "settings";
+  return `/${lang}/dashboard/bookings?${new URLSearchParams({ ...query, tab, part })}#${part}`;
+}
+
+/**
+ * The old Asistent tabs (update 63) by name, now on their menu items' pages: "/sk/dashboard/contacts?shop=davide&view=templates".
+ * Kept for the links that name a tab (Prehľad's numbers, old forms).
  */
 export const ASSISTANT_TABS = ["overview", "orders", "conversations", "contacts", "bookings", "templates", "settings"] as const;
 export type AssistantTab = (typeof ASSISTANT_TABS)[number];
-
-/** Where a tab lives: "/sk/dashboard/contacts?shop=davide&view=templates". */
 export function assistantTabUrl(lang: string, tab: AssistantTab, shop: string, extra: Record<string, string> = {}): string {
-  const q = (more: Record<string, string>) => `?${new URLSearchParams({ shop, ...more, ...extra })}`;
-  if (tab === "contacts") return `/${lang}/dashboard/contacts${q({})}`;
-  if (tab === "templates") return `/${lang}/dashboard/contacts${q({ view: "templates" })}`;
-  if (tab === "bookings") return `/${lang}/dashboard/bookings${q({})}`;
-  if (tab === "orders") return `/${lang}/dashboard/assistant/orders${q({})}`;
-  if (tab === "overview") return `/${lang}/dashboard/assistant${q({})}`;
-  return `/${lang}/dashboard/assistant${q({ at: tab })}`;
+  if (tab === "overview" || tab === "conversations" || tab === "contacts" || tab === "templates") return tabHref(lang, "crm", tab, shop, extra);
+  if (tab === "bookings") return tabHref(lang, "bookings", "calendar", shop, extra);
+  if (tab === "orders") return tabHref(lang, "food", "orders", shop, extra);
+  return tabHref(lang, "assistant", "settings", shop, extra);
 }
 /**
  * "Priečinok s exportom": the stock folder, "Po nahratí súboru" (update 45: the review card, the languages and the
@@ -46,7 +116,8 @@ export const TRANSLATION_SECTIONS = ["items", "texts"];
 
 /** Old names of sections that were merged into another one (the anchor and the open dropdown follow). */
 const MERGED: Record<string, string> = {
-  private: "docs",
+  // back-end layout L2: "Súkromné priečinky" are their own tab of AI asistent
+  private: "folders",
   // update 63: the assistant's own settings are one tab "Nastavenia" with the reminders and the bookings' setup
   assistant: "settings",
   sections: "content",
@@ -64,6 +135,8 @@ export function sectionId(at: string): string {
 export function sectionPath(lang: string, name: string): string {
   const at = sectionId(name);
   if (ASSISTANT_SECTIONS.includes(at)) return `/${lang}/dashboard/assistant`;
+  if (CRM_SECTIONS.includes(at)) return `/${lang}/dashboard/crm`;
+  if (DOC_SECTIONS.includes(at)) return `/${lang}/dashboard/assistant/documents`;
   if (FOLDER_SECTIONS.includes(at)) return `/${lang}/dashboard/assistant/folders`;
   if (EXPORT_SECTIONS.includes(at)) return `/${lang}/sync`;
   if (CONTENT_SECTIONS.includes(at)) return `/${lang}/dashboard/content`;
@@ -78,10 +151,12 @@ export function sectionUrl(lang: string, at: string, query: Record<string, strin
   return `${sectionPath(lang, at)}?${params}${id ? `#${id}` : ""}`;
 }
 
-const PAGE_SECTIONS: Record<"dashboard" | "sync" | "assistant" | "folders" | "content" | "translations", string[]> = {
+const PAGE_SECTIONS: Record<"dashboard" | "sync" | "assistant" | "crm" | "documents" | "folders" | "content" | "translations", string[]> = {
   dashboard: [],
   sync: EXPORT_SECTIONS,
   assistant: ASSISTANT_SECTIONS,
+  crm: CRM_SECTIONS,
+  documents: DOC_SECTIONS,
   folders: FOLDER_SECTIONS,
   content: CONTENT_SECTIONS,
   translations: TRANSLATION_SECTIONS,
@@ -91,7 +166,7 @@ const PAGE_SECTIONS: Record<"dashboard" | "sync" | "assistant" | "folders" | "co
 export function movedFrom(page: keyof typeof PAGE_SECTIONS, at: string): boolean {
   if (!at) return false;
   if (MERGED[at]) return true;
-  return [...ASSISTANT_SECTIONS, ...FOLDER_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS, ...TRANSLATION_SECTIONS].includes(at) &&
+  return [...ASSISTANT_SECTIONS, ...CRM_SECTIONS, ...DOC_SECTIONS, ...FOLDER_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS, ...TRANSLATION_SECTIONS].includes(at) &&
     !PAGE_SECTIONS[page].includes(at);
 }
 
@@ -152,9 +227,6 @@ export interface MenuItem {
   badge?: "food" | "crm";
 }
 
-/** The Asistent page's own sections that belong to CRM (its Prehľad and the conversations with their cloud folder). */
-const CRM_AT = ["", "overview", "conversations", "cloud"];
-
 export const OWNER_MENU: MenuItem[] = [
   { key: "sklad", group: "main", path: "/dashboard/sklad", owns: [{ path: "/dashboard/sklad" }], shop: true },
   { key: "food", group: "main", path: "/dashboard/assistant/orders", owns: [{ path: "/dashboard/assistant/orders" }], shop: true, badge: "food" },
@@ -162,22 +234,15 @@ export const OWNER_MENU: MenuItem[] = [
   {
     key: "crm",
     group: "main",
-    path: "/dashboard/assistant",
-    owns: [{ path: "/dashboard/contacts" }, { path: "/dashboard/conversations" }, { path: "/dashboard/assistant", exact: true, at: CRM_AT }],
+    path: "/dashboard/crm",
+    owns: [{ path: "/dashboard/crm" }, { path: "/dashboard/contacts" }, { path: "/dashboard/conversations" }],
     shop: true,
     badge: "crm",
   },
   { key: "shop", group: "page", path: "/dashboard", owns: [{ path: "/dashboard", exact: true }], shop: true },
   { key: "content", group: "page", path: "/dashboard/content", owns: [{ path: "/dashboard/content" }, { path: "/dashboard/sections" }], shop: true },
   { key: "blog", group: "page", path: "/dashboard/blog", owns: [{ path: "/dashboard/blog" }], shop: true },
-  {
-    key: "assistant",
-    group: "page",
-    path: "/dashboard/assistant",
-    query: { at: "settings" },
-    owns: [{ path: "/dashboard/assistant/folders" }, { path: "/dashboard/assistant", exact: true }],
-    shop: true,
-  },
+  { key: "assistant", group: "page", path: "/dashboard/assistant", owns: [{ path: "/dashboard/assistant" }], shop: true },
   { key: "translations", group: "page", path: "/dashboard/translations", owns: [{ path: "/dashboard/translations" }, { path: "/dashboard/items" }], shop: true },
   { key: "export", group: "account", path: "/sync", owns: [{ path: "/sync" }], shop: true },
   { key: "plan", group: "account", path: "/dashboard/plan", owns: [{ path: "/dashboard/plan" }], shop: true },

@@ -120,20 +120,24 @@ test("contact buttons: short / long saved in Môj obchod shows on the shop page 
   c.check();
 });
 
-test("Asistent tabs and Konverzácie (update 55): filters, bulk actions, CSV export, old addresses", async ({ page }) => {
-  await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=conversations`);
-  // Three tabs as plain links; the open one is marked.
-  await expect(page.locator("[data-assistant-tabs] [data-tab]")).toHaveCount(3);
+test("CRM tabs and Konverzácie (update 55, back-end layout L2): filters, bulk actions, CSV export, old addresses", async ({ page }) => {
+  await page.goto(`/sk/dashboard/crm?shop=${SHOP}&at=conversations`);
+  // CRM's four tabs as plain links; the open one is marked.
+  await expect(page.locator('[data-item-tabs="crm"] [data-tab]')).toHaveCount(4);
   await expect(page.locator('[data-tab="conversations"]')).toHaveAttribute("aria-current", "page");
   await expect(page.locator('[data-tab-panel="conversations"]')).toBeVisible();
-  // An old address still lands on its tab.
+  // Old Asistent addresses land on their new tabs.
   await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=cloud`);
+  await expect(page).toHaveURL(/\/dashboard\/crm\?.*at=cloud/);
   await expect(page.locator('[data-tab="conversations"]')).toHaveAttribute("aria-current", "page");
   await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=private`);
-  await expect(page).toHaveURL(/at=docs/);
-  await expect(page.locator('[data-tab="docs"]')).toHaveAttribute("aria-current", "page");
+  await expect(page).toHaveURL(/\/dashboard\/assistant\/folders\?.*at=folders/);
+  await expect(page.locator('[data-item-tabs="assistant"] [data-tab="folders"]')).toHaveAttribute("aria-current", "page");
+  await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=settings&part=rules`);
+  await expect(page).toHaveURL(/\/dashboard\/bookings\?.*tab=rules/);
+  await expect(page.locator('[data-item-tabs="bookings"] [data-tab="rules"]')).toHaveAttribute("aria-current", "page");
 
-  await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=conversations`);
+  await page.goto(`/sk/dashboard/crm?shop=${SHOP}&at=conversations`);
   test.skip((await page.locator("[data-filter-status]").count()) === 0, "database update 55 is not applied or the shop has no conversations");
   // "Neobmedzene" is offered and the filters keep their values in the address.
   await expect(page.locator('[data-retention] option[value=""]')).toHaveText(sk.conversations.retention_unlimited);
@@ -176,10 +180,10 @@ test("Kontakty (update 56): a contact with the phone in E.164, tabs, SMS preview
   await expect(page.locator('input[name="tags"]')).toHaveValue("e2e");
   // the four tabs
   await expect(page.locator("[data-contact-detail-tabs] [data-tab]")).toHaveCount(4);
-  await page.locator('[data-tab="bookings"]').click();
+  await page.locator('[data-contact-detail-tabs] [data-tab="bookings"]').click();
   await expect(page.getByText(sk.contacts.bookings_none)).toBeVisible();
   // a preview fills the variables and writes nothing
-  await page.locator('[data-tab="messages"]').click();
+  await page.locator('[data-contact-detail-tabs] [data-tab="messages"]').click();
   await page.fill("[data-compose-body]", "Ahoj {{first_name}}, {{shop}}");
   await page.click("[data-preview]");
   await expect(page.locator("[data-preview-body]")).toContainText("Ahoj E2E,");
@@ -187,7 +191,7 @@ test("Kontakty (update 56): a contact with the phone in E.164, tabs, SMS preview
   await page.locator('[data-composer="preview"] button[value="edit"]').click();
   await expect(page.locator("[data-compose-body]")).toHaveValue("Ahoj {{first_name}}, {{shop}}");
   // delete it again
-  await page.locator('[data-tab="overview"]').click();
+  await page.locator('[data-contact-detail-tabs] [data-tab="overview"]').click();
   await page.check('form:has(button:text("Vymazať")) input[name="confirm"]');
   await page.getByRole("button", { name: sk.contacts.delete_button }).click();
   await expect(page.getByText(sk.contacts.ok_deleted)).toBeVisible();

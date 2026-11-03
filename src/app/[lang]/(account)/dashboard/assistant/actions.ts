@@ -4,10 +4,11 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { localInstant } from "@/lib/bookingTools";
+import { BOOKING_TAB_OF_PART, bookingPartUrl } from "@/lib/dashboardPages";
 import { siteUrl } from "@/lib/site";
 
 /**
- * Update 63, Asistent → Nastavenia: the automatic messages (crm_settings), the bookings' rules, services, resources and
+ * Update 63 (since the back-end layout L2 on Rezervácie's tabs): the automatic messages (crm_settings), the bookings' rules, services, resources and
  * blocked times, and the calendar link for a phone. Every rule and every refusal is in SQL (owner_* functions:
  * membership, the plan, the limits); here only the form's fields are read and the owner is sent back with a message.
  */
@@ -29,8 +30,13 @@ async function start(formData: FormData) {
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
   const part = String(formData.get("part") ?? "").replace(/[^a-z-]/g, "");
+  // back-end layout L2: the bookings' setup lives on its Rezervácie tab, the rest on AI asistent → Nastavenia
   const back = (query: Record<string, string>): never =>
-    redirect(`/${lang}/dashboard/assistant?${new URLSearchParams({ shop: slug, at: "settings", ...(part ? { part } : {}), ...query })}${part ? `#${part}` : ""}`);
+    redirect(
+      BOOKING_TAB_OF_PART[part]
+        ? bookingPartUrl(lang, part, { shop: slug, ...query })
+        : `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: slug, at: "settings", ...(part ? { part } : {}), ...query })}${part ? `#${part}` : ""}`,
+    );
   if (!UUID.test(shopId)) back({ err: "err_failed" });
   return { lang, session, shopId, slug, back };
 }

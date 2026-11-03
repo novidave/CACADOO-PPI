@@ -21,7 +21,7 @@ const REASONS = [
 ] as const;
 const reason = (message: string | undefined) => (REASONS.find((r) => r === message) ? `err_${message}` : "err_failed");
 
-type Back = "list" | "detail" | "settings";
+type Back = "list" | "detail" | "settings" | "menu";
 
 async function start(formData: FormData) {
   const langValue = String(formData.get("lang") ?? "");
@@ -32,16 +32,17 @@ async function start(formData: FormData) {
   const slug = String(formData.get("shop_slug") ?? "");
   const order = String(formData.get("order_id") ?? "");
   const backValue = String(formData.get("back") ?? "list");
-  const back: Back = backValue === "detail" || backValue === "settings" ? backValue : "list";
+  const back: Back = backValue === "detail" || backValue === "settings" || backValue === "menu" ? backValue : "list";
   const filter = String(formData.get("f") ?? "");
   const page = (query: Record<string, string>, anchor = ""): never => {
     const base =
       back === "detail" && UUID.test(order)
         ? `/${lang}/dashboard/assistant/orders/${order}`
-        : back === "settings"
+        : back === "settings" || back === "menu"
           ? `/${lang}/dashboard/assistant/orders/settings`
           : `/${lang}/dashboard/assistant/orders`;
-    const q = new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...(back === "list" && filter ? { f: filter } : {}), ...query });
+    // back-end layout L2: the menu check is the "Menu" tab (?view=menu)
+    const q = new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...(back === "list" && filter ? { f: filter } : {}), ...(back === "menu" ? { view: "menu" } : {}), ...query });
     redirect(`${base}?${q}${anchor}`);
   };
   return { lang, session, shopId, slug, order, page };

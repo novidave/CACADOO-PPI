@@ -5,15 +5,14 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { localMidnight, shopToday } from "@/lib/bookingTools";
-import { assistantTabUrl } from "@/lib/dashboardPages";
+import { BOOKING_TAB_OF_PART, bookingPartUrl } from "@/lib/dashboardPages";
 import { formatDate, utcToLocalInput } from "@/lib/format";
 import { addDays, displayTime, rangesFor, validRanges, weekdayOf } from "@/lib/hours";
 import { loadSmsUsage, quotaLeft } from "@/lib/smsUsage";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { foodTab } from "@/lib/foodOwner";
-import { AssistantTabs, waitingCount } from "../AssistantTabs";
-import type { BookingSetup } from "../AssistantSettings";
+import { itemTabs, PageHead } from "@/components/owner/PageHead";
+import { AssistantSettings, type BookingSetup } from "../AssistantSettings";
 import { chooseShop } from "../contacts/parts";
 import { hiddenFields, inputClass, ProOnly, ShopSwitcher } from "../shared";
 import { cancelBooking, createBooking, markBooking, moveBooking } from "./actions";
@@ -26,6 +25,9 @@ export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** Rezervácie's tabs (back-end layout L2) and the booking settings parts each one shows. */
+const TABS = ["calendar", "services", "resources", "rules", "blocks", "settings"];
+const PARTS: Record<string, string[]> = { services: ["services"], resources: ["resources"], rules: ["rules"], blocks: ["blocks"], settings: ["messages", "calendar"] };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface Booking {
@@ -58,7 +60,8 @@ const time = (iso: string, timeZone: string) =>
 const minutes = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 60_000);
 
 /**
- * Asistent → Rezervácie (update 63, the Rezervacie screen): Cacaduu's own bookings — they work without any outside
+ * Rezervácie (update 63, the Rezervacie screen; its own menu item with tabs since the back-end layout L2 — Kalendár · Služby ·
+ * Zdroje · Pravidlá · Blokované časy · Nastavenia, the last five = update 63's booking settings, `?tab=`): Cacaduu's own bookings — they work without any outside
  * calendar. A week strip, the chosen day's opening hours and bookings (service · length · resource, the contact, where it
  * came from), "Presunúť" / "Zrušiť" / "Prišiel" / "Neprišiel" per booking, and "+ Rezervácia": a service and a day → the
  * free times from booking_free_slots (the same rule as the assistant), then a contact or a name and phone. Old addresses
@@ -68,11 +71,14 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
   const { lang } = await params;
   if (!isLocale(lang)) notFound();
   const sp = await searchParams;
+  // the old ?view=settings (also Google's way back) = the Nastavenia tab, its calendar part
   if (first(sp.view) === "settings") {
-    const q = new URLSearchParams({ at: "settings", part: "calendar" });
-    for (const k of ["shop", "ok", "err"]) if (first(sp[k])) q.set(k, first(sp[k])!);
-    redirect(`/${lang}/dashboard/assistant?${q}#calendar`);
+    const q: Record<string, string> = {};
+    for (const k of ["shop", "ok", "err"]) if (first(sp[k])) q[k] = first(sp[k])!;
+    redirect(bookingPartUrl(lang, "calendar", q));
   }
+  const tab = TABS.includes(first(sp.tab) ?? "") ? first(sp.tab)! : "calendar";
+  const part = first(sp.part) ?? "";
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
   const { supabase } = session;
   const a = dict.asst;
@@ -92,13 +98,12 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
   const newDay = DAY.test(first(sp.on) ?? "") ? first(sp.on)! : day;
   const contactId = UUID.test(first(sp.contact) ?? "") ? first(sp.contact)! : "";
 
-  const [plan, list, setupRes, calendarRes, sms, waiting, free, food] = await Promise.all([
+  const [plan, list, setupRes, calendarRes, sms, free] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.rpc("owner_booking_list", { p_shop_id: shop.id, p_from: from.toISOString(), p_to: to.toISOString(), p_status: null }),
     supabase.rpc("owner_booking_setup", { p_shop_id: shop.id }),
     supabase.rpc("shop_calendar", { p_shop_ids: [shop.id], p_from: day, p_to: day }),
     loadSmsUsage(supabase, shop.id),
-    waitingCount(supabase, shop.id),
     adding && newService
       ? supabase.rpc("owner_booking_free_slots", {
           p_shop_id: shop.id,
@@ -109,14 +114,13 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
           p_people: 1,
         })
       : Promise.resolve({ data: null, error: null }),
-    foodTab(supabase, shop.id),
   ]);
   const hasPlan = !plan.error && plan.data === true;
   const setup = setupRes.error ? null : (setupRes.data as BookingSetup);
   const bookings = (list.data ?? []) as Booking[];
   const hidden = hiddenFields(lang, shop);
   const url = (query: Record<string, string>) => `/${lang}/dashboard/bookings?${new URLSearchParams({ shop: shop.slug, ...query })}`;
-  const settings = (part: string) => `${assistantTabUrl(lang, "settings", shop.slug, { part })}#${part}`;
+  const settings = (p: string) => bookingPartUrl(lang, p, { shop: shop.slug });
   const texts = a as Record<string, string>;
   const ok = first(sp.ok);
   const err = first(sp.err);
@@ -141,12 +145,39 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
 
   return (
     <div className="flex max-w-3xl flex-col gap-5">
-      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current="bookings" waiting={waiting} food={food}>
-        <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/bookings?shop=${slug}`} />
+      <PageHead title={dict.nav.bookings} item="bookings" tabs={itemTabs(dict, lang, "bookings", shop.slug)} current={tab} tabsLabel={dict.nav.tabs_label}>
+        <ShopSwitcher
+          shops={chosen.shops}
+          current={shop}
+          label={dict.dashboard.shop}
+          href={(slug) => `/${lang}/dashboard/bookings?${new URLSearchParams({ shop: slug, ...(tab !== "calendar" ? { tab } : {}) })}`}
+        />
         {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
         {!hasPlan && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
-      </AssistantTabs>
+      </PageHead>
 
+      {/* Služby · Zdroje · Pravidlá · Blokované časy · Nastavenia: update 63's booking settings, one part per tab */}
+      {tab !== "calendar" && (
+        <AssistantSettings
+          setup={setup}
+          shop={shop}
+          lang={lang}
+          dict={dict}
+          planActive={hasPlan}
+          planUrl={`/${lang}/dashboard/plan?shop=${shop.slug}`}
+          hidden={hidden}
+          notice={(which) => {
+            if (which !== (BOOKING_TAB_OF_PART[part] === tab ? part : PARTS[tab][0])) return null;
+            if (ok) return <p role="status" className="border border-foreground p-3 font-medium">{texts[ok] ?? dict.account.saved}</p>;
+            if (err) return <p role="alert" className="border border-line p-3">{texts[err] ?? (dict.bookings as Record<string, string>)[err] ?? a.err_failed}</p>;
+            return null;
+          }}
+          googleOn
+          only={PARTS[tab]}
+        />
+      )}
+
+      {tab === "calendar" && (
       <section className="flex flex-col gap-3.5" data-tab-panel="bookings">
         <div className="flex items-center justify-between gap-2 rounded-xl border border-line px-3 py-2.5 text-sm">
           <span>
@@ -372,6 +403,7 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
         )}
         <p className="text-[13px] text-muted">{a.bookings_footer}</p>
       </section>
+      )}
     </div>
   );
 }

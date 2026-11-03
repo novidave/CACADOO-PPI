@@ -38,6 +38,11 @@ export interface BookingSetup {
   timezone: string;
 }
 
+/** The parts that belong to Rezervácie since the back-end layout (L2). */
+export const BOOKING_PARTS = ["messages", "rules", "services", "resources", "blocks", "calendar"];
+/** The parts AI asistent → Nastavenia keeps. */
+export const ASSISTANT_PARTS = ["orders", "texts", "folders"];
+
 const card = "flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4";
 const ghost = "min-h-11 rounded-[10px] border border-line bg-white px-4 text-[15px] font-semibold";
 const check = "h-5 w-5 shrink-0 accent-foreground";
@@ -60,6 +65,7 @@ export function AssistantSettings({
   notice,
   googleOn,
   food,
+  only,
 }: {
   setup: BookingSetup | null;
   shop: MyShop;
@@ -71,7 +77,11 @@ export function AssistantSettings({
   notice: (part: string) => React.ReactNode;
   googleOn: boolean;
   food?: FoodTab | null;
+  /** The parts this page shows (back-end layout L2): AI asistent → Nastavenia shows orders, texts and folders; each
+   * Rezervácie tab its own booking part. Every part when left out. */
+  only?: readonly string[];
 }) {
+  const show = (part: string) => !only || only.includes(part);
   const a = dict.asst;
   const d = dict.dashboard;
   const b = dict.bookings as Record<string, string>;
@@ -83,7 +93,8 @@ export function AssistantSettings({
   return (
     <div className="flex flex-col gap-4" data-tab-panel="settings">
       {/* Objednávky jedla (database update 74): the switch lives on its own settings page */}
-      <section id="orders" className={card} data-settings-part="orders">
+      {show("orders") && (
+<section id="orders" className={card} data-settings-part="orders">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="flex flex-col">
             <h2 className="text-[17px] font-bold">{dict.food.s_enabled}</h2>
@@ -97,9 +108,11 @@ export function AssistantSettings({
           </Link>
         </div>
       </section>
+)}
 
       {/* Texty asistenta */}
-      <section id="texts" className={card} data-settings-part="texts">
+      {show("texts") && (
+<section id="texts" className={card} data-settings-part="texts">
         <h2 className="text-[17px] font-bold">{a.texts_title}</h2>
         {notice("texts")}
         {planActive ? (
@@ -118,13 +131,15 @@ export function AssistantSettings({
           <ProOnly dict={dict} href={planUrl} />
         )}
       </section>
+)}
 
-      {!setup ? (
+      {!BOOKING_PARTS.some(show) ? null : !setup ? (
         <p className="text-sm text-muted">{a.setup_unavailable}</p>
       ) : (
         <>
           {/* Automatické správy */}
-          <section id="messages" className={card} data-settings-part="messages">
+          {show("messages") && (
+<section id="messages" className={card} data-settings-part="messages">
             <h2 className="text-[17px] font-bold">{a.auto_title}</h2>
             {notice("messages")}
             <div className="flex items-center justify-between gap-3 text-[15px]">
@@ -160,9 +175,11 @@ export function AssistantSettings({
               {planActive && <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>}
             </form>
           </section>
+)}
 
           {/* Rezervácie: pravidlá */}
-          <section id="rules" className={card} data-settings-part="rules">
+          {show("rules") && (
+<section id="rules" className={card} data-settings-part="rules">
             <h2 className="text-[17px] font-bold">{a.rules_title}</h2>
             <p className="text-sm text-muted">{a.rules_intro}</p>
             {notice("rules")}
@@ -196,9 +213,11 @@ export function AssistantSettings({
               {planActive && <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>}
             </form>
           </section>
+)}
 
           {/* Služby */}
-          <section id="services" className={card} data-settings-part="services">
+          {show("services") && (
+<section id="services" className={card} data-settings-part="services">
             <h2 className="text-[17px] font-bold">{a.services_title}</h2>
             <p className="text-sm text-muted">{a.services_intro}</p>
             {notice("services")}
@@ -272,9 +291,11 @@ export function AssistantSettings({
               ),
             )}
           </section>
+)}
 
           {/* Zdroje */}
-          <section id="resources" className={card} data-settings-part="resources">
+          {show("resources") && (
+<section id="resources" className={card} data-settings-part="resources">
             <h2 className="text-[17px] font-bold">{a.resources_title}</h2>
             <p className="text-sm text-muted">{a.resources_intro}</p>
             {notice("resources")}
@@ -331,9 +352,11 @@ export function AssistantSettings({
               ),
             )}
           </section>
+)}
 
           {/* Blokované časy */}
-          <section id="blocks" className={card} data-settings-part="blocks">
+          {show("blocks") && (
+<section id="blocks" className={card} data-settings-part="blocks">
             <h2 className="text-[17px] font-bold">{a.blocks_title}</h2>
             <p className="text-sm text-muted">{a.blocks_intro}</p>
             {notice("blocks")}
@@ -393,9 +416,11 @@ export function AssistantSettings({
               </form>
             )}
           </section>
+)}
 
           {/* Kalendár: Google (voliteľné) + odkaz pre telefón */}
-          <section id="calendar" className={card} data-settings-part="calendar">
+          {show("calendar") && (
+<section id="calendar" className={card} data-settings-part="calendar">
             <h2 className="text-[17px] font-bold">{a.calendar_title}</h2>
             <p className="text-sm text-muted">{a.calendar_intro}</p>
             {notice("calendar")}
@@ -450,11 +475,13 @@ export function AssistantSettings({
               )}
             </div>
           </section>
+)}
         </>
       )}
 
       {/* Súkromné priečinky (their own page) */}
-      <section id="folders" className={card} data-settings-part="folders">
+      {show("folders") && (
+<section id="folders" className={card} data-settings-part="folders">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-[17px] font-bold">{d.private_folders_title}</h2>
           <Link href={`/${lang}/dashboard/assistant/folders?${new URLSearchParams({ shop: shop.slug })}`} className="text-sm underline underline-offset-4">
@@ -463,6 +490,7 @@ export function AssistantSettings({
         </div>
         <p className="text-sm text-muted">{a.folders_hint}</p>
       </section>
+)}
     </div>
   );
 }

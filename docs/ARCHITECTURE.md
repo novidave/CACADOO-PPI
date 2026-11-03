@@ -3128,3 +3128,25 @@ Canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 19 and 21. Layo
   (`body:has([data-owner-shell])`), so public pages keep their HTML and their first-load JS.
 - **Tests:** `src/lib/dashboardPages_test.ts` (in `npm run test:content`, reads the route files: every owner page has
   exactly one item; old addresses forward with their query; `?shop=` stays) and `e2e/owner-shell.spec.ts`.
+
+## Back-end layout "Môj obchod" — phase L2: the sections move (3 November 2026)
+
+Layout only; no database change. Every form still calls the same server action and SQL function; only where a section is
+drawn, and where its form sends the owner back, changed. `@/lib/dashboardPages` holds every move:
+
+- `ITEM_TABS` / `tabHref()`: the tabs of Sklad, Objednávky jedla, Rezervácie, CRM and AI asistent, drawn by
+  `@/components/owner/PageHead` (which also replaced the update-63 Asistent tab row; `AssistantTabs.tsx` keeps only
+  `waitingCount`).
+- Sections and their pages: `CRM_SECTIONS` (overview, conversations, cloud → `/dashboard/crm`), `ASSISTANT_SECTIONS`
+  (settings → `/dashboard/assistant`), `DOC_SECTIONS` (docs → `/dashboard/assistant/documents`), `FOLDER_SECTIONS`
+  (folders → `/dashboard/assistant/folders`; "private" = folders). `movedFrom()` / `forwardUrl()` forward the old
+  addresses with their query; the actions that use `sectionUrl()` (conversations, callbacks, cloud, documents) follow
+  by themselves.
+- `BOOKING_TAB_OF_PART` / `bookingPartUrl()`: update 63's booking settings parts (`AssistantSettings` with `only=`) on
+  Rezervácie's tabs; the assistant actions' `back()` and the old `?at=settings&part=` / `?view=settings` addresses use it.
+- Právne informácie: the company fields (`saveCompany`: IČO through `owner_save_shop()` with the shop's other values as
+  they are, company name and DIČ through `owner_save_company()` with the PSČ as it is) and the domain owner's details
+  (`saveOperator` → `owner_save_legal()`, only the fields sent). `ShopForm` carries the moved fields hidden
+  (`companyElsewhere`), so saving Údaje obchodu never clears them.
+- Tests: `dashboardPages_test.ts` (items, tabs, forwards), `content_test.ts` (sections), e2e `owner.spec.ts` (CRM tabs and
+  the old addresses).

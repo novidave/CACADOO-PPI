@@ -20,8 +20,8 @@ const id = (formData: FormData, key: string) => {
   return UUID.test(value) ? value : null;
 };
 
-/** Sections with document lists: "Documents for the assistant", and the private ones under "Export folder". */
-const SECTIONS = ["docs", "private"];
+/** The AI asistent tabs with these forms (back-end layout L2): Dokumenty, Súkromné priečinky (old name "private"). */
+const SECTIONS = ["docs", "folders", "private"];
 
 /** Who is asking, and the way back to the section with a message. */
 async function start(formData: FormData) {

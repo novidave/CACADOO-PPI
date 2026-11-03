@@ -180,6 +180,11 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
             defaults={{ country: "", timezone: "" }}
             action={saveShop}
             submitLabel={dict.account.save}
+            companyElsewhere={{
+              href: `/${lang}/dashboard/legal?${new URLSearchParams({ shop: shop.slug })}#company`,
+              label: dict.shop_legal.admin_title,
+              hint: dict.shop_legal.company_moved,
+            }}
           />
         </DashboardSection>
 

@@ -196,6 +196,7 @@ export async function ShopDocuments({
   dict,
   hasPlan,
   notice,
+  view,
 }: {
   supabase: Supabase;
   data: ShopDocsData | null;
@@ -204,7 +205,12 @@ export async function ShopDocuments({
   dict: Dictionary;
   hasPlan: boolean;
   notice: React.ReactNode;
+  /** Back-end layout L2: AI asistent → "Dokumenty" (upload, documents, pictures) or "Súkromné priečinky" (folders and
+   * access keys); both when left out. */
+  view?: "docs" | "folders";
 }) {
+  const docsPart = view !== "folders";
+  const foldersPart = view !== "docs";
   const d = dict.docs;
   // Before database update 20 the section only says that it is not available yet.
   if (!data) return <p className="text-sm text-muted">{d.unavailable}</p>;
@@ -247,6 +253,8 @@ export async function ShopDocuments({
       <input type="hidden" name="lang" value={lang} />
       <input type="hidden" name="shop_id" value={shop.id} />
       <input type="hidden" name="shop_slug" value={shop.slug} />
+      {/* the way back: the tab the form is on (back-end layout L2) */}
+      {view === "folders" && <input type="hidden" name="at" value="folders" />}
       {Object.entries(extra).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
       ))}
@@ -258,6 +266,8 @@ export async function ShopDocuments({
   return (
     <>
       {notice}
+      {docsPart && (
+        <>
       <p className="text-sm">{d.intro}</p>
       <p className="text-sm font-medium">{d.never_products}</p>
       {!hasPlan && <p className="border border-line p-3 text-sm">{d.needs_plan}</p>}
@@ -294,7 +304,11 @@ export async function ShopDocuments({
       {canUpload && (
         <DocUpload shopId={shop.id} folders={options} lang={lang} picturesLeft={picturesLeft} labels={d} />
       )}
+        </>
+      )}
 
+      {foldersPart && (
+        <>
       <h3 className="pt-2 font-semibold">{d.folders_title}</h3>
       <ul className="flex flex-col gap-2 text-sm">
         {folders.map((f) => {
@@ -346,6 +360,11 @@ export async function ShopDocuments({
         </form>
       )}
 
+        </>
+      )}
+
+      {docsPart && (
+        <>
       <h3 className="pt-2 font-semibold">{d.documents_title}</h3>
       {docs.length === 0 && <p className="text-sm text-muted">{d.no_documents}</p>}
       {docs.map((doc) => {
@@ -474,6 +493,11 @@ export async function ShopDocuments({
         ))}
       </div>
 
+        </>
+      )}
+
+      {foldersPart && (
+        <>
       <h3 className="pt-2 font-semibold">{d.keys_title}</h3>
       <p className="text-sm">{d.keys_intro}</p>
       {keys.length > 0 && (
@@ -522,6 +546,8 @@ export async function ShopDocuments({
         />
       ) : (
         hasPlan && <p className="text-sm text-muted">{d.keys_need_folder}</p>
+      )}
+        </>
       )}
     </>
   );

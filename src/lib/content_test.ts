@@ -2,7 +2,7 @@
 // shop_content() (pinned posts never repeated, fewer posts → fewer slides, hidden/expired files drop out and the rest
 // keep their order, the plan's slide and PDF numbers, a downgraded shop), the counters, srcset and excerpts — and
 // where Môj obchod's sections live now (old addresses forwarded). Run: npm run test:content
-import { ASSISTANT_SECTIONS, assistantTabUrl, CONTENT_SECTIONS, EXPORT_SECTIONS, FOLDER_SECTIONS, forwardUrl, movedFrom, sectionId, sectionPath, sectionUrl, TRANSLATION_SECTIONS } from "./dashboardPages.ts";
+import { ASSISTANT_SECTIONS, assistantTabUrl, CONTENT_SECTIONS, EXPORT_SECTIONS, FOLDER_SECTIONS, forwardUrl, movedFrom, sectionId, sectionPath, sectionUrl, TRANSLATION_SECTIONS, CRM_SECTIONS, DOC_SECTIONS } from "./dashboardPages.ts";
 import {
   arrangeSlides,
   articlePhoto,
@@ -116,9 +116,9 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(sectionPath("hu", "content"), "/hu/dashboard/content", "content");
   eq(sectionPath("sk", "library"), "/sk/dashboard/content", "library");
   eq(sectionPath("sk", "export"), "/sk/sync", "export stays");
-  eq(sectionId("private"), "docs", "Súkromné priečinky = the documents");
+  eq(sectionId("private"), "folders", "Súkromné priečinky = AI asistent's folders tab (back-end layout L2)");
   eq(sectionId("sections"), "content", "Sekcie stránky (PDF) → Obsah stránky");
-  eq(sectionUrl("sk", "cloud", { shop: "davide", ok: "cloud_connected" }), "/sk/dashboard/assistant?shop=davide&ok=cloud_connected&at=cloud#cloud", "cloud");
+  eq(sectionUrl("sk", "cloud", { shop: "davide", ok: "cloud_connected" }), "/sk/dashboard/crm?shop=davide&ok=cloud_connected&at=cloud#cloud", "cloud (CRM since L2)");
   eq(movedFrom("sync", "imports"), false, "/sync?at=imports stays");
   eq(movedFrom("assistant", "imports"), true, "the old address on Asistent is forwarded");
   eq(forwardUrl("sk", "imports", { shop: "davide", at: "imports" }), "/sk/sync?shop=davide&at=imports#imports", "imports → /sync");
@@ -136,7 +136,7 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(sectionUrl("sk", "translations", { shop: "davide" }), "/sk/dashboard/translations?shop=davide&at=texts#texts", "old links land on Texty stránky");
   eq(movedFrom("dashboard", "texts"), true, "/dashboard?at=texts → Jazyky a inventár");
   // each section lives on exactly one page
-  const all = [...ASSISTANT_SECTIONS, ...FOLDER_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS, ...TRANSLATION_SECTIONS];
+  const all = [...ASSISTANT_SECTIONS, ...CRM_SECTIONS, ...DOC_SECTIONS, ...FOLDER_SECTIONS, ...EXPORT_SECTIONS, ...CONTENT_SECTIONS, ...TRANSLATION_SECTIONS];
   eq(all.length, new Set(all).size, "no section on two pages");
   eq(sectionPath("sk", "columns"), "/sk/sync", "columns (update 45: Po nahratí súboru)");
   // update 45: the languages, the columns and the files in other languages moved to Priečinok s exportom
@@ -146,23 +146,26 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(sectionUrl("sk", "columns", { shop: "davide", ok: "columns" }), "/sk/sync?shop=davide&ok=columns&at=review#review", "the columns form comes back to its section");
   eq([movedFrom("sync", "review"), movedFrom("sync", "trfolder")], [false, false], "they live on sync");
   eq(forwardUrl("sk", "items", { shop: "davide", at: "items", q: "káva" }), "/sk/dashboard/translations?shop=davide&at=items&q=k%C3%A1va#items", "items forwarded with the search");
-  // update 63: Súkromné priečinky have their own page; the assistant's settings are the tab "Nastavenia"
-  eq(movedFrom("assistant", "docs"), true, "docs moved to /dashboard/assistant/folders");
-  eq(movedFrom("folders", "docs"), false, "docs live on folders");
+  // update 63 / back-end layout L2: Dokumenty and Súkromné priečinky are AI asistent's tabs; Nastavenia stays
+  eq(movedFrom("assistant", "docs"), true, "docs moved to /dashboard/assistant/documents");
+  eq(movedFrom("documents", "docs"), false, "docs live on documents");
+  eq(movedFrom("folders", "docs"), true, "docs left the folders page");
   eq(movedFrom("assistant", "private"), true, "old name");
   eq(movedFrom("assistant", "assistant"), true, "the old settings tab");
   eq(movedFrom("assistant", "settings"), false, "settings");
   eq(forwardUrl("sk", "assistant", { shop: "davide", at: "assistant", ok: "assistant" }), "/sk/dashboard/assistant?shop=davide&at=settings&ok=assistant#settings", "assistant → settings");
-  eq(forwardUrl("sk", "docs", { shop: "davide", at: "docs" }), "/sk/dashboard/assistant/folders?shop=davide&at=docs#docs", "docs → folders");
-  eq(sectionUrl("sk", "docs", { shop: "davide", ok: "doc_saved" }), "/sk/dashboard/assistant/folders?shop=davide&ok=doc_saved&at=docs#docs", "the folders' forms come back");
-  eq(assistantTabUrl("sk", "overview", "davide"), "/sk/dashboard/assistant?shop=davide", "Prehľad");
-  eq(assistantTabUrl("sk", "conversations", "davide"), "/sk/dashboard/assistant?shop=davide&at=conversations", "Konverzácie");
+  eq(forwardUrl("sk", "docs", { shop: "davide", at: "docs" }), "/sk/dashboard/assistant/documents?shop=davide&at=docs#docs", "docs → documents");
+  eq(sectionUrl("sk", "docs", { shop: "davide", ok: "doc_saved" }), "/sk/dashboard/assistant/documents?shop=davide&ok=doc_saved&at=docs#docs", "the documents' forms come back");
+  eq(sectionUrl("sk", "folders", { shop: "davide", ok: "x" }), "/sk/dashboard/assistant/folders?shop=davide&ok=x&at=folders#folders", "the folders' forms come back");
+  // back-end layout L2: Prehľad and Konverzácie are CRM's tabs
+  eq(assistantTabUrl("sk", "overview", "davide"), "/sk/dashboard/crm?shop=davide", "Prehľad");
+  eq(assistantTabUrl("sk", "conversations", "davide"), "/sk/dashboard/crm?shop=davide&at=conversations", "Konverzácie");
   eq(assistantTabUrl("sk", "contacts", "davide"), "/sk/dashboard/contacts?shop=davide", "Kontakty");
   eq(assistantTabUrl("sk", "templates", "davide"), "/sk/dashboard/contacts?shop=davide&view=templates", "Šablóny");
   eq(assistantTabUrl("hu", "bookings", "davide"), "/hu/dashboard/bookings?shop=davide", "Rezervácie");
-  eq(assistantTabUrl("sk", "settings", "davide"), "/sk/dashboard/assistant?shop=davide&at=settings", "Nastavenia");
+  eq(assistantTabUrl("sk", "settings", "davide"), "/sk/dashboard/assistant?shop=davide", "Nastavenia");
   eq(movedFrom("content", "library"), false, "library");
-  eq(forwardUrl("sk", "private", { shop: "davide", at: "private" }), "/sk/dashboard/assistant/folders?shop=davide&at=docs#docs", "private → docs");
+  eq(forwardUrl("sk", "private", { shop: "davide", at: "private" }), "/sk/dashboard/assistant/folders?shop=davide&at=folders#folders", "private → folders");
   eq(forwardUrl("sk", "sections", { shop: "davide", at: "sections", ok: "x" }), "/sk/dashboard/content?shop=davide&at=content&ok=x#content", "sections");
 });
 
