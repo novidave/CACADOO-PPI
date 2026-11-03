@@ -3109,3 +3109,22 @@ and the courier app (phase F4) only call these functions.
   and hands every other tool to `owner_mcp_call_64`; `mcp_food_order_json()` = no phone, address, note, lat/lng.
 - Tests: DB block "update 74"; crm-messages (`foodAlertMail`, `food_sms`), telegram (`noteMessage` food_order).
 
+
+## Back-end layout "Môj obchod" — phase L1: the shell (3 November 2026, at the owner's request)
+
+Canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 19 and 21. Layout only: no new feature, no database change.
+
+- **One map:** `@/lib/dashboardPages` `OWNER_MENU` — 17 items in three groups (Hlavné: Sklad, Objednávky jedla,
+  Rezervácie, CRM; Stránka obchodu: Môj obchod, Obsah stránky, Novinky / Blog, AI asistent, Jazyky a inventár; Účet a
+  nastavenia: Priečinok s exportom, Predplatné a doména, Právne informácie, Heslo, Otváracie hodiny cez SMS, AI
+  asistenti a Telegram, the admin pages). Each item owns addresses (a page and everything under it, or one page, or an
+  `?at=` of the Asistent page); `menuItemFor(path, at)` takes the most specific owner. `isWorkScreen` (Predaj and its QR
+  page, a Príjemka, an Inventúra count, the food board) and `isBareScreen` (the QR terminal) decide the menu's form.
+- **The shell:** `(account)/layout.tsx` reads the owner's shops, the live own domains and the badges once per page load
+  (CRM = new conversations + shoppers waiting; Objednávky jedla = new orders), and gives them to `OwnerNav` with the
+  `nav.*` texts. `OwnerNav` is a client component because a layout is not drawn again on navigation; it reads the
+  address (`usePathname`, `?at=`, `?shop=`). Three forms: the 256 px menu (≥ 1024 px), the 76 px rail (768–1023 px and the
+  work screens), the top bar + bottom sheet (< 768 px, a modal `<dialog>`). The site header is hidden by CSS
+  (`body:has([data-owner-shell])`), so public pages keep their HTML and their first-load JS.
+- **Tests:** `src/lib/dashboardPages_test.ts` (in `npm run test:content`, reads the route files: every owner page has
+  exactly one item; old addresses forward with their query; `?shop=` stays) and `e2e/owner-shell.spec.ts`.

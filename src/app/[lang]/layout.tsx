@@ -53,7 +53,9 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
         <Header lang={lang} dict={dict} enabled={enabled} />
         {/* At least one screen high: the footer starts below the first view, so content growing after load (the
             chat's answer, the products) never moves it on screen (layout shift budget ≤ 0.05). */}
-        <main className="mx-auto min-h-svh w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+        <main className="mx-auto min-h-svh w-full max-w-5xl flex-1 px-4 py-6" data-site-main>
+          {children}
+        </main>
         <SiteFooter lang={lang} dict={dict} />
         <Suspense fallback={null}>
           <TapFeedback />

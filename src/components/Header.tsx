@@ -6,7 +6,7 @@ import { LanguagePicker } from "./LanguagePicker";
 
 export function Header({ lang, dict, enabled }: { lang: Locale; dict: Dictionary; enabled: string[] }) {
   return (
-    <header className="border-b border-line">
+    <header className="border-b border-line" data-site-header>
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3">
         <Link href={`/${lang}`} aria-label={dict.site.name} className="shrink-0">
           {/* The Cacaduu PPI logo (the site's only coloured artwork, chosen by the owner; vector, cacaduu.com). */}

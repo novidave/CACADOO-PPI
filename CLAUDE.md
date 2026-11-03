@@ -125,6 +125,24 @@ map, since 2026-10-31; no API key), pins in the status colour
 with the status in words in each pin's tooltip (no legend under the map, at the owner's request; the map data's credit
 OpenMapTiles/OpenStreetMap — required by their licences, never removed — stays closed behind MapLibre's small "i"
 button, the text only after a tap, 2026-10-27); always an extra — every page must work and show its data without it.
+**Back-end layout (2026-11-03, at the owner's request):** every owner page sits in ONE shell — canvas "Cacaduu –
+webová aplikácia (Môj obchod)", artboards 1–21. The map is only `@/lib/dashboardPages` `OWNER_MENU` (route → item,
+group main | page | account, `menuItemFor()`, `menuHref()` keeps `?shop=`, `isWorkScreen()`, `isBareScreen()`; tests
+`dashboardPages_test.ts` in `npm run test:content`: every owner page belongs to exactly one item, old addresses forward
+with their query). `(account)/layout.tsx` (server) prepares the labels (`nav.*`), the shops (`my_shops`, "Zobraziť moju
+stránku" = `shopHref`, own domain when live) and the badges per shop (CRM = `owner_conversations_new` + waiting
+callbacks, Objednávky jedla = `owner_food_tab().new`); `@/components/owner/OwnerNav` (client: a layout is not drawn
+again on navigation, so the current item and `?shop=` come from the address) draws: ≥ 1024 px the 256 px menu (shop
+switcher 56 px + 52 px "Zobraziť moju stránku"; Hlavné 52 px rows / 17 px; "Stránka obchodu" and "Účet a nastavenia"
+46 px / 16 px, one open at a time, header = button with `aria-expanded`); 768–1023 px and the **work screens** (Predaj,
+Príjemka editor, Inventúra counting, the food board) the 76 px rail (initial, icons 52×48 with `aria-label` + `title`,
+badge in the corner); < 768 px a top bar (title + 48 px menu button) and the bottom sheet (`<dialog>`, artboard 19: 2×2
+tiles 92 px, 50 px rows, "Účet a nastavenia" closed with "n položiek ▾"; Esc / a tap outside closes, focus back to the
+button). The QR terminal has no menu. Active = black, white bold, `aria-current="page"`; badges 22 px black pills
+(white on the active item); icons inline SVG (`@/components/owner/navIcons`, 22 px, stroke 2, `currentColor`). The
+site's header is hidden inside the shell (globals.css `body:has([data-owner-shell])`); its language picker and "who is
+signed in" sit at the end of "Účet a nastavenia"; the legal footer stays. Public pages are untouched (budget unchanged).
+e2e `e2e/owner-shell.spec.ts` (1180×820, 820×1180, 390×844; needs an owner login).
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 
