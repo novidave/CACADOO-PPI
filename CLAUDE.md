@@ -781,8 +781,8 @@ consent) → "Poslať overovací kód" → the code → "Objednať · <total>" �
 the kitchen board's four columns; `[id]`: the steps, lines, the customer, "Navigovať" / "Zavolať", payment — the PAY by
 square code from Sklad's IBAN drawn on the server, cash quick amounts Presne / 10 … 100 € / Iná suma with the change,
 card —, the "on the way" SMS, the next step, "Zrušiť"; `settings`: board 14; `actions.ts`, `parts.tsx`) +
-`@/lib/foodOwner` + `@/components/FoodOrdersLive` (every 15 s `/api/owner/food/tab`, a Web Audio tone, the choice in
-localStorage) + `@/lib/foodMenuRead`. The Asistent row shows "Objednávky" (after Prehľad) only while ordering is on
+`@/lib/foodOwner` + `@/components/FoodOrdersLive` (every 10 s `/api/owner/food/tab`, the QR terminal's sound
+`@/lib/chime`, the choice in localStorage) + `@/lib/foodMenuRead`. The Asistent row shows "Objednávky" (after Prehľad) only while ordering is on
 (`owner_food_tab`, badge = new orders); Nastavenia has a card to the settings. Every step is one form with its own
 step UUID (`owner_food_order_status` → `food_order_step`). **Alerts:** e-mail = crm-messages' 5-minute job
 (`food_alerts_due` → `food_alert_result`, kicked at once by a trigger) — number, time, kind, items, total, never the

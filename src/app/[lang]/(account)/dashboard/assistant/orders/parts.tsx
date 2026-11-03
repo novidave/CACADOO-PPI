@@ -15,7 +15,7 @@ export const btnOrange = "inline-flex min-h-11 items-center justify-center round
 export const hhmm = (iso: string | null | undefined, timeZone: string) =>
   iso ? new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso)) : "";
 
-/** "pred 2 min" / "práve teraz" (the page draws it; the list reads itself again every 15 s). */
+/** "pred 2 min" / "práve teraz" (the page draws it; the list reads itself again every 10 s). */
 export function ago(f: Dictionary["food"], iso: string): string {
   const min = Math.floor((Date.now() - Date.parse(iso)) / 60_000);
   return min < 1 ? f.just_now : t(f.ago, { n: min });

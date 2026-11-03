@@ -5,7 +5,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PRIVATE = { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" };
 
 /**
- * Asistent → Objednávky (database update 74): read every 15 s by the open page — whether ordering is on, how many
+ * Asistent → Objednávky (database update 74): read every 10 s by the open page — whether ordering is on, how many
  * orders are new and when the last one came (owner_food_tab: members only). No order data; never cached.
  */
 export async function GET(request: Request) {
