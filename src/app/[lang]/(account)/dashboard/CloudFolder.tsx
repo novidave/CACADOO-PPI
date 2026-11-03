@@ -13,6 +13,7 @@ import {
   setCloudFolder,
 } from "./cloudActions";
 import type { Supabase } from "./ShopDocuments";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 /** The shop's cloud connection as its owners see it (cloud_connections; never the tokens). */
 export interface CloudRow {
@@ -76,7 +77,7 @@ export function CloudFolder({
   const c = dict.cloud;
   if (!cloud) return <p className="text-sm text-muted">{c.unavailable}</p>;
   const k = cloud.connection;
-  const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const input = fieldClass;
   const when = (iso: string) => formatDateTime(iso, lang, shop.timezone);
   const permissions = (
     <details className="text-sm">
@@ -96,7 +97,7 @@ export function CloudFolder({
           type="submit"
           name="provider"
           value={p}
-          className="rounded border border-foreground px-4 py-2 font-medium"
+          className={buttonClass}
           data-connect={p}
         >
           {label ?? c[`connect_${p}`]}

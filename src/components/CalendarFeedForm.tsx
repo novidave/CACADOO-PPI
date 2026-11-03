@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { newCalendarFeed, type FeedState } from "@/app/[lang]/(account)/dashboard/assistant/actions";
+import { fieldClass } from "@/components/owner/ui";
 
 interface Labels {
   create: string;
@@ -40,7 +41,7 @@ export function CalendarFeedForm({ shopId, exists, labels }: { shopId: string; e
       {state.url && (
         <div className="flex flex-col gap-2 border border-foreground p-3" role="status">
           <p className="text-sm font-semibold">{labels.shown_once}</p>
-          <input readOnly value={state.url} onFocus={(e) => e.currentTarget.select()} className="rounded border border-line px-3 py-2 font-mono text-xs" />
+          <input readOnly value={state.url} onFocus={(e) => e.currentTarget.select()} className={`${fieldClass} font-mono text-xs`} />
           <button
             type="button"
             onClick={() => {

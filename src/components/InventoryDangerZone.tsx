@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PendingButton } from "@/components/PendingButton";
 import { nameMatches, type InventoryPreview } from "@/lib/inventoryReset";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 type Labels = Record<string, string>;
 type Action = (formData: FormData) => void | Promise<void>;
@@ -51,7 +52,7 @@ function Confirm({
         type="button"
         disabled={disabled}
         onClick={() => setOpen(true)}
-        className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:border-line disabled:text-muted"
+        className={`self-start ${buttonClass}`}
         data-open={testId}
       >
         {button}
@@ -218,7 +219,7 @@ function ResetAllForm({
           onChange={(e) => setTyped(e.target.value)}
           autoComplete="off"
           aria-label={labels.b_confirm_field}
-          className="rounded border border-line px-3 py-2 outline-none focus:border-foreground"
+          className={fieldClass}
           data-confirm-name
         />
       </label>

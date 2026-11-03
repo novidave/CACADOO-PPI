@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import type { McpKeyState } from "@/app/[lang]/(account)/dashboard/ai/actions";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 /** "Kľúč pre AI asistenta" (database update 61): shown here once with Copy; only its hash is kept. */
 export function McpKeyForm({
@@ -17,7 +18,7 @@ export function McpKeyForm({
   const [state, formAction, pending] = useActionState(action, {});
   const [copied, setCopied] = useState<string | null>(null);
   const texts = labels as Record<string, string>;
-  const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const inputClass = fieldClass;
   const scopes: [string, string][] = [
     ["shop.write", labels.scope_write],
     ["messages.send", labels.scope_messages],
@@ -73,7 +74,7 @@ export function McpKeyForm({
             </label>
           ))}
         </fieldset>
-        <button type="submit" disabled={pending} className="min-h-11 self-start rounded border border-foreground px-4 py-2 font-medium">
+        <button type="submit" disabled={pending} className={`min-h-11 self-start ${buttonClass}`}>
           {pending ? labels.creating : labels.key_create}
         </button>
       </form>

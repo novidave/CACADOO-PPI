@@ -16,6 +16,7 @@ import {
   setBlogPhotoOrder,
 } from "@/app/[lang]/(account)/dashboard/blog/actions";
 import { PublishDialog, type FacebookState } from "./PublishDialog";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 type Labels = Dictionary["owner_blog"];
 
@@ -290,7 +291,7 @@ export function BlogEditor({
   const url = `${postUrl}${slug || "…"}`;
   const fbPhotos = photos.filter((p) => p.kind === "photo").map((p) => p.src);
   const whenShown = when === "later" && at ? at.replace("T", " ") : null;
-  const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const input = fieldClass;
 
   return (
     <div className="flex flex-col gap-5" data-blog-editor>
@@ -417,7 +418,7 @@ export function BlogEditor({
           {result.facebook === "error" && (
             <div className="flex flex-col gap-2" data-fb-error>
               <p className="text-sm">{labels.fb_error.replace("{message}", result.fbError ?? "")}</p>
-              <button type="button" className="self-start rounded border border-foreground px-4 py-2 font-medium" onClick={() => postId && void sendToFacebook(postId, true)}>
+              <button type="button" className={`self-start ${buttonClass}`} onClick={() => postId && void sendToFacebook(postId, true)}>
                 {labels.retry_fb}
               </button>
             </div>
@@ -432,12 +433,12 @@ export function BlogEditor({
               <button type="button" disabled={busy} onClick={() => void onPublish()} className="rounded border border-foreground bg-foreground px-4 py-2 font-medium text-white disabled:opacity-60" data-publish>
                 {when === "later" ? labels.schedule : labels.publish}
               </button>
-              <button type="button" disabled={busy} onClick={() => void onSave()} className="rounded border border-foreground px-4 py-2 font-medium disabled:text-muted" data-save>
+              <button type="button" disabled={busy} onClick={() => void onSave()} className={buttonClass} data-save>
                 {post && post.status !== "draft" ? labels.save : labels.save_draft}
               </button>
             </>
           ) : (
-            <button type="button" disabled={busy} onClick={() => void onSave()} className="rounded border border-foreground px-4 py-2 font-medium disabled:text-muted" data-save>
+            <button type="button" disabled={busy} onClick={() => void onSave()} className={buttonClass} data-save>
               {labels.save}
             </button>
           )}

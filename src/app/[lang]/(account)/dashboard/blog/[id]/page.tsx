@@ -14,6 +14,7 @@ import { siteUrl } from "@/lib/site";
 import { BlogEditor, type EditorPost } from "@/components/BlogEditor";
 import { FacebookPagePicker } from "@/components/FacebookPagePicker";
 import type { FacebookRow } from "../page";
+import { PageTitle } from "@/components/owner/PageHead";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -89,7 +90,7 @@ export default async function BlogEditorPage({ params, searchParams }: PageProps
             {b.back}
           </Link>
         </p>
-        <h1 className="text-2xl font-semibold tracking-tight">{post ? b.editor_edit : b.editor_new}</h1>
+        <PageTitle>{post ? b.editor_edit : b.editor_new}</PageTitle>
         <p className="text-muted">{shop.name}</p>
       </header>
       {err && (

@@ -15,6 +15,7 @@ import { countText, languageName } from "../../Conversations";
 import { hiddenFields } from "../../shared";
 import { deleteContact, saveContact } from "../actions";
 import { ContactFields, Notice } from "../parts";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export const metadata: Metadata = { robots: { index: false } };
 
@@ -120,7 +121,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
         <Link href={`/${lang}/dashboard/contacts?shop=${shop.slug}`} className="text-sm underline underline-offset-4">
           {c.back}
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight break-words">{title}</h1>
+        <PageTitle className="break-words">{title}</PageTitle>
         <p className="text-sm text-muted">{shop.name}</p>
         <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
           {contact.phone && (

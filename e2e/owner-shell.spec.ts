@@ -70,6 +70,30 @@ for (const size of SIZES) {
         await expect(page.locator("[data-owner-nav]")).toHaveAttribute("data-owner-nav", "menu");
         await expect(page.locator("[data-site-header]")).toBeHidden();
       });
+
+      test("the page pattern: a 28 px title, the compact head on work screens, the save bar on Môj obchod", async ({ page }) => {
+        const shop = process.env.E2E_OWNER_SHOP ?? "";
+        const q = shop ? `?shop=${encodeURIComponent(shop)}` : "";
+        for (const path of ["/sk/dashboard", "/sk/dashboard/legal", "/sk/dashboard/plan", "/sk/sync", "/sk/password"]) {
+          await page.goto(path + q);
+          await expect(page.locator("h1").first()).toHaveCSS("font-size", "28px");
+        }
+        await page.goto(`/sk/dashboard/sklad/sale${q}`);
+        if (await page.locator("[data-sklad]").count()) {
+          await expect(page.locator('[data-page-head="compact"] h1')).toHaveCSS("font-size", "20px");
+        }
+        await page.goto(`/sk/dashboard${q}`);
+        const bar = page.locator("[data-save-bar]");
+        if (await bar.count()) {
+          await expect(bar.getByRole("button").last()).toHaveCSS("min-height", "52px");
+          // a change counts; Zrušiť puts the form back
+          const name = page.locator('input[name="name"]');
+          await name.fill(`${await name.inputValue()} x`);
+          await expect(bar.locator("[data-unsaved]")).toHaveAttribute("data-unsaved", "1");
+          await bar.getByRole("button").first().click();
+          await expect(bar.locator("[data-unsaved]")).toHaveAttribute("data-unsaved", "0");
+        }
+      });
     }
 
     if (size.name === "phone") {

@@ -558,7 +558,9 @@
     "error_special_ranges": "Enter a time from – to (e.g. 8:00 – 12:00) or choose Closed all day.",
     "error_special_none": "Select at least one day.",
     "col_description": "Description",
-    "col_category": "Category"
+    "col_category": "Category",
+    "unsaved": "Unsaved changes: {n}",
+    "cancel_changes": "Cancel"
   },
   "plan": {
     "title": "Plan",
@@ -3395,6 +3397,7 @@
     "admin_title": "Legal information",
     "admin_intro": "Texts for your Legal information page – on your own domain (/pravne-informacie) and on your Cacaduu address. They are shown exactly as you write them.",
     "admin_view": "View the page",
+    "texts_title": "Texts for your customers",
     "admin_company_hint": "The company name, IDs and address come from the shop details.",
     "admin_company_link": "Edit the shop details",
     "admin_email": "E-mail for questions about personal data",

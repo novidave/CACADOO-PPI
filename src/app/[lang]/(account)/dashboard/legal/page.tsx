@@ -7,9 +7,12 @@ import { requireUser } from "@/lib/auth";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { hiddenFields, inputClass, ShopSwitcher } from "../shared";
+import { SaveBar } from "@/components/owner/SaveBar";
+import { cardClass, textareaClass } from "@/components/owner/ui";
+import { hiddenFields, inputClass, saveLabels, ShopSwitcher } from "../shared";
 import { OWNER_FIELDS } from "@/lib/domains";
 import { saveCompany, saveLegalPage, saveOperator } from "./actions";
+import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/legal">): Promise<Metadata> {
   const { lang } = await params;
@@ -61,17 +64,17 @@ export default async function LegalAdminPage({ params, searchParams }: PageProps
   const err = first(sp.err);
   const view = `/${lang}/shops/${shop.slug}/pravne-informacie`;
   const field = (name: "privacy" | "terms" | "complaints", label: string, hint: string) => (
-    <label className="flex flex-col gap-1">
-      <span className="font-semibold">{label}</span>
-      <span className="text-sm text-muted">{hint}</span>
-      <textarea name={name} rows={10} maxLength={30000} defaultValue={row?.[name] ?? ""} className={`${inputClass} text-[15px]`} />
+    <label className="flex flex-col gap-1.5">
+      <span className="text-sm font-semibold">{label}</span>
+      <span className="text-[13px] text-muted">{hint}</span>
+      <textarea name={name} rows={10} maxLength={30000} defaultValue={row?.[name] ?? ""} className={`${textareaClass} text-[15px]`} />
     </label>
   );
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
+    <div className="flex max-w-5xl flex-col gap-5">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{l.admin_title}</h1>
+        <PageTitle>{l.admin_title}</PageTitle>
         <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/legal?shop=${slug}`} />
         {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
         <p className="text-sm">{l.admin_intro}</p>
@@ -87,22 +90,25 @@ export default async function LegalAdminPage({ params, searchParams }: PageProps
       {err && <p role="alert" className="border border-line p-3">{texts[err] ?? l.err_failed}</p>}
       {error && <p className="border border-line p-3 text-sm">{l.unavailable}</p>}
 
+      {/* artboard 16: the company and the operator on the left, the texts for the customers on the right */}
+      <div className="grid gap-[18px] lg:grid-cols-2 lg:items-start">
+      <div className="flex min-w-0 flex-col gap-[18px]">
       {/* Firma (back-end layout L2: moved here from Údaje obchodu) */}
-      <section id="company" className="flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4" data-legal-company>
-        <h2 className="text-[17px] font-bold">{l.company_form_title}</h2>
+      <section id="company" className={`${cardClass} scroll-mt-4`} data-legal-company>
+        <h2 className="text-[19px] font-bold">{l.company_form_title}</h2>
         <p className="text-sm text-muted">{l.company_form_hint}</p>
         <form action={saveCompany} className="flex flex-col gap-3">
           {hidden()}
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1.5">
             <span className="text-sm font-semibold">{dict.owner.company_name}</span>
             <input name="company_name" maxLength={200} autoComplete="organization" defaultValue={shop.company_name ?? ""} className={inputClass} />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1.5">
               <span className="text-sm font-semibold">{dict.owner.ico}</span>
               <input name="ico" maxLength={40} defaultValue={shop.ico ?? ""} className={inputClass} />
             </label>
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1.5">
               <span className="text-sm font-semibold">{dict.owner.dic}</span>
               <input name="dic" maxLength={20} defaultValue={shop.dic ?? ""} className={inputClass} />
             </label>
@@ -113,13 +119,13 @@ export default async function LegalAdminPage({ params, searchParams }: PageProps
 
       {/* Údaje pre vlastnú doménu (shop_legal, update 25; the domain wizard asks for the missing ones too) */}
       {operator && (
-        <section id="operator" className="flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4" data-legal-operator>
-          <h2 className="text-[17px] font-bold">{l.domain_owner_title}</h2>
+        <section id="operator" className={`${cardClass} scroll-mt-4`} data-legal-operator>
+          <h2 className="text-[19px] font-bold">{l.domain_owner_title}</h2>
           <p className="text-sm text-muted">{l.domain_owner_hint}</p>
           <form action={saveOperator} className="grid gap-3 sm:grid-cols-2">
             {hidden()}
             {OWNER_FIELDS.map((name) => (
-              <label key={name} className={`flex flex-col gap-1 ${name === "company_name" || name === "street" ? "sm:col-span-2" : ""}`}>
+              <label key={name} className={`flex flex-col gap-1.5 ${name === "company_name" || name === "street" ? "sm:col-span-2" : ""}`}>
                 <span className="text-sm font-semibold">{domainTexts[`field_${name}`] as string}</span>
                 <input name={name} maxLength={name === "country" ? 2 : 200} defaultValue={operator[name] ?? ""} className={inputClass} />
               </label>
@@ -131,19 +137,23 @@ export default async function LegalAdminPage({ params, searchParams }: PageProps
         </section>
       )}
 
-      <form action={saveLegalPage} className="flex flex-col gap-4" data-legal-form>
+      </div>
+
+      <form action={saveLegalPage} className={`${cardClass} min-w-0`} data-legal-form>
         {hidden()}
-        <label className="flex flex-col gap-1">
-          <span className="font-semibold">{l.admin_email}</span>
-          <span className="text-sm text-muted">{l.admin_email_hint}</span>
+        <h2 className="text-[19px] font-bold">{l.texts_title}</h2>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-semibold">{l.admin_email}</span>
+          <span className="text-[13px] text-muted">{l.admin_email_hint}</span>
           <input type="email" name="contact_email" maxLength={254} defaultValue={row?.contact_email ?? ""} placeholder={shop.email ?? ""} className={inputClass} />
         </label>
         {field("privacy", l.privacy_title, l.admin_privacy_hint)}
         {field("terms", l.terms_title, l.admin_terms_hint)}
         {field("complaints", l.complaints_title, l.admin_complaints_hint)}
         <p className="text-sm text-muted">{l.admin_as_written}</p>
-        <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
+        <SaveBar labels={saveLabels(dict)} />
       </form>
+      </div>
     </div>
   );
 }

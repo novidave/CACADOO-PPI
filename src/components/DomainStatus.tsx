@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { buttonClass } from "@/components/owner/ui";
 
 type Labels = Record<string, string> & { status: Record<string, string> };
 
@@ -116,7 +117,7 @@ export function DomainStatus({
           </p>
         )}
         <div className="flex flex-wrap gap-2">
-          <a href={url} className="rounded border border-foreground px-4 py-2 font-medium" data-open-site>
+          <a href={url} className={buttonClass} data-open-site>
             {labels.open_site}
           </a>
           <a href={GOOGLE_PROFILE_URL} target="_blank" rel="noopener" className="rounded border border-line px-4 py-2">
@@ -191,7 +192,7 @@ export function DomainStatus({
         </>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={recheck} disabled={checking} className="rounded border border-foreground px-4 py-2 font-medium disabled:text-muted" data-recheck>
+        <button type="button" onClick={recheck} disabled={checking} className={buttonClass} data-recheck>
           {checking ? labels.checking : labels.check_button}
         </button>
         {note && <span role="status">{note}</span>}

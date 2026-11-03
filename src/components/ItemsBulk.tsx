@@ -14,6 +14,7 @@ import {
   translateItems,
 } from "@/app/[lang]/(account)/dashboard/translationActions";
 import { applyExportEdits } from "@/app/[lang]/(account)/sync/exportActions";
+import { buttonClass } from "@/components/owner/ui";
 
 const UNDO_MS = 30_000;
 const PART = 1000;
@@ -477,7 +478,7 @@ export function ItemsBulk({
             <span>{labels.delete_never}</span>
           </label>
           <div className="flex gap-3">
-            <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium" data-items-delete-confirm>
+            <button type="submit" className={buttonClass} data-items-delete-confirm>
               {labels.delete_confirm}
             </button>
             <button type="button" className="underline underline-offset-4" onClick={() => setDeleting(false)}>
@@ -528,7 +529,7 @@ export function ItemsBulk({
             </div>
             <p className="text-xs text-muted">{labels.download_hint}</p>
             <div className="flex gap-3">
-              <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium" disabled={download.ids.length === 0} data-download-go>
+              <button type="submit" className={buttonClass} disabled={download.ids.length === 0} data-download-go>
                 {labels.download_go}
               </button>
               <button type="button" className="underline underline-offset-4" onClick={() => setDownload(null)}>

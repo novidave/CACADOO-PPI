@@ -20,6 +20,7 @@ import {
   setFolderAccess,
   setFolderKey,
 } from "./docActions";
+import { fieldClass } from "@/components/owner/ui";
 
 export type Supabase = NonNullable<Awaited<ReturnType<typeof getSession>>>["supabase"];
 
@@ -69,7 +70,7 @@ interface Links {
   limits?: { files: number; pages: number; pictures: number };
 }
 
-const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+const inputClass = fieldClass; // back-end layout L3 (@/components/owner/ui)
 
 function languageName(code: string | null, lang: Locale): string | null {
   if (!code) return null;

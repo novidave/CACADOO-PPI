@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
+import { ghostClass } from "@/components/owner/ui";
 
 /** One stock file report (public.stock_imports), with its times already written in the shop's time zone. */
 export interface ImportView {
@@ -184,7 +185,7 @@ export function RecentImports({ imports, labels }: { imports: ImportView[]; labe
                 type="button"
                 onClick={() => step(-1)}
                 disabled={index === 0}
-                className="rounded border border-line px-3 py-2 disabled:opacity-40"
+                className={`${ghostClass} disabled:opacity-40`}
               >
                 ← {labels.newer}
               </button>
@@ -192,7 +193,7 @@ export function RecentImports({ imports, labels }: { imports: ImportView[]; labe
                 type="button"
                 onClick={() => step(1)}
                 disabled={index === imports.length - 1}
-                className="rounded border border-line px-3 py-2 disabled:opacity-40"
+                className={`${ghostClass} disabled:opacity-40`}
               >
                 {labels.older} →
               </button>

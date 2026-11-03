@@ -11,6 +11,7 @@ import {
 } from "@/app/[lang]/(account)/dashboard/translationActions";
 import { cellKey, lacking, PAGE_TEXT_GROUPS, replaceable, STATES, type Cell, type CellState, type PageTextRow } from "@/lib/translations";
 import type { TranslationsLabels } from "./TranslationsTable";
+import { buttonClass, textareaClass } from "@/components/owner/ui";
 
 export interface PageTextsLabels extends TranslationsLabels {
   groups: Record<string, string>;
@@ -297,7 +298,7 @@ export function PageTextsTable({ shopId, langs, labels }: { shopId: string; lang
                                 onChange={(e) => setEditing({ key, text: e.target.value })}
                                 rows={Math.min(8, Math.max(2, Math.ceil(row.source.length / 60)))}
                                 lang={c.lang}
-                                className="rounded border border-line px-3 py-2"
+                                className={textareaClass}
                                 data-edit-text
                               />
                               <div className="flex gap-3 text-sm">
@@ -412,7 +413,7 @@ export function PageTextsTable({ shopId, langs, labels }: { shopId: string; lang
             <span>{labels.delete_never}</span>
           </label>
           <div className="flex gap-3">
-            <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium" data-delete-confirm>
+            <button type="submit" className={buttonClass} data-delete-confirm>
               {labels.delete_confirm}
             </button>
             <button type="button" className="underline underline-offset-4" onClick={() => setDeleting(null)}>

@@ -104,19 +104,19 @@ export function DashboardSection({
         open={initiallyOpen}
         onToggle={remember}
         suppressHydrationWarning
-        className="group scroll-mt-4 border-b border-line"
+        className="group scroll-mt-4 rounded-2xl border border-[#E4E4E4] bg-white px-[18px]"
       >
-        <summary className="flex cursor-pointer list-none items-start justify-between gap-3 py-3 [&::-webkit-details-marker]:hidden">
+        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 py-3 [&::-webkit-details-marker]:hidden">
           <span className="flex min-w-0 flex-col gap-0.5">
-            <h2 className="text-lg font-semibold">{title}</h2>
+            <h2 className="text-[19px] font-bold">{title}</h2>
             {summary && <span className="text-sm text-muted group-open:hidden">{summary}</span>}
           </span>
-          <span aria-hidden="true" className="pt-1 text-lg leading-none">
+          <span aria-hidden="true" className="flex size-11 flex-none items-center justify-center rounded-xl border border-[#E4E4E4] text-xl leading-none">
             <span className="group-open:hidden">+</span>
             <span className="hidden group-open:inline">−</span>
           </span>
         </summary>
-        <div className="flex min-w-0 flex-col gap-3 pb-6">{children}</div>
+        <div className="flex min-w-0 flex-col gap-3.5 pb-[18px]">{children}</div>
       </details>
       <script dangerouslySetInnerHTML={{ __html: openScript(id, first, forceOpen, collapsed) }} suppressHydrationWarning />
     </>

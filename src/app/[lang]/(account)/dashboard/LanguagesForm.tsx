@@ -1,6 +1,7 @@
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { saveLanguages } from "./translationActions";
 import { SubmitButton } from "./shared";
+import { fieldClass } from "@/components/owner/ui";
 
 /** owner_language_settings() (database update 40). */
 export interface LanguageSettings {
@@ -38,7 +39,7 @@ export function LanguagesForm({
       {hidden()}
       <label className="flex flex-col gap-1">
         <span className="font-semibold">{o.main_label}</span>
-        <select name="main_lang" defaultValue={settings.main_lang} className="rounded border border-line px-3 py-2" data-main-lang>
+        <select name="main_lang" defaultValue={settings.main_lang} className={fieldClass} data-main-lang>
           {all.map((l) => (
             <option key={l.code} value={l.code}>
               {l.native}
@@ -63,7 +64,7 @@ export function LanguagesForm({
 
       <label className="flex flex-col gap-1">
         <span className="font-semibold">{o.domain_label}</span>
-        <select name="domain_lang" defaultValue={settings.domain_lang ?? ""} className="rounded border border-line px-3 py-2" data-domain-lang>
+        <select name="domain_lang" defaultValue={settings.domain_lang ?? ""} className={fieldClass} data-domain-lang>
           <option value="">{o.domain_main}</option>
           {all.map((l) => (
             <option key={l.code} value={l.code}>

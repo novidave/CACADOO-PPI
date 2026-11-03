@@ -27,6 +27,7 @@ import {
 import { videoSlide, type PostVideo, type VideoTarget } from "@/lib/video";
 import { saveContent } from "@/app/[lang]/(account)/dashboard/sectionActions";
 import { ContentSlider } from "./ContentSlider";
+import { fieldClass } from "@/components/owner/ui";
 
 type Text = Dictionary["content"];
 
@@ -256,7 +257,7 @@ export function ContentEditor({
   };
   const leftForm = new Intl.PluralRules(lang).select(left);
   const leftText = fill(leftForm === "one" ? text.left_one : leftForm === "few" ? text.left_few : text.left_other, { n: left });
-  const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const input = fieldClass;
   const sliderTitle = title.trim() || text.default_title;
 
   return (

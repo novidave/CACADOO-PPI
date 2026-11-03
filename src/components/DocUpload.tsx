@@ -6,6 +6,7 @@ import type { Dictionary } from "@/i18n/dictionaries";
 import { functionFailure } from "@/lib/functionError";
 import { createClient } from "@/lib/supabase/client";
 import { canvasBlob, fitCanvas, openPdf, pagePicture, readPage, type PdfPicture } from "@/lib/pdfRead";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 type Labels = Dictionary["docs"];
 export interface FolderOption {
@@ -159,7 +160,7 @@ function useWork(shopId: string, labels: Labels) {
   return { status, setStatus, start };
 }
 
-const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+const inputClass = fieldClass;
 
 function FolderSelect({ folders, labels, name = "folder" }: { folders: FolderOption[]; labels: Labels; name?: string }) {
   return (
@@ -457,7 +458,7 @@ export function DocUpload({
       <FolderSelect folders={folders} labels={labels} />
       <p className="text-sm text-muted">{labels.pdf_hint}</p>
       <p className="text-sm text-muted">{labels.pictures_hint}</p>
-      <button type="submit" disabled={busy || files.length === 0} className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:text-muted" data-doc-submit>
+      <button type="submit" disabled={busy || files.length === 0} className={`self-start ${buttonClass}`} data-doc-submit>
         {busy ? labels.uploading : files.length > 1 ? fill(labels.upload_n, { n: files.length }) : labels.upload}
       </button>
       {work.status && (

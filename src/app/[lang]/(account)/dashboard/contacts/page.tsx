@@ -247,7 +247,7 @@ function Templates({
       <h2 className="text-[17px] font-bold">{a.templates_title}</h2>
       <p className="text-sm text-muted">{a.templates_intro}</p>
       {templates.length === 0 && <p className="text-sm text-muted">{c.template_none}</p>}
-      <div className="flex flex-col border-t border-line">
+      <div className="flex flex-col gap-3">
         {templates.map((tpl) => (
           <details key={tpl.id} className="border-b border-line py-3" data-template={tpl.id}>
             <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3">

@@ -1,3 +1,4 @@
+import { buttonClass, Field as OwnerField, fieldClass } from "@/components/owner/ui";
 import Link from "next/link";
 import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
@@ -198,21 +199,22 @@ export function ShopSwitcher({
   );
 }
 
-export const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+/** The save bar's words (@/components/owner/SaveBar): "Neuložené zmeny: n" · Zrušiť · Uložiť / the form's own label. */
+export function saveLabels(dict: Dictionary, save: string = dict.account.save) {
+  return { unsaved: dict.owner.unsaved, cancel: dict.owner.cancel_changes, save, saving: dict.owner.saving };
+}
+
+/** Back-end layout L3: the owner pages' field (52 px, radius 12, 17 px; @/components/owner/ui). */
+export const inputClass = fieldClass;
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-sm">{label}</span>
-      {children}
-    </label>
-  );
+  return <OwnerField label={label}>{children}</OwnerField>;
 }
 
 export function SubmitButton({ children, pending }: { children: React.ReactNode; pending?: string }) {
   if (pending) return <PendingButton pending={pending}>{children}</PendingButton>;
   return (
-    <button type="submit" className="self-start rounded border border-foreground px-4 py-2 font-medium">
+    <button type="submit" className={`self-start ${buttonClass}`}>
       {children}
     </button>
   );

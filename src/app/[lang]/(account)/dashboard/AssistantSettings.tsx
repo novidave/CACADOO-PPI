@@ -6,6 +6,7 @@ import type { FoodTab } from "@/lib/foodOwner";
 import type { MyShop } from "@/lib/myShops";
 import { CalendarFeedForm } from "@/components/CalendarFeedForm";
 import { PendingButton } from "@/components/PendingButton";
+import { cardClass, ghostClass } from "@/components/owner/ui";
 import { saveAssistantTexts } from "./actions";
 import { connectGoogle, disconnectGoogle } from "./bookings/actions";
 import {
@@ -43,9 +44,12 @@ export const BOOKING_PARTS = ["messages", "rules", "services", "resources", "blo
 /** The parts AI asistent → Nastavenia keeps. */
 export const ASSISTANT_PARTS = ["orders", "texts", "folders"];
 
-const card = "flex scroll-mt-4 flex-col gap-3 rounded-xl border border-line p-4";
-const ghost = "min-h-11 rounded-[10px] border border-line bg-white px-4 text-[15px] font-semibold";
-const check = "h-5 w-5 shrink-0 accent-foreground";
+// back-end layout L3: the shared card, the second button and the on/off switch (@/components/owner/ui, .ppi-toggle);
+// a pick from a list (which resources, which services) stays a plain tick box
+const card = `${cardClass} scroll-mt-4`;
+const ghost = ghostClass;
+const toggle = "ppi-toggle";
+const check = "h-6 w-6 shrink-0 accent-foreground";
 
 /**
  * Asistent → Nastavenia (update 63, the Šablóny/Nastavenia screen): the assistant's texts, "Automatické správy" (the
@@ -148,13 +152,13 @@ export function AssistantSettings({
                 <br />
                 <span className="text-[13px] text-muted">{a.auto_code_hint}</span>
               </span>
-              <input type="checkbox" checked disabled aria-label={a.auto_code} className={check} />
+              <input type="checkbox" checked disabled aria-label={a.auto_code} className={toggle} />
             </div>
             <form action={saveCrmSettings} className="flex flex-col gap-3">
               {hidden({ part: "messages" })}
-              <label className="flex min-h-11 items-center justify-between gap-3 text-[15px]">
+              <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
                 {a.auto_reminder}
-                <input type="checkbox" name="reminder_on" defaultChecked={setup.crm.reminder_on} disabled={ro} className={check} />
+                <input type="checkbox" name="reminder_on" defaultChecked={setup.crm.reminder_on} disabled={ro} className={toggle} />
               </label>
               <label className="flex flex-col gap-1 text-[13px] text-muted">
                 {a.auto_when}
@@ -163,9 +167,9 @@ export function AssistantSettings({
                   <option value="day_before_18">{a.auto_day_before}</option>
                 </select>
               </label>
-              <label className="flex min-h-11 items-center justify-between gap-3 text-[15px]">
+              <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
                 {a.auto_owner_change}
-                <input type="checkbox" name="notify_on_owner_change" defaultChecked={setup.crm.notify_on_owner_change} disabled={ro} className={check} />
+                <input type="checkbox" name="notify_on_owner_change" defaultChecked={setup.crm.notify_on_owner_change} disabled={ro} className={toggle} />
               </label>
               <label className="flex flex-col gap-1 text-[15px]">
                 {a.auto_alert_email}
@@ -185,9 +189,9 @@ export function AssistantSettings({
             {notice("rules")}
             <form action={saveBookingRules} className="flex flex-col gap-3">
               {hidden({ part: "rules" })}
-              <label className="flex min-h-11 items-center justify-between gap-3 text-[15px] font-semibold">
+              <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
                 {a.rules_enabled}
-                <input type="checkbox" name="enabled" defaultChecked={setup.rules.enabled} disabled={ro} className={check} />
+                <input type="checkbox" name="enabled" defaultChecked={setup.rules.enabled} disabled={ro} className={toggle} />
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <Field label={a.rules_min_notice}>
@@ -257,17 +261,20 @@ export function AssistantSettings({
                     <Field label={a.service_note}>
                       <input name="note" maxLength={300} defaultValue={s?.note ?? ""} disabled={ro} className={inputClass} />
                     </Field>
-                    <label className="flex min-h-11 items-center gap-3 text-[15px]">
-                      <input type="checkbox" name="active" defaultChecked={s?.active ?? true} disabled={ro} className={check} /> {a.service_active}
+                    <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
+                      {a.service_active}
+                      <input type="checkbox" name="active" defaultChecked={s?.active ?? true} disabled={ro} className={toggle} />
                     </label>
-                    <label className="flex min-h-11 items-center gap-3 text-[15px]">
-                      <input type="checkbox" name="offered_by_assistant" defaultChecked={s?.offered_by_assistant ?? true} disabled={ro} className={check} /> {a.service_assistant}
+                    <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
+                      {a.service_assistant}
+                      <input type="checkbox" name="offered_by_assistant" defaultChecked={s?.offered_by_assistant ?? true} disabled={ro} className={toggle} />
                     </label>
                     {setup.resources.length > 0 && (
                       <fieldset className="flex flex-col gap-1">
                         <legend className="text-sm">{a.service_resources}</legend>
-                        <label className="flex min-h-11 items-center gap-3 text-[15px]">
-                          <input type="checkbox" name="needs_resource" defaultChecked={s?.needs_resource ?? false} disabled={ro} className={check} /> {a.service_needs_resource}
+                        <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
+                          {a.service_needs_resource}
+                          <input type="checkbox" name="needs_resource" defaultChecked={s?.needs_resource ?? false} disabled={ro} className={toggle} />
                         </label>
                         {setup.resources.map((r) => (
                           <label key={r.id} className="flex min-h-11 items-center gap-3 pl-8 text-[15px]">
@@ -323,8 +330,9 @@ export function AssistantSettings({
                         <option value="room">{a.kind_room}</option>
                       </select>
                     </Field>
-                    <label className="flex min-h-11 items-center gap-3 text-[15px]">
-                      <input type="checkbox" name="active" defaultChecked={r?.active ?? true} disabled={ro} className={check} /> {a.service_active}
+                    <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
+                      {a.service_active}
+                      <input type="checkbox" name="active" defaultChecked={r?.active ?? true} disabled={ro} className={toggle} />
                     </label>
                     {setup.services.length > 0 && (
                       <fieldset className="flex flex-col gap-1">

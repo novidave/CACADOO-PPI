@@ -558,7 +558,9 @@
     "error_special_ranges": "Adja meg az időt ettől – eddig (pl. 8:00 – 12:00), vagy válassza az Egész nap zárva lehetőséget.",
     "error_special_none": "Jelöljön ki legalább egy napot.",
     "col_description": "Leírás",
-    "col_category": "Kategória"
+    "col_category": "Kategória",
+    "unsaved": "Nem mentett változások: {n}",
+    "cancel_changes": "Mégse"
   },
   "plan": {
     "title": "Csomag",
@@ -3395,6 +3397,7 @@
     "admin_title": "Jogi információk",
     "admin_intro": "Szövegek a Jogi információk oldalához – a saját domainen (/pravne-informacie) és a Cacaduu-címen is. Pontosan úgy jelennek meg, ahogy megírja őket.",
     "admin_view": "Az oldal megtekintése",
+    "texts_title": "Szövegek a vásárlóknak",
     "admin_company_hint": "A cégnév, a cégjegyzékszám, az adószám és a cím az üzlet adataiból származik.",
     "admin_company_link": "Az üzlet adatainak szerkesztése",
     "admin_email": "E-mail a személyes adatokkal kapcsolatos kérdésekhez",

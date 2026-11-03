@@ -8,6 +8,7 @@ import { PendingButton } from "@/components/PendingButton";
 import { retryCloudExport } from "./cloudActions";
 import { bulkConversations, deleteConversation, saveShopperPdf, starConversation } from "./conversationActions";
 import type { Supabase } from "./ShopDocuments";
+import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 const PAGE_SIZE = 20;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -300,7 +301,7 @@ export function Conversations({
     `/${lang}/dashboard/crm?${new URLSearchParams({ shop: shop.slug, at: "conversations", ...filterQuery(filter, page) })}#conversations`;
   // The forms come back to the same list (filters and page kept).
   const back = new URLSearchParams(filterQuery(filter)).toString();
-  const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+  const input = fieldClass;
   const check = "h-4 w-4 accent-foreground";
   const action = "rounded border border-line px-3 py-1 text-sm font-medium";
 
@@ -385,7 +386,7 @@ export function Conversations({
             </div>
           )}
           <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium">
+            <button type="submit" className={buttonClass}>
               {c.filter}
             </button>
             {filtered && (
@@ -583,7 +584,7 @@ export function Conversations({
               <span className="text-sm">{c.to}</span>
               <input type="date" name="to" required defaultValue={filter.to} className={input} />
             </label>
-            <button type="submit" className="rounded border border-foreground px-4 py-2 font-medium" data-export-csv>
+            <button type="submit" className={buttonClass} data-export-csv>
               {c.export_csv}
             </button>
           </div>

@@ -6,6 +6,7 @@ import { BulkSelectBar } from "@/components/BulkSelectBar";
 import { PendingButton } from "@/components/PendingButton";
 import { deleteSpecialDays, deleteSpecialHours, holidayChoice, saveSpecialHours, setAutoHolidays } from "./holidayActions";
 import type { Supabase } from "./ShopDocuments";
+import { fieldClass } from "@/components/owner/ui";
 
 interface SpecialRow {
   date: string;
@@ -63,7 +64,7 @@ export function holidaysSummary(data: HolidaysData | null, dict: Dictionary): st
   return t(dict.holidays.summary, { state: data.auto ? dict.holidays.auto_on : dict.holidays.auto_off, n: upcoming });
 }
 
-const inputClass = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
+const inputClass = fieldClass; // back-end layout L3 (@/components/owner/ui)
 const hoursText = (ranges: [string, string][]) => ranges.map(([a, b]) => `${displayTime(a)}–${displayTime(b)}`).join(", ");
 
 /** Môj obchod → "Sviatky a mimoriadne zatvorenie" (every shop, free or paid). */

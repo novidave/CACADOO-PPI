@@ -6,6 +6,8 @@ import { getDictionary, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import type { MyShop } from "@/lib/myShops";
 import { SkladScanner } from "@/components/SkladScanner";
+import { itemTabs, PageHead } from "@/components/owner/PageHead";
+import { buttonClass, cardClass, ghostClass } from "@/components/owner/ui";
 import { chooseShop } from "../contacts/parts";
 import { hiddenFields, ShopSwitcher } from "../shared";
 
@@ -63,6 +65,7 @@ export function SkladShell({
   current,
   source,
   dict,
+  work = false,
   children,
 }: {
   lang: Locale;
@@ -72,57 +75,39 @@ export function SkladShell({
   current: SkladTab;
   source: string | null;
   dict: Dictionary;
+  /** A work screen (Predaj, the Príjemka editor, Inventúra counting): the compact one-row head (back-end layout). */
+  work?: boolean;
   children: ReactNode;
 }) {
   const base = `/${lang}/dashboard/sklad`;
   const q = `?${new URLSearchParams({ shop: shop.slug })}`;
-  const tabs: { key: SkladTab; href: string; label: string }[] = [
-    { key: "overview", href: `${base}${q}`, label: s.tab_overview },
-    { key: "sale", href: `${base}/sale${q}`, label: s.tab_sale },
-    // back-end layout L2: Prehľad · Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia (ITEM_TABS.sklad)
-    { key: "products", href: `${base}/products${q}`, label: s.tab_products },
-    { key: "receipts", href: `${base}/receipts${q}`, label: s.tab_receipts },
-    { key: "counts", href: `${base}/counts${q}`, label: s.tab_counts },
-    { key: "movements", href: `${base}/movements${q}`, label: s.tab_movements },
-    { key: "settings", href: `${base}/settings${q}`, label: s.tab_settings },
-  ];
+  // back-end layout L2/L3: Prehľad · Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia (ITEM_TABS.sklad),
+  // drawn by the shared PageHead
+  const tabs = itemTabs(dict, lang, "sklad", shop.slug);
+  const scanner = (
+    <SkladScanner
+      scanUrl={`${base}/scan`}
+      shop={shop.slug}
+      labels={{
+        scan: s.scan,
+        title: s.scan_title,
+        hint: s.scan_hint,
+        close: s.scan_close,
+        torch: s.scan_torch,
+        manual: s.scan_manual,
+        manual_go: s.scan_manual_go,
+        no_camera: s.scan_no_camera,
+        loading: s.scan_loading,
+        found: s.scan_found,
+      }}
+    />
+  );
   return (
-    <div className="flex max-w-5xl flex-col gap-4" data-sklad={current}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-[26px] font-bold">{s.title}</h1>
-        <SkladScanner
-          scanUrl={`${base}/scan`}
-          shop={shop.slug}
-          labels={{
-            scan: s.scan,
-            title: s.scan_title,
-            hint: s.scan_hint,
-            close: s.scan_close,
-            torch: s.scan_torch,
-            manual: s.scan_manual,
-            manual_go: s.scan_manual_go,
-            no_camera: s.scan_no_camera,
-            loading: s.scan_loading,
-            found: s.scan_found,
-          }}
-        />
-      </div>
-      <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={(slug) => `${base}${current === "overview" ? "" : `/${current}`}?shop=${slug}`} />
-      {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
-      <nav aria-label={s.tabs_label} className="flex gap-5 overflow-x-auto whitespace-nowrap border-b border-line">
-        {tabs.map((t) => (
-          <Link
-            key={t.key}
-            href={t.href}
-            aria-current={t.key === current ? "page" : undefined}
-            className={`flex min-h-11 flex-none items-center border-b-2 px-0.5 text-[15px] font-semibold ${
-              t.key === current ? "border-foreground text-foreground" : "border-transparent text-muted"
-            }`}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
+    <div className={`flex flex-col gap-4 ${work ? "" : "max-w-5xl"}`} data-sklad={current}>
+      <PageHead title={s.title} item="sklad" tabs={tabs} current={current} tabsLabel={s.tabs_label} actions={scanner} compact={work}>
+        <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={(slug) => `${base}${current === "overview" ? "" : `/${current}`}?shop=${slug}`} />
+        {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
+      </PageHead>
       {source && source !== "sklad" && current !== "settings" && (
         <p className="rounded-xl border border-line bg-[#F7F7F7] p-3 text-sm" data-sklad-not-source>
           {s.not_source}{" "}
@@ -156,6 +141,7 @@ export function PlanCounter({ s, products, limit, planHref }: { s: SkladTexts; p
   );
 }
 
-export const btn = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-foreground bg-foreground px-4 text-[15px] font-bold text-white";
-export const btnGhost = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-[#D6D6D6] bg-white px-4 text-[15px] font-bold text-foreground";
-export const card = "flex flex-col gap-3 rounded-xl border border-line p-4";
+// back-end layout L3: the shared parts (@/components/owner/ui) — 52 px buttons, the 16 px card
+export const btn = buttonClass;
+export const btnGhost = ghostClass;
+export const card = cardClass;

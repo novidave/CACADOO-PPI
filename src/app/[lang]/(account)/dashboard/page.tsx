@@ -10,27 +10,19 @@ import { DashboardSection } from "@/components/DashboardSection";
 import { DbError } from "@/components/DbError";
 import { LogoInput } from "@/components/LogoInput";
 import { ShopForm } from "@/components/ShopForm";
+import { ghostClass } from "@/components/owner/ui";
 import { deleteShop, saveShop, uploadLogo } from "./actions";
 import { errorText, hiddenFields, messages, SubmitButton } from "./shared";
 import { Holidays, holidaysSummary, loadHolidays } from "./Holidays";
 import { loadSiteLogo, siteLogoSummary, SiteLogoPanel } from "./SiteLogoPanel";
-
-/** The shop's row in subscriptions (written only by the Stripe functions). */
-interface PlanRow {
-  status: string;
-  plan: string | null;
-  current_period_end: string | null;
-  cancel_at: string | null;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-}
+import { PageTitle } from "@/components/owner/PageHead";
 
 function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
 /**
- * The shop owner's own area (self-service): create shops, edit details, holidays and logo, the plan, delete the
+ * The shop owner's own area (self-service): create shops, edit details, holidays and logo, delete the
  * shop. The stock file's columns and the items are on "Jazyky a inventár" (/dashboard/translations). The
  * assistant has its own page ("AI asistent", /dashboard/assistant) and so has the export
  * folder ("Priečinok s exportom", /sync). Every main section is a dropdown with a summary
@@ -65,7 +57,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
               ← {dict.account.dashboard}
             </Link>
           )}
-          <h1 className="text-2xl font-semibold tracking-tight">{o.create_title}</h1>
+          <PageTitle>{o.create_title}</PageTitle>
           <p className="text-muted">{o.create_intro}</p>
           {ok === "deleted" && <p className="border border-foreground p-3 font-medium">{o.deleted}</p>}
           {err && <p className="border border-line p-3">{errorText(dict, err)}</p>}
@@ -83,13 +75,8 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
   }
 
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
-  const [planRow, hasPlan, holidays, header, stockState] = await Promise.all([
-    supabase
-      .from("subscriptions")
-      .select("status, plan, current_period_end, cancel_at, stripe_customer_id, stripe_subscription_id")
-      .eq("shop_id", shop.id)
-      .maybeSingle(),
-    supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
+  // back-end layout L3: the plan box moved to "Predplatné a doména" (/dashboard/plan)
+  const [holidays, header, stockState] = await Promise.all([
     // "Sviatky a mimoriadne zatvorenie" (database update 27; null before it).
     loadHolidays(supabase, shop),
     // "Logo v hlavičke webu" (database update 31; null before it).
@@ -98,9 +85,6 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     supabase.rpc("owner_inventory_state", { p_shop_id: shop.id }),
   ]);
   const needsFile = !stockState.error && (stockState.data as { needs_file?: boolean } | null)?.needs_file === true;
-  // The database decides whether the shop has the paid plan; before database update 18
-  // the Plan section only says that paid plans are not available yet.
-  const plan = planRow.error || hasPlan.error ? null : { row: planRow.data as PlanRow | null, active: hasPlan.data === true };
   const hidden = hiddenFields(lang, shop);
   const m = messages(dict, sp);
   const { at, okText, notice, section } = m;
@@ -111,33 +95,26 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
     holidays: holidaysSummary(holidays, dict),
     logo: shop.logo_url ? d.summary_logo : d.summary_no_logo,
     header: siteLogoSummary(header, dict),
-    plan: plan ? (plan.active ? dict.plan.pro : dict.plan.free) : dict.plan.unavailable,
   };
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
+    <div className="flex max-w-5xl flex-col gap-6">
+      {/* artboard 9: "Môj obchod" + the shop's name; the shop switcher and "+ Pridať obchod" are the menu's */}
       <header className="flex flex-col gap-2">
-        <nav className="flex flex-wrap gap-3 text-sm" aria-label={d.shop}>
-          {shops.length > 1 &&
-            shops.map((s) => (
-              <Link
-                key={s.id}
-                href={`/${lang}/dashboard?shop=${s.slug}`}
-                className={s.id === shop.id ? "font-semibold underline underline-offset-4" : "text-muted hover:underline"}
-              >
-                {s.name}
-              </Link>
-            ))}
-          <Link href={`/${lang}/dashboard?new=1`} className="text-muted hover:underline">
-            {o.add_shop}
-          </Link>
-        </nav>
-        <h1 className="text-2xl font-semibold tracking-tight">{shop.name}</h1>
-        {shop.is_active && (
-          <Link href={`/${lang}/shops/${shop.slug}`} className="text-sm underline underline-offset-4">
-            {d.view_public}
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PageTitle>{dict.nav.shop}</PageTitle>
+          <a href="#holidays" className={ghostClass} data-holidays-link>
+            {dict.holidays.title}
+          </a>
+        </div>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px]">
+          <strong>{shop.name}</strong>
+          {shop.is_active && (
+            <Link href={`/${lang}/shops/${shop.slug}`} className="underline underline-offset-4">
+              {d.view_public}
+            </Link>
+          )}
+        </p>
         {needsFile && (
           <div className="flex flex-col gap-1 border border-foreground p-3" data-needs-file>
             <p className="font-semibold">{dict.reset.upload_new_title}</p>
@@ -170,7 +147,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
         {err && !at && <p className="border border-line p-3">{errorText(dict, err)}</p>}
       </header>
 
-      <div className="flex flex-col border-t border-line">
+      <div className="flex flex-col gap-3">
         <DashboardSection {...section("details")} title={d.details_title} summary={summaries.details}>
           {notice("details")}
           <ShopForm
@@ -223,21 +200,13 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           <SiteLogoPanel data={header} shopName={shop.name} dict={dict} hidden={hidden} notice={notice("header")} />
         </DashboardSection>
 
-        <DashboardSection {...section("plan")} title={dict.domains.title} summary={summaries.plan}>
-          {notice("plan")}
-          <p className="text-sm">{plan ? (plan.active ? dict.plan.pro : dict.plan.free) : dict.plan.unavailable}</p>
-          <Link href={`/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`} className="self-start rounded border border-foreground px-4 py-2 font-medium" data-plan-page>
-            {dict.domains.open_page}
-          </Link>
-        </DashboardSection>
-
         <DashboardSection {...section("delete")} title={o.delete_title} summary={o.delete_summary}>
           <form action={deleteShop} className="flex flex-col gap-3">
             {hidden({ at: "delete" })}
             {notice("delete")}
             <p className="text-sm">{o.delete_intro}</p>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="confirm" required />
+            <label className="flex min-h-11 items-center gap-3">
+              <input type="checkbox" name="confirm" required className="h-6 w-6 flex-none accent-[#111]" />
               {o.delete_confirm}
             </label>
             <SubmitButton pending={o.saving}>{o.delete_button}</SubmitButton>

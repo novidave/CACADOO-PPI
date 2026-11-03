@@ -12,6 +12,8 @@ import { TranslationsTable } from "@/components/TranslationsTable";
 import { generateDescriptions, saveDescription } from "../../translationActions";
 import { languageList, tableLabels } from "../../translationShared";
 import { errorText, hiddenFields, messages, SubmitButton } from "../../shared";
+import { PageTitle } from "@/components/owner/PageHead";
+import { buttonClass, textareaClass } from "@/components/owner/ui";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/items/[id]">): Promise<Metadata> {
   const { lang } = await params;
@@ -98,7 +100,7 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/[la
         <Link href={`/${lang}/dashboard/translations?${new URLSearchParams({ shop: shop.slug, at: "items" })}#items`} className="text-sm underline underline-offset-4">
           {o.back_to_items}
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
+        <PageTitle>{item.name}</PageTitle>
         <p className="text-sm text-muted">
           {[item.source_code, item.brand, item.ean].filter(Boolean).join(" · ")} · {shop.name}
         </p>
@@ -134,9 +136,9 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/[la
                 {hidden({ item_id: id })}
                 <p className="text-sm font-semibold">{o.draft_title}</p>
                 <p className="text-xs text-muted">{t(o.draft_help, { lang: languageOf(main)?.native ?? main })}</p>
-                <textarea name="text" defaultValue={desc.draft} rows={5} maxLength={3000} lang={main} className="rounded border border-line px-3 py-2" data-draft-text />
+                <textarea name="text" defaultValue={desc.draft} rows={5} maxLength={3000} lang={main} className={textareaClass} data-draft-text />
                 <div className="flex flex-wrap gap-3">
-                  <button type="submit" name="action" value="publish" className="rounded border border-foreground px-4 py-2 font-medium" data-draft-publish>
+                  <button type="submit" name="action" value="publish" className={buttonClass} data-draft-publish>
                     {o.publish}
                   </button>
                   <button type="submit" name="action" value="discard" className="rounded border border-line px-4 py-2" data-draft-discard>
@@ -148,8 +150,8 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/[la
               <form action={saveDescription} className="flex flex-col gap-2" data-description-published>
                 {hidden({ item_id: id })}
                 <p className="text-xs text-muted">{desc.published_at ? t(o.published_at, { date: formatDateTime(desc.published_at, lang, shop.timezone) }) : ""}</p>
-                <textarea name="text" defaultValue={desc.text} rows={5} maxLength={3000} lang={main} className="rounded border border-line px-3 py-2" />
-                <button type="submit" name="action" value="publish" className="self-start rounded border border-foreground px-4 py-2 font-medium">
+                <textarea name="text" defaultValue={desc.text} rows={5} maxLength={3000} lang={main} className={textareaClass} />
+                <button type="submit" name="action" value="publish" className={`self-start ${buttonClass}`}>
                   {o.publish}
                 </button>
               </form>

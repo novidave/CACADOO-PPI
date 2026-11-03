@@ -64,11 +64,11 @@ export function HoursEditor({
   }
 
   return (
-    <div className="flex flex-col divide-y divide-line border-y border-line">
+    <div className="flex flex-col divide-y divide-[#E4E4E4] border-y border-[#E4E4E4]">
       <input type="hidden" name={name} value={JSON.stringify(hours)} />
       {DAYS.map((day) => (
-        <div key={day} className="flex flex-wrap items-center gap-2 py-2">
-          <span className="w-28 capitalize">{dayNames[day]}</span>
+        <div key={day} className="flex min-h-[52px] flex-wrap items-center gap-2 py-1.5">
+          <span className="w-24 font-bold capitalize">{dayNames[day]}</span>
           {hours[day].length === 0 && <span className="text-sm text-muted">{labels.closed}</span>}
           {hours[day].map(([from, to], i) => (
             <span key={i} className="flex items-center gap-1">
@@ -77,7 +77,7 @@ export function HoursEditor({
                 value={from}
                 aria-label={`${dayNames[day]} ${i + 1} from`}
                 onChange={(e) => update(day, hours[day].map((r, j) => (j === i ? [e.target.value, r[1]] : r)))}
-                className="rounded border border-line px-1 py-0.5"
+                className="min-h-11 rounded-[22px] border border-[#D6D6D6] bg-white px-3 text-[15px] font-semibold"
               />
               –
               <input
@@ -85,12 +85,12 @@ export function HoursEditor({
                 value={to}
                 aria-label={`${dayNames[day]} ${i + 1} to`}
                 onChange={(e) => update(day, hours[day].map((r, j) => (j === i ? [r[0], e.target.value] : r)))}
-                className="rounded border border-line px-1 py-0.5"
+                className="min-h-11 rounded-[22px] border border-[#D6D6D6] bg-white px-3 text-[15px] font-semibold"
               />
               <button
                 type="button"
                 onClick={() => update(day, hours[day].filter((_, j) => j !== i))}
-                className="px-1 text-sm text-muted underline"
+                className="min-h-11 px-1.5 text-sm text-muted underline underline-offset-4"
               >
                 {labels.remove}
               </button>
@@ -103,7 +103,7 @@ export function HoursEditor({
                 const last = hours[day].at(-1);
                 update(day, [...hours[day], last ? [last[1], "18:00"] : ["08:00", "17:00"]]);
               }}
-              className="text-sm underline underline-offset-4"
+              className="min-h-11 rounded-[22px] border border-dashed border-[#9A9A9A] px-3.5 text-[15px] font-semibold"
             >
               {labels.add}
             </button>
@@ -115,7 +115,7 @@ export function HoursEditor({
                 setBreakDay(day);
                 setBreakProblem(false);
               }}
-              className="text-sm underline underline-offset-4"
+              className="min-h-11 rounded-[22px] border border-dashed border-[#9A9A9A] px-3.5 text-[15px] font-semibold"
               data-add-break={day}
             >
               {labels.add_break}
@@ -129,7 +129,7 @@ export function HoursEditor({
                 value={breakFrom}
                 aria-label={`${dayNames[day]} ${labels.break_from}`}
                 onChange={(e) => setBreakFrom(e.target.value)}
-                className="rounded border border-line px-1 py-0.5"
+                className="min-h-11 rounded-[22px] border border-[#D6D6D6] bg-white px-3 text-[15px] font-semibold"
               />
               <span>{labels.break_to}</span>
               <input
@@ -137,12 +137,12 @@ export function HoursEditor({
                 value={breakTo}
                 aria-label={`${dayNames[day]} ${labels.break_to}`}
                 onChange={(e) => setBreakTo(e.target.value)}
-                className="rounded border border-line px-1 py-0.5"
+                className="min-h-11 rounded-[22px] border border-[#D6D6D6] bg-white px-3 text-[15px] font-semibold"
               />
-              <button type="button" onClick={() => addBreak(day)} className="rounded border border-foreground px-2 py-0.5">
+              <button type="button" onClick={() => addBreak(day)} className="min-h-11 rounded-[22px] border border-[#111] bg-[#111] px-3.5 font-semibold text-white">
                 {labels.break_add}
               </button>
-              <button type="button" onClick={() => setBreakDay(null)} className="underline underline-offset-4">
+              <button type="button" onClick={() => setBreakDay(null)} className="min-h-11 px-1.5 underline underline-offset-4">
                 {labels.break_cancel}
               </button>
               {breakProblem && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
+import { buttonClass } from "./owner/ui";
 
 /** Submit button that shows a "working…" text and is disabled while its form is being sent. */
 export function PendingButton({ children, pending }: { children: React.ReactNode; pending: string }) {
@@ -10,7 +11,8 @@ export function PendingButton({ children, pending }: { children: React.ReactNode
       type="submit"
       disabled={status.pending}
       aria-busy={status.pending}
-      className="self-start rounded border border-foreground px-4 py-2 font-medium disabled:text-muted"
+      // back-end layout L3: the owner pages' main button (52 px, black; @/components/owner/ui)
+      className={`self-start ${buttonClass}`}
     >
       {status.pending ? pending : children}
     </button>

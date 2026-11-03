@@ -3150,3 +3150,26 @@ drawn, and where its form sends the owner back, changed. `@/lib/dashboardPages` 
   (`companyElsewhere`), so saving Údaje obchodu never clears them.
 - Tests: `dashboardPages_test.ts` (items, tabs, forwards), `content_test.ts` (sections), e2e `owner.spec.ts` (CRM tabs and
   the old addresses).
+
+## Back-end layout "Môj obchod" — phase L3: one look (3 November 2026)
+
+Layout only; no database change, the same fields and actions. Canvas artboards 1–18.
+
+- **Shared parts** `@/components/owner/ui`: `fieldClass` / `textareaClass` (52 px, radius 12, 17 px), `buttonClass`
+  (black, 52 px) and `ghostClass` (white with a #D6D6D6 line), `cardClass` (1 px #E4E4E4, radius 16, padding 18) and the
+  components `Card`, `Field`, `Button`, `Toggle` (a real checkbox drawn 56×32 by `.ppi-toggle` in globals.css — an
+  unticked switch is sent as nothing, as before), `Segmented`, `Chip`, `StatusDot`. `@/components/owner/SaveBar` (client)
+  sticks to the bottom of its form: "Neuložené zmeny: n" (counted from the form's own fields against their drawn
+  values; only a help — the server action decides), "Zrušiť" (`type="reset"`) and the form's submit (≥ 180 px).
+  `dashboard/shared.tsx` `inputClass` / `SubmitButton` / `saveLabels()`, `PendingButton`, `DashboardSection` (a card),
+  the Sklad and food-order `btn` / `btnGhost` / `card` are these parts, so the older pages follow without copies.
+- **Page head** `@/components/owner/PageHead`: `PageTitle` (28 px) on every owner page; `PageHead` with the item's
+  tabs; `compact` = the work screens' one row (title 20 px, tabs 60 px, actions on the right): Sklad Predaj, the
+  Príjemka editor, the Inventúra counting screen (`SkladShell work`) and the food board.
+- **Pages:** Môj obchod (artboard 9: "Môj obchod" + the shop's name, "Sviatky a mimoriadne zatvorenie" button, Údaje
+  obchodu in two columns from 1024 px — details left, hours and switches right — with the save bar; the plan box moved
+  to Predplatné a doména, which is now plan | domain in two cards); Právne informácie (artboard 16: Firma and the
+  domain owner's details left, the texts for customers right with the save bar); Heslo (artboard 17: one card); the
+  booking and assistant settings' on/off boxes and the food-order settings are switches; the hours editor's times are
+  44 px pills; "Krátke / Dlhé" is a 44 px segmented pair.
+- Tests: e2e `owner-shell.spec.ts` "the page pattern" (28 px titles, the compact head, the save bar counting and Zrušiť).
