@@ -244,6 +244,10 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
 - `npm run test:sklad` — unit tests (Deno) of "Sklad v Cacaduu" (`src/lib/sklad_test.ts`): amounts and prices as typed,
   the card's forms (reasons, a different Presun target), a transfer keeps the total, margin / stock value, time left
   until stale, the scanner's key burst, the XLSX rows; the eKasa export (`ekasa_test.ts`: CSV/XLSX, columns, numbers, times)
+- `npm run test:food` — unit tests (Deno) of "Objednávky jedla" on the website (`src/lib/food_test.ts`): the change to
+  give, the cash quick amounts, Slovak plurals, the step buttons = SQL's `food_step_allowed()`, the cart limits, the town
+  sent to the geocoder, the map links, the courier cookie (`@/lib/courierKey`), words for every refusal and state in
+  sk/hu/en, OrderPanel only through `next/dynamic`; the SQL rules (quotes, zones, cutoff …) are DB blocks 73–75
 - `npm run test:telegram` — the Telegram bot's texts in `supabase/functions/telegram/index.ts` match the message
   files (`node scripts/telegram-texts.mjs` writes them)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
@@ -852,6 +856,11 @@ redirect without JavaScript), `CourierStep` resends the same step UUID on a weak
 order (`owner_food_assign`) or `assign_mode` auto (deferred trigger: the signed-in courier with the fewest open
 deliveries). Cash: `food_courier_cash()` since `owner_food_courier_settle()`. Texts `courier`, `food.cr_*`. Tests: DB
 block "update 75", `test:functions`.
+**F5 — tests:** `npm run test:food`; e2e `e2e/food.spec.ts` (Pixel 7: two orders in the assistant with the SMS test
+codes, the owner delivers one, the courier the other — its last step sent twice — and the Sklad stock goes down once
+per order). It needs a test shop (`E2E_FOOD_*`, owner login) and a site with `SMS_PROVIDER` test + `BOOKING_TEST_CODES=on`,
+so it is skipped in CI against the live database (TODO 27). The shop page budget job keeps OrderPanel out of the first
+load.
 
 ## Cloud folder (paid, update 23)
 

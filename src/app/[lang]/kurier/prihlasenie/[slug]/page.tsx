@@ -51,7 +51,7 @@ export default async function CourierLoginPage({ params, searchParams }: PagePro
           <p className="text-[15px]" role="status">
             {c.code_sent.replace("{phone}", to)}
           </p>
-          {test && <p className="rounded-xl bg-[#F6F6F6] p-3 text-sm font-semibold">{c.test_code.replace("{code}", test)}</p>}
+          {test && <p className="rounded-xl bg-[#F6F6F6] p-3 text-sm font-semibold" data-courier-test-code={test}>{c.test_code.replace("{code}", test)}</p>}
           <Field label={c.code}>
             <input
               name="code"

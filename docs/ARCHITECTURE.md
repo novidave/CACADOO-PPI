@@ -3206,3 +3206,22 @@ Layout only; no database change, the same fields and actions. Canvas artboards 1
   gets through.
 - Tests: DB block "update 75"; `test:functions` (bookings `courier_code`, crm-messages `courier_invite`).
 
+## Phase F5 — food order tests (3 November 2026)
+
+- `npm run test:food` (`src/lib/food_test.ts`, Deno): what the website adds to the SQL rules — `changeCents`,
+  `cashChoices`, `money`, Slovak plurals, `nextSteps()` read against `food_step_allowed()` in `73_food_orders.sql`,
+  `cleanCart` (no prices from the browser), `townOf` (only the town goes to the geocoder), `directionsTo` / `routeUrl`
+  (moved to `@/lib/foodRules`), the courier cookie (`@/lib/courierKey`: signed, any other value refused), a text in
+  sk/hu/en for every refusal of the order route, the courier door and its login and for every order state, and that
+  OrderPanel is imported only through `next/dynamic` (so it never joins the shop page's first load). The SQL rules
+  themselves (quotes from Sklad, zones by town / postcode / km, minimum, paused / closed / cutoff, steps, stock once)
+  stay in `test:db` blocks 73–75.
+- `e2e/food.spec.ts` (Pixel 7): two orders through the assistant's cart card and the page's own form with the SMS test
+  code; the owner takes one to "Doručené" (cash "Presne"); the courier signs in with a code, marks "Na ceste", takes
+  the cash and marks "Doručené", and the same step is sent again (a weak signal) — the stock goes down once per order.
+  Needs `E2E_FOOD_SHOP`, `E2E_FOOD_ITEM`, `E2E_FOOD_CODE`, `E2E_FOOD_ADDRESS`, `E2E_FOOD_PHONE` (+ the owner login)
+  and a site whose SMS are in test mode; skipped otherwise (the live site sends real SMS).
+- Test hooks: `data-order-test-code`, `data-order-done=<number>`, `data-courier-test-code`, `data-sklad-total`.
+- Found by the e2e: a new delivery order offered "Do prípravy" twice; its second button is now "Na ceste" (SQL allows
+  new → on_the_way).
+

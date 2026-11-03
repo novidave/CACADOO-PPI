@@ -216,7 +216,7 @@ export default function OrderPanel({
   if (step.kind === "done") {
     const time = new Intl.DateTimeFormat(lang, { timeZone: step.timezone, hour: "2-digit", minute: "2-digit" }).format(new Date(step.readyBy));
     return (
-      <section aria-live="polite" className="flex flex-col gap-2 rounded-[14px] bg-[#F5F5F5] p-3.5" data-order-done>
+      <section aria-live="polite" className="flex flex-col gap-2 rounded-[14px] bg-[#F5F5F5] p-3.5" data-order-done={step.number}>
         <strong className="flex items-center gap-2 text-lg">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <circle cx="12" cy="12" r="9" />
@@ -403,7 +403,7 @@ export default function OrderPanel({
           }}
         >
           <strong className="text-[15px]">{fill(labels.order_code_sent, { phone: step.phone })}</strong>
-          {step.testCode && <p className="text-sm">{fill(labels.order_test_code, { code: step.testCode })}</p>}
+          {step.testCode && <p className="text-sm" data-order-test-code={step.testCode}>{fill(labels.order_test_code, { code: step.testCode })}</p>}
           <label className="flex flex-col gap-1 text-[13px] font-semibold">
             {labels.order_code}
             <input name="code" required inputMode="numeric" autoComplete="one-time-code" maxLength={12}

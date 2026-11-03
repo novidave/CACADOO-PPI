@@ -70,6 +70,32 @@ export function plural(n: number, forms: { one: string; few: string; many: strin
   return text.replace("{n}", String(n));
 }
 
+/** Where a delivery is: its point when the website geocoded one, else the address as the customer wrote it. */
+export interface Place {
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+}
+
+const placeOf = (o: Place) => (o.lat !== null && o.lng !== null ? `${o.lat},${o.lng}` : o.address?.trim() || null);
+
+/** Google Maps directions to one delivery (the courier's "Navigovať"). */
+export function directionsTo(o: Place): string | null {
+  const place = placeOf(o);
+  return place ? `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(place)}` : null;
+}
+
+/** "Navigovať celú trasu": the deliveries in order, the last one the destination, the rest waypoints (Google takes 9). */
+export function routeUrl(orders: Place[]): string | null {
+  const places = orders.map(placeOf).filter((p): p is string => Boolean(p));
+  if (places.length === 0) return null;
+  const destination = places[places.length - 1];
+  const waypoints = places.slice(0, -1).slice(0, 9);
+  const params = new URLSearchParams({ api: "1", travelmode: "driving", destination });
+  if (waypoints.length) params.set("waypoints", waypoints.join("|"));
+  return `https://www.google.com/maps/dir/?${params}`;
+}
+
 /** The next steps an owner may take from a status (the same list as food_step_allowed() in SQL). */
 export function nextSteps(kind: OrderKind, status: OrderStatus): OrderStatus[] {
   if (status === "new") return kind === "delivery" ? ["preparing", "on_the_way", "cancelled"] : ["preparing", "ready", "cancelled"];
