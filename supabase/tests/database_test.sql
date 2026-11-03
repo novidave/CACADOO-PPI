@@ -13144,4 +13144,397 @@ reset role;
 drop table t72;
 drop table t72_inv;
 
+\echo '--- update 73: Objednávky jedla — price only from Sklad, sold out refused, zones + minimum, no order without the code, one order per UUID, steps, paid before delivered, stock taken once, order quota, forget'
+create temporary table t73 (k text primary key, v text);
+grant all on t73 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+  v_open jsonb;
+begin
+  insert into t73 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('day', ((now() at time zone v_tz)::date)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_73')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  -- open the whole of today (00:00–23:59)
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, (now() at time zone v_tz)::date, false, '[["00:00","23:59"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+  v_open := public.assistant_open(v_a, 'sk', repeat('f', 32));
+  insert into t73 values ('conv', v_open ->> 'id'), ('token', v_open ->> 'token');
+  -- the order quota exists, 100 a month, and order codes count in it
+  assert public.sms_quota_limit('order') = 100 and public.sms_quota_of('order_code') = 'order'
+     and public.sms_quota_of('booking_code') = 'booking' and public.sms_quota_of('owner') = 'owner';
+  assert public.food_state('potraviny-centrum') ->> 'enabled' = 'false', 'off by default';
+end $$;
+reset role;
+
+-- the owner: Sklad products (sizes and extras are products too), the settings, the zones
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pizza uuid; v_olives uuid; v_cola uuid; v_gone uuid; v_noprice uuid;
+  vj jsonb;
+begin
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  v_pizza := public.owner_sklad_save_product(v_a, null, '{"name":"Margherita 32 cm","sale_price":"7.90"}');
+  v_olives := public.owner_sklad_save_product(v_a, null, '{"name":"Olivy navyše","sale_price":"0.80"}');
+  v_cola := public.owner_sklad_save_product(v_a, null, '{"name":"Kofola 0,5 l","sale_price":"1.80"}');
+  v_gone := public.owner_sklad_save_product(v_a, null, '{"name":"Calzone","sale_price":"9.50"}');
+  v_noprice := public.owner_sklad_save_product(v_a, null, '{"name":"Bez ceny jedlo"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_pizza, 'receipt', 10);
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_olives, 'receipt', 10);
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_cola, 'receipt', 10);
+  insert into t73 values ('pizza', v_pizza::text), ('olives', v_olives::text), ('cola', v_cola::text), ('gone', v_gone::text),
+    ('noprice', v_noprice::text);
+  -- the switches: refused values, then on
+  begin perform public.owner_food_save_settings(v_a, '{"prep_minutes": 1}'); raise exception 'prep 1 min saved';
+  exception when invalid_parameter_value then if sqlerrm <> 'settings' then raise; end if; end;
+  begin perform public.owner_food_save_settings(v_a, '{"pay_qr": false, "pay_cash": false, "pay_card": false}'); raise exception 'no payment method saved';
+  exception when invalid_parameter_value then if sqlerrm <> 'settings' then raise; end if; end;
+  vj := public.owner_food_save_settings(v_a, '{"enabled": true, "delivery_on": true, "pickup_on": true, "pay_card": true, "last_order_minutes": 0}');
+  assert (vj ->> 'enabled')::boolean and (vj ->> 'pay_card')::boolean and (vj ->> 'menu_items')::int >= 4, vj::text;
+  perform public.owner_food_save_zone(v_a, null, 'Michalovce', 'town', 'Michalovce', 150, 1200);
+  perform public.owner_food_save_zone(v_a, null, 'PSČ 071 01', 'postcode', '071 01', 200, 0);
+  perform public.owner_food_save_zone(v_a, null, 'Do 10 km', 'radius_km', '10', 300, 1800);
+  begin perform public.owner_food_save_zone(v_a, null, 'Zle', 'radius_km', 'desať', 0, 0); raise exception 'bad km saved';
+  exception when invalid_parameter_value then if sqlerrm <> 'value' then raise; end if; end;
+  assert jsonb_array_length(public.owner_food_settings(v_a) -> 'zones') = 3;
+end $$;
+reset role;
+
+-- the price rule, as visitors and the assistant see it (anon may quote; prices only from Sklad)
+set role anon;
+do $$
+declare
+  v_pizza text := (select v from t73 where k = 'pizza');
+  v_olives text := (select v from t73 where k = 'olives');
+  v_cola text := (select v from t73 where k = 'cola');
+  v_gone text := (select v from t73 where k = 'gone');
+  v_noprice text := (select v from t73 where k = 'noprice');
+  vj jsonb;
+begin
+  vj := public.food_state('potraviny-centrum');
+  assert (vj ->> 'enabled')::boolean and (vj ->> 'accepting')::boolean and (vj ->> 'delivery')::boolean
+     and (vj -> 'pay' ->> 'card')::boolean, vj::text;
+  assert exists (select 1 from jsonb_array_elements(public.food_menu('potraviny-centrum', 'kofola') -> 'items') i
+                 where i ->> 'name' = 'Kofola 0,5 l' and (i ->> 'price_cents')::int = 180);
+  assert not exists (select 1 from jsonb_array_elements(public.food_menu('potraviny-centrum') -> 'items') i
+                     where i ->> 'name' = 'Bez ceny jedlo'), 'a product without a sale price is not on the menu';
+  -- 1× pizza, 1× pizza + olives, 2× cola; a price sent along is ignored
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(
+          jsonb_build_object('item_id', v_pizza, 'qty', 1, 'price', 0.01),
+          jsonb_build_object('item_id', v_pizza, 'qty', 1, 'extras', jsonb_build_array(v_olives)),
+          jsonb_build_object('item_id', v_cola, 'qty', 2, 'unit_cents', 1)),
+        'delivery', 'Okružná 14, Michalovce');
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'subtotal_cents')::int = 790 + 870 + 360
+     and (vj ->> 'delivery_cents')::int = 150 and (vj ->> 'total_cents')::int = 2170
+     and vj -> 'zone' ->> 'name' = 'Michalovce' and (vj -> 'lines' -> 1 ->> 'unit_cents')::int = 870, vj::text;
+  -- sold out (no stock) and a product without a price: refused, not orderable
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_gone, 'qty', 1),
+                                                                 jsonb_build_object('item_id', v_pizza, 'qty', 1)), 'pickup');
+  assert not (vj ->> 'orderable')::boolean and vj ->> 'problem' = 'sold_out'
+     and vj -> 'refused' -> 0 ->> 'reason' = 'sold_out', vj::text;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_noprice, 'qty', 1)), 'pickup');
+  assert vj -> 'refused' -> 0 ->> 'reason' = 'not_found', vj::text;
+  -- zones: outside every zone; by postcode; the zone's minimum
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_pizza, 'qty', 2)), 'delivery', 'Hlavná 1, Košice');
+  assert vj ->> 'problem' = 'outside_zone', vj::text;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_cola, 'qty', 1)), 'delivery', 'Hlavná 5, 07101 Pavlovce');
+  assert (vj ->> 'orderable')::boolean and vj -> 'zone' ->> 'name' = 'PSČ 071 01' and (vj ->> 'total_cents')::int = 380, vj::text;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_cola, 'qty', 1)), 'delivery', 'Okružná 2, Michalovce');
+  assert vj ->> 'problem' = 'below_minimum' and (vj ->> 'minimum_cents')::int = 1200, vj::text;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_cola, 'qty', 1)), 'delivery', null);
+  assert vj ->> 'problem' = 'no_address', vj::text;
+  -- pickup: no fee
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_cola, 'qty', 1)), 'pickup');
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 0 and (vj ->> 'total_cents')::int = 180, vj::text;
+  begin perform public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_cola, 'qty', 0)), 'pickup');
+    raise exception 'zero pieces quoted';
+  exception when invalid_parameter_value then if sqlerrm <> 'qty' then raise; end if; end;
+  -- visitors never place an order or read the owner's side
+  begin perform public.food_order_create(gen_random_uuid(), '000000', gen_random_uuid(), '[]', 'pickup', 'cash');
+    raise exception 'anon placed an order';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_food_orders((select id from public.shops where slug = 'potraviny-centrum'));
+    raise exception 'anon read the orders';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- radius zones: kilometres from the shop (the typed address's place, geocoded once by the website)
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_lat double precision := (select extensions.st_y(location::extensions.geometry) from public.shops where id = v_a);
+  v_lng double precision := (select extensions.st_x(location::extensions.geometry) from public.shops where id = v_a);
+  vj jsonb;
+begin
+  if v_lat is not null then
+    vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', (select v from t73 where k = 'pizza'), 'qty', 3)),
+                            'delivery', 'Niekde 1, Dedina', v_lat + 0.01, v_lng);
+    assert vj -> 'zone' ->> 'name' = 'Do 10 km' and (vj ->> 'delivery_cents')::int = 300, vj::text;
+    vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', (select v from t73 where k = 'pizza'), 'qty', 3)),
+                            'delivery', 'Niekde 1, Dedina', v_lat + 1, v_lng);
+    assert vj ->> 'problem' = 'outside_zone', vj::text;
+  end if;
+end $$;
+reset role;
+
+-- the order: the code from the page's own form, one transaction, one order per UUID
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_conv uuid := (select v::uuid from t73 where k = 'conv');
+  v_token text := (select v from t73 where k = 'token');
+  v_lines jsonb := jsonb_build_array(
+    jsonb_build_object('item_id', (select v from t73 where k = 'pizza'), 'qty', 1),
+    jsonb_build_object('item_id', (select v from t73 where k = 'pizza'), 'qty', 1, 'extras', jsonb_build_array((select v from t73 where k = 'olives'))),
+    jsonb_build_object('item_id', (select v from t73 where k = 'cola'), 'qty', 2));
+  v_order uuid := gen_random_uuid();
+  v_used integer := public.sms_quota_used(v_a, 'order');
+  v_code jsonb;
+  vj jsonb;
+begin
+  -- an order code needs the conversation and a name
+  begin perform public.sms_code_start('potraviny-centrum', 'order', '0908 445 512', 'Martin K.', repeat('c', 32));
+    raise exception 'order code without a conversation';
+  exception when invalid_parameter_value then if sqlerrm <> 'conversation' then raise; end if; end;
+  begin perform public.sms_code_start('potraviny-centrum', 'order', '0908 445 512', null, repeat('c', 32), v_conv, v_token);
+    raise exception 'order code without a name';
+  exception when invalid_parameter_value then if sqlerrm <> 'name' then raise; end if; end;
+  v_code := public.sms_code_start('potraviny-centrum', 'order', '0908 445 512', 'Martin K.', repeat('c', 32), v_conv, v_token);
+  perform public.sms_code_claim((v_code ->> 'id')::uuid, 'Kód ' || (v_code ->> 'code'));
+  assert public.sms_quota_used(v_a, 'order') = v_used + 1, 'the order code took the order quota';
+  assert (select kind from public.shop_outgoing_messages where shop_id = v_a order by created_at desc limit 1) = 'order_code';
+  -- no order without the right code
+  vj := public.food_order_create((v_code ->> 'id')::uuid, '000000', v_order, v_lines, 'delivery', 'cash',
+                                 'Okružná 14, Michalovce', 'Zvonček Kováč', null, null, v_conv, v_token, 'sk');
+  assert not (vj ->> 'ok')::boolean and vj ->> 'reason' = 'wrong_code' and (vj ->> 'attempts_left')::int = 4, vj::text;
+  assert not exists (select 1 from public.food_orders where id = v_order), 'nothing placed with a wrong code';
+  -- an order that the price rule refuses leaves the code unused
+  begin perform public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', v_order, v_lines, 'delivery', 'cash',
+                                         'Hlavná 1, Košice', null, null, null, v_conv, v_token, 'sk');
+    raise exception 'placed outside every zone';
+  exception when raise_exception then if sqlerrm <> 'outside_zone' then raise; end if; end;
+  assert (select used_at from public.sms_codes where id = (v_code ->> 'id')::uuid) is null;
+  -- the right code: placed at once
+  vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', v_order, v_lines, 'delivery', 'cash',
+                                 'Okružná 14, Michalovce', 'Zvonček Kováč', null, null, v_conv, v_token, 'sk');
+  assert (vj ->> 'ok')::boolean and not (vj ->> 'duplicate')::boolean and vj -> 'order' ->> 'status' = 'new'
+     and (vj -> 'order' ->> 'total_cents')::int = 2170 and (vj -> 'order' ->> 'number')::int >= 1, vj::text;
+  insert into t73 values ('order', v_order::text), ('code', v_code ->> 'id'), ('number', vj -> 'order' ->> 'number');
+  assert (select count(*) from public.food_order_lines where order_id = v_order) = 3;
+  assert (select extras_text from public.food_order_lines where order_id = v_order and position = 2) = '+ Olivy navyše';
+  assert (select phone from public.food_orders where id = v_order) = '+421908445512';
+  assert (select phone_verified_at is not null from public.shop_contacts where shop_id = v_a and phone = '+421908445512');
+  assert (select contact_id is not null and shopper_phone = '+421908445512' from public.assistant_conversations where id = v_conv);
+  assert exists (select 1 from public.food_order_alerts where order_id = v_order and channel = 'email');
+  assert (select count(*) from public.food_order_events where order_id = v_order) = 1;
+  -- the same UUID again (a lost answer): the same order, nothing more
+  vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', v_order, v_lines, 'delivery', 'cash',
+                                 'Okružná 14, Michalovce', null, null, null, v_conv, v_token, 'sk');
+  assert (vj ->> 'ok')::boolean and (vj ->> 'duplicate')::boolean and (select count(*) from public.food_orders where id = v_order) = 1, vj::text;
+  -- the used code cannot place a second order
+  vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', gen_random_uuid(), v_lines, 'pickup', 'cash',
+                                 null, null, null, null, v_conv, v_token, 'sk');
+  assert not (vj ->> 'ok')::boolean and vj ->> 'reason' = 'not_found', vj::text;
+end $$;
+reset role;
+
+-- the owner moves it: allowed steps only, paid before delivered, the stock taken once
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_order uuid := (select v::uuid from t73 where k = 'order');
+  v_pizza uuid := (select v::uuid from t73 where k = 'pizza');
+  v_olives uuid := (select v::uuid from t73 where k = 'olives');
+  v_cola uuid := (select v::uuid from t73 where k = 'cola');
+  v_step uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  assert public.owner_food_new_count(v_a) >= 1;
+  vj := public.owner_food_orders(v_a, 'new');
+  assert exists (select 1 from jsonb_array_elements(vj -> 'orders') o where (o ->> 'id')::uuid = v_order), vj::text;
+  begin perform public.owner_food_order_status(v_a, v_order, 'delivered', gen_random_uuid()); raise exception 'new → delivered';
+  exception when raise_exception then if sqlerrm <> 'step' then raise; end if; end;
+  begin perform public.owner_food_order_status(v_a, v_order, 'ready', gen_random_uuid()); raise exception 'a delivery became ready for pickup';
+  exception when raise_exception then if sqlerrm <> 'step' then raise; end if; end;
+  vj := public.owner_food_order_status(v_a, v_order, 'preparing', gen_random_uuid());
+  assert vj ->> 'status' = 'preparing', vj::text;
+  vj := public.owner_food_order_status(v_a, v_order, 'on_the_way', gen_random_uuid());
+  begin perform public.owner_food_order_status(v_a, v_order, 'delivered', gen_random_uuid()); raise exception 'delivered unpaid';
+  exception when raise_exception then if sqlerrm <> 'not_paid' then raise; end if; end;
+  begin perform public.owner_food_order_status(v_a, v_order, 'delivered', gen_random_uuid(), 'cash', 1000); raise exception 'less cash than the total';
+  exception when invalid_parameter_value then if sqlerrm <> 'cash' then raise; end if; end;
+  assert (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = 10, 'nothing taken off before delivery';
+  -- "Zaplatené · Doručené": cash from 50 €, change 28,30 €, the stock taken off once
+  vj := public.owner_food_order_status(v_a, v_order, 'delivered', v_step, 'cash', 5000);
+  assert vj ->> 'status' = 'delivered' and (vj ->> 'change_cents')::int = 2830 and (vj ->> 'stock_taken')::boolean, vj::text;
+  assert (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = 8
+     and (public.owner_sklad_product(v_a, v_olives) ->> 'total')::numeric = 9
+     and (public.owner_sklad_product(v_a, v_cola) ->> 'total')::numeric = 8, 'two pizzas, one olives, two colas off';
+  -- the same step again (a weak signal sent it twice): nothing changes, nothing taken twice
+  vj := public.owner_food_order_status(v_a, v_order, 'delivered', v_step, 'cash', 5000);
+  assert (vj ->> 'duplicate')::boolean, vj::text;
+  assert (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = 8;
+  begin perform public.owner_food_order_status(v_a, v_order, 'cancelled', gen_random_uuid()); raise exception 'a delivered order cancelled';
+  exception when raise_exception then if sqlerrm <> 'step' then raise; end if; end;
+  begin perform public.owner_food_order_status(v_a, v_order, null, gen_random_uuid(), 'qr'); raise exception 'paid twice another way';
+  exception when raise_exception then if sqlerrm <> 'already_paid' then raise; end if; end;
+  vj := public.owner_food_orders(v_a, 'done');
+  assert (vj -> 'totals' ->> 'cash_cents')::int >= 2170 and (vj -> 'counts' ->> 'done')::int >= 1, vj::text;
+  vj := public.owner_food_order(v_a, v_order);
+  assert jsonb_array_length(vj -> 'events') = 5 and vj -> 'events' -> 3 ->> 'kind' = 'paid', vj::text;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_order uuid := (select v::uuid from t73 where k = 'order');
+begin
+  assert not public.food_take_stock(v_order), 'the stock is taken only once';
+  assert (select count(*) from public.sklad_movements m join public.food_stock_rows(v_order, (select shop_id from public.food_orders where id = v_order)) r
+          on r.id = m.id) = 4, 'one movement per line and extra';
+  begin update public.food_order_events set detail = 'x' where order_id = v_order; raise exception 'audit log changed';
+  exception when insufficient_privilege then null; end;
+  begin delete from public.food_order_events where order_id = v_order; raise exception 'audit log deleted';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- another shop's owner reads and changes nothing here
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_food_orders(v_a); raise exception 'owner B read A''s orders';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_food_order_status(v_a, (select v::uuid from t73 where k = 'order'), 'cancelled', gen_random_uuid());
+    raise exception 'owner B changed A''s order';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_food_save_settings(v_a, '{"enabled": false}'); raise exception 'owner B switched A off';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- times: paused, the order quota, the last order before closing, closed
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  vj := public.owner_food_pause(v_a, true);
+  assert vj ->> 'reason' = 'paused' and not (vj ->> 'accepting')::boolean, vj::text;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', (select v from t73 where k = 'cola'), 'qty', 1)), 'pickup');
+  assert vj ->> 'problem' = 'not_accepting', vj::text;
+  vj := public.owner_food_pause(v_a, false);
+  assert (vj ->> 'accepting')::boolean, vj::text;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+  v_local timestamp := now() at time zone v_tz;
+  v_conv uuid := (select v::uuid from t73 where k = 'conv');
+begin
+  update public.sms_quota_limits set monthly = 0 where quota = 'order';
+  assert public.food_open_state(v_a) ->> 'reason' = 'sms_quota';
+  begin perform public.sms_code_start('potraviny-centrum', 'order', '0911 222 333', 'Eva', repeat('d', 32), v_conv, (select v from t73 where k = 'token'));
+    raise exception 'an order code over the quota';
+  exception when program_limit_exceeded then if sqlerrm <> 'sms_quota' then raise; end if; end;
+  update public.sms_quota_limits set monthly = 100 where quota = 'order';
+  -- the last order 30 minutes before closing: the shop closes in 20 minutes → cutoff
+  if v_local::time between '01:00' and '23:00' then
+    update public.food_settings set last_order_minutes = 30 where shop_id = v_a;
+    update public.shop_special_hours set ranges = jsonb_build_array(jsonb_build_array('00:00', to_char(v_local + interval '20 minutes', 'HH24:MI')))
+    where shop_id = v_a and date = v_local::date;
+    assert public.food_open_state(v_a) ->> 'reason' = 'cutoff', public.food_open_state(v_a)::text;
+    update public.shop_special_hours set closed = true, ranges = '[]' where shop_id = v_a and date = v_local::date;
+    assert public.food_open_state(v_a) ->> 'reason' = 'closed', public.food_open_state(v_a)::text;
+    update public.shop_special_hours set closed = false, ranges = '[["00:00","23:59"]]' where shop_id = v_a and date = v_local::date;
+    update public.food_settings set last_order_minutes = 0 where shop_id = v_a;
+  end if;
+  assert (public.food_open_state(v_a) ->> 'accepting')::boolean;
+end $$;
+reset role;
+
+-- "Vymazať moje údaje": the orders stay for the accounts, without the person
+set role service_role;
+do $$
+declare
+  v_order uuid := (select v::uuid from t73 where k = 'order');
+  v_code jsonb;
+  vj jsonb;
+begin
+  v_code := public.sms_code_start('potraviny-centrum', 'delete_all', '0908 445 512', null, repeat('e', 32));
+  vj := public.sms_code_verify((v_code ->> 'id')::uuid, v_code ->> 'code');
+  assert (vj ->> 'ok')::boolean, vj::text;
+  vj := public.shopper_forget_all_finish((v_code ->> 'id')::uuid);
+  assert (vj ->> 'had_data')::boolean, vj::text;
+  assert (select name is null and phone is null and address is null and note is null and contact_id is null
+                 and total_cents = 2170 from public.food_orders where id = v_order);
+  assert (select count(*) from public.food_order_lines where order_id = v_order) = 3;
+end $$;
+reset role;
+
+-- without the plan: nothing offered, nothing changed
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  update public.subscriptions set status = 'canceled', current_period_end = now() - interval '1 day' where shop_id = v_a;
+  assert public.food_state('potraviny-centrum') ->> 'enabled' = 'false';
+  assert public.food_open_state(v_a) ->> 'reason' = 'off';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_food_save_settings(v_a, '{"enabled": true}'); raise exception 'saved without the plan';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+  assert (public.owner_food_settings(v_a) ->> 'enabled')::boolean, 'reading stays without the plan';
+end $$;
+reset role;
+
+-- tidy up: the subscription and the day's hours as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t73 where k = 'day');
+  update public.food_settings set enabled = false where shop_id = v_a;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t73 where k = 'sub'))
+  where (select v from t73 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t73 where k = 'had_plan');
+end $$;
+reset role;
+drop table t73;
+
 \echo 'ALL DATABASE CHECKS PASSED'
