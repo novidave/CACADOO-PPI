@@ -3011,3 +3011,48 @@ Predaj page's "off" card + `/api/owner/sklad/export?kind=suppliers`.
   it names, its own name on sales / receipts / counts, a purchase price dropped, a writeoff / product card / save
   refused, untick → refused, the strip, 120 a minute, 90 days, a new code disconnects the old phone, ≤ 10, revoke,
   owner B / anon).
+
+## Update 73 — "Objednávky jedla" phase F1: the data and the rules (3 November 2026, Prompt 15)
+
+`supabase/sql/73_food_orders.sql`. Every rule of food orders is here; the website, the assistant, the owner's screens
+and the courier app (phase F4) only call these functions.
+
+- **Tables** (RLS, service role only): `food_settings` (one row per shop, all off: enabled, paused, pickup + prep
+  minutes, delivery + estimate minutes, pay_qr / pay_cash / pay_card — at least one, last_order_minutes,
+  deduct_on_delivery, alert_sound / alert_email / alert_telegram, sms_on_the_way, assign_mode, the day's order counter),
+  `food_zones` (town | postcode | radius_km, fee and minimum in cents, ≤ 30), `food_orders` (id = the client's UUID,
+  number of the shop's day, kind pickup|delivery, status new|preparing|on_the_way|ready|delivered|picked_up|cancelled,
+  pay_method, paid_at + who, cash_given (only for the change), contact, conversation, name / phone / address / note,
+  lat/lng, zone, ready_by, courier_id (F4), totals in cents, EUR, `vs` from `sklad_next_vs`), `food_order_lines` (Sklad
+  product, name + base price + extras as sold, qty, line total), `food_order_events` (append-only by trigger; `step_id`
+  unique = a retried step is the same step), `food_order_alerts` (the e-mail of a new order, sent by F3's job).
+- **One price rule** `food_quote(slug, lines, kind, address, lat, lng)` (anon): each line's Sklad sale price
+  (`food_item`: `sklad_items.sale_price` × 100, sold out = `sklad_stock_total` ≤ 0) + its extras (Sklad products too);
+  any price sent along is ignored; refused lines; for delivery `food_zone_for()` (the owner's order: a town word in the
+  address, the postcode's digits, or `st_distance` from `shops.location` ≤ km for a geocoded address) → fee and
+  minimum; `problem` empty | kind_off | no_address | outside_zone | sold_out | below_minimum | not_accepting.
+- **One time rule** `food_open_state(shop)`: off (switch / plan) · paused · sms_quota · closed (`booking_day_ranges`:
+  special day > holiday > regular hours) · cutoff (`last_order_minutes` before the end of today's open range).
+  `food_state(slug)` (anon) = what the page and the assistant show; `food_menu(slug, q)` (anon) = the menu tool.
+- **The code**: `sms_code_start` / `sms_code_claim` / `sms_code_verify` redefined with purpose `order` (conversation
+  and name required, only while accepting, the quota `order` and kind `order_code`; `sms_quota_of`, `sms_quota_state`,
+  `admin_save_sms_quota(quota, monthly)`). `food_order_create(code id, code, order UUID, lines, kind, pay method,
+  address, note, lat, lng, conversation, token, lang)` (service role): the same UUID → `duplicate`; the quote again
+  (refused → raised, the code unused); the code (`sms_code_verify`: wrong → `{ok:false}` with the attempt counted);
+  the contact by the number (`phone_verified_at`), the conversation linked; the order, lines, its first event, the
+  alert, activity `food_order_placed`.
+- **Steps** `food_order_step(order, to, actor, actor_id, step UUID, pay method, cash given, reason)` (service role):
+  the step's UUID once; a payment mark once (the method must be on; cash ≥ the total); `food_step_allowed` (delivery:
+  new→preparing/on_the_way, preparing→on_the_way, on_the_way→delivered; pickup: new→preparing/ready, preparing→ready,
+  ready→picked_up; cancel from any open state); delivered / picked up need `paid_at` (a check too) and run
+  `food_take_stock()` — with deduct_on_delivery and Sklad as the source, one `sale` movement per line and extra at the
+  sales place, ids from `food_stock_rows()` = md5(order ':' line [':' n]), `on conflict do nothing`, `stock_taken_at`,
+  `sklad_apply`. Activity `food_order_status`, `food_order_paid`.
+- **Owners** (members; writes + `shop_has_plan`): `owner_food_settings`, `owner_food_save_settings` (only the given
+  fields), `owner_food_pause`, `owner_food_save_zone` / `owner_food_delete_zone`, `owner_food_new_count`,
+  `owner_food_orders(filter new|preparing|on_the_way|done|open)` (+ counts, today's totals by method, the state),
+  `owner_food_order`, `owner_food_order_status`.
+- **Forget:** `shopper_forget_all_finish` (update 63) redefined: the number's orders keep their rows, lines and totals
+  without name, phone, address, note, place, contact, conversation.
+- Tests: DB block "update 73".
+

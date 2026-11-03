@@ -746,6 +746,23 @@ The shared actions phones use (`sellBasket`, `lookupSaleProducts`, `terminalAct`
 `/api/owner/sklad/terminal` take `skladRpc()` (the owner's login first). ≤ 10 per shop; "Odpojiť" at once. Texts
 `device`, `sklad.dv_*`. Tests: DB block "update 72".
 
+## "Objednávky jedla" (paid, Prompt 15; F1 = update 73, 2026-11-03)
+
+`supabase/sql/73_food_orders.sql` (design: canvas "Cacaduu – Asistent a CRM (Môj obchod)", boards 9–19). Food orders
+in the shop assistant, **paid only on receipt** (PAY by square, cash, card on the shop's own terminal — Cacaduu only
+records how it was paid; never a card, a terminal or a bank). **Every rule in SQL:** prices only through
+`food_quote()` (Sklad's sale price with VAT, extras are Sklad products too, sold out = Sklad stock ≤ 0, zones town |
+postcode | radius_km with a fee and a minimum; the AI, a PDF or the browser never set a price); times only through
+`food_open_state()` (off · paused · sms_quota · closed · cutoff); the order SMS code = `sms_codes` purpose `order`
+(update 63's limits; the monthly quota `order`, default 100, `admin_save_sms_quota`); **an order only through
+`food_order_create()`** (the code + the order in one transaction; the client's UUID once = the same order; the contact
+by the number with `phone_verified_at`, the conversation linked); **every change only through `food_order_step()`**
+(allowed steps, each step's UUID once, a payment mark once, delivered / picked up only after it, the stock taken once:
+`food_take_stock()`, movement ids md5(order ':' line)); `food_order_events` append-only. Owners: `owner_food_*`
+(members; writes + `shop_has_plan`). Off by default (`food_settings.enabled`). "Vymazať moje údaje" clears the orders'
+personal fields (rows and totals stay). Never: a price from the AI or a PDF, an order without the code, a phone number
+or address in a log, Telegram message or the AI's tool data, stock taken twice. Tests: DB block "update 73".
+
 ## Cloud folder (paid, update 23)
 
 `supabase/sql/23_cloud_export.sql` + `supabase/functions/cloud-export` (one file, Verify JWT off) + dashboard

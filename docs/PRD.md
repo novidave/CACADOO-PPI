@@ -60,6 +60,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Sklad v Cacaduu" phase D — Inventúra (database update 70): a count of one location or one shelf while the shop stays open — blind by default, several phones at once (each under its own name; counts added up or "Platí môj počet"), sales and receipts during the count never make a false difference, the differences with their value, "Prepočítať", the uncounted kept or set to 0, approved once, undone within 24 h, an XLSX report | Built and tested; live after database update 70 and the merge (SETUP.md part BB) |
 | "Sklad v Cacaduu" phase E — sales from eKasa (database update 71): "Odkiaľ prichádzajú predaje" = the Predaj screen or the cash register's daily eKasa export (one of them, never both); the export (CSV/XLSX) read as written, its columns approved once, every line taken off the stock once (the same file or overlapping days never twice), unknown texts paired with a product or "Nie je tovar" and remembered, refunds back; "Dodávatelia (XLSX)" | Built and tested; live after database update 71 and the merge (SETUP.md part BC) |
 | "Sklad v Cacaduu" phase F — Zariadenia (database update 72, approved by the owner): a shop assistant's phone or the counter's phone joins one shop's Sklad by a QR code, without the owner's password; only the ticked screens (Predaj, Príjem tovaru — pieces only, Inventúra counting, QR terminál); never purchase prices, suppliers or margins; everything under the phone's name; "Odpojiť" at once, 90 days unused → off, ≤ 10 per shop | Built and tested; live after database update 72 and the merge (SETUP.md part BD) |
+| "Objednávky jedla" (Prompt 15) phase F1 — the data and the rules (database update 73): food orders in the shop assistant, pickup and delivery (zones by town, postcode or kilometres with a fee and a minimum), paid only on receipt (PAY by square, cash, card on the shop's own terminal); prices only from Sklad, sold out refused; the order placed the moment the customer types the SMS code; status steps with an audit log; the stock taken once on delivery; a monthly order SMS quota | F1 built and tested (SQL); F2–F5 (assistant, owner screens, courier app, tests) follow |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2333,3 +2334,32 @@ Môj obchod → Sklad → Nastavenia → **Zariadenia**: phones that work in the
 - **The list:** each phone with its ticks and state ("čaká na naskenovanie kódu", "online", "naposledy …", "nepoužité 90
   dní – pripojte znova"), "Upraviť" (name, ticks), "Nový kód" (a new or replaced phone; the one before is disconnected),
   "Odpojiť" (at once). A phone unused for 90 days is off. At most 10 per shop.
+
+### 6.45 "Objednávky jedla" — food orders in the shop assistant + courier app (Prompt 15, 3 November 2026)
+
+Design: Claude Design canvas "Cacaduu – Asistent a CRM (Môj obchod)", boards 9–19. Owner decisions (fixed):
+
+- **Pickup and delivery**, each switchable; delivery **zones** (a town named in the address, a postcode, or kilometres
+  from the shop) each with a **fee** and a **minimum order**; an address outside every zone is refused (pickup offered).
+- **Paid only on receipt:** PAY by square QR, cash, or card on the shop's own external terminal. No payment in advance;
+  Cacaduu processes no card and talks to no terminal or bank — the courier or the owner only marks how it was paid.
+- **Menu = Sklad products** (price with VAT, sizes are separate products, sold out = Sklad stock ≤ 0) + the knowledge
+  base's documents for descriptions, ingredients and allergens. **Prices always from Sklad**, never from a PDF or the AI;
+  a dish in the PDF but not in Sklad is not offered.
+- **The order is placed the moment the customer types the right SMS code** (no acceptance by the owner); name, phone,
+  for delivery the address + an optional courier note — the page's own form, never the AI (as the booking form).
+- The **Objednávky** tab shows in Asistent only with "Objednávky jedla v asistentovi" on (default off); a paid feature
+  (`shop_has_plan`).
+- **Courier:** "Doručené" stays locked until a payment is marked; it closes the order and takes the items off Sklad
+  (with "Odpísať zo skladu po doručení"). Cash: quick amounts Presne, 10, 20, 30, 40, 50, 100 € and Iná suma, the change
+  shown.
+
+**Phase F1 (database update 73) — the rules in SQL:** `food_settings`, `food_zones`, `food_orders` (the client's
+UUID, a number per shop and day, its own variable symbol), `food_order_lines` (names and prices as sold, extras as
+Sklad products), `food_order_events` (append-only), `food_order_alerts`. One price rule `food_quote()`, one time rule
+`food_open_state()` (opening hours, the last order before closing, paused, the order SMS quota), the order code
+(`sms_codes` purpose `order`, update 63's limits, the new monthly quota `order`, default 100), `food_order_create()`
+(the code and the order in one transaction, the same UUID = the same order), `food_order_step()` (allowed steps only,
+paid before delivered / picked up, each step's UUID once, the stock taken once: `md5(order ':' line)`), "Vymazať moje
+údaje" clears the orders' personal fields (the rows and totals stay).
+
