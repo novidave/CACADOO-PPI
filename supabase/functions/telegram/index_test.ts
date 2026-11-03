@@ -402,7 +402,7 @@ Deno.test("notifications: due rows are sent once and reported", async () => {
     rpc(n: string, a: Record<string, unknown> = {}) {
       calls.push({ name: n, args: a });
       if (n === "telegram_cron_ok") return Promise.resolve({ data: true, error: null });
-      if (n === "telegram_notify_due") return Promise.resolve({ data: calls.filter((c) => c.name === n).length === 1 ? due : [], error: null });
+      if (n === "telegram_notify_due_all") return Promise.resolve({ data: calls.filter((c) => c.name === n).length === 1 ? due : [], error: null });
       return Promise.resolve({ data: null, error: null });
     },
   };
@@ -418,6 +418,18 @@ Deno.test("notifications: a callback links the conversation, never a phone", () 
   const m = noteMessage({ id: 1, chat_id: 5, lang: "en", kind: "callback", shop: "Davide Paint", slug: "d", timezone: "Europe/Bratislava", ref_id: ITEM, booking: null, question: "Do you have <white> paint?" }, "https://cacaduu.com");
   ok(m.text.includes("&lt;white&gt;"), "escaped");
   eq(m.keyboard?.[0][0].url, `https://cacaduu.com/en/dashboard/conversations/${ITEM}`, "the link");
+});
+
+Deno.test("notifications: a food order shows its number, time, total and items and links the order, never a phone", () => {
+  const m = noteMessage({
+    id: 2, chat_id: 5, lang: "sk", kind: "food_order", shop: "Pizzeria <U nás>", slug: "p", timezone: "Europe/Bratislava", ref_id: ITEM,
+    booking: null, question: null,
+    order: { number: 1047, kind: "delivery", total_cents: 3560, pay_method: "qr", created_at: "2026-11-03T17:35:00Z", ready_by: "2026-11-03T18:20:00Z", items: "2× Margherita 32 cm (+ olivy)" },
+  }, "https://cacaduu.com");
+  ok(m.text.includes("1047") && m.text.includes("Pizzeria &lt;U nás&gt;"), "number + shop, escaped");
+  ok(m.text.includes("19:20") && m.text.includes("35,60") && m.text.includes("2× Margherita 32 cm (+ olivy)"), "time, total, items");
+  eq(m.keyboard?.[0][0].url, `https://cacaduu.com/sk/dashboard/assistant/orders/${ITEM}`, "the order's page");
+  ok(!/\+\d{6,}/.test(m.text), "no phone");
 });
 
 Deno.test("notifications: without the bot token nothing is read or sent", async () => {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { formatDateTime, utcToLocalInput } from "@/lib/format";
+import type { FoodTab } from "@/lib/foodOwner";
 import type { MyShop } from "@/lib/myShops";
 import { CalendarFeedForm } from "@/components/CalendarFeedForm";
 import { PendingButton } from "@/components/PendingButton";
@@ -58,6 +59,7 @@ export function AssistantSettings({
   hidden,
   notice,
   googleOn,
+  food,
 }: {
   setup: BookingSetup | null;
   shop: MyShop;
@@ -68,6 +70,7 @@ export function AssistantSettings({
   hidden: (extra?: Record<string, string>) => React.ReactNode;
   notice: (part: string) => React.ReactNode;
   googleOn: boolean;
+  food?: FoodTab | null;
 }) {
   const a = dict.asst;
   const d = dict.dashboard;
@@ -79,6 +82,22 @@ export function AssistantSettings({
 
   return (
     <div className="flex flex-col gap-4" data-tab-panel="settings">
+      {/* Objednávky jedla (database update 74): the switch lives on its own settings page */}
+      <section id="orders" className={card} data-settings-part="orders">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="flex flex-col">
+            <h2 className="text-[17px] font-bold">{dict.food.s_enabled}</h2>
+            <span className="text-sm text-muted">{food?.enabled ? dict.food.card_on : dict.food.card_off}</span>
+          </span>
+          <Link
+            href={`/${lang}/dashboard/assistant/orders/settings?shop=${shop.slug}`}
+            className="flex min-h-11 items-center font-semibold underline underline-offset-4"
+          >
+            {dict.food.settings_link}
+          </Link>
+        </div>
+      </section>
+
       {/* Texty asistenta */}
       <section id="texts" className={card} data-settings-part="texts">
         <h2 className="text-[17px] font-bold">{a.texts_title}</h2>

@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { ASSISTANT_TABS, assistantTabUrl, type AssistantTab } from "@/lib/dashboardPages";
+import type { FoodTab } from "@/lib/foodOwner";
 
 /**
  * Update 63 (the approved screens): the heading "Asistent" and one row of tabs — Prehľad · Konverzácie · Kontakty ·
  * Rezervácie · Šablóny · Nastavenia — the same on the Asistent, Kontakty and Rezervácie pages. Plain links (they work
  * without JavaScript), 44 px high, scrolling sideways on a phone; the badge on Konverzácie = shoppers waiting for an answer.
+ * Update 74: "Objednávky" only while food ordering is on (owner_food_tab), its badge = orders still new.
  */
 export function AssistantTabs({
   lang,
@@ -13,6 +15,7 @@ export function AssistantTabs({
   shop,
   current,
   waiting,
+  food,
   children,
 }: {
   lang: string;
@@ -20,11 +23,13 @@ export function AssistantTabs({
   shop: string;
   current: AssistantTab;
   waiting: number;
+  food?: FoodTab | null;
   children?: React.ReactNode;
 }) {
   const a = dict.asst;
   const labels: Record<AssistantTab, string> = {
     overview: a.tab_overview,
+    orders: dict.food.tab,
     conversations: a.tab_conversations,
     contacts: a.tab_contacts,
     bookings: a.tab_bookings,
@@ -43,7 +48,7 @@ export function AssistantTabs({
         className="-mx-4 flex gap-5 overflow-x-auto whitespace-nowrap border-b border-line px-4 sm:mx-0 sm:px-0"
         data-assistant-tabs
       >
-        {ASSISTANT_TABS.map((tab) => (
+        {ASSISTANT_TABS.filter((tab) => tab !== "orders" || food?.enabled || current === "orders").map((tab) => (
           <Link
             key={tab}
             href={assistantTabUrl(lang, tab, shop)}
@@ -58,6 +63,12 @@ export function AssistantTabs({
               <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1.5 text-xs font-bold text-white">
                 <span aria-hidden="true">{waiting > 99 ? "99+" : waiting}</span>
                 <span className="sr-only">{t(a.waiting_badge, { n: waiting })}</span>
+              </span>
+            )}
+            {tab === "orders" && (food?.new ?? 0) > 0 && (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#F57C20] px-1.5 text-xs font-bold text-white" data-food-badge>
+                <span aria-hidden="true">{food!.new > 99 ? "99+" : food!.new}</span>
+                <span className="sr-only">{t(dict.food.tab_badge, { n: food!.new })}</span>
               </span>
             )}
           </Link>

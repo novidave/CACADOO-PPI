@@ -124,11 +124,26 @@ OPEN
    a) Write "deploy hours-sms" to Claude. Claude deploys "hours-sms" and sends you the "telegram" file to paste
       (as in item 20).
    b) Then item 2 (connect the Google Business Profile) can be done.
+   Note (2026-11-03): this telegram deploy also switches on the Telegram notice of a new food order. Until then new
+   orders arrive by e-mail, with the sound in Asistent → Objednávky, and nothing else changes in the live bot.
 
 24. Privacy page: food orders (waits for your OK)
    Why: a shopper who orders food in the shop assistant gives the shop a name, a mobile number and, for delivery,
    an address; the address's town goes to OpenStreetMap (Nominatim) when the shop has kilometre zones.
    Steps: Claude will show you the exact new lines for "Súkromie – asistent obchodu"; write "OK" or your changes.
+
+25. Objednávky jedla: try one order from start to end (once, in a shop with Pro and "Sklad v Cacaduu")
+   Why: the screens were tested without a real login and without a real SMS.
+   a) Môj obchod → Asistent → Nastavenia → "Objednávky jedla v asistentovi" → Nastavenia objednávok: switch it on, keep
+      "Osobný odber" on, tick the payments you take, "Uložiť". (For delivery: switch it on and add one zone.)
+   b) Open the shop page on your phone, write to the assistant e.g. "Chcem 1× <a product from Sklad> na odber",
+      tap "Pokračovať", type your name and your own mobile number, the SMS code, "Objednať".
+   c) Within a minute: Asistent → Objednávky shows it as "Nová" (with the sound, if the page was open), and the
+      e-mail "Nová objednávka č. …" arrives (it needs BREVO_API_KEY, already set).
+   d) Tap "Do prípravy", then "Pripravené na odber", then "Zaplatil v hotovosti" → "Presne", then "Vyzdvihnuté".
+      Sklad → Pohyby shows the sale ("Objednávka … · Objednávky jedla"), if "Odpísať zo skladu po doručení" is on.
+   e) Tell Claude what happened (a screenshot is enough if something fails). Switch ordering off again if you
+      do not want it on yet.
 
 DONE
 ----

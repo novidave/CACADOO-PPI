@@ -776,6 +776,26 @@ delivery, QR / Hotovosť / Kartou (only what is on), "Pokračovať" → the page
 consent) → "Poslať overovací kód" → the code → "Objednať · <total>" → "Objednané · č. <n>") + `/api/shops/[slug]/order`
 (quote · code · place; 20/min per caller; place re-quotes on the server) + bookings function `code_start` purpose
 `order` (SMS `order_code`) and `order_place` (→ `food_order_create`). The AI never confirms an order. Texts `chat.order_*`.
+**F3 — the owner's side (update 74, boards 11–14):** `supabase/sql/74_food_owner.sql` + `dashboard/assistant/orders`
+(`page.tsx`: the state strip + "Pozastaviť", on a phone the filters Nové · V príprave · Na ceste · Hotové, on a computer
+the kitchen board's four columns; `[id]`: the steps, lines, the customer, "Navigovať" / "Zavolať", payment — the PAY by
+square code from Sklad's IBAN drawn on the server, cash quick amounts Presne / 10 … 100 € / Iná suma with the change,
+card —, the "on the way" SMS, the next step, "Zrušiť"; `settings`: board 14; `actions.ts`, `parts.tsx`) +
+`@/lib/foodOwner` + `@/components/FoodOrdersLive` (every 15 s `/api/owner/food/tab`, a Web Audio tone, the choice in
+localStorage) + `@/lib/foodMenuRead`. The Asistent row shows "Objednávky" (after Prehľad) only while ordering is on
+(`owner_food_tab`, badge = new orders); Nastavenia has a card to the settings. Every step is one form with its own
+step UUID (`owner_food_order_status` → `food_order_step`). **Alerts:** e-mail = crm-messages' 5-minute job
+(`food_alerts_due` → `food_alert_result`, kicked at once by a trigger) — number, time, kind, items, total, never the
+phone or address; Telegram kind `food_order` (trigger on `food_orders`, the shop's "Telegram" switch) is read only by
+`telegram_notify_due_all()` — the old `telegram_notify_due()` never returns it, so the live bot is safe until telegram is
+redeployed (TODO 23), and a notice older than 2 h is dropped. **"Objednávka je na ceste":** `owner_food_sms_queue`
+(kind `order_on_way`, the `order` quota, once per order, short = one SMS part) → crm-messages `food_sms` → the provider →
+`crm_message_result`. **Menu check:** `owner_food_menu_docs` / `owner_food_menu_text` (Public folder, 10 a day) → Claude
+lists dish names only → `owner_food_menu_pair` (trigram ≥ 0.45 against Sklad products with a price) →
+`food_settings.menu_check` ("2 položky z PDF nie sú v Sklade"). **Owner MCP:** `list_food_orders` (shop.read) and
+`set_food_order_status` (shop.write, confirm) in the update-74 door (`owner_mcp_call_64` keeps every other tool); the
+AI's tool data never carry a phone, address, note or place. Admin "SMS" sets the `order` quota. Texts `food`,
+`telegram.n_food_order`, `admin_sms.order`. Tests: DB block "update 74", `test:functions` (crm-messages, telegram).
 
 ## Cloud folder (paid, update 23)
 

@@ -3084,3 +3084,28 @@ and the courier app (phase F4) only call these functions.
   code's `attempts_left` go back to the page.
 - Texts `chat.order_*` (sk/hu/en).
 
+## Update 74 — "Objednávky jedla" phase F3: the owner's side (3 November 2026, boards 11–14)
+
+- **Tab:** `owner_food_tab(shop)` {enabled, new, latest} (members). `AssistantTabs` shows "Objednávky" only while
+  enabled; `/api/owner/food/tab` is what the open page reads every 15 s (`FoodOrdersLive`: router.refresh + a tone).
+- **Pages** `dashboard/assistant/orders` (list / kitchen board), `[id]` (detail), `settings`. Reads: `owner_food_orders`
+  (open + done), `owner_food_order`, `owner_food_settings` (+ `menu_check`), `owner_food_sms_state`,
+  `owner_food_menu_docs`. Writes: `owner_food_order_status` (each step's UUID from the page), `owner_food_pause`,
+  `owner_food_save_settings`, `owner_food_save_zone` / `_delete_zone`, the menu check.
+- **E-mail of a new order:** `food_order_alerts` row (update 73) → trigger `food_order_alerts_kick` → `crm_alerts_kick()`
+  → crm-messages `alerts` → `food_alerts_due()` (≤ 24 h old, ≤ 10 tries; recipients = `crm_settings.alert_email` or
+  every owner, each in their language) → Brevo → `food_alert_result()` (back-off 5 min · 2ⁿ ≤ 6 h).
+- **Telegram:** `telegram_outbox.kind` + `food_order`; trigger `telegram_food_order_notify` (when
+  `food_settings.alert_telegram`) → `telegram_notify()` (food_order is on unless the link's prefs say false). The reader
+  is split: `telegram_notify_take(limit, p_food)`; `telegram_notify_due()` = without food orders (the bot deployed
+  before this phase), `telegram_notify_due_all()` = with them (the bot of this phase; stale > 2 h → skipped). The order
+  part carries number, kind, total, payment, times and the items text (`food_order_items_text`).
+- **"On the way" SMS:** `shop_outgoing_messages.food_order_id` + kind `order_on_way` (unique while not failed),
+  `sms_quota_of('order_on_way') = 'order'`, `food_on_way_text()` (sk/hu/en, ≤ 70 characters with a 30-character shop
+  name), `owner_food_sms_queue()` → crm-messages `food_sms` → `deliver()` → `crm_message_result()`.
+- **Menu check:** `owner_food_menu_text()` (activity `food_menu_checked`, 10 per shop and day) → `readMenuNames()`
+  (Claude, `aiModel()`, structured `{dishes}`; without `ANTHROPIC_API_KEY` "ai_off") → `owner_food_menu_pair()`.
+- **Owner MCP:** `mcp_tool_scope` + `list_food_orders` / `set_food_order_status`; `owner_mcp_call` (74) answers them
+  and hands every other tool to `owner_mcp_call_64`; `mcp_food_order_json()` = no phone, address, note, lat/lng.
+- Tests: DB block "update 74"; crm-messages (`foodAlertMail`, `food_sms`), telegram (`noteMessage` food_order).
+

@@ -15,6 +15,10 @@
 //     in shop_owner_alerts — "Nový zákazník, prosím odpovedzte" when a shopper left a phone or e-mail after a question
 //     the assistant could not answer — in each owner's language, with the question and a link to the conversation
 //     (SITE_URL); never the shopper's number or address. Sent once (crm_alert_result), retried with a pause.
+//     Since update 74 the same job sends the owner e-mail of a new food order (food_alerts_due → food_alert_result):
+//     the number, the time, pickup / delivery, the items and the total — never the customer's number or address.
+//   - action "food_sms" {shop_id, order_id} with the owner's login (database update 74): "Objednávka je na ceste" —
+//     owner_food_sms_queue writes it down first (the shop's 'order' quota, once per order), then it is sent here.
 // E-mail goes through Brevo from ALERT_EMAIL_FROM with the shop's name as the sender's name and the shop's e-mail as
 // "reply to". SMS goes through one provider behind the SmsProvider interface (SMS_PROVIDER: brevo, twilio; unset or
 // "test" = written down as "test", not sent) and takes its parts of the shop's monthly "owner" quota first (database
@@ -32,7 +36,10 @@ const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 /** The owner MCP's own refusals (database update 61), passed on to the AI assistant as they are. */
 export const MCP_REASONS = ["invalid_token", "scope", "confirmation", "preview_changed", "no_plan", "forbidden"] as const;
 /** The database's own reasons, passed on to the page as they are. */
-export const REASONS = ["no_plan", "no_recipient", "empty", "subject", "too_long", "too_many", "channel", "sms_quota", "no_contact", "not_found"] as const;
+export const REASONS = [
+  "no_plan", "no_recipient", "empty", "subject", "too_long", "too_many", "channel", "sms_quota", "no_contact", "not_found",
+  "already_sent", "step",
+] as const;
 
 // ---------------------------------------------------------------- SMS providers (the same block in crm-messages and bookings)
 //
@@ -350,8 +357,9 @@ export function alertMail(row: AlertRow, lang: string, siteUrl: string | null) {
 }
 
 async function sendAlerts(deps: Deps): Promise<Response> {
+  const food = await sendFoodAlerts(deps);
   const { data, error } = await deps.db.rpc("crm_alerts_due", { p_limit: 20 });
-  if (error) return reply(500, { error: "failed" });
+  if (error) return reply(500, { error: "failed", food });
   let sent = 0;
   for (const row of (data ?? []) as AlertRow[]) {
     const recipients = (row.recipients ?? []).filter((r) => EMAIL.test(r.email ?? ""));
@@ -365,7 +373,105 @@ async function sendAlerts(deps: Deps): Promise<Response> {
     if (result.ok) sent++;
     else console.error("crm-messages: owner e-mail not sent", row.id, (result.error ?? "").slice(0, 80));
   }
-  return reply(200, { alerts: sent });
+  return reply(200, { alerts: sent, food });
+}
+
+// ---------------------------------------------------------------- owner e-mails (new food orders, update 74)
+
+export interface FoodAlertRow {
+  id: string;
+  shop_name: string;
+  order_id: string;
+  number: number;
+  kind: "pickup" | "delivery";
+  pay_method: "qr" | "cash" | "card";
+  total_cents: number;
+  created_at: string;
+  ready_by: string;
+  timezone: string;
+  items: string | null;
+  recipients: { email: string; lang: string }[];
+}
+
+const FOOD_TEXTS = {
+  sk: {
+    subject: "Nová objednávka č. {n} – {shop}",
+    intro: "Na stránke obchodu {shop} prišla nová objednávka č. {n} (telefón zákazníka je overený SMS kódom).",
+    delivery: "Donáška do {time}",
+    pickup: "Osobný odber o {time}",
+    items: "Položky:",
+    total: "Spolu: {total} · platba pri prevzatí ({pay})",
+    pay: { qr: "QR", cash: "hotovosť", card: "kartou" },
+    open: "Otvoriť objednávky:",
+    footer: "Táto správa prišla z Cacaduu, pretože ste majiteľom obchodu {shop}. Upozornenia vypnete v Nastaveniach objednávok.",
+  },
+  hu: {
+    subject: "Új rendelés: {n}. – {shop}",
+    intro: "A(z) {shop} üzlet oldalán új rendelés érkezett: {n}. (a vásárló telefonszáma SMS-kóddal ellenőrizve).",
+    delivery: "Kiszállítás {time}-ig",
+    pickup: "Személyes átvétel {time}-kor",
+    items: "Tételek:",
+    total: "Összesen: {total} · fizetés átvételkor ({pay})",
+    pay: { qr: "QR", cash: "készpénz", card: "kártya" },
+    open: "A rendelések megnyitása:",
+    footer: "Ezt az üzenetet a Cacaduu küldte, mert Ön a(z) {shop} üzlet tulajdonosa. Az értesítéseket a Rendelési beállításokban kapcsolhatja ki.",
+  },
+  en: {
+    subject: "New order no. {n} – {shop}",
+    intro: "A new order no. {n} came in on the page of {shop} (the customer's phone is verified with an SMS code).",
+    delivery: "Delivery by {time}",
+    pickup: "Pickup at {time}",
+    items: "Items:",
+    total: "Total: {total} · pay on receipt ({pay})",
+    pay: { qr: "QR", cash: "cash", card: "card" },
+    open: "Open the orders:",
+    footer: "This message comes from Cacaduu because you own the shop {shop}. You can switch the alerts off in the order settings.",
+  },
+} as const;
+
+/** The owner e-mail of a new order, in the owner's language — the order's number, time, items and total only. */
+export function foodAlertMail(row: FoodAlertRow, lang: string, siteUrl: string | null) {
+  const code = lang === "sk" || lang === "hu" ? lang : lang === "cs" ? "sk" : "en";
+  const t = FOOD_TEXTS[code];
+  const shop = row.shop_name.replace(/[\r\n]/g, " ").trim().slice(0, 80);
+  const n = String(row.number);
+  const locale = code === "sk" ? "sk-SK" : code === "hu" ? "hu-HU" : "en-GB";
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone: row.timezone || "UTC", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .format(new Date(row.ready_by));
+  const total = new Intl.NumberFormat(locale, { style: "currency", currency: "EUR" }).format(row.total_cents / 100);
+  const link = siteUrl ? `${siteUrl}/${code}/dashboard/assistant/orders/${row.order_id}` : null;
+  const lines = [
+    fillText(t.intro, { shop, n }),
+    "",
+    fillText(row.kind === "delivery" ? t.delivery : t.pickup, { time }),
+    ...(row.items ? ["", t.items, row.items.slice(0, 600)] : []),
+    "",
+    fillText(t.total, { total, pay: t.pay[row.pay_method] ?? row.pay_method }),
+    "",
+    ...(link ? [t.open, link, ""] : []),
+    fillText(t.footer, { shop }),
+  ];
+  return { subject: fillText(t.subject, { shop, n }), text: lines.join("\n") };
+}
+
+async function sendFoodAlerts(deps: Deps): Promise<number> {
+  const { data, error } = await deps.db.rpc("food_alerts_due", { p_limit: 20 });
+  // before update 74 the function does not exist: nothing to send
+  if (error) return 0;
+  let sent = 0;
+  for (const row of (data ?? []) as FoodAlertRow[]) {
+    const recipients = (row.recipients ?? []).filter((r) => EMAIL.test(r.email ?? ""));
+    let result: SmsResult = { ok: false, error: recipients.length ? "e-mail is not set up" : "no owner e-mail" };
+    for (const r of recipients) {
+      const mail = foodAlertMail(row, r.lang, deps.siteUrl ?? null);
+      result = await sendEmail(deps, { to: r.email, subject: mail.subject, text: mail.text, shopName: "Cacaduu", replyTo: null });
+      if (!result.ok) break;
+    }
+    await deps.db.rpc("food_alert_result", { p_id: row.id, p_ok: result.ok, p_error: result.ok ? null : (result.error ?? "failed") });
+    if (result.ok) sent++;
+    else console.error("crm-messages: order e-mail not sent", row.id, (result.error ?? "").slice(0, 80));
+  }
+  return sent;
 }
 
 export async function handle(req: Request, deps: Deps): Promise<Response> {
@@ -402,6 +508,15 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   const action = body?.action;
 
   if (action === "config") return reply(200, { email: Boolean(deps.email), sms: deps.sms.name, sms_live: deps.sms.live });
+  if (action === "food_sms" && body) {
+    // update 74: "Objednávka je na ceste" — written down first (the 'order' quota, once per order), then sent
+    const shop = String(body.shop_id ?? "");
+    const order = String(body.order_id ?? "");
+    if (!UUID.test(shop) || !UUID.test(order)) return reply(400, { error: "bad_request" });
+    const queued = await caller.rpc("owner_food_sms_queue", { p_shop_id: shop, p_order_id: order });
+    if (queued.error) return reply(queued.error.code === "42501" ? 403 : 400, { error: reason(queued.error) });
+    return reply(200, await deliver(deps, queued.data as Queued));
+  }
   if (action === "reply" && body) {
     // update 63: the owner answers in a conversation (its contact); the message is part of the conversation
     const conversation = String(body.conversation_id ?? "");
