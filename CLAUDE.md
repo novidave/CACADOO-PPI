@@ -212,7 +212,9 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook, page-sections PDF cleaning and limits, partner-feeds formats, parts and size limit
   — and `paste_safe_test.ts`: the owner pastes every `index.ts` into the Supabase editor, so write invisible or special
-  characters (U+FFFF, BOM, no-break space, zero-width) as `\u…` escapes, never literally.
+  characters (U+FFFF, BOM, no-break space, zero-width) as `\u…` escapes, never literally. Beyond the control characters
+  (`\u0000`–`\u009f`) use the braced form `\u{200b}` (regexes with the `u` flag): a plain `​` does not survive Claude's `deploy_edge_function` upload
+  (it arrives as the character itself, 2026-11-03).
 
 ## AI access
 

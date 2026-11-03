@@ -125,6 +125,11 @@ OPEN
       (as in item 20).
    b) Then item 2 (connect the Google Business Profile) can be done.
 
+24. Privacy page: food orders (waits for your OK)
+   Why: a shopper who orders food in the shop assistant gives the shop a name, a mobile number and, for delivery,
+   an address; the address's town goes to OpenStreetMap (Nominatim) when the shop has kilometre zones.
+   Steps: Claude will show you the exact new lines for "Súkromie – asistent obchodu"; write "OK" or your changes.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
