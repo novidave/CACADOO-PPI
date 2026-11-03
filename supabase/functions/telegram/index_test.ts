@@ -30,6 +30,7 @@ interface Setup {
   tools?: Record<string, unknown>;
   isAdmin?: boolean;
   confirmError?: string;
+  confirmData?: unknown;
 }
 
 const LINKED = {
@@ -53,7 +54,7 @@ function setup(s: Setup = {}) {
       if (name === "telegram_whoami") return r(s.whoError ? null : (s.who === undefined ? LINKED : s.who), s.whoError ?? null);
       if (name === "telegram_call") return r({ result: s.tools?.[String(args.p_tool)] ?? {} });
       if (name === "telegram_pending_new") return r(PENDING);
-      if (name === "telegram_confirm") return r(s.confirmError ? null : { out: {} }, s.confirmError ?? null);
+      if (name === "telegram_confirm") return r(s.confirmError ? null : (s.confirmData ?? { out: {} }), s.confirmError ?? null);
       if (name === "is_admin") return r(s.isAdmin === true);
       return r(true);
     },
@@ -423,4 +424,24 @@ Deno.test("notifications: without the bot token nothing is read or sent", async 
   const { deps, calls } = setup();
   eq(await sendDue({ ...deps, botToken: null }), { sent: 0, failed: 0 }, "nothing");
   eq(calls.length, 0, "nothing read");
+});
+
+Deno.test("confirmed opening hours also go to Google Maps (when the profile is connected)", async () => {
+  const hoursDone = { tool: "set_opening_hours", out: { shop: "davide-paint", changed: true } };
+  for (const [answer, line] of [["pushed", "google_pushed"], ["failed", "google_failed"], [null, "google_failed"], ["not_connected", null]] as const) {
+    const { deps, texts } = setup({ confirmData: hoursDone });
+    const pushed: string[] = [];
+    deps.googlePush = (shop) => (pushed.push(shop), Promise.resolve(answer));
+    await onUpdate(deps, press(`ok:${PENDING}`));
+    eq(pushed, ["davide-paint"], `pushed once (${answer})`);
+    const last = texts().at(-1) ?? "";
+    ok(last.includes(tr("sk", "done")), "done");
+    if (line) ok(last.includes(tr("sk", line)), `says ${line}`);
+    else ok(!last.includes("Google"), "nothing about Google when not connected");
+  }
+  const stock = setup({ confirmData: { tool: "update_stock", out: { shop: "davide-paint", changed: true } } });
+  let calledForStock = false;
+  stock.deps.googlePush = () => ((calledForStock = true), Promise.resolve("pushed"));
+  await onUpdate(stock.deps, press(`ok:${PENDING}`));
+  ok(!calledForStock, "other changes never push");
 });
