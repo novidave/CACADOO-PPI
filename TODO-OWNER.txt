@@ -118,25 +118,6 @@ OPEN
 
 DONE
 ----
-9. Create the Cacaduu Telegram bot and add its 3 settings — done 2026-11-02 (@Cacaduu_support_bot)
-   Why: the Telegram bot for shop owners (Môj obchod → AI asistenti → Telegram) stays switched off until then.
-   Steps:
-   a) In Telegram open @BotFather → /newbot → name "Cacaduu" → a username ending in "bot" (e.g. CacaduuBot).
-      BotFather answers with a token (a long text with ":"). Keep that chat open.
-   b) Make a webhook secret: 40 or more random letters and digits (e.g. from a password manager). Only A–Z, a–z,
-      0–9, "_" and "-".
-   c) Supabase → project szhotccxyaepjhwsqdqx → Edge Functions → Secrets → add
-      TELEGRAM_BOT_TOKEN = the token from a), and TELEGRAM_WEBHOOK_SECRET = the text from b).
-   d) Vercel → the cacaduu project → Settings → Environment Variables → add TELEGRAM_BOT_USERNAME = the bot's
-      username without "@" (Production and Preview). This one is public, not a secret. Then Deployments → the latest
-      production deployment → "Redeploy".
-   e) Write "done 9" to Claude.
-
-10. Switch on the bot's webhook (after item 9) — done 2026-11-02 (Webhook: nastavený)
-   Steps:
-   a) cacaduu.com → log in → Predplatné a domény (admin) → "Telegram bot" → "Nastaviť webhook".
-   b) It should then say "Webhook: nastavený" and show the bot's name.
-
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
    Why: the Vault value "ppi_project_url" is still the example text "https://<your-ref>.supabase.co". Every job that
    calls a function every few minutes (bookings and reminders, translations, the blog, domains, the cloud folder,
@@ -193,3 +174,22 @@ DONE
 20. Deploy the new "telegram" function (one paste; the Sklad button fix) — done 2026-11-02 (v9, same as the repository, Verify JWT off)
 
 19. Add the secrets that are still missing — done 2026-11-02 (functions restarted without errors; the screens that switch on are listed in Claude's message)
+
+9. Create the Cacaduu Telegram bot and add its 3 settings — done 2026-11-02 (@Cacaduu_support_bot)
+   Why: the Telegram bot for shop owners (Môj obchod → AI asistenti → Telegram) stays switched off until then.
+   Steps:
+   a) In Telegram open @BotFather → /newbot → name "Cacaduu" → a username ending in "bot" (e.g. CacaduuBot).
+      BotFather answers with a token (a long text with ":"). Keep that chat open.
+   b) Make a webhook secret: 40 or more random letters and digits (e.g. from a password manager). Only A–Z, a–z,
+      0–9, "_" and "-".
+   c) Supabase → project szhotccxyaepjhwsqdqx → Edge Functions → Secrets → add
+      TELEGRAM_BOT_TOKEN = the token from a), and TELEGRAM_WEBHOOK_SECRET = the text from b).
+   d) Vercel → the cacaduu project → Settings → Environment Variables → add TELEGRAM_BOT_USERNAME = the bot's
+      username without "@" (Production and Preview). This one is public, not a secret. Then Deployments → the latest
+      production deployment → "Redeploy".
+   e) Write "done 9" to Claude.
+
+10. Switch on the bot's webhook (after item 9) — done 2026-11-02 (Webhook: nastavený)
+   Steps:
+   a) cacaduu.com → log in → Predplatné a domény (admin) → "Telegram bot" → "Nastaviť webhook".
+   b) It should then say "Webhook: nastavený" and show the bot's name.
