@@ -205,6 +205,15 @@ export function ShopProducts({
     run("");
     inputRef.current?.focus();
   };
+  // Words typed before this code was ready (a slow first load: the box works as soon as it is drawn) still count —
+  // the search runs for them once it is.
+  const early = useRef(true);
+  useEffect(() => {
+    if (!early.current) return;
+    early.current = false;
+    const now = inputRef.current?.value ?? "";
+    if (now !== initial.q) queueMicrotask(() => typed(now));
+  });
 
   // ---- the list ----
   const showLater = (id: string, n: number) =>
