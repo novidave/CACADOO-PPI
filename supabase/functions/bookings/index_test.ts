@@ -333,3 +333,28 @@ Deno.test("update 63 SMS texts and the local day", () => {
     eq(/https?:/.test(smsText(k, "sk", { shop: "Eva", code: "1", day: "1. 1.", time: "1:00" })), false, `${k}: no links`);
   }
 });
+
+// ---------------------------------------------------------------- update 75: the courier's login code
+
+Deno.test("courier_code: a courier gets the SMS; an unknown number the same answer and nothing sent; limits", async () => {
+  const body = { action: "courier_code", slug: "pizzeria", phone: "0915123220", caller: "c".repeat(32), lang: "sk" };
+  const real = { data: { id: CODE, send: true, code: "112233", phone: "+421915123220", shop_name: "Pizzeria", expires_at: "x" } };
+  const { deps, log } = await setup({ rpc: { food_courier_code_start: real, food_courier_code_claim: { data: "msg-c" } } });
+  const res = await (await handle(website(body), deps)).json();
+  eq([res.id, res.phone, "test_code" in res], [CODE, "+421 ••• ••• 220", false], "sent; the code never goes back");
+  eq(log.find((l) => l.startsWith("db food_courier_code_claim"))!.includes("kód na prihlásenie kuriéra je 112233"), true, "the SMS text");
+  eq(log.some((l) => l.startsWith("db booking_sms_settle") && l.includes('"p_id":"msg-c"')), true, "settled once");
+  let sent = false;
+  const fake = { data: { id: CODE, send: false, phone: "+421915999999", shop_name: "Pizzeria", expires_at: "x" } };
+  const unknown = await setup({ showTestCodes: true, rpc: { food_courier_code_start: fake },
+    sms: { name: "brevo", live: true, send: () => { sent = true; return Promise.resolve({ ok: true }); } } });
+  const u = await handle(website({ ...body, phone: "0915999999" }), unknown.deps);
+  const answer = await u.json();
+  eq([u.status, Object.keys(answer).sort(), sent], [200, ["expires_at", "id", "phone"], false], "the same shape, nothing sent");
+  eq(unknown.log.some((l) => l.startsWith("db food_courier_code_claim")), false, "nothing written as sent");
+  const many = await setup({ rpc: { food_courier_code_start: { error: { message: "too_many", code: "54000" } } } });
+  const r = await handle(website(body), many.deps);
+  eq([r.status, (await r.json()).error], [429, "too_many"], "3 a number / 10 a caller an hour");
+  eq((await handle(website({ ...body, slug: "Bad Slug" }), deps)).status, 400, "slug");
+  eq((await handle(website({ ...body, caller: "short" }), deps)).status, 400, "caller");
+});

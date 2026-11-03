@@ -130,6 +130,8 @@ OPEN
 24. Privacy page: food orders (waits for your OK)
    Why: a shopper who orders food in the shop assistant gives the shop a name, a mobile number and, for delivery,
    an address; the address's town goes to OpenStreetMap (Nominatim) when the shop has kilometre zones.
+   Since 2026-11-03 also the couriers: a shop stores its couriers' names and mobile numbers in Cacaduu (for the
+   invitation and the SMS code), and a courier sees the name, address, phone and note of their own deliveries.
    Steps: Claude will show you the exact new lines for "Súkromie – asistent obchodu"; write "OK" or your changes.
 
 25. Objednávky jedla: try one order from start to end (once, in a shop with Pro and "Sklad v Cacaduu")
@@ -144,6 +146,19 @@ OPEN
       Sklad → Pohyby shows the sale ("Objednávka … · Objednávky jedla"), if "Odpísať zo skladu po doručení" is on.
    e) Tell Claude what happened (a screenshot is enough if something fails). Switch ordering off again if you
       do not want it on yet.
+
+26. Kuriéri: add yourself as a courier and deliver one test order (once, after item 25)
+   Why: the courier app was tested without a real login and without a real SMS.
+   a) Objednávky jedla → Nastavenia: switch on "Donáška" and add one zone (your town), "Uložiť".
+   b) Objednávky jedla → Kuriéri → "Pridať kuriéra": your name and a mobile number you have with you → "Pridať" →
+      "Poslať pozvánku SMS". The SMS has a link (no password in it).
+   c) On that phone open the link → your number → "Poslať kód" → type the SMS code → "Prihlásiť sa". The phone now
+      shows "Moje donášky · QR terminál · Hotovosť na odovzdanie" and nothing else of the shop.
+   d) Order something for delivery on the shop page (as in item 25), then on the order's page choose yourself under
+      "Kuriér" → "Prideliť" (or set "Voľný kuriér automaticky" on the Kuriéri tab first).
+   e) On the courier phone: open the delivery → "Vyrážam · Na ceste" → "Hotovosť" → "Presne" → "Zaplatené ·
+      Doručené". The Kuriéri tab then shows the cash; "Vyúčtovať hotovosť" puts it back to 0.
+   f) Tell Claude what happened (a screenshot is enough if something fails). "Deaktivovať" signs the phone out.
 
 DONE
 ----

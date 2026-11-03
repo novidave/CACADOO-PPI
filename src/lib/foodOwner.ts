@@ -70,6 +70,10 @@ export interface FoodOrder {
   contact_id: string | null;
   conversation_id: string | null;
   verified: boolean;
+  /** update 75: the courier (name) and the latest "Problém s donáškou" not followed by a status step */
+  courier_id?: string | null;
+  courier_name?: string | null;
+  problem?: string | null;
   lines: FoodLine[];
   events?: FoodEvent[];
   timezone: string;

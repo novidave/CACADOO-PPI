@@ -41,6 +41,8 @@ export const ITEM_TABS = {
   ],
   food: [
     { key: "orders", path: "/dashboard/assistant/orders" },
+    // update 75 (couriers): Objednávky · Kuriéri · Menu · Nastavenia, as the canvas
+    { key: "couriers", path: "/dashboard/assistant/orders/couriers" },
     { key: "menu", path: "/dashboard/assistant/orders/settings", query: { view: "menu" } },
     { key: "settings", path: "/dashboard/assistant/orders/settings" },
   ],

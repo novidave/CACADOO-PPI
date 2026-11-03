@@ -17,6 +17,9 @@
 //     (SITE_URL); never the shopper's number or address. Sent once (crm_alert_result), retried with a pause.
 //     Since update 74 the same job sends the owner e-mail of a new food order (food_alerts_due → food_alert_result):
 //     the number, the time, pickup / delivery, the items and the total — never the customer's number or address.
+//   - action "courier_invite" {shop_id, courier_id, lang} with the owner's login (database update 75): "Pozvať SMS" —
+//     owner_food_courier_invite writes it down first (the owner quota; the address of the shop's courier login built
+//     from SITE_URL, no key in it), then it is sent here.
 //   - action "food_sms" {shop_id, order_id} with the owner's login (database update 74): "Objednávka je na ceste" —
 //     owner_food_sms_queue writes it down first (the shop's 'order' quota, once per order), then it is sent here.
 // E-mail goes through Brevo from ALERT_EMAIL_FROM with the shop's name as the sender's name and the shop's e-mail as
@@ -38,7 +41,7 @@ export const MCP_REASONS = ["invalid_token", "scope", "confirmation", "preview_c
 /** The database's own reasons, passed on to the page as they are. */
 export const REASONS = [
   "no_plan", "no_recipient", "empty", "subject", "too_long", "too_many", "channel", "sms_quota", "no_contact", "not_found",
-  "already_sent", "step",
+  "already_sent", "step", "inactive", "site",
 ] as const;
 
 // ---------------------------------------------------------------- SMS providers (the same block in crm-messages and bookings)
@@ -508,6 +511,17 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   const action = body?.action;
 
   if (action === "config") return reply(200, { email: Boolean(deps.email), sms: deps.sms.name, sms_live: deps.sms.live });
+  if (action === "courier_invite" && body) {
+    // update 75: one SMS with the address of the shop's courier login — written down first (the owner quota)
+    const shop = String(body.shop_id ?? "");
+    const courier = String(body.courier_id ?? "");
+    const lang = typeof body.lang === "string" ? body.lang.slice(0, 12) : "sk";
+    if (!UUID.test(shop) || !UUID.test(courier)) return reply(400, { error: "bad_request" });
+    if (!deps.siteUrl) return reply(503, { error: "site" });
+    const queued = await caller.rpc("owner_food_courier_invite", { p_shop_id: shop, p_id: courier, p_site: deps.siteUrl, p_lang: lang });
+    if (queued.error) return reply(queued.error.code === "42501" ? 403 : 400, { error: reason(queued.error) });
+    return reply(200, await deliver(deps, queued.data as Queued));
+  }
   if (action === "food_sms" && body) {
     // update 74: "Objednávka je na ceste" — written down first (the 'order' quota, once per order), then sent
     const shop = String(body.shop_id ?? "");

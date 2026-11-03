@@ -3173,3 +3173,36 @@ Layout only; no database change, the same fields and actions. Canvas artboards 1
   booking and assistant settings' on/off boxes and the food-order settings are switches; the hours editor's times are
   44 px pills; "Krátke / Dlhé" is a 44 px segmented pair.
 - Tests: e2e `owner-shell.spec.ts` "the page pattern" (28 px titles, the compact head, the save bar counting and Zrušiť).
+
+## Update 75 — "Objednávky jedla" phase F4: couriers (3 November 2026, the owner's OK for the SMS-code login)
+
+`supabase/sql/75_food_couriers.sql` + the bookings function (`courier_code`) + crm-messages (`courier_invite`) +
+`@/lib/courier` + `src/app/[lang]/kurier/*` + `/api/kurier/step|logout` + `@/components/CourierStep` / `CourierCash` +
+`dashboard/assistant/orders/couriers`. Canvas "Asistent a CRM" boards 15–19, "Môj obchod" artboards 6 and 20.
+
+- **Couriers:** `food_couriers` (≤ 20 per shop, name, E.164 phone by `crm_phone`, one per shop and number, active,
+  invited, cash settled) and the shop's switches `food_settings.courier_can_qr / courier_can_cash / courier_has_card`
+  (each also needs the payment method on: `food_courier_perms()`). Owners: `owner_food_couriers`, `_courier_save` (a new
+  number or switching off ends every key), `_courier_logout`, `_courier_settle`, `_courier_invite` (kind owner, the owner
+  quota, the address `<SITE_URL>/<lang>/kurier/prihlasenie/<slug>` — no key in it, once in 2 minutes; crm-messages
+  sends it), `owner_food_assign` (an order event 'assigned', the step's UUID once). Auto-assignment: the deferred
+  constraint trigger `food_orders_auto_assign` (at the order's commit, after its first event): the active, signed-in
+  courier with the fewest open deliveries.
+- **Login without an account:** `food_courier_code_start` (service role; the bookings function): a `sms_codes` row of
+  purpose `courier` (update 63's limits) — an unknown number gets a row that can never be right and `send: false`, the
+  same answer to the page; `food_courier_code_claim` (kind phone_code, masked, the owner quota); `booking_sms_settle`
+  now also settles phone_code and order_code. `food_courier_login(code_id, code)` (anon; 5 tries) → a key `ckr_` + 64
+  hex for 30 days in `food_courier_sessions` (hash only). The website keeps it in the HttpOnly cookie `ppi_kur`, signed
+  with `SESSION_COOKIE_SECRET` (`@/lib/courier`).
+- **One door:** `food_courier_call(key, fn, args)` (anon): `food_courier_open` (format, not ended, not expired, courier
+  active, shop active with the plan, 120 a minute) → whoami · deliveries · delivery · step · problem · logout, only the
+  courier's own orders (`food_courier_order_json`: no contact, conversation, events or language). Steps go through
+  update 73's `food_order_step()` (actor courier; only the allowed payment methods). `food_order_json()` adds
+  `courier_name` and `problem` for the owner's screens.
+- **The app:** `/<lang>/kurier` (no Cacaduu header: `body:has([data-courier-app])`; installable,
+  `/<lang>/kurier/manifest.webmanifest`), `/donasky`, `/hotovost`, `/qr`, `/d/<id>`, `/d/<id>/qr` (PAY by square from
+  the shop's IBAN, drawn on the server), `/d/<id>/hotovost` (quick amounts and the change). Every step is a real form to
+  `/api/kurier/step` (a redirect without JavaScript); with JavaScript `CourierStep` resends the same step id until it
+  gets through.
+- Tests: DB block "update 75"; `test:functions` (bookings `courier_code`, crm-messages `courier_invite`).
+

@@ -330,6 +330,10 @@ body:has([data-owner-shell]) > [data-site-main] {
 body:has([data-owner-shell]) > [data-site-footer] {
   margin-top: 0;
 }
+/* The courier app (database update 75, /[lang]/kurier): no Cacaduu header and no menu — only its own three parts. */
+body:has([data-courier-app]) > [data-site-header] {
+  display: none;
+}
 
 /* The owner pages' switch (back-end layout L3, @/components/owner/ui Toggle): a real checkbox drawn 56×32. */
 .ppi-toggle {

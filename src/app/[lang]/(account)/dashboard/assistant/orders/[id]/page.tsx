@@ -12,8 +12,9 @@ import { DbError } from "@/components/DbError";
 import { PollRefresh } from "@/components/PollRefresh";
 import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, inputClass } from "../../../shared";
-import { orderSms, orderStep } from "../actions";
+import { assignCourier, orderSms, orderStep } from "../actions";
 import { btn, btnGhost, btnOrange, FoodNotice, hhmm, payText, statusText } from "../parts";
+import { fieldClass } from "@/components/owner/ui";
 import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders/[id]">): Promise<Metadata> {
@@ -46,11 +47,13 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
   const shop = chosen.shop;
   if (!shop) redirect(`/${lang}/dashboard`);
 
-  const [orderRes, settingsRes, smsRes, plan] = await Promise.all([
+  const [orderRes, settingsRes, smsRes, plan, couriersRes] = await Promise.all([
     supabase.rpc("owner_food_order", { p_shop_id: shop.id, p_order_id: id }),
     supabase.rpc("owner_food_settings", { p_shop_id: shop.id }),
     supabase.rpc("owner_food_sms_state", { p_shop_id: shop.id, p_order_id: id }),
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
+    // update 75: the shop's couriers for "Prideliť" (none before the update: no box)
+    supabase.rpc("owner_food_couriers", { p_shop_id: shop.id }),
   ]);
   if (orderRes.error) {
     if (orderRes.error.message === "not_found") notFound();
@@ -60,6 +63,10 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
   const s = (settingsRes.data ?? null) as FoodSettings | null;
   const sms = (smsRes.error ? null : smsRes.data) as { sent: boolean; quota: { used: number; limit: number } | null } | null;
   const canWrite = !plan.error && plan.data === true;
+  const couriers = couriersRes.error
+    ? null
+    : ((couriersRes.data as { couriers?: { id: string; name: string; active: boolean }[] } | null)?.couriers ?? []);
+  const assignable = o.kind === "delivery" && (o.status === "new" || o.status === "preparing" || o.status === "on_the_way");
   const tz = o.timezone;
   const hidden = hiddenFields(lang, shop);
   const formHidden = (extra: Record<string, string>) => hidden({ order_id: o.id, back: "detail", ...extra });
@@ -176,6 +183,44 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
               </a>
             )}
           </div>
+        </section>
+      )}
+
+      {/* update 75: the courier — "Prideliť" (any active courier, or none), and a problem the courier reported */}
+      {o.problem && (
+        <p role="alert" className="rounded-xl border border-[#D64545] p-3 font-semibold" data-order-problem>
+          {t(f.cr_problem, { reason: o.problem })}
+        </p>
+      )}
+      {couriers && o.kind === "delivery" && (o.courier_name || (assignable && couriers.length > 0) || couriers.length === 0) && (
+        <section className="flex flex-col gap-2 rounded-xl border border-line p-4" aria-label={f.cr_assign} data-order-courier>
+          <p className="flex flex-wrap items-baseline justify-between gap-2">
+            <strong>{f.cr_assign}</strong>
+            <span>{o.courier_name ?? f.cr_assign_none}</span>
+          </p>
+          {assignable && canWrite && couriers.length > 0 && (
+            <form action={assignCourier} className="flex flex-wrap gap-2">
+              {formHidden({ step_id: stepId() })}
+              <select name="courier_id" defaultValue={o.courier_id ?? ""} aria-label={f.cr_assign} className={`${fieldClass} min-w-0 flex-1`}>
+                <option value="">{f.cr_assign_none}</option>
+                {couriers
+                  .filter((c) => c.active || c.id === o.courier_id)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </select>
+              <button type="submit" className={btn} data-order-assign>
+                {f.cr_assign_button}
+              </button>
+            </form>
+          )}
+          {couriers.length === 0 && (
+            <Link href={`/${lang}/dashboard/assistant/orders/couriers?shop=${shop.slug}`} className="self-start text-sm font-semibold underline underline-offset-4">
+              {f.cr_add_courier_link}
+            </Link>
+          )}
         </section>
       )}
 
