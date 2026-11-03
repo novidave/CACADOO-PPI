@@ -121,6 +121,16 @@ OPEN
    e) Upload the same file again: it must say that nothing was taken off twice.
    f) Send Claude the export's first line (the column names) if a column was not guessed right.
 
+22. Sklad → Zariadenia: connect a second phone once
+   Why: pairing was tested without a real phone and camera.
+   Steps:
+   a) Môj obchod → Sklad → Nastavenia → Zariadenia → "Pripojiť telefón (QR kód)" → a name (e.g. "Telefón 2") → tick
+      "Predaj" and "Inventúra" → "Vytvoriť QR kód".
+   b) On the second phone (not logged in to Cacaduu): open the camera, scan the code → "Pripojiť toto zariadenie".
+   c) On that phone: Predaj → sell one product for cash. Back in Môj obchod → Sklad → Pohyby: the sale shows the
+      phone's name.
+   d) Back in Zariadenia: "Odpojiť" → on the phone, reload the page: it must say "Telefón nie je pripojený".
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)

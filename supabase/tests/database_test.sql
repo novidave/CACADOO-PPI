@@ -12915,4 +12915,233 @@ reset role;
 drop table t71;
 drop table t71_inv;
 
+\echo '--- update 72: Sklad Zariadenia — pairing once in 10 min, the key as the only login, ticks, own shop and name, no purchase prices, 120/min, revoke, 90 days, ≤ 10, owners only'
+create temporary table t72 (k text primary key, v text);
+grant all on t72 to public;
+create temporary table t72_inv as
+  select inv.* from public.inventory inv join public.shop_items si on si.id = inv.shop_item_id
+  join public.shops s on s.id = si.shop_id where s.slug = 'potraviny-centrum';
+grant all on t72_inv to public;
+set role service_role;
+insert into t72 values ('fresh', (select latest_file_time::text from public.sync_sources s join public.shops sh on sh.id = s.shop_id where sh.slug = 'potraviny-centrum'));
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_shop uuid;
+  v_p uuid;
+  vj jsonb;
+begin
+  perform public.owner_set_stock_source(v_a, 'sklad');
+  v_shop := (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview(v_a) -> 'locations') l where (l ->> 'sale_default')::boolean);
+  v_p := public.owner_sklad_save_product(v_a, null, '{"name":"Farba fasádna biela 5 l","ean":"8580000102315","sale_price":"24.90"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_p, 'receipt', 10, v_shop, null, 15.20);
+  insert into t72 values ('p', v_p::text);
+  -- the ticks are checked; a name is needed
+  begin perform public.owner_sklad_device_add(v_a, 'X', array['admin']); raise exception 'unknown tick';
+  exception when invalid_parameter_value then if sqlerrm <> 'perms' then raise; end if; end;
+  begin perform public.owner_sklad_device_add(v_a, ' ', array['sale']); raise exception 'no name';
+  exception when invalid_parameter_value then if sqlerrm <> 'name' then raise; end if; end;
+  vj := public.owner_sklad_device_add(v_a, 'Telefón 2 · Jana', array['receive', 'sale', 'sale']);
+  assert vj ->> 'code' ~ '^skp_[0-9a-f]{64}$', vj::text;
+  insert into t72 values ('dev', vj ->> 'id'), ('code', vj ->> 'code');
+  vj := public.owner_sklad_devices(v_a);
+  assert jsonb_array_length(vj) = 1 and vj -> 0 ->> 'state' = 'waiting' and vj -> 0 -> 'perms' = '["sale","receive"]'::jsonb, vj::text;
+  assert not exists (select 1 from jsonb_array_elements(vj) x where x ? 'code' or x ? 'token_hash' or x ? 'pair_hash'), 'no secrets listed';
+end $$;
+reset role;
+
+-- the phone (anon): the code once, then only its key
+set role anon;
+do $$
+declare
+  vj jsonb;
+  v_tok text;
+begin
+  vj := public.sklad_device_claim((select v from t72 where k = 'code'));
+  v_tok := vj ->> 'token';
+  assert v_tok ~ '^skt_[0-9a-f]{64}$' and vj ->> 'name' = 'Telefón 2 · Jana', vj::text;
+  insert into t72 values ('tok', v_tok);
+  begin perform public.sklad_device_claim((select v from t72 where k = 'code')); raise exception 'code used twice';
+  exception when invalid_parameter_value then if sqlerrm <> 'code' then raise; end if; end;
+  vj := public.sklad_device_whoami(v_tok);
+  assert vj -> 'shop' ->> 'slug' = 'potraviny-centrum' and vj -> 'perms' = '["sale","receive"]'::jsonb and vj ->> 'source' = 'sklad', vj::text;
+  -- reads and sells in its own shop, under its own name, whatever shop it names
+  vj := public.sklad_device_call(v_tok, 'owner_sklad_products', jsonb_build_object('p_shop_id', (select id from public.shops where slug = 'drogeria-kostolne'), 'p_q', 'farba'));
+  assert jsonb_array_length(vj -> 'rows') = 1 and vj -> 'rows' -> 0 ->> 'id' = (select v from t72 where k = 'p'), vj::text;
+  vj := public.sklad_device_call(v_tok, 'owner_sklad_sell', jsonb_build_object('p_id', gen_random_uuid(),
+          'p_lines', jsonb_build_array(jsonb_build_object('item_id', (select v from t72 where k = 'p'), 'qty', 2)), 'p_payment', 'cash', 'p_device', 'Niekto iný'));
+  assert vj ->> 'status' = 'done', vj::text;
+  -- Príjem tovaru: pieces only; a purchase price sent anyway is dropped; any other kind is refused
+  vj := public.sklad_device_call(v_tok, 'owner_sklad_move', jsonb_build_object('p_id', gen_random_uuid(), 'p_item_id', (select v from t72 where k = 'p'),
+          'p_kind', 'receipt', 'p_qty', 5, 'p_unit_cost', 1));
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_move', jsonb_build_object('p_id', gen_random_uuid(), 'p_item_id', (select v from t72 where k = 'p'),
+          'p_kind', 'writeoff', 'p_qty', 5, 'p_reason', 'x')); raise exception 'writeoff from a phone';
+  exception when insufficient_privilege then if sqlerrm <> 'forbidden' then raise; end if; end;
+  -- not ticked (counts, terminal) and never for a phone (product cards, settings, the cost-bearing product)
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_counts', '{}'); raise exception 'counts without the tick';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_product', jsonb_build_object('p_item_id', (select v from t72 where k = 'p'))); raise exception 'product card from a phone';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_save_product', '{}'); raise exception 'save from a phone';
+  exception when insufficient_privilege then null; end;
+  begin perform public.sklad_device_call('skt_' || repeat('0', 64), 'owner_sklad_products', '{}'); raise exception 'a made-up key';
+  exception when invalid_authorization_specification then null; end;
+  -- the tables are closed to visitors
+  begin perform count(*) from public.sklad_devices; raise exception 'anon read devices';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- what the phone did: as the owner, under the phone's name, the purchase price never set
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p uuid := (select v::uuid from t72 where k = 'p');
+  vj jsonb;
+begin
+  assert (public.owner_sklad_product(v_a, v_p) ->> 'total')::numeric = 13, 'sold 2, received 5';
+  vj := public.owner_sklad_movements(v_a, v_p, 'sale');
+  assert vj -> 'rows' -> 0 ->> 'device_label' = 'Telefón 2 · Jana', vj::text;
+  vj := public.owner_sklad_movements(v_a, v_p, 'receipt');
+  assert vj -> 'rows' -> 0 ->> 'device_label' = 'Telefón 2 · Jana' and (vj -> 'rows' -> 0 -> 'unit_cost') is not distinct from 'null'::jsonb
+     and (public.owner_sklad_product(v_a, v_p) ->> 'last_cost')::numeric = 15.20, vj::text;
+  assert (public.owner_sklad_devices(v_a) -> 0 ->> 'state') = 'online';
+  -- counting: the phone counts under its own name; a new tick needs the owner
+  perform public.owner_sklad_device_save(v_a, (select v::uuid from t72 where k = 'dev'), 'Telefón 2 · Jana', array['counts']);
+  insert into t72 values ('count', (public.owner_sklad_count_start(v_a, gen_random_uuid(), null,
+    (select (l ->> 'id')::uuid from jsonb_array_elements(public.owner_sklad_overview(v_a) -> 'locations') l where (l ->> 'sale_default')::boolean)) ->> 'id'));
+end $$;
+reset role;
+
+-- the strip at every depth (an internal function: no role may call it)
+do $$
+begin
+  assert public.sklad_device_strip('{"a":1,"avg_cost":2,"rows":[{"supplier":"S","n":1,"value":3}]}') = '{"a":1,"rows":[{"n":1}]}'::jsonb;
+end $$;
+set role anon;
+do $$
+declare
+  v_tok text := (select v from t72 where k = 'tok');
+  vj jsonb;
+begin
+  vj := public.sklad_device_call(v_tok, 'owner_sklad_count_set', jsonb_build_object('p_count_id', (select v from t72 where k = 'count'),
+          'p_item_id', (select v from t72 where k = 'p'), 'p_counter', 'Niekto iný', 'p_qty', 12));
+  assert vj -> 'counters' -> 0 ->> 'counter' = 'Telefón 2 · Jana' and vj -> 'expected' = 'null'::jsonb, vj::text;
+  begin perform public.sklad_device_call(v_tok, 'owner_sklad_sell', '{}'); raise exception 'sale after the tick was removed';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- 120 a minute; unused 90 days; disconnected = gone at once; a new code disconnects the old phone; ≤ 10
+set role service_role;
+insert into public.sklad_device_hits (device_id, minute, n) values ((select v::uuid from t72 where k = 'dev'), date_trunc('minute', now()), 120)
+on conflict (device_id, minute) do update set n = 120;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.sklad_device_call((select v from t72 where k = 'tok'), 'owner_sklad_counts', '{}'); raise exception 'no limit';
+  exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+end $$;
+reset role;
+set role service_role;
+delete from public.sklad_device_hits;
+update public.sklad_devices set last_seen_at = now() - interval '91 days', paired_at = now() - interval '91 days' where id = (select v::uuid from t72 where k = 'dev');
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.sklad_device_whoami((select v from t72 where k = 'tok')); raise exception 'used after 90 days';
+  exception when invalid_authorization_specification then if sqlerrm <> 'device_expired' then raise; end if; end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+  i int;
+begin
+  assert public.owner_sklad_devices(v_a) -> 0 ->> 'state' = 'expired';
+  vj := public.owner_sklad_device_code(v_a, (select v::uuid from t72 where k = 'dev'));
+  insert into t72 values ('code2', vj ->> 'code');
+  for i in 1 .. 9 loop perform public.owner_sklad_device_add(v_a, 'Telefón ' || i, array['sale']); end loop;
+  begin perform public.owner_sklad_device_add(v_a, 'Jedenásty', array['sale']); raise exception 'an 11th phone';
+  exception when program_limit_exceeded then if sqlerrm <> 'too_many' then raise; end if; end;
+end $$;
+reset role;
+
+set role anon;
+do $$
+declare
+  v_new text;
+begin
+  begin perform public.sklad_device_whoami((select v from t72 where k = 'tok')); raise exception 'the old phone after a new code';
+  exception when invalid_authorization_specification then null; end;
+  v_new := public.sklad_device_claim((select v from t72 where k = 'code2')) ->> 'token';
+  insert into t72 values ('tok2', v_new);
+  perform public.sklad_device_whoami(v_new);
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_sklad_device_revoke((select id from public.shops where slug = 'potraviny-centrum'), (select v::uuid from t72 where k = 'dev'));
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.sklad_device_whoami((select v from t72 where k = 'tok2')); raise exception 'used after Odpojiť';
+  exception when invalid_authorization_specification then null; end;
+end $$;
+reset role;
+
+-- owner B: nothing of A's phones
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_sklad_devices(v_a); raise exception 'B listed A''s phones';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_sklad_device_add(v_a, 'B', array['sale']); raise exception 'B paired a phone to A';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.sklad_devices; raise exception 'owners read the devices table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.sklad_devices where shop_id = v_a;
+  delete from public.sklad_counts where shop_id = v_a;
+  delete from public.sklad_sales where shop_id = v_a;
+  delete from public.sklad_items where shop_id = v_a;
+  delete from public.shop_items si where si.shop_id = v_a and not exists (select 1 from t72_inv t where t.shop_item_id = si.id);
+  delete from public.sklad_locations where shop_id = v_a;
+  delete from public.sklad_settings where shop_id = v_a;
+  delete from public.shop_stock_source where shop_id = v_a;
+  delete from public.inventory inv using public.shop_items si where si.id = inv.shop_item_id and si.shop_id = v_a;
+  insert into public.inventory select * from t72_inv;
+  update public.sync_sources set latest_file_time = (select v::timestamptz from t72 where k = 'fresh') where shop_id = v_a;
+end $$;
+reset role;
+drop table t72;
+drop table t72_inv;
+
 \echo 'ALL DATABASE CHECKS PASSED'

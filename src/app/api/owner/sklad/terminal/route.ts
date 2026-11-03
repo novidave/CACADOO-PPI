@@ -1,6 +1,6 @@
 import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
-import { getSession } from "@/lib/auth";
+import { skladRpc } from "@/lib/skladDevice";
 import { formatPrice, formatTime } from "@/lib/format";
 import { payBySquareSvg } from "@/lib/payBySquare";
 import { formatQty, paymentMessage } from "@/lib/sklad";
@@ -25,20 +25,21 @@ interface Terminal {
 }
 
 /**
- * The QR terminal's state (database update 68), read every 3 s by the spare phone at the counter (an owner's login):
- * standby, the waiting QR sale with its PAY by square code (an SVG made here) and its texts, or the sale just paid.
- * owner_sklad_terminal decides; never cached.
+ * The QR terminal's state (database update 68), read every 3 s by the spare phone at the counter — an owner's login or,
+ * since update 72, a phone paired with the "terminal" tick: standby, the waiting QR sale with its PAY by square code (an
+ * SVG made here) and its texts, or the sale just paid. owner_sklad_terminal decides; never cached.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const shopId = url.searchParams.get("shop") ?? "";
   const langParam = url.searchParams.get("lang") ?? "";
   const lang: Locale = isLocale(langParam) ? langParam : "sk";
-  const session = await getSession();
-  if (!session) return Response.json({ error: "login" }, { status: 401, headers: PRIVATE });
+  // the owner's login, or a phone paired with the "terminal" tick (database update 72)
+  const rpc = await skladRpc();
+  if (!rpc) return Response.json({ error: "login" }, { status: 401, headers: PRIVATE });
   if (!UUID.test(shopId)) return Response.json({ error: "shop" }, { status: 404, headers: PRIVATE });
-  const { data, error } = await session.supabase.rpc("owner_sklad_terminal", { p_shop_id: shopId });
-  if (error) return Response.json({ error: "failed" }, { status: error.code === "42501" ? 403 : 500, headers: PRIVATE });
+  const { data, error } = await rpc("owner_sklad_terminal", { p_shop_id: shopId });
+  if (error) return Response.json({ error: "failed" }, { status: error.code === "42501" || error.code === "28000" ? 403 : 500, headers: PRIVATE });
   const t = data as Terminal;
   if (t.state === "standby" || !t.id) return Response.json({ state: "standby", shop: t.shop_name }, { headers: PRIVATE });
   const s = (await getDictionary(lang)).sklad;

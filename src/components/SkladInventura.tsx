@@ -49,7 +49,10 @@ interface Props {
   counted: number;
   products: Product[];
   uncounted: { item_id: string; name: string; code: string | null }[];
+  /** "" = no "Odovzdať počty" (a paired phone: the owner sees the differences) */
   diffHref: string;
+  /** a paired phone counts under its own name (database update 72): no renaming */
+  fixedName?: string;
   labels: InventuraLabels;
 }
 
@@ -61,7 +64,8 @@ interface Props {
  */
 export function SkladInventura(p: Props) {
   const L = p.labels;
-  const name = useSyncExternalStore(subscribeName, readName, () => "");
+  const storedName = useSyncExternalStore(subscribeName, readName, () => "");
+  const name = p.fixedName ?? storedName;
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [mine, setMine] = useState<Map<string, number>>(() => new Map());
@@ -173,18 +177,24 @@ export function SkladInventura(p: Props) {
           <span className="text-sm text-muted">{p.title}</span>
           <strong className="text-lg">{p.subtitle}</strong>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setNameDraft(name);
-            setRenaming(true);
-          }}
-          aria-label={L.ic_rename}
-          className="min-h-11 rounded-xl border border-[#D6D6D6] px-3 text-sm font-semibold"
-          data-sklad-counter
-        >
-          {counter}
-        </button>
+        {p.fixedName ? (
+          <span className="flex min-h-11 items-center rounded-xl border border-[#D6D6D6] px-3 text-sm font-semibold" data-sklad-counter>
+            {counter}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setNameDraft(name);
+              setRenaming(true);
+            }}
+            aria-label={L.ic_rename}
+            className="min-h-11 rounded-xl border border-[#D6D6D6] px-3 text-sm font-semibold"
+            data-sklad-counter
+          >
+            {counter}
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -322,9 +332,11 @@ export function SkladInventura(p: Props) {
         <button type="button" onClick={() => setShowUncounted((v) => !v)} aria-expanded={showUncounted} className="min-h-12 rounded-xl border border-[#D6D6D6] px-3 font-bold">
           {fill(L.ic_uncounted, { n: uncounted.length })}
         </button>
-        <Link href={p.diffHref} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-foreground px-3 font-bold text-white" data-sklad-submit>
-          {L.ic_submit}
-        </Link>
+        {p.diffHref && (
+          <Link href={p.diffHref} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-foreground px-3 font-bold text-white" data-sklad-submit>
+            {L.ic_submit}
+          </Link>
+        )}
       </div>
       {showUncounted && (
         <ul className="flex flex-col divide-y divide-line rounded-xl border border-line">

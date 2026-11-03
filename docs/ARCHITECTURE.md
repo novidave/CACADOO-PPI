@@ -2978,3 +2978,36 @@ Predaj page's "off" card + `/api/owner/sklad/export?kind=suppliers`.
   "update 71" (refused while predaj, columns rule, Predaj refused while eKasa, EAN / code / exact name, two identical
   lines = two sales, a refund, the same file twice, pairing + ignore remembered, an overlapping export skipped, forget,
   staging, suppliers, back to predaj, owner B / anon), `ekasa_test.ts`.
+
+## Update 72 — "Sklad v Cacaduu", phase F: Zariadenia (2 November 2026, the owner's OK)
+
+`supabase/sql/72_sklad_devices.sql` + `@/lib/skladDevice` (server only: the cookie `ppi_skd`, `deviceRpc`,
+`deviceWhoami`, `skladRpc` = the owner's login else the phone) + `src/app/[lang]/zariadenie/*` (start, `pripojit`,
+`predaj` (+ `[id]` via the shared `dashboard/sklad/SaleQrView`), `prijem`, `inventura` (+ `[id]`), `terminal`;
+`actions.ts`: `pairDevice`, `forgetDevice`, `receiveStock`, `deviceSalePaid`, `deviceSaleCancel`) + the settings card
+`#devices` (`@/components/SkladDevicePair`: `addDevice` / `deviceCode` return the QR code drawn on the server;
+`saveDevice`, `revokeDevice`) + `@/components/DevicePairScreen`.
+
+- **Tables** `sklad_devices` (name, `perms` ⊆ sale|receive|counts|terminal, `pair_hash` + `pair_expires`, `token_hash`,
+  `paired_at`, `last_seen_at`, `created_by` = the owner, `revoked_at`) and `sklad_device_hits` (per minute). RLS, service
+  role only.
+- **Pairing:** `owner_sklad_device_add` (≤ 10 active, `sklad_device_perms`) / `owner_sklad_device_code` (the old key
+  cleared) → `skp_` + 64 hex (`mcp_random`), 10 minutes, hash only (`sklad_device_hash`, its own prefix). The QR address
+  is `/<lang>/zariadenie/pripojit#<code>` — the code is after "#" (never in a server log) and is sent only by the button
+  (`pairDevice` → `sklad_device_claim`, anon) → `skt_` + 64 hex in an HttpOnly cookie (SameSite Lax, Secure in
+  production, 400 days; the server's 90 days decide).
+- **The door** `sklad_device_call(key, fn, args)` (anon): `sklad_device_open` (hash, not revoked, used within 90 days,
+  `mcp_act_as(created_by)` + still `is_shop_member`, `last_seen_at`) → `sklad_device_need(fn)` ∩ ticks (the list:
+  products, find, sale_info, sell, sale, sale_paid, sale_cancel, terminal, move, counts, count, count_set, count_item)
+  → 120 calls a minute → `p_shop_id` = the phone's shop, `p_device` / `p_counter` = its name, `owner_sklad_move` only
+  kind receipt without `p_unit_cost` / `p_to_location_id` → the call built from `pg_proc`'s argument names and types
+  (named, `$1 ->> name`) → `sklad_device_strip` (cost, margin, supplier, value keys at every depth). Every owner_sklad_*
+  rule runs as for the owner.
+- **The website:** the shared Sklad actions that phones use (`sellBasket`, `lookupSaleProducts`, `terminalAct`,
+  `countSet`, `countMine`) and `/api/owner/sklad/terminal` take `skladRpc()`; `SkladPredaj` hides empty links,
+  `SkladInventura` takes `fixedName` and an empty `diffHref`. `robots.ts` disallows `/*/zariadenie`.
+- Activity: `sklad_device_saved`, `sklad_device_paired`, `sklad_device_revoked`. Texts `device`, `sklad.dv_*`.
+  Tests: DB block "update 72" (ticks and name required, the code once, the key as the only login, its own shop whatever
+  it names, its own name on sales / receipts / counts, a purchase price dropped, a writeoff / product card / save
+  refused, untick → refused, the strip, 120 a minute, 90 days, a new code disconnects the old phone, ≤ 10, revoke,
+  owner B / anon).
