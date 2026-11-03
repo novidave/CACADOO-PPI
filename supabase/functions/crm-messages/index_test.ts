@@ -11,7 +11,7 @@ function eq(actual: unknown, expected: unknown, label: string) {
 const CONTACT = "11111111-2222-4333-8444-555555555555";
 const MESSAGE = "99999999-2222-4333-8444-555555555555";
 
-function setup(o: { queueError?: { message: string; code?: string }; channel?: "sms" | "email"; brevo?: number; email?: boolean; sms?: Deps["sms"] } = {}) {
+function setup(o: { queueError?: { message: string; code?: string }; channel?: "sms" | "email"; brevo?: number; email?: boolean; sms?: Deps["sms"]; siteUrl?: string | null } = {}) {
   const log: string[] = [];
   const deps: Deps = {
     db: {
@@ -39,6 +39,7 @@ function setup(o: { queueError?: { message: string; code?: string }; channel?: "
         });
       },
     }),
+    siteUrl: o.siteUrl === undefined ? "https://cacaduu.example" : o.siteUrl,
     email: o.email === false ? null : { apiKey: "key", from: "noreply@cacaduu.example" },
     sms: o.sms ?? testSms,
     fetch: ((url: string, init: RequestInit) => {
@@ -306,5 +307,24 @@ Deno.test("food_sms: written down as the owner first (owner_food_sms_queue), the
   for (const why of ["already_sent", "sms_quota", "step", "no_plan"]) {
     const refused = setup({ queueError: { message: why, code: "P0001" } });
     eq(await (await handle(post({ action: "food_sms", shop_id: CONTACT, order_id: MESSAGE }), refused.deps)).json(), { error: why }, why);
+  }
+});
+
+// ---------------------------------------------------------------- update 75
+
+Deno.test("courier_invite: written down as the owner first with the site's address, then sent; refusals passed on", async () => {
+  const { deps, log } = setup({ channel: "sms" });
+  const res = await handle(post({ action: "courier_invite", shop_id: CONTACT, courier_id: MESSAGE, lang: "hu" }), deps);
+  eq((await res.json()).status, "test", "sent in test mode");
+  const call = log.find((l) => l.startsWith("caller owner_food_courier_invite"))!;
+  eq(call.includes('"p_site":"https://cacaduu.example"') && call.includes('"p_lang":"hu"') && call.includes(`"p_id":"${MESSAGE}"`), true, "as the owner");
+  eq(log.some((l) => l.startsWith("db crm_message_result")), true, "the result stored");
+  eq((await handle(post({ action: "courier_invite", shop_id: CONTACT, courier_id: "x" }), deps)).status, 400, "bad id");
+  const noSite = setup({ siteUrl: null });
+  eq((await handle(post({ action: "courier_invite", shop_id: CONTACT, courier_id: MESSAGE }), noSite.deps)).status, 503, "no SITE_URL: nothing");
+  eq(noSite.log.length, 0, "nothing written down");
+  for (const why of ["too_many", "sms_quota", "inactive", "no_plan"]) {
+    const refused = setup({ queueError: { message: why, code: "P0001" } });
+    eq(await (await handle(post({ action: "courier_invite", shop_id: CONTACT, courier_id: MESSAGE }), refused.deps)).json(), { error: why }, why);
   }
 });

@@ -150,8 +150,8 @@ the conversation page goes back there; **Rezervácie** = `/dashboard/bookings?ta
 `bookingPartUrl()` is every booking form's way back; `?view=settings` and `/dashboard/assistant?at=settings&part=…`
 forward there); **AI asistent** = `/dashboard/assistant` (texts, the food-ordering card, the folders card),
 `/dashboard/assistant/documents` (`ShopDocuments view="docs"`) and `/dashboard/assistant/folders` (`view="folders"`; the
-forms send `at=folders`); **Objednávky jedla** = Objednávky · Menu (`settings?view=menu`: the sources and the menu check,
-`back=menu`) · Nastavenia (the switches incl. "Odpísať zo skladu", the zones; Kuriéri comes with the courier app);
+forms send `at=folders`); **Objednávky jedla** = Objednávky · Kuriéri (update 75) · Menu (`settings?view=menu`: the sources and the menu check,
+`back=menu`) · Nastavenia (the switches incl. "Odpísať zo skladu", the zones);
 **Sklad** tabs Prehľad · Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia; **Právne informácie**
 (`/dashboard/legal`) = Firma (company name, IČO, DIČ — moved out of Údaje obchodu, whose form now carries them hidden;
 `saveCompany` re-saves the shop's row with the new IČO) + Údaje pre vlastnú doménu (`shop_legal`, `saveOperator`, only the
@@ -834,6 +834,24 @@ lists dish names only → `owner_food_menu_pair` (trigram ≥ 0.45 against Sklad
 `set_food_order_status` (shop.write, confirm) in the update-74 door (`owner_mcp_call_64` keeps every other tool); the
 AI's tool data never carry a phone, address, note or place. Admin "SMS" sets the `order` quota. Texts `food`,
 `telegram.n_food_order`, `admin_sms.order`. Tests: DB block "update 74", `test:functions` (crm-messages, telegram).
+**F4 — couriers (update 75, 2026-11-03, the owner's OK for the SMS-code login; boards 15–19, "Môj obchod" artboards 6,
+20):** `supabase/sql/75_food_couriers.sql` + `@/lib/courier` + `src/app/[lang]/kurier/*` + `/api/kurier/step|logout` +
+`@/components/CourierStep` / `CourierCash` + Objednávky jedla → **Kuriéri** (`dashboard/assistant/orders/couriers`).
+`food_couriers` (≤ 20, E.164, active; never deleted, only switched off). **A courier has no Cacaduu account:** the
+invite SMS (crm-messages `courier_invite`, the owner quota) carries only the address `/<lang>/kurier/prihlasenie/<slug>`;
+there the number → bookings `courier_code` → `food_courier_code_start` (sms_codes purpose `courier`; **an unknown number
+gets the same answer and no SMS**) → `food_courier_login` → a key `ckr_…` for 30 days, **hash only** in
+`food_courier_sessions`, the key only in the HttpOnly cookie `ppi_kur` (signed with `SESSION_COOKIE_SECRET`); "Odhlásiť z
+telefónu", "Deaktivovať" or a new number end every key. **One door `food_courier_call(key, fn, args)`** — never a second
+path: only the courier's OWN deliveries (`food_courier_order_json`: name, address, phone, note, items, total, the QR
+data; never contacts, conversations, events, Sklad, sales, other orders or shops), steps only through
+`food_order_step()` (actor courier; payment methods only as `food_courier_perms()` allows), "Problém s donáškou" = an
+order event the owner sees (`food_order_json().problem`). The courier app = only Moje donášky · QR terminál · Hotovosť,
+no menu, no Cacaduu header (globals.css `body:has([data-courier-app])`); every step a real form (`/api/kurier/step`,
+redirect without JavaScript), `CourierStep` resends the same step UUID on a weak signal. Assignment: "Prideliť" on the
+order (`owner_food_assign`) or `assign_mode` auto (deferred trigger: the signed-in courier with the fewest open
+deliveries). Cash: `food_courier_cash()` since `owner_food_courier_settle()`. Texts `courier`, `food.cr_*`. Tests: DB
+block "update 75", `test:functions`.
 
 ## Cloud folder (paid, update 23)
 

@@ -13771,4 +13771,316 @@ end $$;
 reset role;
 drop table t74;
 
+\echo '--- update 75: Objednávky jedla F4 — couriers: the owner adds and invites them, an SMS code without an account (an unknown number looks the same), one key per courier, the door shows only the courier''s own deliveries, payment marks only as allowed, cash held and settled, auto-assignment, switched off = signed out'
+create temporary table t75 (k text primary key, v text);
+grant all on t75 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+  v_open jsonb;
+begin
+  insert into t75 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('day', ((now() at time zone v_tz)::date)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_75')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, (now() at time zone v_tz)::date, false, '[["00:00","23:59"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+  v_open := public.assistant_open(v_a, 'sk', repeat('8', 32));
+  insert into t75 values ('conv', v_open ->> 'id'), ('token', v_open ->> 'token'),
+    ('pizza', (select si.id::text from public.sklad_items i join public.shop_items si on si.id = i.shop_item_id
+               where i.shop_id = v_a and si.name = 'Margherita 32 cm'));
+  assert (select v from t75 where k = 'pizza') is not null, 'update 73''s Sklad product is there';
+end $$;
+reset role;
+
+-- the owner: ordering with delivery on, two couriers (numbers cleaned by the shop's country), the rules of the list
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+  v_michal uuid;
+begin
+  perform public.owner_food_save_settings(v_a, '{"enabled": true, "delivery_on": true, "pickup_on": true, "pay_cash": true, "pay_qr": true, "pay_card": true, "assign_mode": "manual"}');
+  vj := public.owner_food_courier_save(v_a, null, '  Michal  ', '0915 123 220', null);
+  v_michal := (vj ->> 'id')::uuid;
+  assert (vj ->> 'active')::boolean and vj ->> 'name' = 'Michal', vj::text;
+  assert (select c ->> 'phone' from jsonb_array_elements(public.owner_food_couriers(v_a) -> 'couriers') c
+          where c ->> 'id' = v_michal::text) = '+421915123220', 'E.164 by the shop''s country';
+  vj := public.owner_food_courier_save(v_a, null, 'Rasťo', '+421944000071', null);
+  insert into t75 values ('michal', v_michal::text), ('rasto', vj ->> 'id');
+  begin perform public.owner_food_courier_save(v_a, null, 'Iný', '0915123220', null); raise exception 'the same number twice';
+  exception when unique_violation then null; end;
+  begin perform public.owner_food_courier_save(v_a, null, 'Iný', 'abc', null); raise exception 'a number that is not one';
+  exception when invalid_parameter_value then assert sqlerrm = 'phone'; end;
+  begin perform public.owner_food_courier_save(v_a, null, ' ', '0915000001', null); raise exception 'a courier without a name';
+  exception when invalid_parameter_value then assert sqlerrm = 'name'; end;
+  -- saving without the active flag keeps it as it is
+  perform public.owner_food_courier_save(v_a, v_michal, 'Michal', '0915 123 220', null);
+  assert (select (c ->> 'active')::boolean from jsonb_array_elements(public.owner_food_couriers(v_a) -> 'couriers') c
+          where c ->> 'id' = v_michal::text);
+  vj := public.owner_food_couriers(v_a);
+  assert jsonb_array_length(vj -> 'couriers') = 2 and vj ->> 'assign_mode' = 'manual'
+     and (vj ->> 'courier_can_qr')::boolean and not (vj ->> 'courier_has_card')::boolean, vj::text;
+  -- the invite: the address of the shop's courier login, no key in it; the owner quota; not twice in 2 minutes
+  vj := public.owner_food_courier_invite(v_a, v_michal, 'https://cacaduu.com', 'sk');
+  assert vj ->> 'body' like '%https://cacaduu.com/sk/kurier/prihlasenie/potraviny-centrum' and vj ->> 'recipient' = '+421915123220', vj::text;
+  insert into t75 values ('invite', vj ->> 'id');
+  begin perform public.owner_food_courier_invite(v_a, v_michal, 'https://cacaduu.com', 'sk'); raise exception 'invited twice at once';
+  exception when program_limit_exceeded then assert sqlerrm = 'too_many'; end;
+  begin perform public.owner_food_courier_invite(v_a, (vj ->> 'id')::uuid, 'javascript:alert(1)', 'sk'); raise exception 'any site';
+  exception when invalid_parameter_value then assert sqlerrm = 'site'; end;
+end $$;
+reset role;
+
+-- another owner cannot see or change A's couriers
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_food_couriers(v_a); raise exception 'owner B listed A''s couriers';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_food_courier_save(v_a, null, 'Cudzí', '0915000002', null); raise exception 'owner B added a courier';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the login code: a courier's number gets a code, an unknown number the same answer and nothing to send
+set role service_role;
+do $$
+declare
+  v_real jsonb;
+  v_fake jsonb;
+  v_msg uuid;
+begin
+  assert (select kind from public.shop_outgoing_messages where id = (select v::uuid from t75 where k = 'invite')) = 'owner';
+  v_fake := public.food_courier_code_start('potraviny-centrum', '0915 999 999', repeat('6', 32));
+  assert not (v_fake ->> 'send')::boolean and v_fake ->> 'code' is null and v_fake ? 'id', v_fake::text;
+  v_real := public.food_courier_code_start('potraviny-centrum', '0915 123 220', repeat('6', 32));
+  assert (v_real ->> 'send')::boolean and v_real ->> 'code' ~ '^[0-9]{6}$', v_real::text;
+  v_msg := public.food_courier_code_claim((v_real ->> 'id')::uuid, 'Potraviny: kód ' || (v_real ->> 'code'));
+  assert (select kind = 'phone_code' and body = 'Potraviny: kód ••••••' from public.shop_outgoing_messages where id = v_msg);
+  assert public.booking_sms_settle(v_msg, 'test', 'test', null, null), 'courier codes are settled now';
+  begin perform public.food_courier_code_claim((v_fake ->> 'id')::uuid, 'x'); raise exception 'the unknown number''s code was sent';
+  exception when no_data_found then null; end;
+  insert into t75 values ('code_id', v_real ->> 'id'), ('code', v_real ->> 'code'), ('fake_id', v_fake ->> 'id');
+end $$;
+reset role;
+
+set role anon;
+do $$
+declare
+  vj jsonb;
+begin
+  vj := public.food_courier_login((select v::uuid from t75 where k = 'fake_id'), '123456');
+  assert not (vj ->> 'ok')::boolean and vj ->> 'reason' = 'wrong_code', vj::text;
+  vj := public.food_courier_login((select v::uuid from t75 where k = 'code_id'), '000000');
+  assert vj ->> 'reason' = 'wrong_code' and (vj ->> 'attempts_left')::int = 4, vj::text;
+  vj := public.food_courier_login((select v::uuid from t75 where k = 'code_id'), (select v from t75 where k = 'code'));
+  assert (vj ->> 'ok')::boolean and vj ->> 'key' ~ '^ckr_[0-9a-f]{64}$' and vj ->> 'name' = 'Michal', vj::text;
+  insert into t75 values ('key', vj ->> 'key');
+  -- a code works once
+  vj := public.food_courier_login((select v::uuid from t75 where k = 'code_id'), (select v from t75 where k = 'code'));
+  assert not (vj ->> 'ok')::boolean, vj::text;
+  -- the door: who, nothing to deliver yet; a made-up key is refused
+  vj := public.food_courier_call((select v from t75 where k = 'key'), 'whoami', '{}');
+  assert vj -> 'courier' ->> 'name' = 'Michal' and vj -> 'shop' ->> 'slug' = 'potraviny-centrum'
+     and (vj -> 'perms' ->> 'cash')::boolean and not (vj -> 'perms' ->> 'card')::boolean and (vj ->> 'open')::int = 0, vj::text;
+  begin perform public.food_courier_call('ckr_' || repeat('0', 64), 'whoami', '{}'); raise exception 'a made-up key';
+  exception when invalid_authorization_specification then null; end;
+  begin perform public.food_courier_call((select v from t75 where k = 'key'), 'owner_food_orders', '{}'); raise exception 'any function';
+  exception when invalid_parameter_value then assert sqlerrm = 'fn'; end;
+end $$;
+reset role;
+-- the key's hash only, never the key
+do $$
+begin
+  assert not exists (select 1 from public.food_courier_sessions where token_hash = (select v from t75 where k = 'key'));
+  assert exists (select 1 from public.food_courier_sessions where token_hash = public.food_courier_hash((select v from t75 where k = 'key')));
+end $$;
+
+-- two orders; the owner gives the first to Michal (a retry of the same step changes nothing)
+set role service_role;
+do $$
+declare
+  v_conv uuid := (select v::uuid from t75 where k = 'conv');
+  v_token text := (select v from t75 where k = 'token');
+  v_code jsonb;
+  vj jsonb;
+  i int;
+begin
+  for i in 1..2 loop
+    v_code := public.sms_code_start('potraviny-centrum', 'order', '0907 111 27' || i, 'Eva K.', repeat('5', 32), v_conv, v_token);
+    vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', gen_random_uuid(),
+            jsonb_build_array(jsonb_build_object('item_id', (select v from t75 where k = 'pizza'), 'qty', 2)),
+            'delivery', 'cash', 'Hlavná 8, Michalovce', 'Vchod z dvora', null, null, v_conv, v_token, 'sk');
+    assert (vj ->> 'ok')::boolean, vj::text;
+    insert into t75 values ('order' || i, vj -> 'order' ->> 'id');
+  end loop;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_step uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  assert public.owner_food_order(v_a, (select v::uuid from t75 where k = 'order1')) ->> 'courier_id' is null, 'manual: nobody yet';
+  vj := public.owner_food_assign(v_a, (select v::uuid from t75 where k = 'order1'), (select v::uuid from t75 where k = 'michal'), v_step);
+  assert vj ->> 'courier_name' = 'Michal' and not (vj ->> 'duplicate')::boolean, vj::text;
+  vj := public.owner_food_assign(v_a, (select v::uuid from t75 where k = 'order1'), null, v_step);
+  assert (vj ->> 'duplicate')::boolean and vj ->> 'courier_name' = 'Michal', 'the same step once';
+  assert exists (select 1 from jsonb_array_elements(public.owner_food_order(v_a, (select v::uuid from t75 where k = 'order1')) -> 'events') e
+                 where e ->> 'kind' = 'assigned' and e ->> 'actor' = 'owner');
+end $$;
+reset role;
+
+-- the courier: only the own delivery (with what delivering needs), the steps and the payment rules
+set role anon;
+do $$
+declare
+  v_key text := (select v from t75 where k = 'key');
+  v_o1 uuid := (select v::uuid from t75 where k = 'order1');
+  v_o2 uuid := (select v::uuid from t75 where k = 'order2');
+  v_pay uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  vj := public.food_courier_call(v_key, 'deliveries', '{}');
+  assert jsonb_array_length(vj -> 'open') = 1 and vj -> 'open' -> 0 ->> 'id' = v_o1::text
+     and vj -> 'open' -> 0 ->> 'address' = 'Hlavná 8, Michalovce' and vj -> 'open' -> 0 ->> 'phone' like '+421%'
+     and not (vj -> 'open' -> 0) ? 'contact_id' and not (vj -> 'open' -> 0) ? 'iban', vj::text;
+  begin perform public.food_courier_call(v_key, 'delivery', jsonb_build_object('order_id', v_o2)); raise exception 'someone else''s order';
+  exception when no_data_found then null; end;
+  vj := public.food_courier_call(v_key, 'delivery', jsonb_build_object('order_id', v_o1));
+  assert vj ->> 'vs' is not null and not vj ? 'events' and not vj ? 'conversation_id', vj::text;
+  vj := public.food_courier_call(v_key, 'step', jsonb_build_object('order_id', v_o1, 'step_id', gen_random_uuid(), 'to', 'on_the_way'));
+  assert vj ->> 'status' = 'on_the_way', vj::text;
+  begin perform public.food_courier_call(v_key, 'step', jsonb_build_object('order_id', v_o1, 'step_id', gen_random_uuid(), 'to', 'delivered'));
+    raise exception 'delivered before paid';
+  exception when raise_exception then assert sqlerrm = 'not_paid'; end;
+  begin perform public.food_courier_call(v_key, 'step', jsonb_build_object('order_id', v_o1, 'step_id', gen_random_uuid(), 'pay_method', 'card'));
+    raise exception 'a card without the shop''s yes';
+  exception when invalid_parameter_value then assert sqlerrm = 'pay_method'; end;
+  begin perform public.food_courier_call(v_key, 'step', jsonb_build_object('order_id', v_o1, 'step_id', gen_random_uuid(), 'to', 'cancelled'));
+    raise exception 'a courier cancelled';
+  exception when raise_exception then assert sqlerrm = 'step'; end;
+  vj := public.food_courier_call(v_key, 'problem', jsonb_build_object('order_id', v_o1, 'step_id', gen_random_uuid(), 'reason', 'Nikto neotvára'));
+  assert vj ->> 'problem' = 'Nikto neotvára', vj::text;
+  begin perform public.food_courier_call(v_key, 'step', jsonb_build_object('order_id', v_o1, 'step_id', v_pay, 'pay_method', 'cash',
+                                                                            'cash_given_cents', 100, 'to', 'delivered'));
+    raise exception 'less cash than the total';
+  exception when invalid_parameter_value then assert sqlerrm = 'cash'; end;
+  vj := public.food_courier_call(v_key, 'step', jsonb_build_object('order_id', v_o1, 'step_id', v_pay, 'pay_method', 'cash',
+                                                                    'cash_given_cents', 2000, 'to', 'delivered'));
+  assert vj ->> 'status' = 'delivered' and (vj ->> 'paid')::boolean and (vj ->> 'change_cents')::int = 2000 - (vj ->> 'total_cents')::int, vj::text;
+  insert into t75 values ('total1', vj ->> 'total_cents');
+  -- the same step again (a weak signal) changes nothing
+  vj := public.food_courier_call(v_key, 'step', jsonb_build_object('order_id', v_o1, 'step_id', v_pay, 'pay_method', 'cash',
+                                                                    'cash_given_cents', 2000, 'to', 'delivered'));
+  assert vj ->> 'status' = 'delivered';
+  vj := public.food_courier_call(v_key, 'whoami', '{}');
+  assert (vj ->> 'cash_cents')::int = (select v::int from t75 where k = 'total1') and (vj ->> 'delivered_today')::int = 1, vj::text;
+end $$;
+reset role;
+do $$
+declare
+  v_o1 uuid := (select v::uuid from t75 where k = 'order1');
+begin
+  assert (select count(*) from public.food_order_events where order_id = v_o1 and kind = 'paid' and actor = 'courier') = 1;
+  assert (select paid_by_courier from public.food_orders where id = v_o1) = (select v::uuid from t75 where k = 'michal');
+  assert (select stock_taken_at is not null from public.food_orders where id = v_o1)
+       = (public.stock_source_of((select id from public.shops where slug = 'potraviny-centrum')) = 'sklad'), 'Doručené took the stock (once)';
+  assert public.food_order_json(v_o1) ->> 'problem' is null, 'a later status step closes the problem';
+end $$;
+
+-- the owner settles the cash; auto-assignment gives a new delivery to the signed-in courier
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.owner_food_courier_settle(v_a, (select v::uuid from t75 where k = 'michal')) = (select v::int from t75 where k = 'total1');
+  assert (public.owner_food_couriers(v_a) -> 'couriers' -> 0 ->> 'cash_cents')::int = 0;
+  perform public.owner_food_save_settings(v_a, '{"assign_mode": "auto"}');
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_conv uuid := (select v::uuid from t75 where k = 'conv');
+  v_token text := (select v from t75 where k = 'token');
+  v_code jsonb;
+  vj jsonb;
+begin
+  v_code := public.sms_code_start('potraviny-centrum', 'order', '0907 111 279', 'Tomáš B.', repeat('4', 32), v_conv, v_token);
+  vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', gen_random_uuid(),
+          jsonb_build_array(jsonb_build_object('item_id', (select v from t75 where k = 'pizza'), 'qty', 2)),
+          'delivery', 'cash', 'Okružná 14, Michalovce', null, null, null, v_conv, v_token, 'sk');
+  insert into t75 values ('order3', vj -> 'order' ->> 'id');
+end $$;
+reset role;
+do $$
+declare
+  v_o3 uuid := (select v::uuid from t75 where k = 'order3');
+begin
+  -- Rasťo never signed in, so Michal gets it (at the order's commit, after its own first event)
+  assert (select courier_id from public.food_orders where id = v_o3) = (select v::uuid from t75 where k = 'michal');
+  assert (select e.actor from public.food_order_events e where e.order_id = v_o3 and e.kind = 'assigned') = 'system';
+  assert (select min(e.id) from public.food_order_events e where e.order_id = v_o3)
+       < (select e.id from public.food_order_events e where e.order_id = v_o3 and e.kind = 'assigned');
+end $$;
+
+-- switching the courier off signs every phone out at once
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  vj := public.owner_food_courier_save(v_a, (select v::uuid from t75 where k = 'michal'), 'Michal', '0915 123 220', false);
+  assert (vj ->> 'sessions_ended')::int = 1 and not (vj ->> 'active')::boolean, vj::text;
+  begin perform public.owner_food_assign(v_a, (select v::uuid from t75 where k = 'order2'), (select v::uuid from t75 where k = 'michal'), gen_random_uuid());
+    raise exception 'assigned to a courier who is off';
+  exception when invalid_parameter_value then assert sqlerrm = 'courier'; end;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.food_courier_call((select v from t75 where k = 'key'), 'whoami', '{}'); raise exception 'still signed in';
+  exception when invalid_authorization_specification then null; end;
+end $$;
+reset role;
+
+-- tidy up: the test orders, couriers, the subscription and the day's hours as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  update public.food_settings set enabled = false, assign_mode = 'manual' where shop_id = v_a;
+  delete from public.food_couriers where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t75 where k = 'day');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t75 where k = 'sub'))
+  where (select v from t75 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t75 where k = 'had_plan');
+end $$;
+reset role;
+drop table t75;
+
 \echo 'ALL DATABASE CHECKS PASSED'

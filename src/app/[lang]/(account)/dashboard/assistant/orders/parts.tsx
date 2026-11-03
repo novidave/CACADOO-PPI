@@ -148,6 +148,9 @@ export function OrderCard({
             : payText(f, o.pay_method)}
         </li>
         {o.verified && <li className="rounded-full bg-[#DCF5E5] px-2.5 py-1 text-[#146C37]">{f.verified}</li>}
+        {/* update 75: the courier, and a problem the courier reported */}
+        {o.courier_name && <li className="rounded-full border border-[#D6D6D6] px-2.5 py-1" data-order-courier-chip>{t(f.cr_by, { name: o.courier_name })}</li>}
+        {o.problem && <li className="rounded-full border border-[#D64545] px-2.5 py-1 text-[#B42318]" data-order-problem-chip>{t(f.cr_problem, { reason: o.problem })}</li>}
       </ul>
       <StepRow f={f} o={o} detailHref={detailHref} hidden={hidden} stepId={stepId} canWrite={canWrite} />
     </article>

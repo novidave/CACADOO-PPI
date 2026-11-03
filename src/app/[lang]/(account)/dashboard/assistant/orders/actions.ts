@@ -18,10 +18,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REASONS = [
   "step", "not_paid", "cash", "already_paid", "pay_method", "no_plan", "not_found", "sms_quota", "already_sent",
   "no_recipient", "settings", "name", "kind", "value", "amount", "too_many", "bad_request", "conflict",
+  // update 75 (couriers)
+  "phone", "phone_taken", "limit", "inactive", "courier", "site", "sms_failed",
 ] as const;
 const reason = (message: string | undefined) => (REASONS.find((r) => r === message) ? `err_${message}` : "err_failed");
 
-type Back = "list" | "detail" | "settings" | "menu";
+type Back = "list" | "detail" | "settings" | "menu" | "couriers";
 
 async function start(formData: FormData) {
   const langValue = String(formData.get("lang") ?? "");
@@ -32,7 +34,8 @@ async function start(formData: FormData) {
   const slug = String(formData.get("shop_slug") ?? "");
   const order = String(formData.get("order_id") ?? "");
   const backValue = String(formData.get("back") ?? "list");
-  const back: Back = backValue === "detail" || backValue === "settings" || backValue === "menu" ? backValue : "list";
+  const back: Back =
+    backValue === "detail" || backValue === "settings" || backValue === "menu" || backValue === "couriers" ? backValue : "list";
   const filter = String(formData.get("f") ?? "");
   const page = (query: Record<string, string>, anchor = ""): never => {
     const base =
@@ -40,7 +43,9 @@ async function start(formData: FormData) {
         ? `/${lang}/dashboard/assistant/orders/${order}`
         : back === "settings" || back === "menu"
           ? `/${lang}/dashboard/assistant/orders/settings`
-          : `/${lang}/dashboard/assistant/orders`;
+          : back === "couriers"
+            ? `/${lang}/dashboard/assistant/orders/couriers`
+            : `/${lang}/dashboard/assistant/orders`;
     // back-end layout L2: the menu check is the "Menu" tab (?view=menu)
     const q = new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...(back === "list" && filter ? { f: filter } : {}), ...(back === "menu" ? { view: "menu" } : {}), ...query });
     redirect(`${base}?${q}${anchor}`);
@@ -194,4 +199,109 @@ export async function checkMenu(formData: FormData) {
   const pair = await session.supabase.rpc("owner_food_menu_pair", { p_shop_id: shopId, p_document_id: doc, p_names: names });
   if (pair.error) page({ err: reason(pair.error.message) }, "#menu");
   page({ ok: "ok_menu" }, "#menu");
+}
+
+// ---------------------------------------------------------------- update 75: couriers ("Kuriéri", board 19 / artboard 6)
+
+/** "Pridať" / "Uložiť" a courier (a name and a mobile number; the shop's country decides a number without +). */
+export async function saveCourier(formData: FormData) {
+  const { session, shopId, page } = await start(formData);
+  const id = String(formData.get("courier_id") ?? "");
+  const { error } = await session.supabase.rpc("owner_food_courier_save", {
+    p_shop_id: shopId,
+    p_id: UUID.test(id) ? id : null,
+    p_name: text(formData, "name", 60),
+    p_phone: text(formData, "phone", 40),
+    p_active: null,
+  });
+  if (error) page({ err: reason(error.message) }, UUID.test(id) ? `#c-${id}` : "#add");
+  page({ ok: "ok_courier_saved" }, UUID.test(id) ? `#c-${id}` : "");
+}
+
+/** "Deaktivovať" / "Aktivovať": switching a courier off signs every phone of theirs out at once (in SQL). */
+export async function setCourierActive(formData: FormData) {
+  const { session, shopId, page } = await start(formData);
+  const id = String(formData.get("courier_id") ?? "");
+  if (!UUID.test(id)) page({ err: "err_not_found" });
+  const { data } = await session.supabase.rpc("owner_food_couriers", { p_shop_id: shopId });
+  const c = ((data as { couriers?: { id: string; name: string; phone: string }[] } | null)?.couriers ?? []).find((x) => x.id === id);
+  if (!c) page({ err: "err_not_found" });
+  const { error } = await session.supabase.rpc("owner_food_courier_save", {
+    p_shop_id: shopId,
+    p_id: id,
+    p_name: c!.name,
+    p_phone: c!.phone,
+    p_active: formData.get("active") === "1",
+  });
+  if (error) page({ err: reason(error.message) }, `#c-${id}`);
+  page({ ok: "ok_courier_saved" }, `#c-${id}`);
+}
+
+/** "Poslať pozvánku SMS": written down in SQL first (the owner quota), then sent by crm-messages. */
+export async function inviteCourier(formData: FormData) {
+  const { lang, session, shopId, page } = await start(formData);
+  const id = String(formData.get("courier_id") ?? "");
+  if (!UUID.test(id)) page({ err: "err_not_found" });
+  const { data, error } = await session.supabase.functions.invoke<{ status?: string }>("crm-messages", {
+    body: { action: "courier_invite", shop_id: shopId, courier_id: id, lang },
+  });
+  if (!error && data?.status) page(data.status === "failed" ? { err: "err_sms_failed" } : { ok: "ok_courier_invited" }, `#c-${id}`);
+  let why: string | undefined;
+  try {
+    const context = (error as { context?: Response } | null)?.context;
+    why = context ? ((await context.json()) as { error?: string }).error : undefined;
+  } catch {
+    why = undefined;
+  }
+  page({ err: why ? reason(why) : "err_sms_failed" }, `#c-${id}`);
+}
+
+/** "Odhlásiť z telefónu": every key of the courier ends. */
+export async function logoutCourier(formData: FormData) {
+  const { session, shopId, page } = await start(formData);
+  const id = String(formData.get("courier_id") ?? "");
+  if (!UUID.test(id)) page({ err: "err_not_found" });
+  const { error } = await session.supabase.rpc("owner_food_courier_logout", { p_shop_id: shopId, p_id: id });
+  if (error) page({ err: reason(error.message) }, `#c-${id}`);
+  page({ ok: "ok_courier_logged_out" }, `#c-${id}`);
+}
+
+/** "Vyúčtovať hotovosť": the courier handed the cash over. */
+export async function settleCourier(formData: FormData) {
+  const { session, shopId, page } = await start(formData);
+  const id = String(formData.get("courier_id") ?? "");
+  if (!UUID.test(id)) page({ err: "err_not_found" });
+  const { error } = await session.supabase.rpc("owner_food_courier_settle", { p_shop_id: shopId, p_id: id });
+  if (error) page({ err: reason(error.message) }, `#c-${id}`);
+  page({ ok: "ok_courier_settled" }, `#c-${id}`);
+}
+
+/** "Prideľovanie donášok": manual or automatic, and what couriers may mark (an unticked switch = off). */
+export async function saveCourierSettings(formData: FormData) {
+  const { session, shopId, page } = await start(formData);
+  const p = {
+    assign_mode: formData.get("assign_mode") === "auto" ? "auto" : "manual",
+    courier_can_qr: formData.get("courier_can_qr") === "on",
+    courier_can_cash: formData.get("courier_can_cash") === "on",
+    courier_has_card: formData.get("courier_has_card") === "on",
+  };
+  const { error } = await session.supabase.rpc("owner_food_save_settings", { p_shop_id: shopId, p });
+  if (error) page({ err: reason(error.message) }, "#assign");
+  page({ ok: "ok_saved" }, "#assign");
+}
+
+/** "Prideliť" on an order: a courier (or none); the step's own UUID once. */
+export async function assignCourier(formData: FormData) {
+  const { session, shopId, order, page } = await start(formData);
+  const courier = String(formData.get("courier_id") ?? "");
+  const step = String(formData.get("step_id") ?? "");
+  if (!UUID.test(order) || !UUID.test(step)) page({ err: "err_failed" });
+  const { error } = await session.supabase.rpc("owner_food_assign", {
+    p_shop_id: shopId,
+    p_order_id: order,
+    p_courier_id: UUID.test(courier) ? courier : null,
+    p_step_id: step,
+  });
+  if (error) page({ err: reason(error.message) });
+  page({ ok: "ok_assigned" });
 }
