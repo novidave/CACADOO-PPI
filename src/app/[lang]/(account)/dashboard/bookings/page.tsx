@@ -11,6 +11,7 @@ import { addDays, displayTime, rangesFor, validRanges, weekdayOf } from "@/lib/h
 import { loadSmsUsage, quotaLeft } from "@/lib/smsUsage";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
+import { foodTab } from "@/lib/foodOwner";
 import { AssistantTabs, waitingCount } from "../AssistantTabs";
 import type { BookingSetup } from "../AssistantSettings";
 import { chooseShop } from "../contacts/parts";
@@ -91,7 +92,7 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
   const newDay = DAY.test(first(sp.on) ?? "") ? first(sp.on)! : day;
   const contactId = UUID.test(first(sp.contact) ?? "") ? first(sp.contact)! : "";
 
-  const [plan, list, setupRes, calendarRes, sms, waiting, free] = await Promise.all([
+  const [plan, list, setupRes, calendarRes, sms, waiting, free, food] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     supabase.rpc("owner_booking_list", { p_shop_id: shop.id, p_from: from.toISOString(), p_to: to.toISOString(), p_status: null }),
     supabase.rpc("owner_booking_setup", { p_shop_id: shop.id }),
@@ -108,6 +109,7 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
           p_people: 1,
         })
       : Promise.resolve({ data: null, error: null }),
+    foodTab(supabase, shop.id),
   ]);
   const hasPlan = !plan.error && plan.data === true;
   const setup = setupRes.error ? null : (setupRes.data as BookingSetup);
@@ -139,7 +141,7 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
 
   return (
     <div className="flex max-w-3xl flex-col gap-5">
-      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current="bookings" waiting={waiting}>
+      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current="bookings" waiting={waiting} food={food}>
         <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/bookings?shop=${slug}`} />
         {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
         {!hasPlan && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}

@@ -13537,4 +13537,238 @@ end $$;
 reset role;
 drop table t73;
 
+\echo '--- update 74: Objednávky jedla F3 — the tab, the owner e-mail (no phone or address), Telegram food_order only for the new reader, the "on the way" SMS once in the order quota, the menu check, the owner MCP food tools'
+create temporary table t74 (k text primary key, v text);
+grant all on t74 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+  v_open jsonb;
+begin
+  insert into t74 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('day', ((now() at time zone v_tz)::date)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_74')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, (now() at time zone v_tz)::date, false, '[["00:00","23:59"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+  v_open := public.assistant_open(v_a, 'sk', repeat('9', 32));
+  insert into t74 values ('conv', v_open ->> 'id'), ('token', v_open ->> 'token'),
+    ('pizza', (select si.id::text from public.sklad_items i join public.shop_items si on si.id = i.shop_item_id
+               where i.shop_id = v_a and si.name = 'Margherita 32 cm'));
+  assert (select v from t74 where k = 'pizza') is not null, 'update 73''s Sklad product is there';
+  assert public.sms_quota_of('order_on_way') = 'order';
+end $$;
+reset role;
+
+-- the owner switches ordering on (the tab appears) and links Telegram (update 66)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  assert not (public.owner_food_tab(v_a) ->> 'enabled')::boolean, 'off after update 73''s tidy-up';
+  perform public.owner_food_save_settings(v_a, '{"enabled": true, "delivery_on": true, "pickup_on": true, "alert_email": true, "alert_telegram": true}');
+  vj := public.owner_food_tab(v_a);
+  assert (vj ->> 'enabled')::boolean, vj::text;
+  insert into t74 values ('tg_code', public.owner_telegram_link_start() ->> 'code');
+end $$;
+reset role;
+set role service_role;
+do $$
+begin
+  assert (public.telegram_claim((select v from t74 where k = 'tg_code'), 9074, 9074, 'private', 'kuchyna', 'sk') ->> 'ok')::boolean;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_telegram_consent(array[(select id from public.shops where slug = 'potraviny-centrum')], array['shop.read', 'shop.write']);
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_food_tab((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'owner B saw A''s tab';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- an order is placed: the e-mail waits, Telegram gets a food_order notice the old reader never takes
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_conv uuid := (select v::uuid from t74 where k = 'conv');
+  v_token text := (select v from t74 where k = 'token');
+  v_order uuid := gen_random_uuid();
+  v_code jsonb;
+  vj jsonb;
+  r record;
+begin
+  delete from public.telegram_outbox;
+  v_code := public.sms_code_start('potraviny-centrum', 'order', '0907 111 274', 'Jana V.', repeat('7', 32), v_conv, v_token);
+  vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', v_order,
+          jsonb_build_array(jsonb_build_object('item_id', (select v from t74 where k = 'pizza'), 'qty', 2)),
+          'delivery', 'cash', 'Okružná 74, Michalovce', 'Zvonček 3', null, null, v_conv, v_token, 'sk');
+  assert (vj ->> 'ok')::boolean, vj::text;
+  insert into t74 values ('order', v_order::text), ('number', vj -> 'order' ->> 'number');
+  -- the owner e-mail: the items and the total, never the number or the address
+  select * into r from public.food_alerts_due(100) d where d.order_id = v_order;
+  assert r.id is not null and r.items like '2× Margherita 32 cm%' and r.total_cents = 1730 and r.kind = 'delivery'
+     and jsonb_array_length(r.recipients) >= 1, 'the order''s e-mail is due';
+  assert position('+421' in to_jsonb(r)::text) = 0 and position('Okružná' in to_jsonb(r)::text) = 0
+     and position('Zvonček' in to_jsonb(r)::text) = 0, 'no phone, address or note in the e-mail data';
+  perform public.food_alert_result(r.id, false, 'brevo 500');
+  assert not exists (select 1 from public.food_alerts_due(100) d where d.order_id = v_order), 'a failed one waits';
+  update public.food_order_alerts set next_try_at = now() where id = r.id;
+  perform public.food_alert_result(r.id, true, null);
+  assert (select sent_at is not null and attempts = 2 from public.food_order_alerts where id = r.id);
+  -- Telegram: one notice, only for the new reader, without the person's data
+  assert (select count(*) from public.telegram_outbox where kind = 'food_order' and ref_id = v_order) = 1, 'queued once';
+  assert jsonb_array_length(public.telegram_notify_due(20)) = 0, 'the live bot never takes a food order';
+  vj := public.telegram_notify_due_all(20);
+  assert jsonb_array_length(vj) = 1 and vj -> 0 ->> 'kind' = 'food_order'
+     and (vj -> 0 -> 'order' ->> 'number')::int = (select v::int from t74 where k = 'number')
+     and vj -> 0 -> 'order' ->> 'items' like '2× Margherita%', vj::text;
+  assert position('+421' in vj::text) = 0 and position('Okružná' in vj::text) = 0, 'no phone or address in Telegram';
+  perform public.telegram_notify_result((vj -> 0 ->> 'id')::bigint, true, null);
+  -- a notice older than 2 hours is dropped, never sent late
+  insert into public.telegram_outbox (link_id, shop_id, kind, ref_id, created_at)
+  select id, v_a, 'food_order', gen_random_uuid(), now() - interval '3 hours' from public.telegram_links where tg_user_id = 9074;
+  assert jsonb_array_length(public.telegram_notify_due_all(20)) = 0;
+  assert (select reason from public.telegram_outbox where kind = 'food_order' and created_at < now() - interval '2 hours') = 'stale';
+  -- the shop's own switch off: nothing queued
+  update public.food_settings set alert_telegram = false where shop_id = v_a;
+  delete from public.telegram_outbox;
+end $$;
+reset role;
+
+-- the owner: the tab's badge, "Objednávka je na ceste" once in the order quota
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_order uuid := (select v::uuid from t74 where k = 'order');
+  v_used integer := (public.owner_food_sms_state(v_a, v_order) -> 'quota' ->> 'used')::int;
+  vj jsonb;
+begin
+  assert (public.owner_food_tab(v_a) ->> 'new')::int >= 1;
+  assert not (public.owner_food_sms_state(v_a, v_order) ->> 'sent')::boolean;
+  vj := public.owner_food_sms_queue(v_a, v_order);
+  assert vj ->> 'channel' = 'sms' and vj ->> 'recipient' = '+421907111274'
+     and vj ->> 'body' like '%' || (select v from t74 where k = 'number') || ' je na ceste%', vj::text;
+  insert into t74 values ('sms', vj ->> 'id');
+  assert (public.owner_food_sms_state(v_a, v_order) ->> 'sent')::boolean;
+  assert (public.owner_food_sms_state(v_a, v_order) -> 'quota' ->> 'used')::int = v_used + public.crm_sms_parts(vj ->> 'body'),
+         'it counts in the order quota';
+  assert public.crm_sms_parts(vj ->> 'body') = 1, 'one SMS part';
+  begin perform public.owner_food_sms_queue(v_a, v_order); raise exception 'the SMS twice';
+  exception when unique_violation then if sqlerrm <> 'already_sent' then raise; end if; end;
+end $$;
+reset role;
+set role service_role;
+do $$
+begin
+  assert public.crm_message_result((select v::uuid from t74 where k = 'sms'), 'test', 'test', null, null);
+  assert (select kind = 'order_on_way' and status = 'test' from public.shop_outgoing_messages where id = (select v::uuid from t74 where k = 'sms'));
+end $$;
+reset role;
+
+-- the owner's AI tools (through Telegram's door, update 66): read freely, a change only after "Potvrdiť" + confirm
+set role service_role;
+do $$
+declare
+  v_order uuid := (select v::uuid from t74 where k = 'order');
+  v_pending uuid;
+  vj jsonb;
+begin
+  vj := public.telegram_call(9074, 'list_food_orders', '{"filter": "new"}');
+  assert exists (select 1 from jsonb_array_elements(vj -> 'result' -> 'orders') o where (o ->> 'id')::uuid = v_order), vj::text;
+  assert position('+421' in vj::text) = 0 and position('Okružná' in vj::text) = 0 and position('Zvonček' in vj::text) = 0,
+         'no phone, address or note in the AI''s tool data';
+  begin perform public.telegram_call(9074, 'set_food_order_status', jsonb_build_object('order_id', v_order, 'status', 'preparing'));
+    raise exception 'a change without Potvrdiť';
+  exception when insufficient_privilege then if sqlerrm <> 'needs_confirmation' then raise; end if; end;
+  -- without confirm: before → after only
+  v_pending := public.telegram_pending_new(9074, 'set_food_order_status', jsonb_build_object('order_id', v_order, 'status', 'preparing'), '{}');
+  vj := public.telegram_confirm(9074, v_pending);
+  assert not (vj -> 'out' -> 'result' ->> 'changed')::boolean and (vj -> 'out' -> 'result' ->> 'allowed')::boolean, vj::text;
+  assert (select status from public.food_orders where id = v_order) = 'new';
+  v_pending := public.telegram_pending_new(9074, 'set_food_order_status',
+                 jsonb_build_object('order_id', v_order, 'status', 'preparing', 'confirm', true), '{}');
+  vj := public.telegram_confirm(9074, v_pending);
+  assert (vj -> 'out' -> 'result' ->> 'changed')::boolean and vj -> 'out' -> 'result' -> 'order' ->> 'status' = 'preparing', vj::text;
+  -- the rules of update 73 still decide: delivered needs a payment mark
+  v_pending := public.telegram_pending_new(9074, 'set_food_order_status',
+                 jsonb_build_object('order_id', v_order, 'status', 'on_the_way', 'confirm', true), '{}');
+  perform public.telegram_confirm(9074, v_pending);
+  v_pending := public.telegram_pending_new(9074, 'set_food_order_status',
+                 jsonb_build_object('order_id', v_order, 'status', 'delivered', 'confirm', true), '{}');
+  begin perform public.telegram_confirm(9074, v_pending); raise exception 'delivered unpaid through the AI';
+  exception when raise_exception then if sqlerrm <> 'not_paid' then raise; end if; end;
+end $$;
+reset role;
+
+-- the menu check: names from the menu paired with Sklad's products (decided here), kept for the settings page
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_doc uuid;
+  vj jsonb;
+begin
+  begin perform public.owner_food_menu_text(v_a, gen_random_uuid()); raise exception 'a text of another document';
+  exception when no_data_found then null; end;
+  assert jsonb_typeof(public.owner_food_menu_docs(v_a)) = 'array';
+  -- a menu in the Public folder (written as doc-ingest would)
+  set local role service_role;
+  insert into public.shop_documents (shop_id, folder_id, name, storage_path, bytes, pages, status, extracted)
+  values (v_a, (select id from public.shop_folders where shop_id = v_a and is_public), 'jedalny-listok.pdf',
+          'test74/' || gen_random_uuid() || '.pdf', 1000, 1, 'ready', true)
+  returning id into v_doc;
+  insert into public.shop_document_chunks (shop_id, folder_id, document_id, page, type, text)
+  values (v_a, (select folder_id from public.shop_documents where id = v_doc), v_doc, 1, 'text',
+          'Pizza Margherita 32 cm – paradajky, mozzarella. Calzone. Tiramisu. Alergény 1, 7.');
+  set local role authenticated;
+  assert exists (select 1 from jsonb_array_elements(public.owner_food_menu_docs(v_a)) d where (d ->> 'id')::uuid = v_doc);
+  assert public.owner_food_menu_text(v_a, v_doc) like '%Tiramisu%';
+  vj := public.owner_food_menu_pair(v_a, v_doc, array['Margherita 32 cm', 'Tiramisu', 'Kofola 0,5 l', ' ', 'Tiramisu']);
+  assert (vj ->> 'names')::int = 3 and (vj ->> 'paired')::int = 2 and vj -> 'missing' = '["Tiramisu"]'::jsonb, vj::text;
+  assert public.owner_food_settings(v_a) -> 'menu_check' ->> 'document' = 'jedalny-listok.pdf';
+  insert into t74 values ('doc', v_doc::text);
+end $$;
+reset role;
+
+-- tidy up: no Telegram link, the document, the subscription and the day's hours as before
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.telegram_unlink_by_bot(9074);
+  delete from public.telegram_outbox;
+  delete from public.shop_documents where id = (select v::uuid from t74 where k = 'doc');
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t74 where k = 'day');
+  update public.food_settings set enabled = false, alert_telegram = true, menu_check = null where shop_id = v_a;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t74 where k = 'sub'))
+  where (select v from t74 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t74 where k = 'had_plan');
+end $$;
+reset role;
+drop table t74;
+
 \echo 'ALL DATABASE CHECKS PASSED'

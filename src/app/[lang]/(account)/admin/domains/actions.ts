@@ -152,6 +152,13 @@ export async function saveSmsQuotas(formData: FormData) {
   if (![booking, owner].every((n) => Number.isInteger(n) && n >= 0 && n <= 100_000)) back({ err: "sms" }, "sms");
   const { error } = await session.supabase.rpc("admin_save_sms_quotas", { p_booking: booking, p_owner: owner });
   if (error) back({ err: "sms" }, "sms");
+  // the food orders' SMS codes and "on the way" SMS (database updates 73–74), when the form shows it
+  if (formData.has("order")) {
+    const order = Number(formData.get("order"));
+    if (!Number.isInteger(order) || order < 0 || order > 100_000) back({ err: "sms" }, "sms");
+    const saved = await session.supabase.rpc("admin_save_sms_quota", { p_quota: "order", p_monthly: order });
+    if (saved.error) back({ err: "sms" }, "sms");
+  }
   back({ ok: "sms" }, "sms");
 }
 

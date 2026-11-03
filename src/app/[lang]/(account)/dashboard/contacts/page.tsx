@@ -9,6 +9,7 @@ import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { SmsUsage } from "@/components/SmsUsage";
 import { loadSmsUsage } from "@/lib/smsUsage";
+import { foodTab } from "@/lib/foodOwner";
 import { AssistantTabs, waitingCount } from "../AssistantTabs";
 import { countText } from "../Conversations";
 import { hiddenFields, inputClass, ProOnly, ShopSwitcher } from "../shared";
@@ -56,7 +57,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   const conversation = first(sp.conversation) ?? "";
 
-  const [plan, list, tags, templates, sms, waiting] = await Promise.all([
+  const [plan, list, tags, templates, sms, waiting, food] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     view === "contacts"
       ? supabase.rpc("owner_contacts", { p_shop_id: shop.id, p_q: q || null, p_tag: tag || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE })
@@ -68,6 +69,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
     // "SMS tento mesiac" (database update 58; none before it).
     loadSmsUsage(supabase, shop.id),
     waitingCount(supabase, shop.id),
+    foodTab(supabase, shop.id),
   ]);
   const hasPlan = !plan.error && plan.data === true;
   const unavailable = Boolean(list.error || templates.error);
@@ -82,7 +84,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
 
   return (
     <div className="flex max-w-3xl flex-col gap-5">
-      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current={view} waiting={waiting}>
+      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current={view} waiting={waiting} food={food}>
         <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/contacts?shop=${slug}${view === "templates" ? "&view=templates" : ""}`} />
         {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
         {!hasPlan && <ProOnly dict={dict} href={planUrl} />}

@@ -15,8 +15,9 @@ export const FOLDER_SECTIONS = ["docs"];
 /**
  * Update 63: the Asistent tabs as on the approved screens — Prehľad · Konverzácie · Kontakty · Rezervácie · Šablóny ·
  * Nastavenia. Kontakty and Rezervácie keep their own pages (and their addresses); the row is the same on all of them.
+ * Update 74: "Objednávky" (/dashboard/assistant/orders) after Prehľad, shown only while food ordering is on.
  */
-export const ASSISTANT_TABS = ["overview", "conversations", "contacts", "bookings", "templates", "settings"] as const;
+export const ASSISTANT_TABS = ["overview", "orders", "conversations", "contacts", "bookings", "templates", "settings"] as const;
 export type AssistantTab = (typeof ASSISTANT_TABS)[number];
 
 /** Where a tab lives: "/sk/dashboard/contacts?shop=davide&view=templates". */
@@ -25,6 +26,7 @@ export function assistantTabUrl(lang: string, tab: AssistantTab, shop: string, e
   if (tab === "contacts") return `/${lang}/dashboard/contacts${q({})}`;
   if (tab === "templates") return `/${lang}/dashboard/contacts${q({ view: "templates" })}`;
   if (tab === "bookings") return `/${lang}/dashboard/bookings${q({})}`;
+  if (tab === "orders") return `/${lang}/dashboard/assistant/orders${q({})}`;
   if (tab === "overview") return `/${lang}/dashboard/assistant${q({})}`;
   return `/${lang}/dashboard/assistant${q({ at: tab })}`;
 }

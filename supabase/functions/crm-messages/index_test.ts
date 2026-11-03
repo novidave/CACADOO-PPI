@@ -1,6 +1,6 @@
 // Unit tests of crm-messages: who may send, what is written down first, what goes to Brevo, SMS in test mode.
 // Run: npm run test:functions
-import { alertMail, brevoBody, type Deps, handle, reason, smsProvider, testSms } from "./index.ts";
+import { alertMail, brevoBody, type Deps, foodAlertMail, handle, reason, smsProvider, testSms } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -156,7 +156,7 @@ const job = (body: unknown, secret = "s".repeat(40)) =>
 
 Deno.test("owner e-mails: each owner in their language, the question and a link, never the shopper's number", async () => {
   const { deps, log } = alertSetup();
-  eq(await (await handle(job({ action: "alerts" }), deps)).json(), { alerts: 1 }, "one shopper waiting");
+  eq(await (await handle(job({ action: "alerts" }), deps)).json(), { alerts: 1, food: 0 }, "one shopper waiting");
   const mails = log.filter((l) => l.startsWith("fetch"));
   eq(mails.length, 2, "both owners");
   const sk = JSON.parse(mails[0].slice(mails[0].indexOf("{")));
@@ -174,7 +174,7 @@ Deno.test("owner e-mails: wrong secret refused, a Brevo failure is retried later
   eq((await handle(job({ action: "alerts" }), bad.deps)).status, 403, "wrong secret");
   eq(bad.log.some((l) => l.startsWith("db crm_alerts_due")), false, "nothing read");
   const down = alertSetup({ brevo: 500 });
-  eq(await (await handle(job({ action: "alerts" }), down.deps)).json(), { alerts: 0 }, "not sent");
+  eq(await (await handle(job({ action: "alerts" }), down.deps)).json(), { alerts: 0, food: 0 }, "not sent");
   eq(down.log.some((l) => l.startsWith("db crm_alert_result") && l.includes('"p_ok":false')), true, "tried again later");
   const none = alertSetup({ rows: [{ id: "a2", shop_name: "X", kind: "callback", conversation_id: null, question: null, has_phone: false, has_email: true, recipients: [] }] });
   await handle(job({ action: "alerts" }), none.deps);
@@ -276,4 +276,35 @@ Deno.test("Všetko o mne: the owners' e-mail says what was deleted and that copi
   eq(sk.text.includes("cloudovom priečinku") && sk.text.includes("zrušili jeho budúce rezervácie"), true, "copies + bookings");
   eq(/\+?\d{9,}|@/.test(sk.text), false, "no number or address of the shopper");
   eq(alertMail(row, "de", null).subject, "A customer deleted their data – Farby", "English otherwise");
+});
+
+// ---------------------------------------------------------------- update 74
+
+Deno.test("a new food order: the owner e-mail has the number, the time, the items and the total — no phone or address", () => {
+  const row = {
+    id: "a", shop_name: "Ukážková pizzeria", order_id: CONTACT, number: 1047, kind: "delivery" as const, pay_method: "qr" as const,
+    total_cents: 3560, created_at: "2026-11-03T17:35:00Z", ready_by: "2026-11-03T18:20:00Z", timezone: "Europe/Bratislava",
+    items: "2× Margherita 32 cm (+ olivy), 2× Kofola 0,5 l", recipients: [],
+  };
+  const sk = foodAlertMail(row, "sk", "https://cacaduu.com");
+  eq(sk.subject, "Nová objednávka č. 1047 – Ukážková pizzeria", "subject");
+  eq(sk.text.includes("Donáška do 19:20") && sk.text.includes("2× Margherita 32 cm (+ olivy)"), true, "time in the shop's zone + items");
+  eq(sk.text.includes("35,60") && sk.text.includes("(QR)"), true, "total + payment");
+  eq(sk.text.includes(`https://cacaduu.com/sk/dashboard/assistant/orders/${CONTACT}`), true, "the order's page");
+  eq(/\+?\d{9,}|@/.test(sk.text.replace(/https:\S+/g, "")), false, "no phone number or e-mail address");
+  const en = foodAlertMail({ ...row, kind: "pickup" }, "de", null);
+  eq(en.subject.startsWith("New order no. 1047") && en.text.includes("Pickup at 19:20"), true, "English otherwise, pickup");
+});
+
+Deno.test("food_sms: written down as the owner first (owner_food_sms_queue), then sent; refusals passed on", async () => {
+  const { deps, log } = setup({ channel: "sms" });
+  const res = await handle(post({ action: "food_sms", shop_id: CONTACT, order_id: MESSAGE }), deps);
+  eq((await res.json()).status, "test", "sent in test mode");
+  eq(log.some((l) => l.startsWith("caller owner_food_sms_queue") && l.includes(`"p_order_id":"${MESSAGE}"`)), true, "as the owner");
+  eq(log.some((l) => l.startsWith("db crm_message_result")), true, "the result stored");
+  eq((await handle(post({ action: "food_sms", shop_id: "x", order_id: MESSAGE }), deps)).status, 400, "bad id");
+  for (const why of ["already_sent", "sms_quota", "step", "no_plan"]) {
+    const refused = setup({ queueError: { message: why, code: "P0001" } });
+    eq(await (await handle(post({ action: "food_sms", shop_id: CONTACT, order_id: MESSAGE }), refused.deps)).json(), { error: why }, why);
+  }
 });

@@ -4,6 +4,7 @@ import { isLocale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
+import { foodTab } from "@/lib/foodOwner";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { AssistantOverview, loadOverview } from "../AssistantOverview";
@@ -56,7 +57,7 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
 
   // Only the open tab's data is loaded (the badge of "Konverzácie" is one count).
-  const [hasPlan, conversations, cloud, waiting, callbacks, overview, setup] = await Promise.all([
+  const [hasPlan, conversations, cloud, waiting, callbacks, overview, setup, food] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     // The assistant's conversations (database update 22, filters update 55): owners only.
     tab === "conversations" ? loadConversations(supabase, shop.id, conversationFilter(sp)) : Promise.resolve(null),
@@ -69,6 +70,8 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
     tab === "settings"
       ? supabase.rpc("owner_booking_setup", { p_shop_id: shop.id }).then((r) => (r.error ? null : (r.data as BookingSetup)))
       : Promise.resolve(null),
+    // the Objednávky tab (database update 74): only while food ordering is on
+    foodTab(supabase, shop.id),
   ]);
   const planActive = !hasPlan.error && hasPlan.data === true;
   const number = (key: string) => Math.max(0, Math.floor(Number(first(sp[key])) || 0));
@@ -97,7 +100,7 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
 
   return (
     <div className="flex max-w-3xl flex-col gap-5">
-      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current={tab} waiting={waiting}>
+      <AssistantTabs lang={lang} dict={dict} shop={shop.slug} current={tab} waiting={waiting} food={food}>
         <ShopSwitcher
           shops={shops}
           current={shop}
@@ -156,6 +159,7 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
           hidden={hidden}
           notice={(which) => (which === "texts" && m.notice("settings")) || settingsNotice(which)}
           googleOn
+          food={food}
         />
       )}
     </div>
