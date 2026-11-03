@@ -3087,7 +3087,7 @@ and the courier app (phase F4) only call these functions.
 ## Update 74 — "Objednávky jedla" phase F3: the owner's side (3 November 2026, boards 11–14)
 
 - **Tab:** `owner_food_tab(shop)` {enabled, new, latest} (members). `AssistantTabs` shows "Objednávky" only while
-  enabled; `/api/owner/food/tab` is what the open page reads every 15 s (`FoodOrdersLive`: router.refresh + a tone).
+  enabled; `/api/owner/food/tab` is what the open page reads every 10 s (`FoodOrdersLive`: router.refresh + the QR terminal's sound, `@/lib/chime`).
 - **Pages** `dashboard/assistant/orders` (list / kitchen board), `[id]` (detail), `settings`. Reads: `owner_food_orders`
   (open + done), `owner_food_order`, `owner_food_settings` (+ `menu_check`), `owner_food_sms_state`,
   `owner_food_menu_docs`. Writes: `owner_food_order_status` (each step's UUID from the page), `owner_food_pause`,

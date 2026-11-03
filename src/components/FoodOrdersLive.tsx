@@ -2,13 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { chime } from "@/lib/chime";
 
 /**
- * Asistent → Objednávky (database update 74): while the page is open it asks every 15 s whether a new order came
+ * Asistent → Objednávky (database update 74): while the page is open it asks every 10 s whether a new order came
  * (/api/owner/food/tab — the owner's own login; only a count and a time) and then draws the page again; with "Zvuk"
- * on it plays a short tone (Web Audio — no file, no library; a browser allows sound only after the first tap on the
- * page, so the button also unlocks it). The choice stays in this browser (localStorage, try/catch). Announced in an
- * aria-live region.
+ * on it plays the Cacaduu sound (`chime()` in @/lib/chime, the same as the QR terminal; a browser allows sound only
+ * after the first tap on the page, so the button also unlocks it). The choice stays in this browser (localStorage,
+ * try/catch). Announced in an aria-live region.
  */
 export function FoodOrdersLive({
   shopId,
@@ -68,7 +69,7 @@ export function FoodOrdersLive({
           seen.current = now;
           if (fresh) {
             setSaid(labels.arrived);
-            if (soundRef.current) beep(audio.current);
+            if (soundRef.current) chime(audio.current);
           }
           router.refresh();
         }
@@ -76,7 +77,7 @@ export function FoodOrdersLive({
         // offline for a moment: the next tick tries again
       }
     };
-    const timer = window.setInterval(tick, 15_000);
+    const timer = window.setInterval(tick, 10_000);
     return () => {
       stopped = true;
       window.clearInterval(timer);
@@ -92,7 +93,7 @@ export function FoodOrdersLive({
     } catch {
       // blocked storage: only for this visit
     }
-    if (next) beep(audio.current);
+    if (next) chime(audio.current);
   };
 
   return (
@@ -134,29 +135,5 @@ function readSound(key: string): string | null {
     return v === "1" || v === "0" ? v : null;
   } catch {
     return null;
-  }
-}
-
-/** Two short tones (a kitchen bell, quietly). */
-function beep(ctx: AudioContext | null) {
-  if (!ctx) return;
-  try {
-    const now = ctx.currentTime;
-    for (const [at, freq] of [
-      [0, 880],
-      [0.22, 1175],
-    ] as const) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, now + at);
-      gain.gain.exponentialRampToValueAtTime(0.25, now + at + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + at + 0.2);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(now + at);
-      osc.stop(now + at + 0.22);
-    }
-  } catch {
-    // no sound on this device
   }
 }

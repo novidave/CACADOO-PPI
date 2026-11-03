@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Locale } from "@/i18n/config";
 import { terminalAct } from "@/app/[lang]/(account)/dashboard/sklad/actions";
+import { chime } from "@/lib/chime";
 
 export type TerminalLabels = Record<
   | "term_connected" | "term_awake" | "term_welcome" | "term_due" | "term_ready" | "term_ready_text" | "term_tx" | "term_tx_line"
@@ -25,32 +26,6 @@ interface State {
 }
 
 const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (m, k: string) => v[k] ?? m);
-
-/** Three rising notes when a payment is confirmed (skipped quietly where the device has no sound). */
-function chime() {
-  try {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    [[784, 0], [1047, 0.13], [1319, 0.26]].forEach(([f, at]) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      const t = ctx.currentTime + at;
-      o.type = "sine";
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
-      o.connect(g).connect(ctx.destination);
-      o.start(t);
-      o.stop(t + 0.45);
-    });
-    window.setTimeout(() => void ctx.close(), 1000);
-  } catch {}
-  try {
-    navigator.vibrate?.([60, 40, 60]);
-  } catch {}
-}
 
 /**
  * The QR terminal (database update 68; screen "QR terminál"): a spare phone on the counter, logged in as an owner.

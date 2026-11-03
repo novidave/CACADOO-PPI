@@ -28,7 +28,7 @@ type Filter = (typeof FILTERS)[number];
  * donáška 45 min · do 21:30", "Pozastaviť"), then on a phone the filters Nové · V príprave · Na ceste · Hotové with
  * their counts and the cards, and on a computer the kitchen board — four columns (Nové, V príprave, Na ceste / na odber,
  * Doručené with today's totals). Each card's main step is one form with its own step UUID; paying and finishing are on
- * the order's page. The page reads itself again when a new order comes (FoodOrdersLive, every 15 s, with a sound).
+ * the order's page. The page reads itself again when a new order comes (FoodOrdersLive, every 10 s, with the Cacaduu sound).
  * Every rule is in SQL (owner_food_orders: members; steps: owner_food_order_status, the plan).
  */
 export default async function OrdersPage({ params, searchParams }: PageProps<"/[lang]/dashboard/assistant/orders">) {
