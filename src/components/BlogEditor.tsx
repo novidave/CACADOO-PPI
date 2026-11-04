@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { insertIntoField } from "@/components/owner/MessageTools";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { facebookMessage } from "@/lib/blogFormat";
 import { drawBlogPhoto } from "@/lib/blogPhotos";
@@ -12,9 +13,11 @@ import {
   postToFacebook,
   publishBlogPost,
   saveBlogPost,
+  saveOwnBlogText,
   setBlogChoice,
   setBlogPhotoOrder,
 } from "@/app/[lang]/(account)/dashboard/blog/actions";
+import { BlogAiTools } from "./BlogAiTools";
 import { PublishDialog, type FacebookState } from "./PublishDialog";
 import { buttonClass, fieldClass } from "@/components/owner/ui";
 
@@ -32,6 +35,8 @@ export interface EditorPost {
   fb_status: "waiting" | "posting" | "posted" | "failed" | null;
   fb_error: string | null;
   fb_permalink: string | null;
+  /** Update 77: an imported post with the owner's own text (the sync no longer changes it). */
+  body_by_owner?: boolean;
   photos: { id: string; src: string; kind: "photo" | "video" }[];
 }
 
@@ -62,6 +67,7 @@ export function BlogEditor({
   defaultAt,
   resume,
   now,
+  ai,
   labels,
 }: {
   lang: string;
@@ -80,6 +86,8 @@ export function BlogEditor({
   resume: { publish: boolean; at: string | null };
   /** When the page was made (the server's clock): whether the post is live or still scheduled. */
   now: number;
+  /** Update 77: the editor's AI — shown with ANTHROPIC_API_KEY; `plan` = the shop's paid plan ("Dostupné v Pro"). */
+  ai: { enabled: boolean; plan: boolean };
   labels: Labels;
 }) {
   const router = useRouter();
@@ -101,8 +109,11 @@ export function BlogEditor({
   const [result, setResult] = useState<Result | null>(null);
   const [choice, setChoice] = useState(post?.fb_choice ?? null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const bodyField = useRef<HTMLTextAreaElement>(null);
 
   const imported = post?.source === "facebook";
+  // an imported post whose text the owner took over (update 77): saved with owner_blog_own_text
+  const [ownText, setOwnText] = useState(Boolean(post?.body_by_owner));
   const live = Boolean(post && post.status === "published" && post.publish_at && Date.parse(post.publish_at) <= now);
   const scheduled = Boolean(post && post.status === "published" && post.publish_at && Date.parse(post.publish_at) > now);
   const canPublish = !imported && !result && (!post || post.status === "draft" || scheduled);
@@ -118,6 +129,14 @@ export function BlogEditor({
 
   /** Saves the title and text; returns the post's id (a new draft the first time). */
   const save = async (): Promise<string | null> => {
+    if (imported && ownText && postId) {
+      const own = await saveOwnBlogText({ postId, title, body });
+      if (own.error || !own.id) {
+        setError(errorText(own.error));
+        return null;
+      }
+      return own.id;
+    }
     const r = await saveBlogPost({ shopId, postId, title, body: imported ? "" : body });
     if (r.error || !r.id) {
       setError(errorText(r.error));
@@ -320,8 +339,11 @@ export function BlogEditor({
       ) : (
         <label className="flex flex-col gap-1">
           <span className="text-sm">{labels.body_label}</span>
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10} maxLength={70000} className={input} name="body" />
+          <textarea ref={bodyField} value={body} onChange={(e) => setBody(e.target.value)} rows={10} maxLength={70000} className={input} name="body" />
           <span className="text-sm text-muted">{labels.body_hint}</span>
+          <span className="text-sm text-muted" data-format-help>
+            {labels.format_help}
+          </span>
         </label>
       )}
 
@@ -335,6 +357,18 @@ export function BlogEditor({
                 <img src={p.src} alt="" className="aspect-square h-auto w-full border border-line object-cover" />
                 {!imported && (
                   <span className="flex flex-wrap gap-x-2 text-xs">
+                    {p.kind === "photo" && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="underline underline-offset-2"
+                        aria-label={labels.photo_insert_label}
+                        onClick={() => bodyField.current && insertIntoField(bodyField.current, `\n[[foto:${p.id}]]\n`)}
+                        data-photo-insert
+                      >
+                        {labels.photo_insert}
+                      </button>
+                    )}
                     {i > 0 && (
                       <button type="button" disabled={busy} className="underline underline-offset-2" onClick={() => void movePhoto(i)} aria-label={labels.photo_move_left}>
                         ←
@@ -366,6 +400,23 @@ export function BlogEditor({
         )}
         {!imported && <span className="text-sm text-muted">{labels.photos_note}</span>}
       </div>
+
+      <BlogAiTools
+        postId={postId}
+        ensurePost={save}
+        title={title}
+        body={body}
+        photos={photos.filter((p) => p.kind === "photo").map((p) => ({ id: p.id, small: p.src, large: p.src, width: null, height: null }))}
+        formatted={!imported || ownText}
+        imported={imported}
+        ai={ai}
+        labels={labels}
+        onApply={(next) => {
+          setTitle(next.title);
+          setBody(next.body);
+          if (imported) setOwnText(true);
+        }}
+      />
 
       {canPublish && (
         <fieldset className="flex flex-col gap-2">

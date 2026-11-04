@@ -11,6 +11,7 @@ import { utcToLocalInput } from "@/lib/format";
 import { requestTime } from "@/lib/requestTime";
 import type { MyShop } from "@/lib/myShops";
 import { siteUrl } from "@/lib/site";
+import { ownerAiReady } from "@/lib/grammar";
 import { BlogEditor, type EditorPost } from "@/components/BlogEditor";
 import { FacebookPagePicker } from "@/components/FacebookPagePicker";
 import type { FacebookRow } from "../page";
@@ -60,11 +61,12 @@ export default async function BlogEditorPage({ params, searchParams }: PageProps
     };
   }
 
-  const [connection, settings, fbOn, host] = await Promise.all([
+  const [connection, settings, fbOn, host, plan] = await Promise.all([
     supabase.from("facebook_connections").select("page_name, page_picture, status").eq("shop_id", shop.id).maybeSingle(),
     supabase.from("shop_blog_settings").select("last_choice").eq("shop_id", shop.id).maybeSingle(),
     facebookEnabled(),
     supabase.rpc("shop_site", { p_slug: shop.slug }),
+    supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
   ]);
   const fb = (connection.data as Pick<FacebookRow, "page_name" | "page_picture" | "status"> | null) ?? null;
   const home = (await getShopLanguages(shop.slug, shop.country)).home;
@@ -119,6 +121,8 @@ export default async function BlogEditorPage({ params, searchParams }: PageProps
         defaultAt={first(sp.at) ?? tomorrow}
         resume={{ publish: resume && !pick, at: first(sp.at) ?? null }}
         now={now}
+        // update 77: "Opraviť gramatiku" / "Skrášliť článok" — only with the AI key; free shops see "Dostupné v Pro"
+        ai={{ enabled: ownerAiReady(), plan: plan.data === true }}
         labels={b}
       />
     </div>

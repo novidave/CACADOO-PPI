@@ -1,4 +1,4 @@
-import { BlogText } from "@/components/BlogText";
+import { BlogText, type TextPhoto } from "@/components/BlogText";
 import type { SlideImage } from "@/lib/pageContent";
 
 /**
@@ -7,13 +7,28 @@ import type { SlideImage } from "@/lib/pageContent";
  * exactly as written (the first paragraph as the lead) and one photo that fades in with a slow zoom when opened.
  * The post's own page (canonical, JSON-LD) stays as it is.
  */
-export function InlineArticle({ meta, title, body, photo }: { meta: string; title: string; body: string; photo: SlideImage | null }) {
+export function InlineArticle({
+  meta,
+  title,
+  body,
+  photo,
+  formatted = false,
+  photos = [],
+}: {
+  meta: string;
+  title: string;
+  body: string;
+  photo: SlideImage | null;
+  /** Update 77: the safe format's marks count; `photos` = the post's photos the text may place. */
+  formatted?: boolean;
+  photos?: TextPhoto[];
+}) {
   return (
     <div data-inline-article>
       <p className="ppi-post-meta">{meta}</p>
       <h3 className="ppi-post-title">{title}</h3>
       <div className="ppi-post-text">
-        <BlogText body={body} />
+        <BlogText body={body} formatted={formatted} photos={photos} />
       </div>
       {photo && (
         <div className="ppi-post-fig">

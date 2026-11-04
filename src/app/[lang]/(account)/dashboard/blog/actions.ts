@@ -17,7 +17,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Facebook's own login page: nothing else is followed. */
 const FACEBOOK_LOGIN = /^https:\/\/www\.facebook\.com\/v\d+\.\d+\/dialog\/oauth\?/;
 /** The database's and the function's reasons → the texts in dict.owner_blog (error_<code>). */
-const KNOWN = ["title", "body", "published", "no_facebook", "when", "imported_text", "choice", "draft", "photo_limit"];
+const KNOWN = ["title", "body", "published", "no_facebook", "when", "imported_text", "choice", "draft", "photo_limit", "not_imported"];
 
 type Session = NonNullable<Awaited<ReturnType<typeof getSession>>>;
 
@@ -61,6 +61,25 @@ export async function saveBlogPost(input: { shopId: string; postId: string | nul
   // The address the post has now (a draft's follows its title): the Facebook preview's last line.
   const { data: row } = await s.supabase.from("blog_posts").select("slug").eq("id", String(data)).maybeSingle();
   return { id: String(data), slug: (row as { slug?: string } | null)?.slug };
+}
+
+/**
+ * An imported Facebook post with the owner's own text (update 77: "Použiť" a text of "Opraviť gramatiku" / "Skrášliť
+ * článok", then "Uložiť"): owner_blog_own_text — from then on the daily sync never changes its text (a post deleted
+ * on Facebook is still hidden). AI translations of the old text become stale and are made again.
+ */
+export async function saveOwnBlogText(input: { postId: string; title: string; body: string }): Promise<{ id?: string; error?: string }> {
+  const s = await session();
+  if (!s) return { error: "login" };
+  if (!UUID.test(input.postId)) return { error: "failed:bad request" };
+  const { data, error } = await s.supabase.rpc("owner_blog_own_text", {
+    p_post_id: input.postId,
+    p_title: String(input.title ?? "").slice(0, 400),
+    p_body: String(input.body ?? "").slice(0, 70_001),
+  });
+  if (error) return { error: code(error.message) };
+  refreshAll();
+  return { id: String(data) };
 }
 
 /**

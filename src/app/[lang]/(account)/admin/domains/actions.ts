@@ -286,13 +286,20 @@ export async function saveTelegramSettings(formData: FormData) {
   back(error ? { err: "telegram" } : { ok: "telegram" }, "telegram");
 }
 
-/** "AI pre majiteľov" (database update 76): the daily limit of "Opraviť gramatiku" per shop. */
+/**
+ * "AI pre majiteľov" (database update 76): the daily limit of "Opraviť gramatiku" per shop; since update 77 also the
+ * blog editor's AI limit per shop (Opraviť gramatiku + Skrášliť článok).
+ */
 export async function saveOwnerAi(formData: FormData) {
   const { session, back } = await start(formData);
   const limit = Number(formData.get("grammar_daily_limit"));
-  if (!Number.isInteger(limit) || limit < 0 || limit > 1000) back({ err: "owner_ai" }, "owner-ai");
+  const blogField = formData.get("blog_daily_limit");
+  const blog = blogField === null ? null : Number(blogField);
+  const bad = (n: number) => !Number.isInteger(n) || n < 0 || n > 1000;
+  if (bad(limit) || (blog !== null && bad(blog))) back({ err: "owner_ai" }, "owner-ai");
   const { error } = await session.supabase.rpc("admin_save_owner_ai", { p_grammar_daily_limit: limit });
-  back(error ? { err: "owner_ai" } : { ok: "owner_ai" }, "owner-ai");
+  const blogSaved = blog === null || !(await session.supabase.rpc("admin_save_blog_ai", { p_blog_daily_limit: blog })).error;
+  back(error || !blogSaved ? { err: "owner_ai" } : { ok: "owner_ai" }, "owner-ai");
 }
 
 /** "Nastaviť webhook": the telegram function tells Telegram its address and the secret header (is_admin checked there). */

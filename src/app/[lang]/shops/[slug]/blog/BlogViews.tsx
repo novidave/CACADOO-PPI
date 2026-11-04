@@ -30,6 +30,7 @@ import { BlogPhoto } from "@/components/BlogPhoto";
 import { PlayMark } from "@/components/YouTubePlay";
 import { youtubeId } from "@/lib/video";
 import { BlogText } from "@/components/BlogText";
+import { placedPhotos } from "@/lib/blogMarks";
 import { JsonLd } from "@/components/JsonLd";
 import { SectionZoom } from "@/components/SectionZoom";
 
@@ -233,6 +234,11 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
   const url = blogUrl(base, lang, place, post.slug);
   const listPath = blogPath(lang, place, onSite);
   const images = post.photos.filter((p) => p.kind === "photo").map((p) => photoSrc(p.large));
+  // Photos the text places ([[foto:id]], update 77) are drawn there and left out of the gallery.
+  const placed = new Set(post.formatted ? placedPhotos(post.body, post.photos.filter((p) => p.kind === "photo").map((p) => p.id)) : []);
+  const textPhotos = post.photos
+    .filter((p) => placed.has(p.id))
+    .map((p) => ({ id: p.id, small: photoSrc(p.small), large: photoSrc(p.large), width: p.width, height: p.height }));
 
   // A YouTube video shown in the gallery (update 39) is not repeated as a link card.
   const shownVideos = new Set(post.photos.filter((p) => p.kind === "video").map((p) => youtubeId(p.link)).filter(Boolean));
@@ -266,8 +272,8 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
       {/* No "Preložené automaticky · Zobraziť originál" on customer pages (2026-11-04, at the owner's request; ?original=1
           still works). While a text is still being translated, the page looks again once, 20 s later. */}
       {texts.missing && <TranslatingRefresh />}
-      <BlogGallery photos={post.photos} group={`blog-${post.slug}`} title={post.title} src={photoSrc} dict={dict} />
-      <BlogText body={post.body} />
+      <BlogGallery photos={post.photos.filter((p) => !placed.has(p.id))} group={`blog-${post.slug}`} title={post.title} src={photoSrc} dict={dict} />
+      <BlogText body={post.body} formatted={post.formatted} photos={textPhotos} />
 
       {links.length > 0 && (
         <ul className="flex flex-col gap-2" data-blog-links>

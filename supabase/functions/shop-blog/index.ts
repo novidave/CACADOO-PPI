@@ -197,9 +197,26 @@ export function importTitle(message: string, linkTitle: string | null, created: 
   return `${(space >= 20 ? cut.slice(0, space) : cut).replace(/[\s,;:–-]+$/u, "")}…`;
 }
 
-/** The post on Facebook: its text as written (the title when it has none), then "Čítať na webe: <address>". */
+/**
+ * The blog's safe format as Facebook shows it (update 77; the website's facebookBody() in src/lib/blogMarks.ts): "- "
+ * lines become "• " bullets, "## " and "> " lose their mark, "**" pairs go, photo lines ([[foto:id]]) go.
+ */
+export function facebookBody(body: string): string {
+  return body
+    .replace(/\r\n?/g, "\n")
+    .replace(/\[\[foto:[^\]\s]*(?:\]\])?/gi, "")
+    .split("\n")
+    .map((line) =>
+      line.replace(/^##[ \t]+/, "").replace(/^-[ \t]+/, "• ").replace(/^>[ \t]?/, "").replace(/\*\*(\S(?:.*?\S)?)\*\*/g, "$1")
+    )
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** The post on Facebook: its text (the format as Facebook shows it; the title when it has none), then "Čítať na webe: <address>". */
 export function facebookMessage(title: string, body: string, url: string): string {
-  const text = body.trim() ? body.replace(/\s+$/u, "") : title.trim();
+  const text = facebookBody(body) || title.trim();
   return `${text}\n\n${READ_ON_WEB} ${url}`;
 }
 
