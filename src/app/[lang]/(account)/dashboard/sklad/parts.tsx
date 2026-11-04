@@ -65,7 +65,7 @@ export function SkladShell({
   current,
   source,
   dict,
-  work = false,
+  wide = false,
   children,
 }: {
   lang: Locale;
@@ -75,8 +75,8 @@ export function SkladShell({
   current: SkladTab;
   source: string | null;
   dict: Dictionary;
-  /** A work screen (Predaj, the Príjemka editor, Inventúra counting): the compact one-row head (back-end layout). */
-  work?: boolean;
+  /** Predaj, the Príjemka editor and Inventúra counting use the content area's whole width (the head is the same). */
+  wide?: boolean;
   children: ReactNode;
 }) {
   const base = `/${lang}/dashboard/sklad`;
@@ -103,20 +103,23 @@ export function SkladShell({
     />
   );
   return (
-    <div className={`flex flex-col gap-4 ${work ? "" : "max-w-5xl"}`} data-sklad={current}>
-      <PageHead title={s.title} item="sklad" tabs={tabs} current={current} tabsLabel={s.tabs_label} actions={scanner} compact={work}>
+    // the same head on every tab and on the pages under them (a product card, a receipt, a count, the QR payment)
+    <div className="flex w-full flex-col gap-5" data-sklad={current}>
+      <PageHead title={s.title} item="sklad" tabs={tabs} current={current} tabsLabel={s.tabs_label} actions={scanner}>
         <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={(slug) => `${base}${current === "overview" ? "" : `/${current}`}?shop=${slug}`} />
         {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
       </PageHead>
-      {source && source !== "sklad" && current !== "settings" && (
-        <p className="rounded-xl border border-line bg-[#F7F7F7] p-3 text-sm" data-sklad-not-source>
-          {s.not_source}{" "}
-          <Link href={`${base}/settings${q}#source`} className="font-semibold underline underline-offset-4">
-            {s.not_source_link}
-          </Link>
-        </p>
-      )}
-      {children}
+      <div className={`flex min-w-0 flex-col gap-4 ${wide ? "" : "max-w-5xl"}`}>
+        {source && source !== "sklad" && current !== "settings" && (
+          <p className="rounded-xl border border-line bg-[#F7F7F7] p-3 text-sm" data-sklad-not-source>
+            {s.not_source}{" "}
+            <Link href={`${base}/settings${q}#source`} className="font-semibold underline underline-offset-4">
+              {s.not_source_link}
+            </Link>
+          </p>
+        )}
+        {children}
+      </div>
     </div>
   );
 }

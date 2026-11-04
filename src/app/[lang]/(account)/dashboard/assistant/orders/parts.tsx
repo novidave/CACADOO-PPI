@@ -5,6 +5,9 @@ import type { FoodOrder, FoodOrders, OpenState } from "@/lib/foodOwner";
 import { money, nextSteps, plural, type OrderStatus } from "@/lib/foodRules";
 import { orderStep as stepAction, pauseOrders } from "./actions";
 import { buttonClass, ghostClass } from "@/components/owner/ui";
+import { itemTabs, PageHead } from "@/components/owner/PageHead";
+import type { MyShop } from "@/lib/myShops";
+import { ShopSwitcher } from "../../shared";
 
 /** Shared parts of Asistent → Objednávky (boards 11–13): the state strip, an order card, the notices, small helpers. */
 
@@ -224,4 +227,37 @@ export function FoodNotice({ f, ok, err }: { f: Dictionary["food"]; ok?: string;
   if (err) return <p role="alert" className="rounded-lg border border-[#D64545] p-3">{texts[err] ?? f.err_failed}</p>;
   if (ok) return <p role="status" className="rounded-lg border border-foreground p-3 font-medium">{texts[ok] ?? f.ok_status}</p>;
   return null;
+}
+
+/**
+ * Objednávky jedla's head on every tab and on an order's page (back-end layout, one place for the tabs): the title,
+ * the shop switcher and Objednávky · Kuriéri · Menu · Nastavenia with the number of new orders — the same block
+ * everywhere, so a tab never moves it. The state strip, "Pozastaviť", the filters and the board go under it.
+ */
+export function FoodHead({
+  dict,
+  lang,
+  shops,
+  shop,
+  current,
+  newOrders,
+  switchHref,
+}: {
+  dict: Dictionary;
+  lang: string;
+  shops: MyShop[];
+  shop: MyShop;
+  current: "orders" | "couriers" | "menu" | "settings";
+  newOrders: number;
+  switchHref: (slug: string) => string;
+}) {
+  const tabs = itemTabs(dict, lang, "food", shop.slug, { orders: newOrders }).map((x) =>
+    x.key === "orders" && newOrders > 0 ? { ...x, badgeLabel: t(dict.food.tab_badge, { n: newOrders }) } : x,
+  );
+  return (
+    <PageHead title={dict.nav.food} item="food" tabs={tabs} current={current} tabsLabel={dict.nav.tabs_label}>
+      <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={switchHref} />
+      {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
+    </PageHead>
+  );
 }

@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import type { FoodOrder, FoodSettings } from "@/lib/foodOwner";
+import { foodTab, type FoodOrder, type FoodSettings } from "@/lib/foodOwner";
 import { cashChoices, money, nextSteps, type OrderStatus } from "@/lib/foodRules";
 import { payBySquareSvg } from "@/lib/payBySquare";
 import { formatIban } from "@/lib/sklad";
@@ -13,9 +13,8 @@ import { PollRefresh } from "@/components/PollRefresh";
 import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, inputClass } from "../../../shared";
 import { assignCourier, orderSms, orderStep } from "../actions";
-import { btn, btnGhost, btnOrange, FoodNotice, hhmm, payText, statusText } from "../parts";
+import { btn, btnGhost, btnOrange, FoodHead, FoodNotice, hhmm, payText, statusText } from "../parts";
 import { fieldClass } from "@/components/owner/ui";
-import { PageTitle } from "@/components/owner/PageHead";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders/[id]">): Promise<Metadata> {
   const { lang } = await params;
@@ -47,13 +46,14 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
   const shop = chosen.shop;
   if (!shop) redirect(`/${lang}/dashboard`);
 
-  const [orderRes, settingsRes, smsRes, plan, couriersRes] = await Promise.all([
+  const [orderRes, settingsRes, smsRes, plan, couriersRes, foodTabRes] = await Promise.all([
     supabase.rpc("owner_food_order", { p_shop_id: shop.id, p_order_id: id }),
     supabase.rpc("owner_food_settings", { p_shop_id: shop.id }),
     supabase.rpc("owner_food_sms_state", { p_shop_id: shop.id, p_order_id: id }),
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     // update 75: the shop's couriers for "Prideliť" (none before the update: no box)
     supabase.rpc("owner_food_couriers", { p_shop_id: shop.id }),
+    foodTab(supabase, shop.id),
   ]);
   if (orderRes.error) {
     if (orderRes.error.message === "not_found") notFound();
@@ -91,7 +91,18 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
   const actorText = (a: string) => (f as Record<string, string>)[`actor_${a}`] ?? a;
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-4" data-food-detail={o.status}>
+    <div className="flex w-full flex-col gap-5">
+      {/* the same head as the Objednávky tab: the order's page sits under it */}
+      <FoodHead
+        dict={dict}
+        lang={lang}
+        shops={chosen.shops}
+        shop={shop}
+        current="orders"
+        newOrders={foodTabRes?.new ?? 0}
+        switchHref={(slug) => `/${lang}/dashboard/assistant/orders?shop=${slug}`}
+      />
+    <div className="flex w-full max-w-xl flex-col gap-4" data-food-detail={o.status}>
       {!finished && <PollRefresh seconds={15} />}
       <Link href={listHref} className="flex min-h-11 items-center gap-2 font-semibold">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -102,10 +113,10 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
       <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />
 
       <header className="flex flex-col gap-1">
-        <PageTitle>
+        <h2 className="text-[28px] font-bold leading-tight">
           #{o.number}
           {o.name ? ` · ${o.name}` : ""}
-        </PageTitle>
+        </h2>
         <p className="text-sm text-muted">
           {created} {hhmm(o.created_at, tz)} ·{" "}
           {o.kind === "delivery" ? t(f.delivery_by, { time: hhmm(o.ready_by, tz) }) : t(f.pickup_by, { time: hhmm(o.ready_by, tz) })} ·{" "}
@@ -395,6 +406,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
           </ol>
         </details>
       )}
+    </div>
     </div>
   );
 }

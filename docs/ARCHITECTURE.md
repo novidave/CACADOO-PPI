@@ -3118,13 +3118,14 @@ Canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 19 and 21. Layo
   Rezervácie, CRM; Stránka obchodu: Môj obchod, Obsah stránky, Novinky / Blog, AI asistent, Jazyky a inventár; Účet a
   nastavenia: Priečinok s exportom, Predplatné a doména, Právne informácie, Heslo, Otváracie hodiny cez SMS, AI
   asistenti a Telegram, the admin pages). Each item owns addresses (a page and everything under it, or one page, or an
-  `?at=` of the Asistent page); `menuItemFor(path, at)` takes the most specific owner. `isWorkScreen` (Predaj and its QR
-  page, a Príjemka, an Inventúra count, the food board) and `isBareScreen` (the QR terminal) decide the menu's form.
+  `?at=` of the Asistent page); `menuItemFor(path, at)` takes the most specific owner. `isBareScreen` (the QR terminal)
+  hides the menu (`isWorkScreen` and the work screens' rail were removed on 4 November 2026 — see "the tabs and the
+  menu fixed" below).
 - **The shell:** `(account)/layout.tsx` reads the owner's shops, the live own domains and the badges once per page load
   (CRM = new conversations + shoppers waiting; Objednávky jedla = new orders), and gives them to `OwnerNav` with the
   `nav.*` texts. `OwnerNav` is a client component because a layout is not drawn again on navigation; it reads the
-  address (`usePathname`, `?at=`, `?shop=`). Three forms: the 256 px menu (≥ 1024 px), the 76 px rail (768–1023 px and the
-  work screens), the top bar + bottom sheet (< 768 px, a modal `<dialog>`). The site header is hidden by CSS
+  address (`usePathname`, `?at=`, `?shop=`). Since 4 November 2026 two forms: the 256 px menu that folds to a 76 px rail
+  (≥ 1024 px) and the top bar + a panel from the left (< 1024 px, a modal `<dialog>`). The site header is hidden by CSS
   (`body:has([data-owner-shell])`), so public pages keep their HTML and their first-load JS.
 - **Tests:** `src/lib/dashboardPages_test.ts` (in `npm run test:content`, reads the route files: every owner page has
   exactly one item; old addresses forward with their query; `?shop=` stays) and `e2e/owner-shell.spec.ts`.
@@ -3164,15 +3165,53 @@ Layout only; no database change, the same fields and actions. Canvas artboards 1
   `dashboard/shared.tsx` `inputClass` / `SubmitButton` / `saveLabels()`, `PendingButton`, `DashboardSection` (a card),
   the Sklad and food-order `btn` / `btnGhost` / `card` are these parts, so the older pages follow without copies.
 - **Page head** `@/components/owner/PageHead`: `PageTitle` (28 px) on every owner page; `PageHead` with the item's
-  tabs; `compact` = the work screens' one row (title 20 px, tabs 60 px, actions on the right): Sklad Predaj, the
-  Príjemka editor, the Inventúra counting screen (`SkladShell work`) and the food board.
+  tabs (the `compact` work-screen head was removed on 4 November 2026: one head everywhere).
 - **Pages:** Môj obchod (artboard 9: "Môj obchod" + the shop's name, "Sviatky a mimoriadne zatvorenie" button, Údaje
   obchodu in two columns from 1024 px — details left, hours and switches right — with the save bar; the plan box moved
   to Predplatné a doména, which is now plan | domain in two cards); Právne informácie (artboard 16: Firma and the
   domain owner's details left, the texts for customers right with the save bar); Heslo (artboard 17: one card); the
   booking and assistant settings' on/off boxes and the food-order settings are switches; the hours editor's times are
   44 px pills; "Krátke / Dlhé" is a 44 px segmented pair.
-- Tests: e2e `owner-shell.spec.ts` "the page pattern" (28 px titles, the compact head, the save bar counting and Zrušiť).
+- Tests: e2e `owner-shell.spec.ts` "the page pattern" (28 px titles, the save bar counting and Zrušiť).
+
+## Back-end layout "Môj obchod" — the tabs and the menu fixed (4 November 2026, at the owner's request)
+
+Layout only; no database change, no Edge Function, the same forms and actions. Rezervácie is the model: switching its
+tabs moves neither the title nor the tab row, only what is under the tabs changes — every owner page with tabs now
+behaves like that.
+
+- **One place for the tabs.** `@/components/owner/PageHead` is one block (title row 52 px with the item's actions, then
+  only what is the same on every tab — the shop switcher —, then the 56 px tab row; the hidden-scrollbar `.ppi-tabs`
+  scrolls sideways inside itself on a phone) and the first thing in the content area. Each tabbed page = an outer
+  `w-full` column, its item's head, then an inner column with the page's own width: `SkladShell` (`wide` = Predaj, the
+  Príjemka editor, Inventúra counting, the QR payment page — no `work` / compact head any more), `FoodHead`
+  (Objednávky, Kuriéri, Menu, Nastavenia, the order detail; the order's number is an h2), `CrmHead` (Prehľad,
+  Konverzácie, Kontakty, Šablóny, a contact, a conversation — their own titles are h2), AI asistent and Rezervácie with
+  their `PageHead`. Every tab of an item passes the same badges (food: `owner_food_tab().new`; CRM: the waiting
+  callbacks), so a badge never changes a tab's width between tabs. Anything that differs between tabs (save messages,
+  `ProOnly`, banners, state strips, "Pozastaviť", filters, the kitchen board) is drawn under the head.
+- **SMS usage** (`@/components/SmsUsage`) moved off the AI asistent page: CRM → Kontakty (right under the tabs, above
+  "Nový kontakt"; owner quota), a contact's Správy (under its tabs) and Rezervácie → Nastavenia (booking quota); Hodiny
+  cez SMS keeps it (no tabs).
+- **The page never shifts sideways:** `html:has([data-owner-shell]) { scrollbar-gutter: stable }`.
+- **The computer menu** (≥ 1024 px, `<aside id="owner-menu">`): open by default on every page; "Zbaliť menu" /
+  "Rozbaliť menu" at the bottom (48 px, `aria-expanded`, `aria-controls`) toggles `<html data-owner-nav="collapsed">`
+  (CSS: `.ppi-owner-aside` 256 ↔ 76 px, only the width animated, nothing with reduced motion). The choice is kept in
+  localStorage `ppi.owner.nav` (try/catch) and set before the first paint by the inline `NAV_BOOT` script in
+  `(account)/layout.tsx` (so the menu never jumps; `<html suppressHydrationWarning>`); `OwnerNav` reads it with
+  `useSyncExternalStore` (a `ppi:owner-nav` event). Rows and heights are the same in both states and every icon sits
+  in the same 52 px box of a 76 px column (`data-nav-icon`), so collapsing only hides the labels (`data-nav-label`),
+  moves the badges to the icon's corner and opens the shop list beside the rail; group headers keep their row (a thin
+  line + a group icon); every row has `aria-label` + `title`.
+- **Phones and tablets** (< 1024 px): the top bar has the 48 px menu button on the left, then the page's name; the
+  button opens the whole menu (the same rows as the computer's) as `<dialog id="owner-panel">` from the left (≤ 320 px
+  or 85 %, dimmed page, a slide-in that reduced motion turns off); Esc, a tap on the dimmed page or × closes it and the
+  focus returns to the button. The bottom sheet (artboard 19) is gone.
+- Tests: `dashboardPages_test.ts` (only the QR terminal has no menu); e2e `owner-shell.spec.ts` at 1180×820, 820×1180
+  and 390×844 — the tab row's box identical (±0.5 px) on every tab of Rezervácie, Sklad (with the Príjemka editor, a
+  product card and Inventúra counting), Objednávky jedla, CRM and AI asistent with nothing tab-specific above it; SMS
+  usage under the tabs on Kontakty; the menu open on Predaj, collapsing keeps every icon's x/y and survives a reload;
+  the button on the left, the panel from the left, Esc / outside / × close it.
 
 ## Update 75 — "Objednávky jedla" phase F4: couriers (3 November 2026, the owner's OK for the SMS-code login)
 

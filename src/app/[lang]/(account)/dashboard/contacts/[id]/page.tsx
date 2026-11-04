@@ -11,11 +11,11 @@ import { MessageComposer, type ComposerTemplate } from "@/components/MessageComp
 import { PendingButton } from "@/components/PendingButton";
 import { SmsUsage } from "@/components/SmsUsage";
 import { loadSmsUsage } from "@/lib/smsUsage";
+import { CrmHead, waitingCount } from "../../AssistantTabs";
 import { countText, languageName } from "../../Conversations";
 import { hiddenFields } from "../../shared";
 import { deleteContact, saveContact } from "../actions";
 import { ContactFields, Notice } from "../parts";
-import { PageTitle } from "@/components/owner/PageHead";
 
 export const metadata: Metadata = { robots: { index: false } };
 
@@ -75,7 +75,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       </div>
     );
   }
-  const [shopsRes, plan, conversations, messages, templates, config, bookingsRes, sms] = await Promise.all([
+  const [shopsRes, plan, conversations, messages, templates, config, bookingsRes, sms, waiting] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase.rpc("shop_has_plan", { p_shop_id: contact.shop_id }),
     supabase
@@ -101,8 +101,11 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       .limit(100),
     // The owner's SMS this month (database update 58).
     tab === "messages" ? loadSmsUsage(supabase, contact.shop_id) : Promise.resolve(null),
+    // CRM's head: the waiting shoppers' badge on Konverzácie, as on every CRM tab
+    waitingCount(supabase, contact.shop_id),
   ]);
-  const shop = ((shopsRes.data ?? []) as MyShop[]).find((s) => s.id === contact.shop_id);
+  const shops = (shopsRes.data ?? []) as MyShop[];
+  const shop = shops.find((s) => s.id === contact.shop_id);
   if (!shop) notFound();
   const hasPlan = !plan.error && plan.data === true;
   const tz = shop.timezone;
@@ -116,12 +119,23 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
   const statusText: Record<Sent["status"], string> = { sent: c.status_sent, failed: c.status_failed, test: c.status_test, queued: c.status_queued };
 
   return (
+    <div className="flex w-full flex-col gap-5">
+      {/* CRM's head, exactly as on Kontakty: the contact's page sits under it */}
+      <CrmHead
+        dict={dict}
+        lang={lang}
+        shops={shops}
+        shop={shop}
+        current="contacts"
+        waiting={waiting}
+        switchHref={(slug) => `/${lang}/dashboard/contacts?shop=${slug}`}
+      />
     <div className="flex max-w-3xl flex-col gap-6">
       <header className="flex flex-col gap-2">
         <Link href={`/${lang}/dashboard/contacts?shop=${shop.slug}`} className="text-sm underline underline-offset-4">
           {c.back}
         </Link>
-        <PageTitle className="break-words">{title}</PageTitle>
+        <h2 className="break-words text-[24px] font-bold leading-tight">{title}</h2>
         <p className="text-sm text-muted">{shop.name}</p>
         <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
           {contact.phone && (
@@ -134,7 +148,6 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
           )}
           {contact.email && <span className="break-all">{contact.email}</span>}
         </p>
-        <Notice sp={sp} dict={dict} />
       </header>
 
       <nav aria-label={c.tabs} className="flex flex-wrap gap-1 border-b border-line" data-contact-detail-tabs>
@@ -151,6 +164,9 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
           </Link>
         ))}
       </nav>
+
+      {/* a message after a save: under the contact's tabs, never pushing them */}
+      <Notice sp={sp} dict={dict} />
 
       {tab === "overview" && (
         <section className="flex flex-col gap-4" data-tab-panel="overview">
@@ -263,6 +279,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
           <p className="text-xs text-muted">{t(c.messages_count, { n: sent.length })}</p>
         </section>
       )}
+    </div>
     </div>
   );
 }

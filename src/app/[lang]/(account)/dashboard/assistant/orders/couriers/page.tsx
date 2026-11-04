@@ -5,12 +5,12 @@ import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { money } from "@/lib/foodRules";
 import { DbError } from "@/components/DbError";
-import { itemTabs, PageHead } from "@/components/owner/PageHead";
+import { foodTab } from "@/lib/foodOwner";
 import { buttonClass, cardClass, Field, fieldClass, ghostClass, Segmented, StatusDot, Toggle } from "@/components/owner/ui";
 import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, ProOnly } from "../../../shared";
 import { inviteCourier, logoutCourier, saveCourier, saveCourierSettings, setCourierActive, settleCourier } from "../actions";
-import { FoodNotice } from "../parts";
+import { FoodHead, FoodNotice } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders/couriers">): Promise<Metadata> {
   const { lang } = await params;
@@ -68,7 +68,7 @@ export default async function CouriersPage({ params, searchParams }: PageProps<"
   if (chosen.error) return <DbError message={chosen.error} dict={dict} />;
   const shop = chosen.shop;
   if (!shop) redirect(`/${lang}/dashboard`);
-  const res = await supabase.rpc("owner_food_couriers", { p_shop_id: shop.id });
+  const [res, foodTabRes] = await Promise.all([supabase.rpc("owner_food_couriers", { p_shop_id: shop.id }), foodTab(supabase, shop.id)]);
   if (res.error) return <DbError message={res.error.message} dict={dict} />;
   const s = res.data as CourierSetup;
   const hidden = (extra: Record<string, string> = {}) => hiddenFields(lang, shop)({ back: "couriers", ...extra });
@@ -78,8 +78,17 @@ export default async function CouriersPage({ params, searchParams }: PageProps<"
     new Intl.DateTimeFormat(lang, { timeZone: tz, day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
   return (
-    <div className="flex w-full max-w-5xl flex-col gap-5" data-food-couriers>
-      <PageHead title={dict.nav.food} item="food" tabs={itemTabs(dict, lang, "food", shop.slug)} current="couriers" tabsLabel={dict.nav.tabs_label} />
+    <div className="flex w-full flex-col gap-5">
+      <FoodHead
+        dict={dict}
+        lang={lang}
+        shops={chosen.shops}
+        shop={shop}
+        current="couriers"
+        newOrders={foodTabRes?.new ?? 0}
+        switchHref={(slug) => `/${lang}/dashboard/assistant/orders/couriers?shop=${slug}`}
+      />
+      <div className="flex w-full max-w-5xl flex-col gap-5" data-food-couriers>
       {!canWrite && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
       <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />
       {!s.delivery_on && <p className="rounded-xl bg-[#F6F6F6] p-3 text-[15px]">{f.cr_delivery_off}</p>}
@@ -221,6 +230,7 @@ export default async function CouriersPage({ params, searchParams }: PageProps<"
             )}
           </form>
         </section>
+      </div>
       </div>
     </div>
   );

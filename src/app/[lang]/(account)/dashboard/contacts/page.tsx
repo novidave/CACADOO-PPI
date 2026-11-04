@@ -9,10 +9,9 @@ import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { SmsUsage } from "@/components/SmsUsage";
 import { loadSmsUsage } from "@/lib/smsUsage";
-import { itemTabs, PageHead } from "@/components/owner/PageHead";
-import { waitingCount } from "../AssistantTabs";
+import { CrmHead, waitingCount } from "../AssistantTabs";
 import { countText } from "../Conversations";
-import { hiddenFields, inputClass, ProOnly, ShopSwitcher } from "../shared";
+import { hiddenFields, inputClass, ProOnly } from "../shared";
 import { deleteTemplate, saveContact, saveTemplate } from "./actions";
 import { chooseShop, ContactFields, type ContactRow, Notice, VariableList } from "./parts";
 
@@ -82,22 +81,21 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
   const filtered = Boolean(q || tag);
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
-      <PageHead
-        title={dict.nav.crm}
-        item="crm"
-        tabs={itemTabs(dict, lang, "crm", shop.slug, { conversations: waiting }).map((x) =>
-          x.key === "conversations" && waiting > 0 ? { ...x, badgeLabel: t(dict.asst.waiting_badge, { n: waiting }) } : x,
-        )}
+    <div className="flex w-full flex-col gap-5">
+      <CrmHead
+        dict={dict}
+        lang={lang}
+        shops={chosen.shops}
+        shop={shop}
         current={view}
-        tabsLabel={dict.nav.tabs_label}
-      >
-        <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/contacts?shop=${slug}${view === "templates" ? "&view=templates" : ""}`} />
-        {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
-        {!hasPlan && <ProOnly dict={dict} href={planUrl} />}
-        <Notice sp={sp} dict={dict} />
-        {hasPlan && sms && view === "contacts" && <SmsUsage usage={sms} lang={lang} timeZone={shop.timezone} dict={dict} />}
-      </PageHead>
+        waiting={waiting}
+        switchHref={(slug) => `/${lang}/dashboard/contacts?shop=${slug}${view === "templates" ? "&view=templates" : ""}`}
+      />
+      <div className="flex max-w-3xl flex-col gap-5">
+      {/* right under the tabs, above "Nový kontakt": this month's SMS of the shop's own messages */}
+      {hasPlan && sms && view === "contacts" && <SmsUsage usage={sms} lang={lang} timeZone={shop.timezone} dict={dict} only="owner" />}
+      {!hasPlan && <ProOnly dict={dict} href={planUrl} />}
+      <Notice sp={sp} dict={dict} />
 
       {unavailable ? (
         <p className="text-sm text-muted">{c.unavailable}</p>
@@ -199,6 +197,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
           )}
         </section>
       )}
+      </div>
     </div>
   );
 }

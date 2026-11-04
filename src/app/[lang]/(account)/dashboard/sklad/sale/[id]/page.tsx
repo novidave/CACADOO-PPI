@@ -8,7 +8,7 @@ import { paymentMessage } from "@/lib/sklad";
 import { DbError } from "@/components/DbError";
 import { saleCancel, salePaid } from "../../actions";
 import { type SaleJson, SaleQrView } from "../../SaleQrView";
-import { first, loadSklad, UUID } from "../../parts";
+import { first, loadSklad, SkladShell, UUID } from "../../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/sklad/sale/[id]">): Promise<Metadata> {
   const { lang } = await params;
@@ -51,6 +51,7 @@ export default async function SkladSaleQr({ params, searchParams }: PageProps<"/
   );
 
   return (
+    <SkladShell lang={ctx.lang} s={s} dict={dict} shops={ctx.shops} shop={shop} current="sale" source={null} wide>
     <SaleQrView
       s={s}
       lang={ctx.lang}
@@ -64,6 +65,8 @@ export default async function SkladSaleQr({ params, searchParams }: PageProps<"/
       form={(kind, label, cls) =>
         form(kind === "paid" ? salePaid : saleCancel, label, cls, kind === "other" ? { other: "1" } : {})
       }
+      heading="h2"
     />
+    </SkladShell>
   );
 }

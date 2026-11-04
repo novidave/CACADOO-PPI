@@ -6,7 +6,6 @@ import {
   bookingPartUrl,
   forwardUrl,
   isBareScreen,
-  isWorkScreen,
   ITEM_TABS,
   menuHref,
   menuItemFor,
@@ -81,15 +80,11 @@ Deno.test("addresses to items (Hlavné, Stránka obchodu, Účet a nastavenia)",
   assertEquals(menuItemFor("/login"), null);
 });
 
-Deno.test("work screens use the rail, the QR terminal has no menu", () => {
-  for (const p of ["/dashboard/sklad/sale", "/dashboard/sklad/sale/x0", "/dashboard/sklad/receipts/new", "/dashboard/sklad/receipts/x0", "/dashboard/sklad/counts/x0", "/dashboard/assistant/orders"]) {
-    assert(isWorkScreen(p), p);
-  }
-  for (const p of ["/dashboard/sklad", "/dashboard/sklad/receipts", "/dashboard/sklad/counts", "/dashboard/sklad/counts/x0/diff", "/dashboard/assistant/orders/x0", "/dashboard"]) {
-    assert(!isWorkScreen(p), p);
-  }
+Deno.test("the QR terminal has no menu; every other owner page has it (no work screens since 2026-11-04)", () => {
   assert(isBareScreen("/dashboard/sklad/terminal"));
-  assert(!isBareScreen("/dashboard/sklad"));
+  for (const p of ["/dashboard/sklad", "/dashboard/sklad/sale", "/dashboard/sklad/receipts/x0", "/dashboard/sklad/counts/x0", "/dashboard/assistant/orders", "/dashboard"]) {
+    assert(!isBareScreen(p), p);
+  }
 });
 
 Deno.test("the language is cut off the address", () => {

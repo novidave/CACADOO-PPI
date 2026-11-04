@@ -125,24 +125,49 @@ map, since 2026-10-31; no API key), pins in the status colour
 with the status in words in each pin's tooltip (no legend under the map, at the owner's request; the map data's credit
 OpenMapTiles/OpenStreetMap — required by their licences, never removed — stays closed behind MapLibre's small "i"
 button, the text only after a tap, 2026-10-27); always an extra — every page must work and show its data without it.
-**Back-end layout (2026-11-03, at the owner's request):** every owner page sits in ONE shell — canvas "Cacaduu –
-webová aplikácia (Môj obchod)", artboards 1–21. The map is only `@/lib/dashboardPages` `OWNER_MENU` (route → item,
-group main | page | account, `menuItemFor()`, `menuHref()` keeps `?shop=`, `isWorkScreen()`, `isBareScreen()`; tests
-`dashboardPages_test.ts` in `npm run test:content`: every owner page belongs to exactly one item, old addresses forward
-with their query). `(account)/layout.tsx` (server) prepares the labels (`nav.*`), the shops (`my_shops`, "Zobraziť moju
-stránku" = `shopHref`, own domain when live) and the badges per shop (CRM = `owner_conversations_new` + waiting
-callbacks, Objednávky jedla = `owner_food_tab().new`); `@/components/owner/OwnerNav` (client: a layout is not drawn
-again on navigation, so the current item and `?shop=` come from the address) draws: ≥ 1024 px the 256 px menu (shop
-switcher 56 px + 52 px "Zobraziť moju stránku"; Hlavné 52 px rows / 17 px; "Stránka obchodu" and "Účet a nastavenia"
-46 px / 16 px, one open at a time, header = button with `aria-expanded`); 768–1023 px and the **work screens** (Predaj,
-Príjemka editor, Inventúra counting, the food board) the 76 px rail (initial, icons 52×48 with `aria-label` + `title`,
-badge in the corner); < 768 px a top bar (title + 48 px menu button) and the bottom sheet (`<dialog>`, artboard 19: 2×2
-tiles 92 px, 50 px rows, "Účet a nastavenia" closed with "n položiek ▾"; Esc / a tap outside closes, focus back to the
-button). The QR terminal has no menu. Active = black, white bold, `aria-current="page"`; badges 22 px black pills
-(white on the active item); icons inline SVG (`@/components/owner/navIcons`, 22 px, stroke 2, `currentColor`). The
-site's header is hidden inside the shell (globals.css `body:has([data-owner-shell])`); its language picker and "who is
-signed in" sit at the end of "Účet a nastavenia"; the legal footer stays. Public pages are untouched (budget unchanged).
-e2e `e2e/owner-shell.spec.ts` (1180×820, 820×1180, 390×844; needs an owner login). **L2 (moves):** each item's tabs are
+**Back-end layout (2026-11-03, at the owner's request; menu and tabs fixed 2026-11-04):** every owner page sits in ONE
+shell — canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 1–21. The map is only `@/lib/dashboardPages`
+`OWNER_MENU` (route → item, group main | page | account, `menuItemFor()`, `menuHref()` keeps `?shop=`,
+`isBareScreen()`; tests `dashboardPages_test.ts` in `npm run test:content`: every owner page belongs to exactly one
+item, old addresses forward with their query, only the QR terminal has no menu). `(account)/layout.tsx` (server)
+prepares the labels (`nav.*`), the shops (`my_shops`, "Zobraziť moju stránku" = `shopHref`, own domain when live) and
+the badges per shop (CRM = `owner_conversations_new` + waiting callbacks, Objednávky jedla = `owner_food_tab().new`);
+`@/components/owner/OwnerNav` (client: a layout is not drawn again on navigation, so the current item and `?shop=` come
+from the address) draws: **≥ 1024 px the 256 px menu, open by default on EVERY page** (Predaj, the Príjemka editor,
+Inventúra counting and the food board too; no "work screens" any more): shop switcher 56 px + 52 px "Zobraziť moju
+stránku"; Hlavné 52 px rows / 17 px; "Stránka obchodu" and "Účet a nastavenia" 46 px / 16 px, one open at a time,
+header = button with `aria-expanded`; at the bottom "Zbaliť menu" / "Rozbaliť menu" (48 px, `aria-expanded`,
+`aria-controls="owner-menu"`) folds it to the **76 px rail** and back, remembered in localStorage `ppi.owner.nav`
+(try/catch, default open; `NAV_BOOT`, an inline script before the menu, sets `<html data-owner-nav="collapsed">` before
+the first paint — `suppressHydrationWarning` on `<html>`). **Icons never move:** the same rows and heights in both
+states, every icon in its 52 px box (`data-nav-icon`) in a fixed 76 px column; collapsing only hides the labels
+(`data-nav-label`) and moves the badges to the icon's corner; the switcher and "Zobraziť moju stránku" keep their
+height with only the initial / icon; group headers keep their row (thin line + icon, `title` = the name); collapsed rows
+carry `aria-label` + `title`. Only the width is animated (nothing with `prefers-reduced-motion`); the page takes the
+freed width, the tab row keeps its vertical place. **< 1024 px** a top bar (the 48 px menu button on the LEFT, then the
+page's name) and the full menu as a panel from the left (`<dialog id="owner-panel">`, ≤ 320 px or 85 % wide, dimmed
+page; Esc, a tap outside or × closes it; the focus moves in and back to the button). The QR terminal has no menu.
+Active = black, white bold, `aria-current="page"`; badges 22 px black pills (white on the active item); icons inline SVG
+(`@/components/owner/navIcons`, 22 px, stroke 2, `currentColor`). globals.css (owner block): the site's header hidden
+inside the shell (`body:has([data-owner-shell])`), `scrollbar-gutter: stable` on the page (the scrollbar never moves
+the tabs sideways), `.ppi-tabs` scroll sideways inside themselves without a scrollbar, `.ppi-owner-aside` 256 ↔ 76 px,
+`.ppi-owner-panel`. The site header's language picker and "who is signed in" sit at the end of "Účet a nastavenia";
+the legal footer stays. Public pages are untouched (budget unchanged). **Tabs have one fixed place (Rezervácie is the
+model):** `@/components/owner/PageHead` is the FIRST block of the content area and the same on every tab of an item
+and on the pages under them (h1 28 px in a 52 px row with the item's actions, then only what is the same on every tab
+— the shop switcher —, then the 56 px tab row; no compact variant): Sklad = `SkladShell` (`wide` for Predaj, the
+Príjemka editor, Inventúra counting, the QR payment page), Objednávky jedla = `FoodHead` (Objednávky, Kuriéri, Menu,
+Nastavenia and the order detail), CRM = `CrmHead` (Prehľad, Konverzácie, Kontakty, Šablóny, a contact, a conversation),
+AI asistent and Rezervácie their `PageHead`; each page = an outer `w-full` column, the head, then its own max width.
+**Nothing that differs between tabs sits above the tabs** (messages after a save, plan boxes, banners, state strips,
+"Pozastaviť", filters, the kitchen board, SMS usage) and every tab passes the same badges. "SMS tento mesiac"
+(`@/components/SmsUsage`) only on CRM → Kontakty (right under the tabs, above "Nový kontakt", owner quota), a contact's
+Správy (under its own tabs) and Rezervácie → Nastavenia (booking quota) — plus Hodiny cez SMS, which has no tabs.
+e2e `e2e/owner-shell.spec.ts` (1180×820, 820×1180, 390×844; needs an owner login + `E2E_OWNER_SHOP`): the tab row's box
+identical (±0.5 px) on every tab of Rezervácie, Sklad (incl. Predaj, the Príjemka editor, a product card, Inventúra
+counting), Objednávky jedla, CRM and AI asistent; nothing tab-specific above it; SMS usage under the tabs on Kontakty;
+the menu open on Predaj, collapse keeps every icon's x/y and survives a reload; the menu button left, the panel from
+the left, Esc / outside / × close it. **L2 (moves):** each item's tabs are
 `ITEM_TABS` (`tabHref()`), drawn by `@/components/owner/PageHead` (h1 28 px, tabs 56 px, active #111 + 3 px line, `data-item-tabs`):
 **CRM** = `/dashboard/crm` (Prehľad, `?at=conversations` with the cloud folder) + Kontakty / Šablóny (`/dashboard/contacts`),
 the conversation page goes back there; **Rezervácie** = `/dashboard/bookings?tab=` calendar | services | resources | rules
@@ -161,8 +186,8 @@ cloud → CRM, docs → Dokumenty, private / folders → Súkromné priečinky.
 black 52 px, `ghostClass`, `cardClass` 1 px #E4E4E4 / radius 16 / padding 18, `Toggle` = `.ppi-toggle` 56×32 checkbox,
 `Segmented`, `Chip`, `StatusDot`) and `@/components/owner/SaveBar` (sticky "Neuložené zmeny: n" · Zrušiť · Uložiť ≥ 180
 px; `saveLabels()`), never its own copies (`inputClass`, `SubmitButton`, `PendingButton`, `DashboardSection`, the Sklad and
-food `btn`/`card` are these parts); `PageTitle` 28 px on every page, `PageHead compact` on the work screens (title 20 px,
-tabs 60 px). Môj obchod: two columns from 1024 px + the save bar; its plan box lives on Predplatné a doména.
+food `btn`/`card` are these parts); `PageTitle` 28 px on every page and `PageHead` (28 px title, 56 px tabs) on every page with
+tabs — one look, no compact head. Môj obchod: two columns from 1024 px + the save bar; its plan box lives on Predplatné a doména.
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 

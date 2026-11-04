@@ -4805,6 +4805,8 @@
     "view_page": "View my page",
     "open_menu": "Open the menu",
     "close_menu": "Close the menu",
+    "collapse_menu": "Collapse menu",
+    "expand_menu": "Expand menu",
     "items_one": "{n} item",
     "items_few": "{n} items",
     "items_other": "{n} items",

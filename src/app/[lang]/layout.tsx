@@ -48,7 +48,15 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
   if (!enabled.includes(lang)) notFound();
 
   return (
-    <html lang={lang} dir="ltr" data-script={languageOf(lang)?.script} className={`${quicksand.variable} ${notoFallback.variable} h-full antialiased`}>
+    // suppressHydrationWarning: the owner shell's first script may mark <html data-owner-nav="collapsed"> before React
+    // (only this element's own attributes; nothing below it)
+    <html
+      lang={lang}
+      dir="ltr"
+      data-script={languageOf(lang)?.script}
+      className={`${quicksand.variable} ${notoFallback.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
       <body className="min-h-full flex flex-col bg-white text-foreground">
         <Header lang={lang} dict={dict} enabled={enabled} />
         {/* At least one screen high: the footer starts below the first view, so content growing after load (the

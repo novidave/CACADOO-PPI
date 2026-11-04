@@ -293,16 +293,11 @@ export function menuHref(item: MenuItem, lang: string, shop: string | null): str
 }
 
 /**
- * Work screens: the compact rail even on a wide screen, so the work gets the room — Sklad's Predaj (and its QR payment
- * page), the Príjemka editor, the Inventúra counting screen and the food orders' kitchen board.
+ * No menu at all: the QR terminal faces the customer. (Every other owner page has the same menu, open by default;
+ * since 2026-11-04 Predaj, the Príjemka editor, Inventúra counting and the food board no longer switch to the rail.)
  */
-const WORK_SCREENS = [/^\/dashboard\/sklad\/sale(\/[^/]+)?$/, /^\/dashboard\/sklad\/receipts\/[^/]+$/, /^\/dashboard\/sklad\/counts\/[^/]+$/, /^\/dashboard\/assistant\/orders$/];
-/** No menu at all: the QR terminal faces the customer. */
 const BARE_SCREENS = [/^\/dashboard\/sklad\/terminal$/];
 
-export function isWorkScreen(path: string): boolean {
-  return WORK_SCREENS.some((r) => r.test(path));
-}
 export function isBareScreen(path: string): boolean {
   return BARE_SCREENS.some((r) => r.test(path));
 }

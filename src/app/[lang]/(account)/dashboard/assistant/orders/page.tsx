@@ -8,10 +8,9 @@ import { foodTab, type FoodOrder, type FoodOrders } from "@/lib/foodOwner";
 import { money } from "@/lib/foodRules";
 import { DbError } from "@/components/DbError";
 import { FoodOrdersLive } from "@/components/FoodOrdersLive";
-import { itemTabs, PageHead } from "@/components/owner/PageHead";
 import { chooseShop } from "../../contacts/parts";
-import { hiddenFields, ProOnly, ShopSwitcher } from "../../shared";
-import { FoodNotice, OrderCard, StateStrip } from "./parts";
+import { hiddenFields, ProOnly } from "../../shared";
+import { FoodHead, FoodNotice, OrderCard, StateStrip } from "./parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders">): Promise<Metadata> {
   const { lang } = await params;
@@ -76,21 +75,18 @@ export default async function OrdersPage({ params, searchParams }: PageProps<"/[
   const totals = done?.totals ?? open.totals;
 
   return (
-    <div className="flex max-w-6xl flex-col gap-5">
-      <PageHead
-        title={dict.nav.food}
-        item="food"
-        tabs={itemTabs(dict, lang, "food", shop.slug, { orders: tab?.new ?? 0 }).map((x) =>
-          x.key === "orders" && (tab?.new ?? 0) > 0 ? { ...x, badgeLabel: t(f.tab_badge, { n: tab!.new }) } : x,
-        )}
+    <div className="flex w-full flex-col gap-5">
+      <FoodHead
+        dict={dict}
+        lang={lang}
+        shops={chosen.shops}
+        shop={shop}
         current="orders"
-        compact
-        tabsLabel={dict.nav.tabs_label}
-      >
-        <ShopSwitcher shops={chosen.shops} current={shop} label={dict.dashboard.shop} href={(slug) => `/${lang}/dashboard/assistant/orders?shop=${slug}`} />
-        {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
-        {!hasPlan && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
-      </PageHead>
+        newOrders={tab?.new ?? 0}
+        switchHref={(slug) => `/${lang}/dashboard/assistant/orders?shop=${slug}`}
+      />
+      <div className="flex max-w-6xl flex-col gap-5">
+      {!hasPlan && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
 
       <section className="flex flex-col gap-4" data-tab-panel="orders">
         <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />
@@ -170,6 +166,7 @@ export default async function OrdersPage({ params, searchParams }: PageProps<"/[
 
         {enabled && <p className="text-sm text-muted">{f.footer_hint}</p>}
       </section>
+      </div>
     </div>
   );
 }
