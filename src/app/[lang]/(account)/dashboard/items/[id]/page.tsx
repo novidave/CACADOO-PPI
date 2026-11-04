@@ -14,6 +14,8 @@ import { languageList, tableLabels } from "../../translationShared";
 import { errorText, hiddenFields, messages, SubmitButton } from "../../shared";
 import { PageTitle } from "@/components/owner/PageHead";
 import { buttonClass, textareaClass } from "@/components/owner/ui";
+import { ProductPhotoField } from "@/components/owner/ProductPhotoField";
+import { ownerProductPhoto, productPhotoLabels } from "@/lib/ownerPhotos";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/items/[id]">): Promise<Metadata> {
   const { lang } = await params;
@@ -71,9 +73,11 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/[la
   const shop = item ? shops.find((s) => s.id === item.shop_id) : undefined;
   if (!item || !shop) redirect(`/${lang}/dashboard`);
 
-  const [{ data: descRow }, { data: settingsData }] = await Promise.all([
+  const [{ data: descRow }, { data: settingsData }, photo] = await Promise.all([
     supabase.from("item_descriptions").select("draft, draft_at, text, published_at, show").eq("item_id", id).maybeSingle(),
     supabase.rpc("owner_language_settings", { p_shop_id: shop.id }),
+    // the product's one photo (database update 78), shown only on its product page
+    ownerProductPhoto(supabase, id),
   ]);
   const desc = (descRow as Description | null) ?? { draft: null, draft_at: null, text: null, published_at: null, show: "auto" as const };
   const main = ((Array.isArray(settingsData) ? settingsData[0] : settingsData) as { main_lang?: string } | undefined)?.main_lang ?? lang;
@@ -117,6 +121,12 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/[la
 
       {tab === "description" ? (
         <section className="flex flex-col gap-5" data-description-tab>
+          <ProductPhotoField lang={lang} itemId={id} photo={photo} labels={productPhotoLabels(dict)} />
+          <p className="-mt-2 text-sm">
+            <Link href={`/${lang}/dashboard/items/photos?${new URLSearchParams({ shop: shop.slug })}`} className="underline underline-offset-4" data-photo-bulk-link>
+              {dict.product_photos.bulk_link}
+            </Link>
+          </p>
           <div className="flex flex-col gap-1">
             <h2 className="font-semibold">{o.shop_description}</h2>
             {item.description?.trim() ? (

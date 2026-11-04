@@ -14467,4 +14467,185 @@ end $$;
 reset role;
 drop table t77;
 
+\echo '--- update 78: product photos — one per product, only the product page reads it (no photo in any list, search, the API''s reads or llms.txt), owners only, a new one replaces the old, bulk rows decided in SQL (empty = nothing, code then EAN, https only), a product made again by code gets its photo back'
+create temporary table t78 (k text primary key, v text);
+grant all on t78 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_item uuid := (select si.id from public.shop_items si where si.shop_id = v_a and si.source_code = 'P003');
+  v_item2 uuid := (select si.id from public.shop_items si where si.shop_id = v_a and si.source_code = 'P001');
+  v_r jsonb;
+begin
+  insert into t78 values ('item', v_item::text), ('item2', v_item2::text), ('shop', v_a::text);
+  -- the first photo, then a new one: the old files come back to be deleted
+  v_r := public.product_photo_set(v_item, v_a || '/' || v_item || '/zzphoto78a-1600.webp', v_a || '/' || v_item || '/zzphoto78a-800.webp', 1600, 1200, 'owner');
+  assert v_r -> 'old' = '[]'::jsonb and v_r ->> 'slug' = 'potraviny-centrum', v_r::text;
+  v_r := public.product_photo_set(v_item, v_a || '/' || v_item || '/zzphoto78b-1600.webp', v_a || '/' || v_item || '/zzphoto78b-800.webp', 1200, 900, 'owner');
+  assert jsonb_array_length(v_r -> 'old') = 2 and (v_r -> 'old')::text like '%zzphoto78a-1600%', v_r::text;
+  assert (select count(*) from public.product_photos where item_id = v_item) = 1, 'one photo per product';
+  -- the files must be in the product's own shop folder
+  begin
+    perform public.product_photo_set(v_item, gen_random_uuid() || '/x/zzphoto78-1600.webp', gen_random_uuid() || '/x/zzphoto78-800.webp', 800, 600, 'owner');
+    raise exception 'a photo in another shop''s folder';
+  exception when invalid_parameter_value then assert sqlerrm = 'path'; end;
+end $$;
+reset role;
+
+-- visitors: only the product page's read gives the photo; the table itself is closed
+set role anon;
+do $$
+declare
+  v_item uuid := (select v::uuid from t78 where k = 'item');
+  vj jsonb := public.item_photo('potraviny-centrum', (select v::uuid from t78 where k = 'item'));
+  v_text text;
+begin
+  assert vj ->> 'large' like '%zzphoto78b-1600.webp' and (vj ->> 'width')::int = 1200 and (vj ->> 'v') is not null, coalesce(vj::text, 'null');
+  assert public.item_photo('drogeria-kostolne', v_item) is null, 'another shop''s address';
+  assert public.item_photo('potraviny-centrum', (select v::uuid from t78 where k = 'item2')) is null, 'a product without a photo';
+  begin perform 1 from public.product_photos; raise exception 'visitors read product_photos';
+  exception when insufficient_privilege then null; end;
+  -- every public list, search and the API's reads stay without a photo (the photo's file name is nowhere)
+  v_text := concat_ws(' ',
+    (select jsonb_agg(to_jsonb(p))::text from public.public_stock p where p.shop_slug = 'potraviny-centrum'),
+    (select jsonb_agg(to_jsonb(r))::text from public.shop_stock('potraviny-centrum', null, 50, 0) r),
+    (select jsonb_agg(to_jsonb(r))::text from public.shop_item_search('potraviny-centrum', 'mlieko', 20, 0) r),
+    (select jsonb_agg(to_jsonb(r))::text from public.item_search('mlieko', null, null, 500, false, 50) r),
+    (select jsonb_agg(to_jsonb(r))::text from public.search_stock('mlieko', null, null, 500, false) r),
+    (select jsonb_agg(to_jsonb(r))::text from public.search_stock(null, 48.75, 21.92, 500, false) r),
+    (select jsonb_agg(to_jsonb(s))::text from public.public_shops s),
+    public.shop_llms_facts('potraviny-centrum')::text);
+  assert v_text like '%Mlieko%', 'the reads above found the product';
+  assert v_text not like '%zzphoto78%' and v_text not like '%product-photos%' and v_text not like '%photo%', 'a photo in a public read';
+end $$;
+reset role;
+
+-- owners: the function's check, their own rows; another owner sees nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_item uuid := (select v::uuid from t78 where k = 'item');
+  v_a uuid := (select v::uuid from t78 where k = 'shop');
+  vj jsonb := public.owner_product_photo_item((select v::uuid from t78 where k = 'item'));
+  v_job uuid;
+begin
+  assert (vj ->> 'shop_id')::uuid = v_a and vj ->> 'slug' = 'potraviny-centrum' and vj ->> 'source_code' = 'P003', vj::text;
+  assert (select count(*) from public.product_photos where item_id = v_item) = 1, 'the owner reads the photo';
+  -- a bulk file: code, then EAN; empty = nothing; http = refused; unknown = not found
+  v_job := public.owner_product_photo_job(v_a, 'fotky.csv', 'csv', jsonb_build_array(
+    jsonb_build_object('code', 'P003', 'url', 'https://example.com/foto/mlieko.jpg'),
+    jsonb_build_object('code', 'ZZ-NONE', 'url', 'https://example.com/foto/nic.jpg'),
+    jsonb_build_object('code', 'P003', 'url', ''),
+    jsonb_build_object('code', 'P003', 'url', 'http://example.com/foto/mlieko.jpg'),
+    jsonb_build_object('ean', '8000070012345', 'url', 'https://example.com/foto/kava.jpg'),
+    jsonb_build_object('code', '', 'ean', '', 'url', 'https://example.com/foto/x.jpg')));
+  insert into t78 values ('job', v_job::text);
+  assert (select string_agg(status, ',' order by n) from public.product_photo_job_rows where job_id = v_job)
+         = 'pending,not_found,empty,bad_url,pending,not_found',
+         (select string_agg(status, ',' order by n) from public.product_photo_job_rows where job_id = v_job);
+  assert (select item_id from public.product_photo_job_rows where job_id = v_job and n = 5) = (select v::uuid from t78 where k = 'item2'), 'EAN';
+  begin perform public.owner_product_photo_job(v_a, 'b.csv', 'csv', '[{"code":"P003","url":"https://example.com/b.jpg"}]'); raise exception 'two files at once';
+  exception when lock_not_available then assert sqlerrm = 'job_running'; end;
+  begin perform public.owner_product_photo_job(v_a, 'b.csv', 'csv', '[]'); raise exception 'an empty file';
+  exception when invalid_parameter_value then assert sqlerrm = 'rows'; end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_product_photo_item((select v::uuid from t78 where k = 'item')); raise exception 'another owner''s product';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_product_photo_job((select v::uuid from t78 where k = 'shop'), 'x.csv', 'csv', '[{"code":"P003","url":"https://example.com/x.jpg"}]');
+    raise exception 'another owner''s shop';
+  exception when insufficient_privilege then null; end;
+  assert (select count(*) from public.product_photos where item_id = (select v::uuid from t78 where k = 'item')) = 0, 'another owner reads the photo';
+  assert (select count(*) from public.product_photo_jobs where id = (select v::uuid from t78 where k = 'job')) = 0, 'another owner reads the report';
+end $$;
+reset role;
+
+-- the function's steps: claim → 1600 px part → claim again → done (replaces, old files back) → the next row fails → done
+set role service_role;
+do $$
+declare
+  v_job uuid := (select v::uuid from t78 where k = 'job');
+  v_a uuid := (select v::uuid from t78 where k = 'shop');
+  v_item uuid := (select v::uuid from t78 where k = 'item');
+  v_c jsonb;
+  v_r jsonb;
+begin
+  assert public.product_photo_due();
+  -- the 5-minute job starts a chain only when the file stopped moving (rows just written: not stalled)
+  assert not public.product_photo_due('2 minutes'), 'a moving file is not restarted';
+  update public.product_photo_job_rows set updated_at = now() - interval '10 minutes' where job_id = v_job;
+  assert public.product_photo_due('2 minutes'), 'a stalled file is restarted';
+  v_c := public.product_photo_claim();
+  assert (v_c ->> 'n')::int = 1 and v_c ->> 'url' = 'https://example.com/foto/mlieko.jpg' and v_c ->> 'part_path' is null, v_c::text;
+  perform public.product_photo_part(v_job, 1, v_a || '/' || v_item || '/zzphoto78c-1600.webp', 1600, 1000);
+  v_c := public.product_photo_claim();
+  assert (v_c ->> 'n')::int = 1 and v_c ->> 'part_path' like '%zzphoto78c-1600.webp', v_c::text;
+  v_r := public.product_photo_row_done(v_job, 1, 'done', null, v_a || '/' || v_item || '/zzphoto78c-1600.webp', v_a || '/' || v_item || '/zzphoto78c-800.webp', 1600, 1000);
+  assert jsonb_array_length(v_r -> 'old') = 2 and not (v_r ->> 'finished')::boolean, v_r::text;
+  assert (select source = 'bulk' and source_url = 'https://example.com/foto/mlieko.jpg' and path_small like '%zzphoto78c-800.webp'
+          from public.product_photos where item_id = v_item), 'the bulk photo replaced the owner''s';
+  v_c := public.product_photo_claim();
+  assert (v_c ->> 'n')::int = 5, v_c::text;
+  v_r := public.product_photo_row_done(v_job, 5, 'bad_image', 'not a picture');
+  assert (v_r ->> 'finished')::boolean, v_r::text;
+  assert public.product_photo_claim() is null and not public.product_photo_due();
+  assert (select status = 'done' and finished_at is not null from public.product_photo_jobs where id = v_job);
+  assert (select status from public.product_photo_job_rows where job_id = v_job and n = 1) = 'done';
+  -- a row whose step never answered goes back (and fails after 3 tries)
+  update public.product_photo_jobs set status = 'running', finished_at = null where id = v_job;
+  update public.product_photo_job_rows set status = 'working', tries = 3, updated_at = now() - interval '10 minutes' where job_id = v_job and n = 5;
+  assert public.product_photo_claim() is null;
+  assert (select status = 'failed' and detail = 'timeout' from public.product_photo_job_rows where job_id = v_job and n = 5);
+  assert (select status from public.product_photo_jobs where id = v_job) = 'done';
+  -- the tidying runs (nothing of the bucket in this database)
+  perform public.product_photo_tidy(10);
+end $$;
+reset role;
+
+-- the same address again = unchanged (not downloaded again)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_job uuid := public.owner_product_photo_job((select v::uuid from t78 where k = 'shop'), 'znova.xml', 'xml',
+                  '[{"code":"P003","url":"https://example.com/foto/mlieko.jpg"}]');
+begin
+  assert (select status from public.product_photo_job_rows where job_id = v_job) = 'unchanged';
+  assert (select status from public.product_photo_jobs where id = v_job) = 'done', 'nothing to download: done at once';
+end $$;
+reset role;
+
+-- a product made again with the same code gets its photo back; "Odstrániť fotku"
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t78 where k = 'shop');
+  v_old uuid;
+  v_new uuid;
+  v_r jsonb;
+begin
+  insert into public.shop_items (shop_id, source_code, name) values (v_a, 'ZZ-78', 'Produkt 78') returning id into v_old;
+  perform public.product_photo_set(v_old, v_a || '/' || v_old || '/zzphoto78d-1600.webp', v_a || '/' || v_old || '/zzphoto78d-800.webp', 800, 800, 'owner');
+  delete from public.shop_items where id = v_old;
+  insert into public.shop_items (shop_id, source_code, name) values (v_a, 'ZZ-78', 'Produkt 78') returning id into v_new;
+  assert (select item_id from public.product_photos where path_large like '%zzphoto78d-1600.webp') = v_new, 'the photo came back by code';
+  v_r := public.product_photo_remove(v_new);
+  assert jsonb_array_length(v_r -> 'old') = 2 and not exists (select 1 from public.product_photos where item_id = v_new), v_r::text;
+  assert public.product_photo_remove(v_new) -> 'old' = '[]'::jsonb, 'removing twice';
+  delete from public.shop_items where id = v_new;
+  -- tidy up
+  delete from public.product_photos where shop_id = v_a;
+  delete from public.product_photo_jobs where shop_id = v_a;
+end $$;
+reset role;
+drop table t78;
+
 \echo 'ALL DATABASE CHECKS PASSED'

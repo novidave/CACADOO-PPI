@@ -96,10 +96,9 @@ Plain white background, black text, thin light-grey lines (`border-line`, `text-
 on the website (at the owner's request, 2026-10-20): `src/app/fonts.ts` (`next/font/google`, latin + latin-ext,
 self-hosted at build — no browser request to Google), its variable on `<html>` in both root layouts, used by `body`,
 `--font-sans` and MapLibre's map/tooltips in `globals.css` (with its own width-matched fallback faces Arial / Liberation
-Sans / Roboto, `adjustFontFallback: false`: no line re-wraps when Quicksand arrives); code-like values (DNS records, keys) keep `font-mono`. **Blog pages (2026-10-27, at the owner's request):** the
-article text is **Lora Regular** 17–19 px (`lora` in `fonts.ts`, only on the blog list/post, `.ppi-blog-body`), headings
-Quicksand Bold 36–48 (`.ppi-blog-h1`) / Semibold 24–30 (`.ppi-blog-h2`), navigation and buttons Quicksand Medium
-14–16 (`.ppi-blog-nav`), captions Medium 13–14 (`.ppi-blog-caption`) — globals.css, sizes grow with the screen. The
+Sans / Roboto, `adjustFontFallback: false`: no line re-wraps when Quicksand arrives); code-like values (DNS records, keys) keep `font-mono`. **Blog pages:** since the unified design
+(2026-11-04, below) Quicksand everywhere — the article text too (`.ppi-blog-body` 16 px, line height 1.65; **no Lora
+any more**, it was removed from `fonts.ts`). The
 conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
 **No colours** (only exceptions, at the owner's request: the Cacaduu PPI logo in the header, `public/brand/cacaduu-ppi.svg`
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
@@ -250,10 +249,12 @@ orange "Poslať" (plane, "Odoslané"), "Napíšte otázku alebo pridajte fotku",
 assistant"; the server's first view draws the owner's {zoznam} as an empty bubble — never a number). **Key row**: `@/components/KeyRow` (row) +
 `@/components/KeyForm` (150 px "Otvoriť", `KeyVortex`: rings while checking, head + crest + badge on success; part of
 the assistant's code). **Styles**: every shop-page style (contact buttons, Produkty / Zoznam, the Screen 11 parts) lives in
-`@/components/shopPage.css`, imported by `ShopView` and `ContentSlider` only — never in globals.css, so no other page
-waits for it. The slider takes only its look helpers from `@/lib/slideLook` (no imports; `@/lib/pageContent`
+`@/components/shopPage.css`, imported by `ShopView`, `ContentSlider` and (since 2026-11-04, for its hold-to-open buttons)
+the product page's `ItemView` only — never in globals.css, so no other page waits for it. The slider takes only its look helpers from `@/lib/slideLook` (no imports; `@/lib/pageContent`
 re-exports them), so the slot rules and excerpts never join the shop page's first JavaScript. Shop page first-load JS 148.9 kB (budget 150). e2e: `public.spec.ts` (slider, pills, Čítať,
-key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
+key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`. **"Opýtať sa asistenta"** (product page, blog post,
+2026-11-04): a link to the shop page `?ask=<question>#assistant` — the assistant's box has `id="assistant"` and its
+field starts with the question (≤ 300 characters; `ShopAssistant question`), nothing is sent until the shopper does.
 
 ## Commands
 
@@ -282,6 +283,10 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
   70/67), tags from one field, refusals as texts; and of the variable tags and "Opraviť gramatiku"
   (`src/lib/messageTags_test.ts`: insert at the cursor / over a selection / at a drop point, unknown variables, a
   correction keeps every variable and line break (mocked AI), the changed words, SMS parts before / after, Bez diakritiky)
+- `npm run test:photos` — unit tests (Deno) of product photos (`src/lib/productPhotos_test.ts`): the bulk CSV / XML
+  readers (the sample files, Heureka, Google Merchant, Shoptet, attributes), the image_url rule, the report CSV, the
+  assistant's photo only through show_product_photo, and that no list, search, feed, the API or the MCP code reads a
+  product photo
 - `npm run test:list` — unit tests (Deno) of the shop page's Zoznam (`src/lib/shoppingList_test.ts`): add / set / remove,
   "9+", totals in cents per currency, Slovak plurals, the copied text, broken stored lists, blocked storage
 - `npm run test:search` — unit tests (Deno) of the forgiving search's word rules (`src/lib/searchWords_test.ts`): the
@@ -469,7 +474,11 @@ Shop page only, only when `shop_has_plan(shop)` is true and `ANTHROPIC_API_KEY` 
 `AI_MODEL`, default Haiku `claude-haiku-5-5`; strict tools bound to that shop on the server: `search_items` →
 `shop_item_search` (update 54; each row's match exact/close/similar), `get_item` → `public_stock` filtered by the shop, and `search_shop_docs` when the shop has documents;
 never other shops; structured answer: answer, item_refs, shopping_list, photo read/match, sources, pictures,
-document_prices, call_shop). Cards, the list, sources and pictures only from tool results; a document price only if
+document_prices, call_shop). **Product photos (update 78):** never shown on the assistant's own — search_items /
+get_item carry no picture; only when the shopper asks to see one (any language) the AI calls `show_product_photo`
+(ref) → `item_photo` → the page shows the 800 px photo with a link to the product page, or "nemá fotku" with the link
+(`@/lib/chatPhoto`: `PHOTO_TOOL`, `PHOTO_RULE`, `shownPhotos`; the photo's address never reaches the AI;
+`reply.productPhotos`, each item once, ≤ 3). Cards, the list, sources and pictures only from tool results; a document price only if
 the excerpt contains it; availability from the database. Every message passes
 `shop_chat_hit()` (plan, 20/hour per caller in `api_usage`, `CHAT_MONTHLY_LIMIT_PER_SHOP` per shop and month in
 `shop_chat_usage`). Files (≤ 4 per message): the AI gets photos shrunk in the browser (≤1568 px JPEG) and PDFs as the
@@ -1252,8 +1261,8 @@ JSON-LD `BlogPosting` (shop = `LocalBusiness` author/publisher) + `BreadcrumbLis
 shares `indexnow_hosts`); "Novinky" link on the shop page only with ≥ 1 visible post; the Pro assistant's
 `search_shop_news`. Photos: owners' drawn in the browser (`drawBlogPhoto`: 1600 + 800 px WebP 0.82 / JPEG, never
 enlarged), Facebook's converted in the function (jsquash WASM, one size per call, only from Facebook's picture hosts);
-public bucket `blog-photos`, random names, no policies; `@/components/BlogPhoto` = next/image with its own loader (≤ 800
-→ the 800 file), never image optimisation; the viewer is `SectionZoom`. **Facebook** (only with `FACEBOOK_APP_ID` +
+public bucket `blog-photos`, random names, no policies; the pages show the stored 800 / 1600 px files straight from
+the bucket (`@/components/PostGallery`, the list's cards; since 2026-11-04), never image optimisation; the viewer is `SectionZoom`. **Facebook** (only with `FACEBOOK_APP_ID` +
 `FACEBOOK_APP_SECRET`; else `config` → false and every Facebook button, panel and dialog is hidden, no errors):
 Facebook Login for Business (`FACEBOOK_CONFIG_ID` or the scopes `pages_show_list`, `pages_read_engagement`,
 `pages_manage_posts`; nothing more), redirect `…/functions/v1/shop-blog/oauth`, one Page per shop, the Page token
@@ -1450,6 +1459,65 @@ Texty stránky: `owner_page_texts()` — one row per original with `cells` per l
 Clean-up `page_text_cleanup(false|true)` (SQL Editor only; log `page_text_cleanup_log`): orphaned page-text
 translations, the old label "Keresés Cacadoo Assistenssel", Cacadoo → Cacaduu in the assistant's texts — never a
 product's translation, never a hidden section's. Texts `items_bulk`, `owner_tr.texts*`.
+
+## Product photos (update 78, 2026-11-04, at the owner's request)
+
+`supabase/sql/78_product_photos.sql` + `supabase/functions/product-photos` (one file, Verify JWT off; `index_test.ts`) +
+`@/lib/productPhotos` (shared, no imports: addresses, the bulk readers, the report; `productPhotos_test.ts`, `npm run
+test:photos`) + `@/lib/productPhotoDraw` + `@/lib/ownerPhotos` + `@/components/owner/ProductPhotoField` /
+`PhotoBulkUpload` + `dashboard/items/photos` ("Fotky produktov") + `/api/owner/product-photos/report` +
+`public/samples/fotky-produktov.{csv,xml}`. **ONE photo per product, shown ONLY on that product's page** (its JSON-LD
+`image` and og:image too) — never in the shop page's lists, the search, "Zoznam", cacaduu.com's listings, "Dostupné aj
+v", the sitemap, RSS / feeds, partner feeds, the API or the MCP server. That is why it lives apart: `product_photos`
+(no grant to visitors; members read their own rows; only the function writes) and the one public read
+`item_photo(slug, item)` (`getItemPhoto()` in `@/lib/data`, cached per shop), used only by `ItemView` and the
+assistant's photo tool; public_stock, search_stock, item_search, shop_item_search, shop_stock and every other read are
+unchanged (DB block "update 78" checks their output has no photo; `test:photos` checks the code). Public bucket
+`product-photos` (random names, no storage policies: only the service role writes). **Manual** (the product's page in
+Môj obchod and the Sklad product card): "Nahrať / Zmeniť / Odstrániť fotku" — drawn in the owner's browser (upright,
+HEIC through heic-to, 1600 + 800 px WebP 0.82, never larger, the place and camera data gone, ≤ 15 MB picked), sent
+multipart to the function (`?action=upload`: the owner's login → `owner_product_photo_item`, WebP/JPEG by its bytes,
+≤ 1600 / 800 px, metadata stripped again) → `product_photo_set` (a new photo replaces the old one; the old files are
+deleted) → `refreshShop`. **Bulk** (CSV or XML, read in the browser: the product's code — then EAN — and image_url;
+the stock importer's XML rule = the largest list of repeated elements, attributes and elements alike; Heureka IMGURL,
+Google g:image_link, Shoptet IMAGES): `owner_product_photo_job` decides every row in SQL (empty image_url = nothing,
+never a deletion; not https = bad_url; unknown = not_found; the same address = unchanged; ≤ 5000 rows, one running
+file per shop, 10 a day) → the function downloads in the background (`work`, chained, one step per call: the 1600 px
+WebP, then the 800 px one): https only, every address of the host and every forward public (DNS checked, private /
+local / metadata addresses refused), ≤ 3 forwards, 15 MB announced and received, 20 s, an image content type, JPEG /
+PNG / WebP by its bytes (HEIC only by hand), ≤ 30 MP, EXIF orientation applied; the report per row (matched / not
+found / not a picture / too big / failed) on the page and as CSV. pg_cron `ppi-product-photos-tick` (5 min) restarts a
+file that stopped and deletes files nothing uses; a product made again by its code gets its photo back (trigger); a
+photo of a product gone 30 days is removed. Texts `product_photos`, `item.*`, `chat.product_photo_*`.
+
+## Product page and blog: the unified design (2026-11-04, at the owner's request)
+
+The shop page's orange style on the product page (`ItemView`, Cacaduu address and own domain) and the blog
+(`BlogViews`: list + post): `@/components/unified.css` (cream page #FFF8F0 via `body:has([data-unified-page])`, white
+cards, focus 2 px #2563EB, `<details>` animation, nothing moves with `prefers-reduced-motion`); tokens: main card 1.5 px
+#FBCFA9 radius 16, cards 1 px #ECE7DE radius 20, strip #FFF6EE, accent #F57C20, accent text #C2410C, chip #FFF1E6 /
+#9A3A0A, muted #5B6670, dividers #F1EDE6. **Product page** from the top: back chip (the page's first link, to the shop)
+· the photo box only when there is a photo (preloaded, `fetchPriority` high, never lazy; copy-image icon = PNG through
+ClipboardItem, a tap opens `SectionZoom`) · main card (category chip, h1 22/700 + the shop's own name, copy-name icon,
+price 30/700 + stock pill, the full stock sentence, `@/components/ItemListButton` = "Pridať do nákupného zoznamu" →
+"V zozname · Spolu …" with − / count / + — the SAME `listStore(shopId)` as the shop page's Zoznam, both ways, every tab
+— and "Opýtať sa asistenta na produkt" only when the assistant is on) · Popis (the whole text) · Podrobnosti (a native
+`<details>`, closed, Značka / Kategória / EAN; hidden without rows) · Kde kúpiť (strip with the logo, address, status
+pill, Navigovať + the phone number as `ContactButtons` hold links, Android `geo:`, the map) · "Dostupné aj v" (the same
+rule as before) · footer. **Blog list:** back chip, "Novinky" 32/700 + subtitle, the first post of page 1 as the hero
+card, **text first** (the owner's choice, 2026-11-04: date chip, title 22/700, a 112 px photo square beside it, three
+lines of text 16 px, "Čítať →"; the text must stay the page's largest element — a 330 px photo hero finished at ~3.0 s
+on slow 4G and broke the 2.0 s LCP budget; never preload the hero photo), the others as cards (96 px
+thumbnail with ▶ for videos, date chip, title, 2 lines), "Novšie / Staršie" pills + "Strana X z Y" (?page= kept); no
+visible RSS link (the RSS route and `<link rel="alternate">` stay); the breadcrumb only in the JSON-LD. **Blog post:**
+back chip "Novinky", meta line "{date} · n MIN ČÍTANIA · upravené {date}" (`readingMinutes`), h1 28/700 + copy-link
+icon (the canonical address), `@/components/PostGallery` (big picture 260 px with "1 / 3", thumbnails with an orange
+border; every photo stays a zoom link; YouTube / Facebook videos as before), `BlogText` in Quicksand 16 / 1.65 (first
+paragraph semibold), link cards, "Pôvodný príspevok na Facebooku", "Opýtať sa asistenta", "Ďalšie novinky" (the next
+older post, else the newest other), "Všetky novinky" / "Späť na obchod". URLs, canonical, hreflang and the JSON-LD
+unchanged. `@/components/IconCopy` = the icon-only copy button (the old `CopyButton` stays for the owner's DNS
+screens). e2e `public.spec.ts` "product page" (back chip first, Podrobnosti closed → open, the list on the shop page's
+Zoznam, no product-photos address on the shop page).
 
 ## Speed (performance pass, update 42)
 

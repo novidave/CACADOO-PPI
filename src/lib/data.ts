@@ -7,6 +7,8 @@ import { expandQuery, hasCjk } from "./queryExpansion";
 import { searchStem } from "./searchWords";
 import { loadCalendars } from "./shopCalendar";
 import { createCachedPublicClient } from "./supabase/public";
+import { supabaseEnv } from "./supabase/env";
+import { productPhotoUrl } from "./productPhotos";
 import type { OpeningHours } from "./hours";
 import type { NameI18n } from "./names";
 import type { AvailabilityKey, FreshnessState, StockRow } from "./stock";
@@ -294,6 +296,32 @@ export const getItem = cache(async (id: string): Promise<StockRow | null> => {
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data ? ({ ...data, distance_km: null } as StockRow) : null;
+});
+
+/** A product's one photo (database update 78): the stored pictures' public addresses and size, or null. */
+export interface ItemPhoto {
+  /** 1600 px wide at most. */
+  large: string;
+  /** 800 px wide at most (the same file when the photo is small). */
+  small: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * The product page's photo — the ONLY public read of a product photo (item_photo): never used by the shop page's
+ * lists, the search, "Dostupné aj v", feeds, the sitemap, the API or the MCP server. Cached per shop (refreshShop).
+ */
+export const getItemPhoto = cache(async (slug: string, id: string): Promise<ItemPhoto | null> => {
+  if (!UUID.test(id)) return null;
+  const env = supabaseEnv();
+  if (!env) return null;
+  const { data, error } = await (await client()).rpc("item_photo", { p_slug: slug, p_item_id: id });
+  // before update 78 the function does not exist: no photo
+  if (error || !data || typeof data !== "object") return null;
+  const p = data as { large?: string; small?: string; width?: number; height?: number };
+  if (!p.large || !p.small || !p.width || !p.height) return null;
+  return { large: productPhotoUrl(env.url, p.large), small: productPhotoUrl(env.url, p.small), width: p.width, height: p.height };
 });
 
 /** The same product (EAN) in other shops, nearest to `near` first (any distance if unknown). */

@@ -292,6 +292,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
       {/* 4. and 5. The assistant (paid plan): always open; "Mám prístupový kľúč" as a closed dropdown under it. */}
       {assistant && (
         <ShopAssistant
+          // "Opýtať sa asistenta" from a product page or a post: the question written for the shopper (≤ 300)
+          question={(first(sp.ask) ?? "").slice(0, 300)}
           slug={shop.slug}
           shopId={shop.id}
           lang={lang}

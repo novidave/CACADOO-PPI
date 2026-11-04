@@ -11,6 +11,8 @@ import { PendingButton } from "@/components/PendingButton";
 import { moveStock } from "../../actions";
 import { btnGhost, card, first, loadSklad, Notice, SkladShell, UUID } from "../../parts";
 import { ProductForm } from "../../ProductForm";
+import { ProductPhotoField } from "@/components/owner/ProductPhotoField";
+import { ownerProductPhoto, productPhotoLabels } from "@/lib/ownerPhotos";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/sklad/products/[id]">): Promise<Metadata> {
   const { lang } = await params;
@@ -58,9 +60,11 @@ export default async function SkladProduct({ params, searchParams }: PageProps<"
   const ctx = await loadSklad(lang, sp);
   if (!ctx.ok) return <DbError message={ctx.error} dict={ctx.dict} />;
   const { dict, s, session, shop, shops, hidden, href } = ctx;
-  const [res, src] = await Promise.all([
+  const [res, src, photo] = await Promise.all([
     session.supabase.rpc("owner_sklad_product", { p_shop_id: shop.id, p_item_id: id }),
     session.supabase.rpc("owner_stock_source", { p_shop_id: shop.id }),
+    // the product's one photo (database update 78), shown only on its product page
+    ownerProductPhoto(session.supabase, id),
   ]);
   if (res.error) return <DbError message={res.error.message} dict={dict} />;
   const p = res.data as Card | null;
@@ -299,6 +303,9 @@ export default async function SkladProduct({ params, searchParams }: PageProps<"
               </div>
               <span className="text-[13px] text-muted">{s.page_hint}</span>
             </section>
+
+            {/* The product's one photo (database update 78): only on its product page. */}
+            <ProductPhotoField lang={L} itemId={p.id} photo={photo} labels={productPhotoLabels(dict)} />
 
             <section className={`${card} gap-0`} aria-labelledby="sk-mv">
               <h3 id="sk-mv" className="mb-1 text-[17px] font-bold">{s.tab_movements}</h3>

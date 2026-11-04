@@ -290,6 +290,12 @@ export function ItemsSection({
                   <span className="mt-1 block">{d.items_more_text}</span>
                 </details>
               </div>
+              {/* Product photos for many products at once (database update 78): one photo per product, product page only. */}
+              <p className="text-sm">
+                <Link href={`/${lang}/dashboard/items/photos?${new URLSearchParams({ shop: shop.slug })}`} className="font-semibold underline underline-offset-4" data-photo-bulk-link>
+                  {dict.product_photos.bulk_link}
+                </Link>
+              </p>
               <p className="text-sm" data-file-status={file.kind === "file" ? file.state : file.kind}>
                 {file.kind === "none" ? (
                   d.file_status_none

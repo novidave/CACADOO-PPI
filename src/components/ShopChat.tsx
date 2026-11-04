@@ -848,7 +848,7 @@ export function ShopChat({
           onClose={() => setForgetOpen(false)}
         />
       )}
-    <section className="ppi-ai" aria-labelledby="assistant-heading" data-assistant>
+    <section id="assistant" className="ppi-ai scroll-mt-4" aria-labelledby="assistant-heading" data-assistant>
       <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
         <div className="flex flex-col px-[13px] py-[14px]">
           <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
@@ -1171,6 +1171,24 @@ function Answer({
           ))}
         </ul>
       )}
+      {/* Update 78: a product photo only when the shopper asked to see one (the 800 px picture, the product page). */}
+      {(reply.productPhotos ?? []).map((p) => (
+        <figure key={p.href} className="flex flex-col gap-1.5" data-chat-product-photo={p.src ? "photo" : "none"}>
+          {p.src ? (
+            <a href={p.href} className="block self-start overflow-hidden rounded-xl border border-[#ECE7DE] bg-white">
+              {/* eslint-disable-next-line @next/next/no-img-element -- the shop's own photo, already 800 px (no optimisation) */}
+              <img src={p.src} alt={labels.product_photo_alt.replace("{name}", p.name)} width={p.width ?? undefined} height={p.height ?? undefined} loading="lazy" decoding="async" className="h-auto max-h-80 w-auto max-w-full object-contain" />
+            </a>
+          ) : (
+            <p className="text-sm">{labels.product_photo_none.replace("{name}", p.name)}</p>
+          )}
+          <figcaption className="text-sm">
+            <a href={p.href} className="font-medium underline underline-offset-4">
+              {labels.product_photo_open.replace("{name}", p.name)}
+            </a>
+          </figcaption>
+        </figure>
+      ))}
       {(reply.pictures ?? []).length > 0 && (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label={labels.pictures}>
           {reply.pictures.map((picture) => (

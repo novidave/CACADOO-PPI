@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Cacaduu – fotky produktov (vzor) · Termékfotók (minta) · Product photos (sample)
+
+  One <product> per product. Each needs the product's key and the address of its picture:
+    code       the shop's product code (as in the stock file); used first
+    ean        the EAN, used when there is no code
+    image_url  https address of the picture (JPG, PNG or WebP, at most 15 MB)
+  The values may also be attributes: <product code="A-1002" image_url="https://..."/>.
+  An empty image_url changes nothing (it never deletes a photo).
+
+  The stock feeds Cacaduu already reads work as they are, for example:
+    Heureka:          <SHOPITEM> with <ITEM_ID>, <EAN>, <IMGURL>
+    Google Merchant:  <item> with <g:id>, <g:gtin>, <g:image_link>
+    Shoptet:          <SHOPITEM> with <CODE>, <EAN>, <IMAGES><IMAGE>…</IMAGE></IMAGES>
+-->
+<products>
+  <product>
+    <code>A-1001</code>
+    <ean>8584004040123</ean>
+    <image_url>https://www.vas-obchod.sk/obrazky/a-1001.jpg</image_url>
+  </product>
+  <product code="A-1002" image_url="https://www.vas-obchod.sk/obrazky/a-1002.png"/>
+  <product>
+    <ean>8584004040130</ean>
+    <image_url>https://www.vas-obchod.sk/obrazky/kriedy-24.webp</image_url>
+  </product>
+</products>
