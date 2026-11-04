@@ -3,6 +3,8 @@ import { saveOwnerAi } from "./actions";
 
 export interface OwnerAiInfo {
   grammar_daily_limit: number;
+  /** Update 77: the blog editor's AI per shop and day (missing before it). */
+  blog_daily_limit?: number;
   today: Record<string, { calls: number; input: number; output: number }>;
   month: Record<string, { calls: number; input: number; output: number }>;
 }
@@ -35,12 +37,28 @@ export function OwnerAiAdmin({ info, aiKey, dict, hidden }: { info: OwnerAiInfo 
         <>
           <p className="text-sm">{line(a.today, info.today)}</p>
           <p className="text-sm">{line(a.month, info.month)}</p>
+          {info.blog_daily_limit !== undefined && (
+            <p className="text-sm">
+              {t(a.blog_today, {
+                n: info.today.blog?.calls ?? 0,
+                t: (info.today.blog?.input ?? 0) + (info.today.blog?.output ?? 0),
+                m: info.month.blog?.calls ?? 0,
+                mt: (info.month.blog?.input ?? 0) + (info.month.blog?.output ?? 0),
+              })}
+            </p>
+          )}
           <form action={saveOwnerAi} className="flex flex-wrap items-end gap-3 text-sm" data-owner-ai-settings>
             {hidden}
             <label className="flex flex-col gap-1">
               <span>{a.grammar_limit}</span>
               <input name="grammar_daily_limit" type="number" min={0} max={1000} required defaultValue={info.grammar_daily_limit} className={`${input} w-28`} />
             </label>
+            {info.blog_daily_limit !== undefined && (
+              <label className="flex flex-col gap-1">
+                <span>{a.blog_limit}</span>
+                <input name="blog_daily_limit" type="number" min={0} max={1000} required defaultValue={info.blog_daily_limit} className={`${input} w-28`} />
+              </label>
+            )}
             <button type="submit" className="rounded border border-foreground px-3 py-2 font-medium">
               {a.save}
             </button>

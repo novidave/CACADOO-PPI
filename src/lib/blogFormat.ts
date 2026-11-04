@@ -1,3 +1,4 @@
+import { facebookBody, plainBody } from "./blogMarks";
 import { siteLang } from "./customDomain";
 
 /**
@@ -41,6 +42,8 @@ export interface BlogPost {
   fb_permalink: string | null;
   links: BlogLink[];
   photos: BlogPhoto[];
+  /** Update 77: the safe format's marks count (written in Cacaduu, or the owner's own text); missing before it. */
+  formatted?: boolean;
 }
 
 export interface BlogPage {
@@ -147,9 +150,9 @@ export function textBlocks(body: string): Inline[][] {
     .map((p) => p.split("\n").flatMap((line, i) => [...(i ? [{ type: "br" } as Inline] : []), ...inline(line)]));
 }
 
-/** The beginning of a text for lists and descriptions: whole words, "…" when cut. */
+/** The beginning of a text for lists and descriptions: whole words, "…" when cut; the safe format's marks left out. */
 export function excerpt(body: string, max = 240): string {
-  const flat = body.replace(/\s+/g, " ").trim();
+  const flat = plainBody(body).replace(/\s+/g, " ").trim();
   const chars = [...flat];
   if (chars.length <= max) return flat;
   const cut = chars.slice(0, max - 1).join("");
@@ -157,9 +160,12 @@ export function excerpt(body: string, max = 240): string {
   return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:–-]+$/u, "")}…`;
 }
 
-/** The post on Facebook (the same text as the shop-blog function sends): its text, then "Čítať na webe: <address>". */
+/**
+ * The post on Facebook (the same text as the shop-blog function sends): its text — the safe format as Facebook shows
+ * it ("• " bullets, no marks, no photo markers; update 77) — then "Čítať na webe: <address>".
+ */
 export function facebookMessage(title: string, body: string, url: string): string {
-  const text = body.trim() ? body.replace(/\s+$/u, "") : title.trim();
+  const text = facebookBody(body) || title.trim();
   return `${text}\n\n${READ_ON_WEB} ${url}`;
 }
 
@@ -202,7 +208,7 @@ export function blogPostingJsonLd(o: {
         datePublished: post.publish_at,
         dateModified: post.modified_at || post.publish_at,
         ...(o.images.length ? { image: o.images } : {}),
-        ...(post.body.trim() ? { articleBody: post.body } : {}),
+        ...(post.body.trim() ? { articleBody: plainBody(post.body) } : {}),
         author: business(o.shop),
         publisher: business(o.shop),
         isPartOf: { "@type": "Blog", "@id": o.blogUrl, name: o.blogName },

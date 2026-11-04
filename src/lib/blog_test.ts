@@ -15,6 +15,8 @@ import {
   textBlocks,
   type BlogPost,
 } from "./blogFormat.ts";
+import { facebookBody, formatBlocks, placedPhotos, plainBody } from "./blogMarks.ts";
+import { cardExcerpt, readingMinutes } from "./pageContent.ts";
 import { localToUtc, utcToLocalInput } from "./format.ts";
 import { siteLlmsTxt } from "./siteFiles.ts";
 
@@ -155,4 +157,57 @@ Deno.test("llms.txt of the own domain: the newest posts and the RSS", () => {
     calendar: [], facts: null, words: { in_stock_count: "{n}", out_of_stock: "x", updated_ago: "{n}", stale: "?" },
   });
   assert(!none.includes("Latest news"), "nothing without posts");
+});
+
+// ---------------------------------------------------------------- the safe text format (update 77)
+
+const F1 = "aaaaaaaa-2222-4333-8444-555555555555";
+const F2 = "bbbbbbbb-2222-4333-8444-555555555555";
+
+Deno.test("the safe format: each mark as its block, bold inside lines, links and hashtags as before", () => {
+  const body = `Úvod s **dôležitým** slovom a www.farby.sk.\n\n## Čo máme\n- biela\n- **čierna** #akcia\n\n1. Príďte\n2. Vyberte\n\n> Najlepšie farby\n> v meste\n\n[[foto:${F1}]]\nKoniec`;
+  const blocks = formatBlocks(body, { formatted: true, photoIds: [F1, F2] });
+  eq(blocks.map((b) => b.type), ["p", "h2", "ul", "ol", "quote", "photo", "p"], "blocks");
+  const intro = blocks[0] as { parts: { type: string; text?: string; bold?: boolean; href?: string }[] };
+  eq(intro.parts.map((p) => [p.type, p.text, Boolean(p.bold)]), [["text", "Úvod s ", false], ["text", "dôležitým", true], ["text", " slovom a ", false], ["link", "www.farby.sk", false], ["text", ".", false]], "bold and a link");
+  const list = blocks[2] as { items: { type: string; text?: string; bold?: boolean }[][] };
+  eq(list.items.length, 2, "two bullets");
+  eq(list.items[1].map((p) => [p.type, p.text, Boolean(p.bold)]), [["text", "čierna", true], ["text", " ", false], ["tag", "#akcia", false]], "bold + hashtag");
+  eq((blocks[3] as { start: number }).start, 1, "numbered from 1");
+  eq((blocks[5] as { id: string }).id, F1, "the photo");
+});
+
+Deno.test("the safe format: unknown photo ids are dropped, each photo once; no HTML is ever made", () => {
+  const body = `[[foto:${F1}]]\n\n[[foto:${F1}]]\n\n[[foto:99999999-2222-4333-8444-555555555555]]\n\nText [[foto:${F2}]] v riadku\n\n<script>alert(1)</script> <b>x</b>`;
+  const blocks = formatBlocks(body, { formatted: true, photoIds: [F1, F2] });
+  eq(blocks.filter((b) => b.type === "photo").length, 1, "one photo, once");
+  const texts = JSON.stringify(blocks);
+  assert(!texts.includes(F2) && texts.includes("Text  v riadku"), "a marker inside a line is no photo");
+  assert(texts.includes("<script>alert(1)</script> <b>x</b>"), "HTML stays text (React escapes it)");
+  eq(placedPhotos(body, [F1, F2]), [F1], "the gallery leaves out only the placed photo");
+});
+
+Deno.test("the safe format: a text without marks reads as before; Facebook's own posts are never formatted", () => {
+  const plain = "Prvý odsek\nnový riadok\n\nDruhý odsek s https://x.sk";
+  eq(JSON.stringify(formatBlocks(plain, { formatted: true })), JSON.stringify(textBlocks(plain).map((parts) => ({ type: "p", parts }))), "the same paragraphs");
+  const fb = "- nie zoznam\n## nie nadpis **nie tučné**";
+  const blocks = formatBlocks(fb, { formatted: false });
+  eq(blocks.map((b) => b.type), ["p"], "one paragraph as written");
+  assert(JSON.stringify(blocks).includes("**nie tučné**") && JSON.stringify(blocks).includes("- nie zoznam"), "marks stay text");
+  eq(formatBlocks("a ** b", { formatted: true }).length, 1, "an unpaired ** stays");
+  assert(JSON.stringify(formatBlocks("a ** b", { formatted: true })).includes("a ** b"), "as written");
+});
+
+Deno.test("every other use gets the text without marks: excerpts, cards, reading time, JSON-LD, Facebook", () => {
+  const body = `## Novinky\n- **biela** farba\n> citát\n[[foto:${F1}]]\nKoniec`;
+  eq(plainBody(body), "Novinky\nbiela farba\ncitát\n\nKoniec", "plain");
+  eq(excerpt(body, 240), "Novinky biela farba citát Koniec", "the blog list / RSS");
+  eq(cardExcerpt(body), "Novinky biela farba citát Koniec", "the slider's card");
+  eq(cardExcerpt(`Text ${"slovo ".repeat(40)} [[foto:${F1.slice(0, 10)}`).includes("[["), false, "a marker cut short never shows");
+  eq(readingMinutes(`[[foto:${F1}]]\n## a`), 1, "reading time counts words only");
+  eq(facebookBody(body), "Novinky\n\u2022 biela farba\ncitát\n\nKoniec", "Facebook: bullets, no marks");
+  const ld = blogPostingJsonLd({ post: { slug: "a", title: "T", body, source: "cacaduu", publish_at: "2026-11-04T10:00:00Z", modified_at: "2026-11-04T10:00:00Z", fb_permalink: null, links: [], photos: [] } as BlogPost,
+    url: "https://x/a", blogUrl: "https://x", blogName: "B", shop: { name: "S", url: "https://x/s" }, images: [] }) as Record<string, unknown>;
+  const article = JSON.stringify(ld);
+  assert(!article.includes("**") && !article.includes("[[foto") && !article.includes("## "), "JSON-LD articleBody is plain");
 });

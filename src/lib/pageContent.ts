@@ -6,6 +6,7 @@
  */
 
 import type { PostVideo, VideoTarget } from "./video";
+import { plainBody } from "./blogMarks";
 import { DEFAULT_RATIO, type Crop, type SlideImage, type SliderRatio } from "./slideLook";
 
 // The slider's look lives in ./slideLook (the shop page's browser code needs only that); re-exported here.
@@ -199,7 +200,7 @@ export function pageImage(page: Pick<ContentPage, "width" | "height">, small: st
 
 /** The first two lines' worth of a post's text, as written (cut at a word). */
 export function cardExcerpt(text: string, max = 160): string {
-  const flat = text.replace(/\s+/g, " ").trim();
+  const flat = plainBody(text).replace(/\s+/g, " ").trim();
   if (flat.length <= max) return flat;
   const cut = flat.slice(0, max);
   const at = cut.lastIndexOf(" ");
@@ -210,7 +211,8 @@ export function cardExcerpt(text: string, max = 160): string {
 
 /** "3 min čítania": the post's words at 200 a minute, rounded up, at least 1. */
 export function readingMinutes(text: string): number {
-  const words = text.trim() ? text.trim().split(/\s+/u).length : 0;
+  const plain = plainBody(text);
+  const words = plain ? plain.split(/\s+/u).length : 0;
   return Math.max(1, Math.ceil(words / 200));
 }
 

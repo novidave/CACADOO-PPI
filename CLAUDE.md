@@ -1241,7 +1241,8 @@ Owner actions sync the whole shop's pictures (`sections_to_sync(p_section_id, p_
 `shops/[slug]/blog` (+ `[post]`, `rss.xml`) and `site/[lang]/[slug]/blog` + dashboard `dashboard/blog` ("Novinky / Blog",
 its own menu page; `[id]` = `@/components/BlogEditor` + `PublishDialog`) + admin `BlogAdmin.tsx`. Every shop; shop
 profile content, never stock. **Posts are shown exactly as written** (never edited, corrected or translated; the
-owner may only retitle an imported post, `title_by_owner`). **One visibility rule in SQL**: `blog_visible_posts()`
+owner may only retitle an imported post, `title_by_owner`, or — since update 77 — take over its text after the editor's
+AI, `body_by_owner`; the AI only ever proposes, the owner decides). **One visibility rule in SQL**: `blog_visible_posts()`
 (published, its time came, active shop, the newest `blog_limits.max_posts` — free 10, Pro null = all; admin only via
 `admin_save_blog_limits()`); visitors read only `shop_blog` / `shop_blog_post` / `shop_blog_count` / `blog_index` /
 `search_shop_blog`; owners write only through `owner_blog_*`; the function (service role) imports, stores photos and
@@ -1268,6 +1269,37 @@ results "Zverejnené na webe ✓" / "Zverejnené na Facebooku ✓" / error + "Sk
 Expired token → banner + dialog + one Brevo e-mail (`facebook_alerts_due`). **No Facebook SDK, pixel, plugin or embedded
 widget on any public page.** Privacy draft `/[lang]/sukromie` + `/[lang]/sukromie/vymazanie-udajov` (the Meta app's
 URLs; TODO lines). Texts `blog`, `owner_blog`, `admin_blog`, `privacy`.
+**The safe text format and the editor's AI (update 77, 2026-11-04, at the owner's request; the owner's OK for the sync
+rule):** `supabase/sql/77_blog_ai.sql` + `@/lib/blogMarks` (no imports; `blog_test.ts`) + `BlogText` + `@/components/BlogAiTools`
++ translate `blog_fix` / `blog_beautify`. **Format** (drawn on the server, never raw HTML; every text stays text): "## "
+subheading, "- " and "1. " lists, "> " quote, **bold** in a line, `[[foto:<id>]]` on a line of its own = one of THIS
+post's photos (unknown ids dropped, each once; placed photos leave the gallery / the inline article's photo). The marks
+count only in posts written in Cacaduu and in the owner's own text of an imported post (`shop_blog_post().formatted` =
+source cacaduu or `body_by_owner`); Facebook's own posts and a text without marks read exactly as before. Every other
+use takes `plainBody()`: excerpts (blog list, RSS), the slider's card (`cardExcerpt`), reading time, JSON-LD
+`articleBody`, the assistant's `search_shop_news`; the Facebook message `facebookBody()` ("• " bullets, no marks or
+markers; the same rule in shop-blog's `facebookMessage`). Translations of `blog_body` keep every mark and marker
+(translate `keepsText` / `sameMarks`, else dropped). The editor: format help under the text, "Do textu" per photo (inserts
+the marker at the cursor), a live preview at phone (390) and computer (768) widths. **AI (paid; hidden without
+`ANTHROPIC_API_KEY`; free shops see "Dostupné v Pro"):** the browser calls the translate function with the owner's login
+→ `owner_blog_ai_hit(post)` (members, `shop_has_plan`, `owner_ai_settings.blog_daily_limit` per shop and shop day,
+default 20, 0 = off — admin "AI pre majiteľov"; counted in `owner_ai_usage` kind blog, tokens via `owner_ai_spend`) →
+`aiCall` (the monthly AI budget `translation_budget_ok`, the spend `translation_spend`, the 80 % e-mail). "Opraviť
+gramatiku" fixes spelling, grammar and punctuation of the title and text in the post's language; returned only when
+the numbers, links, line breaks, marks and photo lines are the same (`keepsFacts`, else `structure`); before → after
+with the changed words marked. "Skrášliť článok" (styles Krátky a vecný / Priateľský (default) / Predajný) restructures
+the SAME content: an optional title suggestion, intro, subheadings, lists, sparing bold, one closing line from the text
+or the shop's details (name, address, phone, e-mail, web); the AI SEES this post's photos (800 px, the cover never
+offered) and places them where they fit; `checkBeautified` keeps only this post's photos (each once), refuses any
+number or link not in the text or the shop's details and a length change over 20 % (±80 characters for a short post);
+side by side; "Použiť" / "Skúsiť znova" / "Zahodiť", "Späť" after "Použiť"; "Pridajte fotky – umiestnim ich do textu"
+without photos. Nothing is saved, published or logged by the AI; "Použiť" fills the editor and the owner saves. **An
+imported Facebook post** (the owner's OK, 2026-11-04): the editor says so first; "Použiť" + "Uložiť" =
+`owner_blog_own_text()` → `body_by_owner` (+ `title_by_owner`): `blog_import_post()` never changes its text or title
+again (its links and photos still follow Facebook), `blog_posts_deleted_on_facebook()` still hides it. A changed text
+makes its AI translations stale (they are made again). Texts `owner_blog.ai_*` / `format_help` / `preview_*` /
+`photo_insert*`, `admin_owner_ai.blog_*`. Tests: `npm run test:blog`, `test:functions` (translate, shop-blog), DB block
+"update 77", e2e `e2e/blog-ai.spec.ts` (owner login; the AI stubbed).
 
 ## "Obsah stránky": one slider of posts, PDFs and pictures (update 38)
 

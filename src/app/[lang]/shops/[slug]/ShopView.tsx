@@ -9,7 +9,8 @@ import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
 import { getShop, getShopCalendars, getShopItems, searchShopItems, shopHasPlan, shopCompany, shopContactButtons, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
-import { blogCount, getBlogPost } from "@/lib/blog";
+import { blogCount, getBlogPost, photoSrc } from "@/lib/blog";
+import { placedPhotos } from "@/lib/blogMarks";
 import { blogPath } from "@/lib/blogFormat";
 import { docsKeysEnabled } from "@/lib/docsAccess";
 import { addressLine } from "@/lib/format";
@@ -185,13 +186,19 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     const view = slides.find((v) => v.key === `post-${post.id}`);
     if (!view || view.kind !== "post") continue;
     const body = texts.text("blog_body", post.id, post.body);
-    const photo = articlePhoto(post.photos);
+    // update 77: the photos the text places ([[foto:id]]) are drawn there; the article's own photo only when not placed
+    const placed = new Set(post.formatted ? placedPhotos(body, post.photos.filter((p) => p.kind === "photo").map((p) => p.id)) : []);
+    const photo = articlePhoto(post.photos.filter((p) => !placed.has(p.id)));
     articles[view.key] = (
       <InlineArticle
         meta={t(dict.content.blog_meta, { date: view.date, n: String(readingMinutes(body)) })}
         title={view.title}
         body={body}
         photo={photo ? postImage(photo) : null}
+        formatted={post.formatted}
+        photos={post.photos
+          .filter((p) => placed.has(p.id))
+          .map((p) => ({ id: p.id, small: photoSrc(p.small), large: photoSrc(p.large), width: p.width, height: p.height }))}
       />
     );
   }

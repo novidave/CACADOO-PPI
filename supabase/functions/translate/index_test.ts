@@ -5,13 +5,17 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
   type Ai,
   batches,
+  checkBeautified,
   cleanWords,
   type Deps,
   DESCRIBE_PROMPT,
   handle,
   itemIds,
+  keepsFacts,
+  keepsText,
   KEEP_RULES,
   LANG_NAMES,
+  numbersOf,
   readItems,
   samePlaceholders,
   translatePrompt,
@@ -67,7 +71,7 @@ function deps(over: Partial<Deps> & { answers?: Record<string, unknown>; caller?
 /** An AI that "translates" by prefixing the language. */
 const echoAi: Ai = (system, user) => {
   const to = /into ([A-Za-z ()]+)\./.exec(system)?.[1] ?? "?";
-  const list = JSON.parse(user) as { i: number; text: string }[] | { facts?: unknown; search?: string };
+  const list = JSON.parse(String(user)) as { i: number; text: string }[] | { facts?: unknown; search?: string };
   if (Array.isArray(list)) return Promise.resolve({ json: { items: list.map((r) => ({ i: r.i, text: `[${to}] ${r.text}` })) }, input: 100, output: 50 });
   if ("search" in list) return Promise.resolve({ json: { words: ["biela farba", "white paint", "WHITE PAINT", ""] }, input: 10, output: 5 });
   return Promise.resolve({ json: { text: "Biela fasádna farba Primalex." }, input: 50, output: 20 });
@@ -126,7 +130,7 @@ Deno.test("translateRows: grouped per kind and language, stored with the source'
     { shop_id: SHOP, kind: "assistant_welcome", ref: SHOP, lang: "de", source: "Dobrý deň, {name}", source_hash: "h3", source_lang: "sk" },
   ];
   const ai: Ai = (system, user) => {
-    const list = JSON.parse(user) as { i: number; text: string }[];
+    const list = JSON.parse(String(user)) as { i: number; text: string }[];
     // the welcome text comes back without its placeholder
     return Promise.resolve({ json: { items: list.map((r) => ({ i: r.i, text: r.text.includes("{name}") ? "Guten Tag" : `${/into (\w+)/.exec(system)?.[1]}: ${r.text}` })) }, input: 10, output: 10 });
   };
@@ -238,4 +242,112 @@ Deno.test("run with chosen products (update 62): only their texts, only for the 
     deps({ caller: { is_shop_member: true } }))).status, 400, "bad ids");
   eq((await handle(post({ action: "run", shop_id: SHOP, lang: "de", item_ids: [ITEM] }, { Authorization: "Bearer owner" }),
     deps({ caller: { is_shop_member: false } }))).status, 403, "another shop");
+});
+
+// ---------------------------------------------------------------- the blog editor's AI (update 77)
+
+const POST = "77777777-2222-4333-8444-555555555555";
+const P1 = "aaaaaaaa-2222-4333-8444-555555555555";
+const P2 = "bbbbbbbb-2222-4333-8444-555555555555";
+const P3 = "cccccccc-2222-4333-8444-555555555555";
+const HIT = {
+  left: 19,
+  shop_id: SHOP,
+  source: "cacaduu",
+  body_by_owner: false,
+  shop: { name: "Farby Budince", address: "Hlavná 12", city: "Budince", phone: "+421 905 123 456", email: null, website: "https://farby.sk" },
+  photos: [{ id: P1, kind: "photo", small: "a/b/c-800.webp" }, { id: P2, kind: "photo", small: "a/b/d-800.webp" }, { id: P3, kind: "photo", small: "a/b/e-800.webp" }],
+};
+const BODY = "Novinka: akrylove farby za 12,50 € od 3. 11.\n\n- biela\n- **cierna**\n\nViac na https://farby.sk/akcia";
+
+/** A caller whose owner_blog_ai_hit answers or refuses (an error message like the database's). */
+function blogCaller(answer: unknown, refuse: string | null, calls: Call[]) {
+  return {
+    rpc(fn: string, args: Record<string, unknown> = {}) {
+      calls.push({ fn, args });
+      if (fn === "owner_blog_ai_hit" && refuse) return Promise.resolve({ data: null, error: { message: refuse } });
+      return Promise.resolve({ data: fn === "owner_blog_ai_hit" ? answer : null, error: null });
+    },
+    auth: { getUser: (token: string) => Promise.resolve({ data: token === "owner" ? { user: { id: token } } : { user: null } }) },
+  } as unknown as SupabaseClient;
+}
+
+function blogDeps(ai: Ai, opts: { refuse?: string | null; calls?: Call[] } = {}): Deps {
+  const calls = opts.calls ?? [];
+  return { ...deps({ calls, ai }), asCaller: blogCaller(HIT, opts.refuse ?? null, calls), projectUrl: "https://p.supabase.co" };
+}
+
+Deno.test("a news post's translation keeps the format's marks, or it is dropped", () => {
+  const src = "## Novinky\n- jeden\n1. krok\n> citat **tucne**\n[[foto:" + P1 + "]]";
+  ok(keepsText("blog_body", src, "## News\n- one\n1. step\n> quote **bold**\n[[foto:" + P1 + "]]"), "all marks kept");
+  ok(!keepsText("blog_body", src, "## News\n- one\n1. step\n> quote bold\n[[foto:" + P1 + "]]"), "a lost bold pair");
+  ok(!keepsText("blog_body", src, "## News\n- one\n1. step\n> quote **bold**"), "a lost photo line");
+  ok(!keepsText("blog_body", src, "News\n- one\n1. step\n> quote **bold**\n[[foto:" + P1 + "]]"), "a lost subheading");
+  ok(keepsText("item_name", "- farba", "paint"), "other kinds: only {placeholders}");
+});
+
+Deno.test("Opraviť gramatiku: words only — the same numbers, links, marks and lines (mocked AI)", async () => {
+  ok(keepsFacts(BODY, BODY.replace("akrylove", "akrylové").replace("cierna", "čierna")), "accents fixed");
+  ok(!keepsFacts(BODY, BODY.replace("12,50", "12,90")), "a changed price");
+  ok(!keepsFacts(BODY, BODY.replace("https://farby.sk/akcia", "https://farby.sk")), "a changed link");
+  ok(!keepsFacts(BODY, BODY.replace("- biela\n", "")), "a lost line");
+  ok(!keepsFacts(BODY, BODY.replace("**cierna**", "cierna")), "a lost mark");
+  const calls: Call[] = [];
+  const good: Ai = (_s, user) => {
+    const { title, text } = JSON.parse(String(user));
+    return Promise.resolve({ json: { title: title.replace("Novinky", "Novinky!"), body: text.replace("akrylove", "akrylové"), language: "sk" }, input: 300, output: 200 });
+  };
+  const res = await handle(post({ action: "blog_fix", post_id: POST, title: "Novinky", body: BODY }, { Authorization: "Bearer owner" }), blogDeps(good, { calls }));
+  eq(res.status, 200, "fixed");
+  const out = await res.json();
+  eq([out.title, out.body.includes("akrylové farby za 12,50 €"), out.left], ["Novinky!", true, 19], "the corrected text, not saved");
+  ok(calls.some((c) => c.fn === "owner_blog_ai_hit" && c.args.p_post_id === POST), "the door first");
+  ok(calls.some((c) => c.fn === "translation_spend"), "the monthly AI spend");
+  ok(calls.some((c) => c.fn === "owner_ai_spend" && c.args.p_kind === "blog" && c.args.p_input === 300), "the shop's AI spend");
+  ok(!calls.some((c) => c.fn.startsWith("owner_blog_save") || c.fn === "owner_blog_own_text"), "nothing saved");
+  const sly: Ai = (_s, user) => {
+    const { title, text } = JSON.parse(String(user));
+    return Promise.resolve({ json: { title, body: text.replace("12,50", "9,90"), language: "sk" }, input: 1, output: 1 });
+  };
+  const refused = await handle(post({ action: "blog_fix", post_id: POST, title: "Novinky", body: BODY }, { Authorization: "Bearer owner" }), blogDeps(sly));
+  eq([refused.status, (await refused.json()).error], [502, "structure"], "a changed price is never returned");
+});
+
+Deno.test("Skrášliť článok: only this post's photos (not the cover), each once; no new numbers or links; ±20 %", async () => {
+  const pretty = "Akrylove farby su tu.\n\n## Co mame\n- biela\n- **cierna**\n\n[[foto:" + P2 + "]]\n\nOd 3. 11. za 12,50 €, viac na https://farby.sk/akcia";
+  eq(checkBeautified(BODY, pretty, [P2, P3], "Farby Budince"), pretty, "kept as it is");
+  const twice = pretty + "\n[[foto:" + P2 + "]]\n[[foto:" + P1 + "]]\n[[foto:99999999-2222-4333-8444-555555555555]]";
+  const cleaned = checkBeautified(BODY, twice, [P2, P3], "Farby Budince");
+  eq((cleaned ?? "").match(/\[\[foto:/g)?.length, 1, "the cover, an unknown id and a second use are dropped");
+  eq(checkBeautified(BODY, pretty.replace("12,50", "11,50"), [P2], ""), null, "a new number");
+  eq(checkBeautified(BODY, pretty + " Volajte 0905 999 888.", [P2], ""), null, "an invented phone number");
+  ok(checkBeautified(BODY, pretty + "\n\nVolajte +421 905 123 456.", [P2], HIT.shop.phone) !== null, "the shop's own phone is a fact");
+  eq(checkBeautified(BODY, pretty + " https://iny.sk", [P2], ""), null, "a new link");
+  eq(checkBeautified(BODY, pretty + " " + "slovo ".repeat(60), [P2], ""), null, "too long");
+  eq(numbersOf("1. krok\n2. krok za 5 €"), ["5"], "a numbered list's numbers are structure");
+
+  let seen: unknown[] = [];
+  const ai: Ai = (system, user) => {
+    seen = user as unknown[];
+    ok(system.includes("each at most once") && system.includes("never invent"), "the rules");
+    return Promise.resolve({ json: { title_suggestion: "Akrylové farby za 12,50 €", body: pretty, language: "sk" }, input: 2000, output: 400 });
+  };
+  const res = await handle(post({ action: "blog_beautify", post_id: POST, title: "Novinky", body: BODY, style: "sales" }, { Authorization: "Bearer owner" }), blogDeps(ai));
+  eq(res.status, 200, "beautified");
+  const out = await res.json();
+  eq([out.title_suggestion, out.body, out.photos], ["Akrylové farby za 12,50 €", pretty, 2], "the new text, two photos offered");
+  const pictures = seen.filter((b) => (b as { type: string }).type === "image") as { source: { url: string } }[];
+  eq(pictures.map((p) => p.source.url), ["https://p.supabase.co/storage/v1/object/public/blog-photos/a/b/d-800.webp", "https://p.supabase.co/storage/v1/object/public/blog-photos/a/b/e-800.webp"], "the cover is not offered");
+});
+
+Deno.test("the blog AI's door: login, plan, limit, another owner's post", async () => {
+  const ai: Ai = () => Promise.reject(new Error("never called"));
+  const call = (refuse: string | null, auth = "Bearer owner") =>
+    handle(post({ action: "blog_fix", post_id: POST, title: "T", body: BODY }, { Authorization: auth }), blogDeps(ai, { refuse }));
+  eq((await call(null, "Bearer nobody")).status, 401, "not logged in");
+  eq([(await call("no_plan")).status, (await (await call("no_plan")).json()).error], [403, "no_plan"], "free shops: Dostupné v Pro");
+  eq((await (await call("blog_ai_limit")).json()).error, "ai_limit", "today's limit");
+  eq((await (await call("blog_ai_off")).json()).error, "ai_off", "switched off by the admin");
+  eq((await call("Not your shop")).status, 403, "another owner's post");
+  eq((await handle(post({ action: "blog_fix", post_id: "x", body: "y" }, { Authorization: "Bearer owner" }), blogDeps(ai))).status, 400, "a bad id");
 });

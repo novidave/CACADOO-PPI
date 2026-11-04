@@ -14311,4 +14311,160 @@ end $$;
 reset role;
 drop table t76;
 
+\echo '--- update 77: the blog editor''s AI (members with the plan, the daily limit per shop, AI spend), the owner''s own text of a Facebook post (the sync keeps it, deleted still hides), the post page''s formatted flag'
+create temporary table t77 (k text primary key, v text);
+grant all on t77 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_r jsonb;
+  v_id uuid;
+begin
+  insert into t77 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('limit', (select blog_daily_limit::text from public.owner_ai_settings where id));
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_77')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_77');
+  update public.owner_ai_settings set blog_daily_limit = 2 where id;
+  assert (select blog_daily_limit from public.owner_ai_settings where id) = 2;
+  -- an imported Facebook post (live) and a post written in Cacaduu
+  v_r := public.blog_import_post(v_a, '123456789_7701', 'Nový tovar', E'Nový tovar - farby\n- štetce', now() - interval '1 day',
+                                 now() - interval '1 day', null, '[]', '[]');
+  assert v_r ->> 'result' = 'new', v_r::text;
+  insert into t77 values ('fb', v_r ->> 'post_id');
+  insert into public.blog_posts (shop_id, slug, title, body, source, status, publish_at)
+  values (v_a, 'clanok-77', 'Článok 77', E'## Podnadpis\n- jeden', 'cacaduu', 'published', now() - interval '1 hour')
+  returning id into v_id;
+  insert into t77 values ('own', v_id::text);
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_fb uuid := (select v::uuid from t77 where k = 'fb');
+  v_own uuid := (select v::uuid from t77 where k = 'own');
+  vj jsonb;
+begin
+  -- the AI's door: what it may use, then the daily limit per shop
+  vj := public.owner_blog_ai_hit(v_fb);
+  assert (vj ->> 'left')::int = 1 and vj ->> 'source' = 'facebook' and vj -> 'shop' ->> 'name' is not null
+         and jsonb_typeof(vj -> 'photos') = 'array', vj::text;
+  assert (public.owner_blog_ai_hit(v_own) ->> 'left')::int = 0;
+  begin perform public.owner_blog_ai_hit(v_own); raise exception 'no blog AI limit';
+  exception when program_limit_exceeded then assert sqlerrm = 'blog_ai_limit'; end;
+  perform public.owner_ai_spend(v_a, 'blog', 1200, 800);
+  -- the owner's own text of the imported post (after "Použiť"); a Cacaduu post keeps owner_blog_save
+  perform public.owner_blog_own_text(v_fb, 'Nový tovar v obchode', E'## Čo je nové\n- **farby**\n- štetce');
+  assert (select body_by_owner and title_by_owner and body = E'## Čo je nové\n- **farby**\n- štetce' from public.blog_posts where id = v_fb);
+  begin perform public.owner_blog_own_text(v_own, 'x', 'y'); raise exception 'own text on a Cacaduu post';
+  exception when invalid_parameter_value then assert sqlerrm = 'not_imported'; end;
+  begin perform public.owner_blog_own_text(v_fb, 'x', '  '); raise exception 'an empty own text';
+  exception when invalid_parameter_value then assert sqlerrm = 'body'; end;
+end $$;
+reset role;
+
+-- another owner: neither the door nor the own text
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_blog_ai_hit((select v::uuid from t77 where k = 'fb')); raise exception 'another owner''s post';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_blog_own_text((select v::uuid from t77 where k = 'fb'), 'x', 'y'); raise exception 'another owner''s post';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the sync keeps the owner's text (Facebook's edits of the text are not taken; the links still follow); deleted on
+-- Facebook still hides it; the post page says whether the marks count
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_fb uuid := (select v::uuid from t77 where k = 'fb');
+  v_slug text := (select slug from public.blog_posts where id = (select v::uuid from t77 where k = 'fb'));
+  v_r jsonb;
+begin
+  assert (select sum(input_tokens) from public.owner_ai_usage where shop_id = v_a and kind = 'blog') >= 1200, 'the AI spend';
+  assert (public.shop_blog_post('potraviny-centrum', v_slug) ->> 'formatted')::boolean, 'the owner''s text: marks count';
+  assert (public.shop_blog_post('potraviny-centrum', 'clanok-77') ->> 'formatted')::boolean, 'written in Cacaduu';
+  v_r := public.blog_import_post(v_a, '123456789_7701', 'Nový tovar', 'Facebook changed the text', now() - interval '1 day',
+                                 now(), null, '[]', '[]');
+  assert v_r ->> 'result' = 'same', v_r::text;
+  v_r := public.blog_import_post(v_a, '123456789_7701', 'Nový tovar', 'Facebook changed the text', now() - interval '1 day',
+                                 now(), null, '[{"kind":"link","url":"https://example.com/novinka","title":"Novinka"}]', '[]');
+  assert v_r ->> 'result' = 'updated', v_r::text;
+  assert (select body = E'## Čo je nové\n- **farby**\n- štetce' and title = 'Nový tovar v obchode' and jsonb_array_length(links) = 1
+          from public.blog_posts where id = v_fb), 'the owner''s text and title stay, the links follow Facebook';
+  -- an imported post without the owner's text: Facebook's text is shown as written (no marks)
+  v_r := public.blog_import_post(v_a, '123456789_7702', 'Iný', E'- nie zoznam', now() - interval '1 day', now(), null, '[]', '[]');
+  assert not (public.shop_blog_post('potraviny-centrum', (select slug from public.blog_posts where id = (v_r ->> 'post_id')::uuid))
+              ->> 'formatted')::boolean;
+  insert into t77 values ('fb2', v_r ->> 'post_id');
+  assert public.blog_posts_deleted_on_facebook(v_a, array['123456789_7701']) = 1;
+  assert (select status from public.blog_posts where id = v_fb) = 'hidden', 'deleted on Facebook still hides it';
+  -- no plan: the editor's AI is refused
+  delete from public.subscriptions where shop_id = v_a;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  if not public.shop_has_plan((select id from public.shops where slug = 'potraviny-centrum')) then
+    begin perform public.owner_blog_ai_hit((select v::uuid from t77 where k = 'own')); raise exception 'AI without the plan';
+    exception when raise_exception then assert sqlerrm = 'no_plan'; end;
+  end if;
+end $$;
+reset role;
+
+-- the admin: the blog limit next to the grammar limit
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare
+  vj jsonb;
+begin
+  perform public.admin_save_blog_ai(20);
+  vj := public.admin_owner_ai();
+  assert (vj ->> 'blog_daily_limit')::int = 20 and (vj -> 'today' -> 'blog' ->> 'calls')::int >= 2, vj::text;
+  begin perform public.admin_save_blog_ai(-1); raise exception 'limit out of range';
+  exception when invalid_parameter_value then null; end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  begin perform public.admin_save_blog_ai(5); raise exception 'an owner set the admin''s limit';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- tidy up
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  delete from public.blog_posts where id in (select v::uuid from t77 where k in ('fb', 'fb2', 'own'));
+  update public.owner_ai_settings set blog_daily_limit = (select v::int from t77 where k = 'limit') where id;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t77 where k = 'sub'))
+  where (select v from t77 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t77 where k = 'had_plan');
+end $$;
+reset role;
+drop table t77;
+
 \echo 'ALL DATABASE CHECKS PASSED'

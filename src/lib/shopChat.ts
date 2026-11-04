@@ -6,6 +6,7 @@ import { getDictionary } from "@/i18n/dictionaries";
 import { aiModel } from "./aiModel";
 import { bookingServices, bookOffered, type BookedSlot, type BookingService, type ChatConversation, findSlots, offerSlots, type Slot } from "./bookings";
 import { callerHash } from "./apiHttp";
+import { plainBody } from "./blogMarks";
 import { type ChatListLine, listForAi } from "./chatList";
 import { SERVICE_TOOLS, serviceIndex, slotWindow, toolDays, toolPeople, wantsContact } from "./bookingTools";
 import { signedPageUrl } from "./docsAccess";
@@ -941,7 +942,7 @@ export async function runShopChat(
         let ref = [...newsPosts.entries()].find(([, p]) => p.post_slug === post.post_slug)?.[0];
         if (!ref) ref = `n${newsPosts.size + 1}`;
         newsPosts.set(ref, post);
-        return { ref, title: post.title, date: post.publish_at.slice(0, 10), text: post.body.slice(0, 1500) };
+        return { ref, title: post.title, date: post.publish_at.slice(0, 10), text: plainBody(post.body).slice(0, 1500) };
       });
       return {
         type: "tool_result",

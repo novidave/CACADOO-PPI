@@ -78,6 +78,12 @@ Deno.test("Imported titles: the first sentence, at most 70 characters cut at a w
 Deno.test("The Facebook message: the text as written and the last line 'Čítať na webe: <address>'", () => {
   eq(facebookMessage("Titul", "Text\n\nDruhý odsek  \n", "https://ppi.example/sk/shops/a/blog/b"), "Text\n\nDruhý odsek\n\nČítať na webe: https://ppi.example/sk/shops/a/blog/b", "text");
   eq(facebookMessage("Len titul", "  ", "https://x.sk/blog/b"), "Len titul\n\nČítať na webe: https://x.sk/blog/b", "no text: the title");
+  // update 77: the safe format as Facebook shows it — "• " bullets, numbers kept, no marks, no photo lines
+  eq(
+    facebookMessage("T", "## Novinky\n- **biela** farba\n- čierna\n1. krok\n> citát\n[[foto:aaaaaaaa-2222-4333-8444-555555555555]]\nKoniec", "https://x.sk/blog/t"),
+    "Novinky\n\u2022 biela farba\n\u2022 čierna\n1. krok\ncitát\n\nKoniec\n\nČítať na webe: https://x.sk/blog/t",
+    "marks as Facebook shows them",
+  );
   eq(blogPostUrl({ siteUrl: "https://cacaduu.com/", host: null, country: "HU", shopSlug: "pek", postSlug: "uj" }), "https://cacaduu.com/hu/shops/pek/blog/uj", "on Cacaduu");
   eq(blogPostUrl({ siteUrl: "https://cacaduu.com", host: "davide.sk", country: "SK", shopSlug: "pek", postSlug: "uj" }), "https://davide.sk/blog/uj", "own domain");
   eq(ownSlugIn("Text\n\nČítať na webe: https://davide.sk/blog/nova-kolekcia"), "nova-kolekcia", "our own link");
