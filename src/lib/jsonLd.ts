@@ -79,7 +79,8 @@ const SCHEMA_AVAILABILITY: Record<string, string> = {
  * currency whenever the page shows a price, the availability only while the shop's stock data is
  * fresh (not stale) — exactly when the page itself shows the quantity; never invented.
  */
-export function itemJsonLd(item: StockRow, shop: PublicShop | null, lang: Locale, host: string | null, input: StatusInput | null, base: string) {
+/** `image`: the product's own photo (database update 78) — only the product page's JSON-LD carries it. */
+export function itemJsonLd(item: StockRow, shop: PublicShop | null, lang: Locale, host: string | null, input: StatusInput | null, base: string, image: string | null = null) {
   const url = host ? siteItemUrl(host, lang, item.item_id) : `${base}/${lang}/items/${item.item_id}`;
   const shopUrl = shopPageUrl(base, item.shop_slug, item.shop_country, lang, host, shop?.site_lang);
   const alternateName = translatedName(item.item_name, item.item_name_i18n, lang);
@@ -124,6 +125,7 @@ export function itemJsonLd(item: StockRow, shop: PublicShop | null, lang: Locale
         url,
         ...(item.brand ? { brand: { "@type": "Brand", name: item.brand } } : {}),
         ...(item.ean ? { gtin: item.ean } : {}),
+        ...(image ? { image } : {}),
         ...offer,
       },
       store,

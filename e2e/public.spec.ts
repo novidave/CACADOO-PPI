@@ -178,6 +178,42 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
   c.check();
 });
 
+test("product page: the way back first, the main card, Podrobnosti closed, the list shared with the shop page", async ({ page }) => {
+  const c = watchConsole(page);
+  await page.goto(`/sk/shops/${SHOP}`);
+  // product photos never show in the shop page's lists (update 78): only on a product's own page
+  expect(await page.content()).not.toContain("product-photos");
+  const link = page.locator("[data-items] a[href*='/items/'], #items a[href*='/items/']").first();
+  test.skip((await link.count()) === 0, "this shop has no products");
+  const href = (await link.getAttribute("href")) ?? "";
+  await page.goto(href.startsWith("/") ? href : new URL(href).pathname);
+  // 1. the back chip is the page's first link to the shop
+  await expect(page.locator("main a[href^='/'][href*='/shops/']").first()).toHaveAttribute("data-item-back");
+  // 2. a photo box only when the product has a photo; when it has one it is the first picture, never lazy
+  const photo = page.locator("[data-item-photo] img");
+  if (await photo.count()) await expect(photo).not.toHaveAttribute("loading", "lazy");
+  // 3. the main card: name, price, the stock pill and sentence
+  await expect(page.locator("[data-item-details] h1")).toBeVisible();
+  await expect(page.locator("[data-item-stock-pill]")).toBeVisible();
+  await expect(page.locator("[data-item-stock]")).toContainText(/na sklade|Vypredané|nie je dostupná/);
+  // 5. Podrobnosti starts closed and opens with a tap
+  const more = page.locator("[data-item-more]");
+  if (await more.count()) {
+    expect(await more.evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
+    await more.locator("summary").tap();
+    await expect.poll(() => more.evaluate((d) => (d as HTMLDetailsElement).open)).toBe(true);
+  }
+  // the shopping list: added here, counted on the shop page's Zoznam tab
+  await page.locator("[data-item-list-add]").tap();
+  await expect(page.locator("[data-item-list-stepper]")).toBeVisible();
+  await expect(page.locator("[data-item-list-qty]")).toHaveText("1");
+  await page.locator("[data-item-back]").tap();
+  await expect(page).toHaveURL(/\/shops\//);
+  await expect(page.locator("[data-tab-count]").first()).toHaveText("1");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  c.check();
+});
+
 test("blog post", async ({ page }) => {
   const c = watchConsole(page);
   await page.goto(`/sk/shops/${SHOP}/blog`);

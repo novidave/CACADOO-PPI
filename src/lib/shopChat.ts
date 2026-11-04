@@ -8,6 +8,8 @@ import { bookingServices, bookOffered, type BookedSlot, type BookingService, typ
 import { callerHash } from "./apiHttp";
 import { plainBody } from "./blogMarks";
 import { type ChatListLine, listForAi } from "./chatList";
+import { type ChatProductPhoto, PHOTO_RULE, PHOTO_TOOL, PHOTO_TOOL_NAME, photoCard, shownPhotos, type StoredPhoto } from "./chatPhoto";
+import { productPhotoUrl } from "./productPhotos";
 import { SERVICE_TOOLS, serviceIndex, slotWindow, toolDays, toolPeople, wantsContact } from "./bookingTools";
 import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
@@ -19,6 +21,7 @@ import { apiItem } from "./publicApi";
 import { availabilityText, freshnessText, type StockRow } from "./stock";
 import { STOCK_WORDS, stockState, type StockState } from "./stockDot";
 import { createPublicClient } from "./supabase/public";
+import { supabaseEnv } from "./supabase/env";
 
 /**
  * The AI assistant on a shop page (a paid feature: only when shop_has_plan is true).
@@ -169,6 +172,11 @@ export interface ChatReply {
    * and priced by food_quote (Sklad) — the page's own form takes it from here (the AI never places an order).
    */
   order: ChatOrder | null;
+  /**
+   * Update 78: the product photos the shopper asked to see (show_product_photo; never shown on the assistant's own),
+   * built on the server from item_photo — the 800 px picture and the product page, or "no photo yet".
+   */
+  productPhotos?: ChatProductPhoto[];
 }
 
 export interface ChatOrder {
@@ -435,6 +443,7 @@ function systemPrompt(
     `- When neither the stock${docs.length ? " nor the documents" : ""} answer the question, say that you do not know ` +
       `and set call_shop to true${shop.phone ? ` (the page shows the shop's phone: ${shop.phone})` : ""}.`,
     "- Never ask for or use the shopper's location.",
+    `- ${PHOTO_RULE}`,
   );
   if (booking) {
     lines.push(
@@ -825,8 +834,13 @@ export async function runShopChat(
   const foodOn = Boolean(food?.enabled);
   const dishes = new Map<string, MenuItem>(); // ref → dish, only from food_menu
   const dishRef = new Map<string, string>(); // item id → ref
+  // Update 78: the product photo only when the shopper asks for one (the normal tools carry no picture).
+  const photoAsked: string[] = [];
+  const photoCards = new Map<string, ChatProductPhoto>();
+  const storage = supabaseEnv()?.url ?? "";
   const tools = [
     ...TOOLS,
+    PHOTO_TOOL as Anthropic.Tool,
     ...(docs.length ? [DOCS_TOOL] : []),
     ...(news ? [NEWS_TOOL] : []),
     ...(serviceTools ? SERVICE_TOOLS : booking ? [SLOTS_TOOL] : []),
@@ -1115,6 +1129,20 @@ export async function runShopChat(
         }),
       };
     }
+    if (call.name === PHOTO_TOOL_NAME) {
+      const ref = typeof input.ref === "string" ? input.ref.trim() : "";
+      const item = found.get(ref);
+      if (!item) return fail("Unknown ref: find the item with search_items first.");
+      if (!photoCards.has(ref)) {
+        const { data } = await db().rpc("item_photo", { p_slug: shop.slug, p_item_id: item.id });
+        const stored = data && typeof data === "object" ? (data as StoredPhoto) : null;
+        const name = translatedName(item.name, { [lang]: item.name_translated ?? undefined }, lang) ?? item.name;
+        photoCards.set(ref, photoCard({ name, href: `/${lang}/items/${item.id}` }, stored && storage ? stored : null, (path) => productPhotoUrl(storage, path)));
+      }
+      photoAsked.push(ref);
+      // the AI learns only whether there is a photo (never its address); the page shows it
+      return { type: "tool_result", tool_use_id: call.id, content: JSON.stringify({ ref, has_photo: Boolean(photoCards.get(ref)?.src) }) };
+    }
     return fail(`Unknown tool ${call.name}`);
   }
 
@@ -1173,6 +1201,7 @@ export async function runShopChat(
     if (!text || text.type !== "text") throw new Error("the assistant gave no answer");
     const parsed = JSON.parse(text.text) as Answer;
     const result = await toReply(parsed, found, excerpts, photo, shop, lang, docsToken, newsPosts);
+    result.reply.productPhotos = shownPhotos(photoAsked, photoCards);
     // Only free times find_slots returned, in the order the answer offers them (at most 8).
     const offered = [...new Set(parsed.booking_slots ?? [])].flatMap((ref) => (slotsFound.has(ref) ? [slotsFound.get(ref)!] : [])).slice(0, 8);
     result.reply.booking = booking && !serviceTools && offered.length ? { slots: offered, timezone: slotZone, service: booking.service_name } : null;

@@ -8,13 +8,13 @@ import { welcomePieces } from "@/lib/chatList";
  * files, PDFs, access keys) is not part of the page's first JavaScript — `AssistantBoot` loads it and carries over
  * what was typed, the cursor, an opened key row and a tapped "Poslať".
  */
-export function ShopAssistant(props: AssistantProps) {
+export function ShopAssistant({ question = "", ...props }: AssistantProps & { question?: string }) {
   const { lang, shopName, keys, labels, buttonLabel, welcome, archive = false } = props;
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
   return (
     <AssistantBoot props={props}>
-      <section className="ppi-ai" data-pop aria-labelledby="assistant-heading" data-assistant>
+      <section id="assistant" className="ppi-ai scroll-mt-4" data-pop aria-labelledby="assistant-heading" data-assistant>
         <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
         <div className="flex flex-col px-[13px] py-[14px]">
           <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
@@ -38,6 +38,8 @@ export function ShopAssistant(props: AssistantProps) {
               id="assistant-question"
               rows={2}
               maxLength={1500}
+              // "Opýtať sa asistenta" on a product page or a post (?ask=): the question is already written
+              defaultValue={question}
               placeholder={labels.placeholder}
               aria-describedby="assistant-empty"
               className="ppi-ai-input mt-4"

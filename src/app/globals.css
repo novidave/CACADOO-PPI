@@ -281,10 +281,9 @@ dialog.ppi-sheet {
 }
 
 /*
- * The blog's typography (at the owner's request, 2026-10-27), on the blog list and the blog post pages:
- * main headings Quicksand Bold 36–48 px, article headings Quicksand Semibold 24–30 px, the article text Lora Regular
- * 17–19 px, navigation and buttons Quicksand Medium 14–16 px, captions Quicksand Medium 13–14 px. Each size grows
- * with the screen between the two numbers (phone → computer).
+ * The blog's typography (2026-10-27; the unified design, 2026-11-04: Quicksand everywhere — the article text too,
+ * 16 px with line height 1.65, no Lora any more): main headings Quicksand Bold 36–48 px, article headings Quicksand
+ * Semibold 24–30 px, navigation and buttons Quicksand Medium 14–16 px, captions Quicksand Medium 13–14 px.
  */
 @layer components {
   .ppi-blog-h1 {
@@ -300,10 +299,10 @@ dialog.ppi-sheet {
     line-height: 1.25;
   }
   .ppi-blog-body {
-    font-family: var(--font-lora), var(--font-noto), Georgia, "Times New Roman", serif;
+    font-family: var(--font-sans);
     font-weight: 400;
-    font-size: clamp(17px, 16.2px + 0.25vw, 19px);
-    line-height: 1.7;
+    font-size: 16px;
+    line-height: 1.65;
   }
   /* the safe format's marks (update 77): "## " subheadings (Quicksand Semibold, a step under the article's own h2),
      "- " / "1. " lists, "> " quotes, [[foto:id]] photos of the post */

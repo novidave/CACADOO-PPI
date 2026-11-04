@@ -6,6 +6,7 @@
     "npm:@anthropic-ai/sdk@0.131.0": "0.131.0",
     "npm:@e965/xlsx@0.20.3": "0.20.3",
     "npm:@jsquash/jpeg@1.6.0": "1.6.0",
+    "npm:@jsquash/png@3.1.1": "3.1.1",
     "npm:@jsquash/webp@1.5.0": "1.5.0",
     "npm:@pdf-lib/fontkit@1.1.1": "1.1.1",
     "npm:@supabase/supabase-js@2": "2.117.2",
@@ -41,6 +42,9 @@
     },
     "@jsquash/jpeg@1.6.0": {
       "integrity": "sha512-zwN46Awh1VM6gXlIcALwb5WzqK5H2e6+Awcs1QP8AvS8ohsK/sbE4esvmH4jhlhW7+CgiUUww66vg0aTnlSIMA=="
+    },
+    "@jsquash/png@3.1.1": {
+      "integrity": "sha512-C10pc+0H6j0h8fENOfnGOvkXCmvpSQTDGlfGd0sHphZhPSGTyLjIrHba0FaZZdsKqA/wlmhYicUHb92vfZphaw=="
     },
     "@jsquash/webp@1.5.0": {
       "integrity": "sha512-KggLoj2MnRSfIqTeKe1EmbljTX2vuV7mh79k89PCL1pyqiDULcPM1L47twxXt0hkb68F70bXiL31MxsuoZtKFw==",

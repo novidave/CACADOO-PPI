@@ -162,6 +162,10 @@ export default async function SkladProducts({ params, searchParams }: PageProps<
 
       <footer className="flex flex-col gap-2 border-t border-line pt-3">
         <PlanCounter s={s} products={res.products} limit={res.limit} planHref={planHref} />
+        {/* Product photos for many products at once (database update 78). */}
+        <Link href={`/${ctx.lang}/dashboard/items/photos?${new URLSearchParams({ shop: shop.slug })}`} className="text-sm font-semibold underline underline-offset-4" data-photo-bulk-link>
+          {dict.product_photos.bulk_link}
+        </Link>
         {atLimit ? (
           <Link href={planHref} className={`${btn} min-h-[52px]`} data-sklad-limit>
             {s.limit_go_pro}

@@ -200,6 +200,19 @@ OPEN
       button before lifting: nothing opens.
    d) Tell Claude what happened on each phone (a screenshot is enough if something fails).
 
+30. Product photos: try them once (nothing to set up — this is only a check)
+   Why: the owner screens were tested without a real login (the database, the function and the file readers were
+   tested on their own).
+   a) On your phone: Môj obchod → Jazyky a inventár → Tovar → a product → "Popis a preklady" (or Sklad → Produkty → a
+      product) → "Nahrať fotku" → take a photo with the camera. Open the product's page on cacaduu.com: the photo is at
+      the top. The shop page's list and the search show no photo (that is right).
+   b) "Zmeniť fotku" with another picture replaces it; "Odstrániť fotku" removes it.
+   c) Many at once: Tovar → "Nahrať fotky viacerých produktov naraz" → "Stiahnuť vzorový CSV", put your own product
+      codes and image addresses (https://…) in it, choose it → "Nahrať fotky". The report under it shows each line's
+      result and downloads as CSV. Your Heureka / Google / Shoptet XML feed can be used as it is.
+   d) In the shop assistant (Pro) ask "ukáž mi fotku <product>": it shows the photo with a link to the product.
+   e) Tell Claude what happened (a screenshot is enough if something fails).
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
