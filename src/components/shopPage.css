@@ -1410,6 +1410,122 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
   font-size: 13px;
   font-weight: 600;
 }
+/*
+ * The shopping list in the assistant (2026-11-04): the round blue bubble with the pieces of the page's "Zoznam" (white
+ * bold number, 1.5 px white ring — the Zoznam tab's counter), a 44 px button in the chat bar or inside the owner's
+ * welcome text ({zoznam}); pressed, a copy drops onto the list chip in the input bar (`@/lib/listDrop`).
+ */
+.ppi-ai-bubble {
+  display: inline-flex;
+  min-width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #2563eb;
+  box-shadow: 0 0 0 1.5px #fff;
+  color: #fff;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1;
+}
+/* in the chat bar: the Zoznam tab's list icon in a box like "Pridať fotku", the bubble on its corner */
+.ppi-ai-listbtn {
+  position: relative;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1.5px solid #bfd5fb;
+  border-radius: 10px;
+  background: #eff5ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ppi-ai-listbtn > .ppi-ai-bubble {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+.ppi-ai-listbtn:active .ppi-ai-bubble {
+  transform: scale(0.92);
+}
+.ppi-ai-listbtn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+/* inside a line of text (the owner's {zoznam}): only the bubble, a 44 px touch area that keeps the line's height */
+.ppi-ai-listbtn-inline {
+  margin: -12px -10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  vertical-align: middle;
+}
+.ppi-ai-listbtn-inline > .ppi-ai-bubble {
+  position: static;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+.ppi-ai-drop {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+}
+.ppi-ai-listchip {
+  background: #eff5ff;
+  color: #1d4ed8;
+}
+.ppi-ai-listchip button {
+  color: #1d4ed8;
+}
+.ppi-ai-listchip .ppi-ai-bubble {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+.ppi-ai-listchip[data-drop] {
+  animation: ppi-ai-chip-in 220ms 560ms both;
+}
+@keyframes ppi-ai-chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-ai-listchip[data-drop] {
+    animation: none;
+  }
+}
+.ppi-ai-sentlist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #eff5ff;
+  color: #1a1a1a;
+  font-size: 14px;
+}
 .ppi-ai-chip button {
   display: flex;
   width: 24px;

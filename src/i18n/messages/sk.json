@@ -356,7 +356,9 @@
     "filter_empty": "V tomto filtri nie je žiadny tovar.",
     "shopper_sees": "Čo vidí zákazník",
     "shopper_hidden_stale": "Skryté – údaje sú staršie ako 24 h",
-    "file_status_cleared": "Žiadny nahraný súbor · nahrajte nový"
+    "file_status_cleared": "Žiadny nahraný súbor · nahrajte nový",
+    "welcome_list_insert": "Vložiť {zoznam} do uvítacej správy",
+    "welcome_list_hint": "{zoznam} ukáže zákazníkovi modrú bublinu s počtom kusov v jeho nákupnom zozname; ťuknutím ho vloží do chatu. Ťuknite na značku alebo ju potiahnite do textu."
   },
   "items_bulk": {
     "pick": "Označiť",
@@ -844,7 +846,14 @@
     "order_err_sms_quota": "Objednávky cez asistenta sú teraz pozastavené. Zavolajte, prosím, priamo do obchodu.",
     "order_err_not_available": "Objednávky sú teraz vypnuté.",
     "order_err_conversation": "Obnovte stránku a skúste to znova.",
-    "order_err_failed": "Objednávka sa nepodarila. Skúste to znova."
+    "order_err_failed": "Objednávka sa nepodarila. Skúste to znova.",
+    "list_mine": "Môj nákupný zoznam",
+    "list_attach": "Vložiť nákupný zoznam do chatu",
+    "list_attach_n": "Vložiť nákupný zoznam do chatu – {n} ks",
+    "list_pieces": "{n} ks",
+    "list_remove_attached": "Odstrániť nákupný zoznam zo správy",
+    "list_empty_hint": "Váš zoznam je prázdny. Pridajte produkty ťuknutím na bodku pred cenou v časti Produkty.",
+    "list_attached": "Nákupný zoznam je pripojený k správe."
   },
   "docs": {
     "title": "Dokumenty pre asistenta",
