@@ -19,7 +19,7 @@ import {
 import { siteLang, sitePath } from "@/lib/customDomain";
 import { getShopLanguages } from "@/lib/shopLanguages";
 import { getShopTexts } from "@/lib/contentTranslations";
-import { TranslationNote } from "@/components/TranslationNote";
+import { TranslatingRefresh } from "@/components/TranslatingRefresh";
 import { getShop, shopSiteHost, type PublicShop } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import { shopPageUrl } from "@/lib/jsonLd";
@@ -263,7 +263,9 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
         </p>
       </header>
 
-      <TranslationNote texts={texts} path={blogPath(lang, place, onSite, post.slug)} labels={dict.translation} />
+      {/* No "Preložené automaticky · Zobraziť originál" on customer pages (2026-11-04, at the owner's request; ?original=1
+          still works). While a text is still being translated, the page looks again once, 20 s later. */}
+      {texts.missing && <TranslatingRefresh />}
       <BlogGallery photos={post.photos} group={`blog-${post.slug}`} title={post.title} src={photoSrc} dict={dict} />
       <BlogText body={post.body} />
 

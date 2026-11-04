@@ -1,6 +1,16 @@
 // The shop status rules (src/lib/hours.ts) in Europe/Bratislava. Run: npm run test:status (Deno).
 import { assertEquals } from "jsr:@std/assert@1";
-import { type CalendarDay, type OpeningHours, shopStatus, type StatusInput, statusText, specialOpeningHoursSpecification, upcomingDays } from "./hours.ts";
+import {
+  type CalendarDay,
+  closedPillText,
+  type OpeningHours,
+  shopStatus,
+  type StatusInput,
+  statusText,
+  specialOpeningHoursSpecification,
+  upcomingDays,
+  weekHours,
+} from "./hours.ts";
 import sk from "../i18n/messages/sk.json" with { type: "json" };
 
 const TZ = "Europe/Bratislava";
@@ -144,4 +154,52 @@ Deno.test("upcoming days and JSON-LD special hours", () => {
     "2026-12-25 00:00-00:00",
     "2026-12-28 09:00-12:00",
   ]);
+});
+
+// The shop page's hours card (2026-11-04): the week list shows this week's real hours, the closed pill only short words.
+Deno.test("week list: a special day in the coming 7 days replaces its weekday's row", () => {
+  // Wed 14 Oct 2026, 10:00; Thursday 15 Oct special 12:00–17:00, Saturday 17 Oct closed, next Wednesday 21 Oct special
+  const days = [special("2026-10-15", false, [["12:00", "17:00"]]), special("2026-10-17", true), special("2026-10-21", false, [["10:00", "11:00"]])];
+  const week = weekHours(input(days), at("2026-10-14T08:00:00Z"));
+  const row = (d: string) => week.find((w) => w.day === d)!;
+  assertEquals(row("thu"), { day: "thu", date: "2026-10-15", ranges: [["12:00", "17:00"]], changed: true });
+  assertEquals(row("sat"), { day: "sat", date: "2026-10-17", ranges: [], changed: true });
+  // today (Wednesday) is the date in the week; next Wednesday's special day is 7 days away: the regular row stays
+  assertEquals(row("wed"), { day: "wed", date: "2026-10-14", ranges: WEEK.wed, changed: false });
+  assertEquals(row("mon"), { day: "mon", date: "2026-10-19", ranges: WEEK.mon, changed: false });
+  assertEquals(week.map((w) => w.day), ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+});
+
+Deno.test("week list: a day shops must close by law shows what is left; a public day off keeps the regular hours", () => {
+  // Sun 20 Dec 2026; Thu 24 Dec closes at 12:00 by law, Fri 25 Dec closed by law, Sat 26 Dec a day off
+  const days = [holiday("2026-12-24", "shops_closed", "12:00"), holiday("2026-12-25", "shops_closed"), holiday("2026-12-26", "day_off")];
+  const week = weekHours(input(days), at("2026-12-20T09:00:00Z"));
+  const row = (d: string) => week.find((w) => w.day === d)!;
+  assertEquals([row("thu").ranges, row("thu").changed], [[["08:00", "12:00"]], true]);
+  assertEquals([row("fri").ranges, row("fri").changed], [[], true]);
+  assertEquals([row("sat").ranges, row("sat").changed], [WEEK.sat, false]);
+});
+
+Deno.test("no holidays or special days in the next 14 days: no list in the hours card", () => {
+  assertEquals(upcomingDays(input(), at("2026-10-14T08:00:00Z"), 14), []);
+  // a special day 15 days away is not in it
+  assertEquals(upcomingDays(input([special("2026-10-29", true)]), at("2026-10-14T08:00:00Z"), 14), []);
+});
+
+Deno.test("closed pill: only the short words — later today, tomorrow, another day; open stays as it was", () => {
+  const labels = sk.status;
+  // Wed 12:15 is a break; Wed 17:30 closed → tomorrow 08:00
+  assertEquals(closedPillText(shopStatus(input(), at("2026-10-14T15:30:00Z")), labels), "Otvára zajtra");
+  // Wed 07:00 (05:00 UTC) closed → today 08:00
+  assertEquals(closedPillText(shopStatus(input(), at("2026-10-14T05:00:00Z")), labels), "Otvára o 8:00");
+  // Sat 17 Oct 13:00 closed, Sunday closed → Monday
+  assertEquals(closedPillText(shopStatus(input(), at("2026-10-17T11:00:00Z")), labels), "Otvára v pondelok");
+  // Thursday: "vo štvrtok"
+  const thu = { ...WEEK, wed: [], fri: [], sat: [] } as OpeningHours;
+  assertEquals(closedPillText(shopStatus(input([], thu), at("2026-10-13T16:00:00Z")), labels), "Otvára vo štvrtok");
+  // not closed, or no opening within a week: null (the full words stay)
+  assertEquals(closedPillText(shopStatus(input(), at("2026-10-14T08:00:00Z")), labels), null);
+  assertEquals(closedPillText(shopStatus(input([], {}), at("2026-10-14T08:00:00Z")), labels), null);
+  // the full words stay for the pill's name (aria-label)
+  assertEquals(text(input(), "2026-10-14T05:00:00Z"), "Zatvorené · otvára o 8:00");
 });

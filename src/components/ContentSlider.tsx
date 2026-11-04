@@ -173,6 +173,23 @@ export function ContentSlider({
     want(i);
   };
 
+  /**
+   * "Zavrieť článok" / "Zavrieť" on the slide (2026-11-04): the article closes, the slider's top comes back to the top
+   * of the screen (under a sticky header, if one is ever added; instant with prefers-reduced-motion) and the focus
+   * returns to that slide's "Čítať".
+   */
+  const closeArticle = (index: number) => {
+    setOpen(false);
+    const el = region.current;
+    if (!el) return;
+    const header = document.querySelector<HTMLElement>("[data-site-header]");
+    const position = header ? getComputedStyle(header).position : "";
+    const offset = header && (position === "sticky" || position === "fixed") ? header.getBoundingClientRect().height : 0;
+    const top = el.getBoundingClientRect().top + window.scrollY - offset;
+    window.scrollTo({ top: Math.max(0, top), behavior: reduced() ? "auto" : "smooth" });
+    el.querySelector<HTMLElement>(`[data-slide="${index}"] [data-slide-read]`)?.focus({ preventScroll: true });
+  };
+
   const onScroll = () => {
     const el = track.current;
     if (!el || !el.clientWidth || drag.current) return;
@@ -300,8 +317,12 @@ export function ContentSlider({
                 // Without its article (or without JavaScript) the link goes to the post's page.
                 if (!article) return;
                 e.preventDefault();
+                if (i === current && open) {
+                  closeArticle(i);
+                  return;
+                }
                 if (i !== current) go(i);
-                setOpen((o) => (i === current ? !o : true));
+                setOpen(true);
               }}
             >
               {expanded ? labels.close : labels.read}
@@ -454,10 +475,7 @@ export function ContentSlider({
                       )}
                       <button
                         type="button"
-                        onClick={() => {
-                          setOpen(false);
-                          region.current?.querySelector<HTMLElement>(`[data-slide="${current}"] [data-slide-read]`)?.focus({ preventScroll: true });
-                        }}
+                        onClick={() => closeArticle(current)}
                         className="ppi-btn-plain"
                         data-post-close
                       >

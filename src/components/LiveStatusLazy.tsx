@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { StatusInput, StatusLabels, StatusState } from "@/lib/hours";
+import type { PillLabels, StatusInput, StatusLabels, StatusState } from "@/lib/hours";
 import { STATUS_PILLS } from "@/lib/statusColors";
 import { StatusDot } from "./StatusDot";
 
@@ -10,6 +10,8 @@ export interface StatusView {
   main: string;
   detail: string | null;
   label: string | null;
+  /** the pill's short closed text ("Otvára o 12:00", `closedPillText`), null = the full words */
+  short?: string | null;
 }
 
 /**
@@ -27,21 +29,23 @@ export function LiveStatusLazy({
 }: {
   first: StatusView;
   input: StatusInput;
-  labels: StatusLabels;
+  labels: StatusLabels & Partial<PillLabels>;
   lang: string;
   className?: string;
-  /** the opening hours card's pill (Screen 11): "● Otvorené · zatvára o 17:00" on the status's pale colour */
+  /** the opening hours card's pill (Screen 11): "● Otvorené · zatvára o 17:00" on the status's pale colour; closed:
+   * only "Otvára o 12:00" / "Otvára zajtra" / "Otvára v piatok" with a red-to-green dot (2026-11-04) */
   pill?: boolean;
 }) {
   const [view, setView] = useState(first);
   useEffect(() => {
     let every: ReturnType<typeof setInterval> | null = null;
     let alive = true;
-    void import("@/lib/hours").then(({ shopStatus, statusParts }) => {
+    void import("@/lib/hours").then(({ shopStatus, statusParts, closedPillText }) => {
       if (!alive) return;
       const tick = () => {
         const status = shopStatus(input, new Date());
-        setView({ state: status.state, ...statusParts(status, labels, lang) });
+        const short = pill && labels.pill_opens_at ? closedPillText(status, labels as PillLabels) : null;
+        setView({ state: status.state, ...statusParts(status, labels, lang), short });
       };
       tick();
       every = setInterval(tick, 60_000);
@@ -50,18 +54,22 @@ export function LiveStatusLazy({
       alive = false;
       if (every) clearInterval(every);
     };
-  }, [input, labels, lang]);
+  }, [input, labels, lang, pill]);
   if (pill) {
     const colors = STATUS_PILLS[view.state];
+    const full = [view.main, view.detail, view.label].filter(Boolean).join(" · ");
+    // closed and opening again soon: only the short words next to the dot; the full status is the pill's name
+    const short = view.state === "closed" ? view.short : null;
     return (
       <span
         className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${className}`}
         style={{ background: colors.bg, color: colors.fg }}
         data-status={view.state}
         data-status-pill
+        {...(short ? { role: "img", "aria-label": full, title: full, "data-status-short": "" } : {})}
       >
-        <StatusDot state={view.state} size={8} />
-        <span>{[view.main, view.detail, view.label].filter(Boolean).join(" · ")}</span>
+        <StatusDot state={view.state} size={8} opening={Boolean(short)} />
+        <span>{short ?? full}</span>
       </span>
     );
   }

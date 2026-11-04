@@ -209,9 +209,18 @@ tabs — one look, no compact head. Môj obchod: two columns from 1024 px + the 
 Claude Design canvas "Davide shop page – iPhone 14 Plus", artboard 11; `ShopView.tsx` (Cacaduu address and own domain),
 column ≤ 760 px, designed at 428 px (works at 390). Order: header (own domain: header logo, else logo 32 px + name) ·
 details (logo box 46 px, name 24/500, address, company line on #FBF6EC) · `@/components/AmenityPills` (server; only
-the amenities the shop has) · contact buttons · map 222 px · hours card (`ShopStatusLine pill`, `STATUS_PILLS` in
-`@/lib/statusColors`; today #FFF4D6) · "Sviatky · najbližších 14 dní" card · news slider · assistant · key row ·
-products. **Hold links** (`@/components/HoldLink`, rule `@/lib/holdLink`, tests `shopPage_test.ts`): a real `<a href>`
+the amenities the shop has) · contact buttons · map 222 px · hours card · news slider · assistant · key row ·
+products — every card a child of ONE column (`gap-6`), so every gap from the details to the products is the same
+(2026-11-04). **The hours card** (`HoursSection`, 2026-11-04, at the owner's request; no separate "Sviatky" card any
+more): "Otváracie hodiny" + the status pill (`ShopStatusLine pill`, `STATUS_PILLS` in `@/lib/statusColors`) · the
+holidays and the owner's special days of the next 14 days (`upcomingDays()`), each a line in the closed pill's red
+(`STATUS_PILLS.closed`, rounded; `data-hours-upcoming`) · one thin line (`border-line`) · the week list = THIS week's
+real hours (`weekHours()` in `@/lib/hours`: a special day in the coming 7 days replaces its weekday's row, closed =
+"Zatvorené"; a day shops must close by law shows what is left; a public day off keeps the regular hours; today
+#FFF4D6); no list and no line when nothing comes in 14 days. **The closed pill** shows only "Otvára o 12:00" /
+"Otvára zajtra" / "Otvára v <deň>" (`closedPillText()`, `status.pill_opens_*`) with a red-to-green dot
+(`StatusDot opening`); its `aria-label` / `title` carry the full status; open, break, holiday and no-hours pills and
+every other place's status words are unchanged. **Hold links** (`@/components/HoldLink`, rule `@/lib/holdLink`, tests `shopPage_test.ts`): a real `<a href>`
 (works without JavaScript); a finger or a mouse holds 1.2 s (fill, "Držte stlačené", `CheckLoop` loaded on the first
 press). **A finger (or a pen) then sees the check + "Pustite" (`ready`, `contact_buttons.release`) and the link opens ON
 RELEASE** (2026-11-04, at the owner's request): a real click on the link (`anchor.click()`, target removed = the same
@@ -230,7 +239,9 @@ date + one pill per slide (`aria-pressed`). **"Čítať" opens the post inline**
 date · n MIN ČÍTANIA" with `readingMinutes()`, title, `BlogText`, `articlePhoto()` with Ken Burns), all articles in
 the HTML (`getBlogPost` per post slide), the post page stays canonical; a link to the post without JavaScript; its
 buttons: "Všetky novinky" (`HoldLink`, artboard 12's orange primary `.ppi-hold-pri`) + "Zavrieť článok" (no
-"Opýtať sa asistenta" since 2026-10-31). **Background** (artboard 12 "Celá stránka obchodu", 2026-10-31):
+"Opýtať sa asistenta" since 2026-10-31); closing ("Zavrieť článok" or "Zavrieť" on the slide, `closeArticle()`, 2026-11-04)
+scrolls the slider's top back to the top of the screen (smooth, instant with `prefers-reduced-motion`, minus a sticky
+`[data-site-header]` if there is one) and puts the focus on that slide's "Čítať". **Background** (artboard 12 "Celá stránka obchodu", 2026-10-31):
 `@/components/ShopBackdrop` (server SVG, `aria-hidden`, no pointer events) — pale animals and leaves on #FFF8F0 (body
 via `:has()`, white header), behind the cards (`isolate` + z-index −1), drifting with `animation-timeline: scroll()`
 (still without it), floating / swinging; nothing moves with `prefers-reduced-motion`. **Assistant**: first view = server HTML (`ShopAssistant`) + the small loader `AssistantBoot` (carries text, cursor,
@@ -1139,6 +1150,9 @@ next_change} on every shop), JSON-LD `specialOpeningHoursSpecification`. Input =
 (`@/lib/shopCalendar`; before update 27 it is empty and the regular hours apply). Special day (`shop_special_hours`,
 `owner_save_special_hours()` / `owner_delete_special_hours()`; "Vaše mimoriadne dni" has ticks + `@/components/BulkSelectBar`
 → `deleteSpecialDays`, the same function per day) wins over a holiday, a holiday over the regular hours.
+The shop page's pill alone is shorter when closed ("Otvára o 12:00" / "Otvára zajtra" / "Otvára v <deň>",
+`closedPillText()`, 2026-11-04) and its week list shows the week's real hours (`weekHours()`) — the same rule, only
+the look (Screen 11 above); map tooltips, the search list, the API and MCP keep the full words.
 `public_holidays` (SK, HU, CZ; rows from `scripts/holidays.mjs` with date-holidays, `source` library|admin, admin wins,
 `admin_save_holiday()` on the admin page); `kind` day_off (yellow all day: "Štátny sviatok – overte otváracie hodiny")
 or shops_closed (closed by law, red "Zatvorené – štátny sviatok"; `closed_from` e.g. 24.12 12:00); `shops.auto_holidays` (`owner_set_auto_holidays()`, default on)
@@ -1299,7 +1313,7 @@ always lead to the article. The blog list shows ▶ on video posts. Tests: `npm 
 `supabase/sql/40_translations.sql` + `supabase/functions/translate` (one file, Verify JWT off) + `@/i18n/languages`
 (42 languages: the 25 EU ones, nb is sr sr-cyrl bs sq mk tr ru ca eu gl cy lb, zh-hans zh-hant vi; codes are URL
 prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib/contentTranslations` +
-`@/components/LanguagePicker` / `TranslationNote` / `TranslationsTable` / `LanguageFileUpload`.
+`@/components/LanguagePicker` / `TranslatingRefresh` / `TranslationsTable` / `LanguageFileUpload`.
 - **Which languages:** only `site_languages()` (admin "Preklady": on/off, "preložený vopred"; sk always on; ru and the
   regional ones and zh-hant off by default). A switched-off language is a 404. Every page's `/[lang]` is any switched-on
   code; sk/hu/en are built, the rest on first request.
@@ -1323,9 +1337,11 @@ prefixes and Intl tags) + `@/i18n/dictionaries` + `@/lib/shopLanguages` + `@/lib
   `shop_translations()` (shown things only, never a stale text); item names also as `shop_items.name_i18n` (kept by a
   trigger; the search index covers every language). Pre-translated = the shop's main + preferred languages (plan limit
   `translation_limits`: free 2, Pro 6) + item names in sk/hu/en; any other language → `request_translation()` (anon,
-  once in 10 min) → the function translates while the page shows the original + "Prekladáme…". Machine texts show
-  "Preložené automaticky · Zobraziť originál" (`?original=1`) — not on the product page (removed at the owner's request,
-  2026-10-27; one framed box holds the names and the data with bullet points: price with the stock dot, Dostupnosť, Značka, EAN,
+  once in 10 min) → the function translates while the page shows the original (the page looks again once, 20 s later,
+  `TranslatingRefresh`). **No "Preložené automaticky · Zobraziť originál" on any customer page** (shop page, own domain,
+  slider, blog, assistant, search — removed at the owner's request 2026-10-27 on the product page and 2026-11-04
+  everywhere; `?original=1` still shows the shop's own words, without a visible link); owner screens keep their
+  translation statuses (product page: one framed box holds the names and the data with bullet points: price with the stock dot, Dostupnosť, Značka, EAN,
   Kategória, then Popis). Never translated: brands, codes, EAN, prices,
   quantities, units, URLs, e-mails, phones, colour codes, `{placeholders}`.
 - **SEO:** hreflang/sitemaps only for pre-translated languages (PPI: admin's "preložený vopred"; a shop: its indexed

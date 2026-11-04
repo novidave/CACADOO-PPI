@@ -1,4 +1,4 @@
-import { shopStatus, statusParts, type StatusInput, type StatusLabels } from "@/lib/hours";
+import { closedPillText, shopStatus, statusParts, type PillLabels, type StatusInput, type StatusLabels } from "@/lib/hours";
 import { LiveStatusLazy } from "./LiveStatusLazy";
 
 /**
@@ -15,7 +15,7 @@ export function ShopStatusLine({
   pill = false,
 }: {
   input: StatusInput;
-  labels: StatusLabels;
+  labels: StatusLabels & Partial<PillLabels>;
   lang: string;
   /** Date.now() on the server. */
   renderedAt: number;
@@ -23,5 +23,6 @@ export function ShopStatusLine({
   pill?: boolean;
 }) {
   const status = shopStatus(input, new Date(renderedAt));
-  return <LiveStatusLazy first={{ state: status.state, ...statusParts(status, labels, lang) }} input={input} labels={labels} lang={lang} className={className} pill={pill} />;
+  const short = pill && labels.pill_opens_at ? closedPillText(status, labels as PillLabels) : null;
+  return <LiveStatusLazy first={{ state: status.state, ...statusParts(status, labels, lang), short }} input={input} labels={labels} lang={lang} className={className} pill={pill} />;
 }

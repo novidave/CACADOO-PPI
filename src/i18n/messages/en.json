@@ -1630,7 +1630,16 @@
     "check_hours": "check opening hours",
     "closed_from": "closed from {time}",
     "today": "today",
-    "upcoming_short": "Holidays · next 14 days"
+    "upcoming_short": "Holidays · next 14 days",
+    "pill_opens_at": "Opens at {time}",
+    "pill_opens_tomorrow": "Opens tomorrow",
+    "pill_opens_mon": "Opens Monday",
+    "pill_opens_tue": "Opens Tuesday",
+    "pill_opens_wed": "Opens Wednesday",
+    "pill_opens_thu": "Opens Thursday",
+    "pill_opens_fri": "Opens Friday",
+    "pill_opens_sat": "Opens Saturday",
+    "pill_opens_sun": "Opens Sunday"
   },
   "holidays": {
     "title": "Holidays and special closures",

@@ -1630,7 +1630,16 @@
     "check_hours": "ellenőrizze a nyitvatartást",
     "closed_from": "{time}-tól zárva",
     "today": "ma",
-    "upcoming_short": "Ünnepek · a következő 14 nap"
+    "upcoming_short": "Ünnepek · a következő 14 nap",
+    "pill_opens_at": "Nyitás: {time}",
+    "pill_opens_tomorrow": "Holnap nyit",
+    "pill_opens_mon": "Hétfőn nyit",
+    "pill_opens_tue": "Kedden nyit",
+    "pill_opens_wed": "Szerdán nyit",
+    "pill_opens_thu": "Csütörtökön nyit",
+    "pill_opens_fri": "Pénteken nyit",
+    "pill_opens_sat": "Szombaton nyit",
+    "pill_opens_sun": "Vasárnap nyit"
   },
   "holidays": {
     "title": "Ünnepek és rendkívüli zárva tartás",

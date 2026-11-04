@@ -21,12 +21,13 @@ import {
   displayTime,
   hasHours,
   localDateTime,
-  rangesFor,
   type StatusInput,
   upcomingDays,
   weekdayOf,
+  weekHours,
 } from "@/lib/hours";
 import { requestTime } from "@/lib/requestTime";
+import { STATUS_PILLS } from "@/lib/statusColors";
 import { statusInput } from "@/lib/shopCalendar";
 import { shopChatEnabled } from "@/lib/shopChat";
 import { storeJsonLd } from "@/lib/jsonLd";
@@ -36,7 +37,7 @@ import { articlePhoto, readingMinutes, sliderRatio } from "@/lib/pageContent";
 import { InlineArticle } from "@/components/InlineArticle";
 import { getShopLanguages } from "@/lib/shopLanguages";
 import { getShopTexts } from "@/lib/contentTranslations";
-import { TranslationNote } from "@/components/TranslationNote";
+import { TranslatingRefresh } from "@/components/TranslatingRefresh";
 import { freshnessText } from "@/lib/stock";
 import { AmenityPills } from "@/components/AmenityPills";
 import { ShopBackdrop } from "@/components/ShopBackdrop";
@@ -246,7 +247,9 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         )}
       </header>
 
-      <TranslationNote texts={texts} path={shopPath} query={{ ...(q ? { q } : {}), ...(page > 1 ? { page: String(page) } : {}) }} labels={dict.translation} />
+      {/* No "Preložené automaticky · Zobraziť originál" on customer pages (2026-11-04, at the owner's request; ?original=1
+          still works). While a text is still being translated, the page looks again once, 20 s later. */}
+      {texts.missing && <TranslatingRefresh />}
 
       {/* 2. The map with the shop's status dot (an extra: the page works without it). */}
       {hasLocation && (
@@ -259,10 +262,10 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         />
       )}
 
-      {/* 3. Opening hours (the card with the status pill) and, 14 px under it, the coming special days and holidays;
-          then "Obsah stránky" (update 38): after the opening hours, before the assistant (a free page: before the items). */}
-      <div className="flex flex-col">
-        <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} notes={notes} />
+      {/* 3. Opening hours: one card (the status pill, the coming holidays and special days, the week); then "Obsah
+          stránky" (update 38): after the opening hours, before the assistant (a free page: before the items). Every
+          card of the page is a child of the one column, so every gap is the same (gap-6). */}
+      <HoursSection shop={shop} input={input} lang={lang} dict={dict} renderedAt={renderedAt} notes={notes} />
       {slides.length > 0 && content && (
         <ContentSlider
           views={slides}
@@ -279,7 +282,6 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           first
         />
       )}
-      </div>
 
       {/* 4. and 5. The assistant (paid plan): always open; "Mám prístupový kľúč" as a closed dropdown under it. */}
       {assistant && (
@@ -393,51 +395,25 @@ function HoursSection({
   const now = new Date(renderedAt);
   const today = weekdayOf(localDateTime(now, shop.timezone).date);
   const coming = upcomingDays(input, now, 14);
+  // this week's real hours: a special day in the coming 7 days replaces its weekday's regular row (2026-11-04)
+  const week = weekHours(input, now);
   const dateText = (date: string) =>
     new Intl.DateTimeFormat(lang, { weekday: "short", day: "numeric", month: "numeric", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+  const pill = STATUS_PILLS.closed;
   return (
-    <>
-      <section aria-labelledby="hours-heading" className="rounded-[20px] border border-[#ECE7DE] bg-white px-4 pt-4 pb-2" data-hours>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2.5">
-          <h2 id="hours-heading" className="text-[19px] font-bold">
-            {dict.shop.hours}
-          </h2>
-          <span data-status-line>
-            <ShopStatusLine input={input} labels={dict.status} lang={lang} renderedAt={renderedAt} pill />
-          </span>
-        </div>
-        {hasHours(shop.opening_hours) && (
-          <table className="w-full text-[15px]">
-            <tbody>
-              {DAYS.map((day) => {
-                const ranges = rangesFor(shop.opening_hours, day);
-                const isToday = day === today;
-                return (
-                  <tr key={day} className={isToday ? "ppi-hours-today" : "ppi-hours-row"} data-day={day} {...(isToday ? { "data-today": "" } : {})}>
-                    <th scope="row" className={`py-[9px] pr-4 text-left capitalize ${isToday ? "font-bold" : "font-normal"}`}>
-                      {dayName(day, lang)}
-                      {isToday && <span className="text-xs font-semibold normal-case text-[#6B5310]"> · {dict.status.today}</span>}
-                    </th>
-                    <td className={`py-[9px] text-right ${isToday ? "font-bold" : ""}`}>
-                      {ranges.length ? rangeText(ranges) : <span className="text-[#5B6670]">{dict.shop.closed}</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </section>
+    <section aria-labelledby="hours-heading" className="rounded-[20px] border border-[#ECE7DE] bg-white px-4 pt-4 pb-2" data-hours>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2.5">
+        <h2 id="hours-heading" className="text-[19px] font-bold">
+          {dict.shop.hours}
+        </h2>
+        <span data-status-line>
+          <ShopStatusLine input={input} labels={dict.status} lang={lang} renderedAt={renderedAt} pill />
+        </span>
+      </div>
+      {/* The holidays and the owner's special days of the next 14 days, in the closed pill's red; nothing when none. */}
       {coming.length > 0 && (
-        <section aria-labelledby="special-days-heading" className="mt-3.5 flex flex-col gap-2 rounded-[20px] border border-[#F0C9BC] bg-white px-4 py-3.5" data-special-days>
-          <h2 id="special-days-heading" className="flex items-center gap-2 text-[15px] font-bold text-[#9A3A22]">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <path d="M16 2v4M8 2v4M3 10h18M9 15h6" />
-            </svg>
-            {dict.status.upcoming_short}
-          </h2>
-          <ul className="flex flex-col gap-2 text-sm">
+        <>
+          <ul className="mb-3 flex flex-col items-start gap-1.5 text-sm" aria-label={dict.status.upcoming} data-hours-upcoming>
             {coming.map((d) => {
               const name = (d.holidayName as Record<string, string | null> | undefined)?.[lang] || d.holidayName?.en || d.holidayName?.sk || null;
               const hours =
@@ -450,18 +426,47 @@ function HoursSection({
                     : `${rangeText(d.ranges)}${d.closedFrom ? ` · ${t(dict.status.closed_from, { time: displayTime(d.closedFrom) })}` : ""}`;
               const about = [name, notes.get(d.date) ?? d.note].filter(Boolean).join(" · ");
               return (
-                <li key={d.date} className="flex gap-2.5" data-special-day={d.date}>
-                  <span className="w-[72px] shrink-0 capitalize text-[#5B6670]">{dateText(d.date)}</span>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="font-bold">{hours}</span>
-                    {about && <span className="text-[13px] text-[#5B6670]">{about}</span>}
-                  </span>
+                <li
+                  key={d.date}
+                  className="rounded-xl px-2.5 py-1 font-semibold"
+                  style={{ background: pill.bg, color: pill.fg }}
+                  data-special-day={d.date}
+                >
+                  <span className="capitalize">{dateText(d.date)}</span> · {hours}
+                  {about && <span className="font-normal"> · {about}</span>}
                 </li>
               );
             })}
           </ul>
-        </section>
+          <hr className="mb-1 border-line" data-hours-divider />
+        </>
       )}
-    </>
+      {hasHours(shop.opening_hours) && (
+        <table className="w-full text-[15px]">
+          <tbody>
+            {week.map(({ day, ranges, changed, date }) => {
+              const isToday = day === today;
+              return (
+                <tr
+                  key={day}
+                  className={isToday ? "ppi-hours-today" : "ppi-hours-row"}
+                  data-day={day}
+                  {...(isToday ? { "data-today": "" } : {})}
+                  {...(changed ? { "data-special-row": date } : {})}
+                >
+                  <th scope="row" className={`py-[9px] pr-4 text-left capitalize ${isToday ? "font-bold" : "font-normal"}`}>
+                    {dayName(day, lang)}
+                    {isToday && <span className="text-xs font-semibold normal-case text-[#6B5310]"> · {dict.status.today}</span>}
+                  </th>
+                  <td className={`py-[9px] text-right ${isToday ? "font-bold" : ""}`}>
+                    {ranges.length ? rangeText(ranges) : <span className="text-[#5B6670]">{dict.shop.closed}</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }
