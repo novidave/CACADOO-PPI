@@ -212,9 +212,15 @@ details (logo box 46 px, name 24/500, address, company line on #FBF6EC) · `@/co
 the amenities the shop has) · contact buttons · map 222 px · hours card (`ShopStatusLine pill`, `STATUS_PILLS` in
 `@/lib/statusColors`; today #FFF4D6) · "Sviatky · najbližších 14 dní" card · news slider · assistant · key row ·
 products. **Hold links** (`@/components/HoldLink`, rule `@/lib/holdLink`, tests `shopPage_test.ts`): a real `<a href>`
-(works without JavaScript); a finger or a mouse holds 1.2 s (fill, "Držte stlačené", done label + `CheckLoop` loaded on
-the first press, then opens — a finger in the same tab), a short tap only shows "Držte stlačené" (`hint`), Enter / Space
-and a click without a press open at once; children `pointer-events: none` (labels change under the finger); used by
+(works without JavaScript); a finger or a mouse holds 1.2 s (fill, "Držte stlačené", `CheckLoop` loaded on the first
+press). **A finger (or a pen) then sees the check + "Pustite" (`ready`, `contact_buttons.release`) and the link opens ON
+RELEASE** (2026-11-04, at the owner's request): a real click on the link (`anchor.click()`, target removed = the same
+tab) inside the touchend handler (`releaseBy()`: touchend when the press had touch events, else pointerup; the
+pointerleave after a lifted finger is not a slide-off) — never from a timer, because iOS Universal Links / Android App
+Links and intents hand a link to its app (Maps, phone, e-mail) only from a user's gesture; sliding off while holding
+or while "Pustite" cancels, letting go before 1.2 s only hints. A mouse opens at 1.2 s as before (done label, a new tab
+inside its gesture); a short tap only shows "Držte stlačené" (`hint`), Enter / Space and a click without a press open
+at once; children `pointer-events: none` (labels change under the finger); used by
 `ContactButtons` (12.5 px decided by `smallLabel()`, never measured) and the open post's "Všetky novinky" (none above the
 slider since 2026-10-31, at the owner's request). **News slider** =
 `ContentSlider` in the news look: every update 38/39/44 rule stays (`shop_content()`, ratio frame + crop, only the
@@ -1104,14 +1110,23 @@ in `npm run test:site`) + `@/components/ContactButtons` / `CheckLoop` + `.ppi-cb
 ("Bidetová sprška" — the column stays `has_douchette`), two columns (gap 12 px): Facebook · Rezervovať termín / Web ·
 e-mail / Navigovať · phone; an empty link or value hides its button. **Press and hold 1.2 s** (since Screen 11 real
 links via `HoldLink`; Enter / Space open at once): a tap only shows "Držte stlačené", early release / sliding off /
-blur cancels; done → the action (new tab,
-`mailto:`, `tel:`; **a finger hold loads the link in the same tab at completion** — a new tab is a pop-up that phones allow only inside a gesture, and a long press has none; touchstart is `preventDefault`ed, so no phone long-press menu; `pageshow` from the back-forward cache resets the button), "Otvorené"-style label with the
+blur cancels; a mouse at 1.2 s → the action (new tab, `mailto:`, `tel:`); **a finger at 1.2 s → the check + "Pustite",
+and every button (Navigovať, phone, e-mail, web, Facebook, booking) opens on the release** by the link's own click inside
+the touchend handler, in the same tab (2026-11-04: opened from a timer, Google Maps stayed in the browser instead of the
+Maps app — the product page's plain link always opened the app); touchstart is `preventDefault`ed, so no phone
+long-press menu; `pageshow` from the back-forward cache resets the button), "Otvorené"-style label with the
 check, back after 2.3 s, announced in an `aria-live` region; `prefers-reduced-motion` respected; `touch-action: none`,
-`-webkit-touch-callout: none`, no selection, no shadows; labels never cut or wrapped (12.5 px when too wide).
-Navigovať = Google Maps directions to the shop's lat,lng, else to its written address. Short / long per button: only
+`-webkit-touch-callout: none`, no selection, no shadows; labels never cut or wrapped (12.5 px when too wide; "Pustite"
+counts). Navigovať = Google Maps directions to the shop's lat,lng, else to its written address; **on Android with the
+shop's map position a `geo:<lat>,<lng>?q=<lat>,<lng>(<name>)` link** (the name URL-encoded, brackets too; the same tab)
+— decided on the server from the request's user agent (`isAndroid()` + `geoHref()` in `@/lib/contactButtons`, read in
+`ShopView` with `headers()`), so the first HTML and the page without JavaScript carry it; iPhones and computers keep
+the Google Maps link. Short / long per button: only
 `owner_set_contact_buttons()` (Môj obchod "Údaje obchodu", "Krátke / Dlhé" next to each field; defaults e-mail long,
 the rest short; `shops.contact_buttons` keeps only differences), read by `shop_contact_buttons(slug)` (cached, refreshed
-on save). Page layout, never shop data. `<noscript>` shows plain links. e2e `e2e/contacts.spec.ts`. Texts
+on save). Page layout, never shop data. `<noscript>` shows plain links. e2e `e2e/contacts.spec.ts` (Pixel 7 and the
+iPhone-sized project: a short touch, a slide-off while holding and one after "Pustite" open nothing; held 1.3 s +
+released → the link's own click inside the touchend, no target; an https link loads on the release). Texts
 `contact_buttons`.
 
 ## Shop status and Pro page layout (update 27)

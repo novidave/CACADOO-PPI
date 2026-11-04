@@ -2963,6 +2963,7 @@
   },
   "contact_buttons": {
     "hold": "Tartsa lenyomva",
+    "release": "Engedje el",
     "announce": "{label}: {done}",
     "done_facebook": "Megnyitva",
     "done_booking": "Foglalás megnyitva",

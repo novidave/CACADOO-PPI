@@ -58,6 +58,8 @@ export function widthChoices(widths: Partial<Record<ContactKey, unknown>>): Part
 }
 
 export interface ContactShop {
+  /** the shop's name as written (the geo: link's label on Android) */
+  name?: string | null;
   facebook_url: string | null;
   booking_url: string | null;
   website: string | null;
@@ -84,6 +86,22 @@ export function navigateHref(shop: Pick<ContactShop, "lat" | "lng" | "address" |
   return base + encodeURIComponent(parts.join(", "));
 }
 
+/** An Android phone (from the request's user agent; decided on the server, so the page's first HTML is right). */
+export function isAndroid(userAgent: string | null | undefined): boolean {
+  return /\bAndroid\b/i.test(userAgent ?? "");
+}
+
+/**
+ * Directions on Android (2026-11-04): `geo:<lat>,<lng>?q=<lat>,<lng>(<name>)` — Android hands it to the Maps app (or
+ * lets the visitor choose a map app); the name is URL-encoded, "(" and ")" too (they would end the label). Only with
+ * the shop's map position; without one null (the Google Maps link stays).
+ */
+export function geoHref(shop: Pick<ContactShop, "lat" | "lng" | "name">): string | null {
+  if (shop.lat === null || shop.lng === null || shop.lat === undefined || shop.lng === undefined) return null;
+  const name = encodeURIComponent((shop.name ?? "").trim()).replace(/[()!'*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `geo:${shop.lat},${shop.lng}?q=${shop.lat},${shop.lng}${name ? `(${name})` : ""}`;
+}
+
 export interface ContactLabels {
   facebook: string;
   booking: string;
@@ -101,17 +119,22 @@ export interface ContactButtonData {
   color: string;
 }
 
-/** The buttons a shop shows, in the page's order. Shop data is shown as written (only spaces removed from tel:). */
-export function contactButtons(shop: ContactShop, widths: ContactWidths, labels: ContactLabels): ContactButtonData[] {
+/**
+ * The buttons a shop shows, in the page's order. Shop data is shown as written (only spaces removed from tel:).
+ * `android` (from `isAndroid()` of the request): Navigovať is a geo: link when the shop has a map position (the same
+ * tab; Android opens the Maps app); iPhones and computers keep the Google Maps link.
+ */
+export function contactButtons(shop: ContactShop, widths: ContactWidths, labels: ContactLabels, device: { android?: boolean } = {}): ContactButtonData[] {
   const value = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
   const phone = value(shop.phone);
   const email = value(shop.email);
+  const geo = device.android ? geoHref(shop) : null;
   const links: Record<ContactKey, { href: string | null; label: string; newTab: boolean }> = {
     facebook: { href: value(shop.facebook_url), label: labels.facebook, newTab: true },
     booking: { href: value(shop.booking_url), label: labels.booking, newTab: true },
     web: { href: value(shop.website), label: labels.web, newTab: true },
     email: { href: email ? `mailto:${email}` : null, label: email ?? "", newTab: false },
-    navigate: { href: navigateHref(shop), label: labels.navigate, newTab: true },
+    navigate: geo ? { href: geo, label: labels.navigate, newTab: false } : { href: navigateHref(shop), label: labels.navigate, newTab: true },
     phone: { href: phone ? `tel:${phone.replace(/\s+/g, "")}` : null, label: phone ?? "", newTab: false },
   };
   return CONTACT_KEYS.flatMap((key) => {
@@ -143,10 +166,10 @@ export function gridPlaces(buttons: { width: ContactWidth }[]): { row: number; c
 
 /**
  * A label that would not fit at 15 px is set at 12.5 px (never cut, never wrapped): decided from the longest of its
- * three texts (the label, "Držte stlačené", the done label with its check), in characters of Quicksand 600 —
+ * texts (the label, "Držte stlačené", "Pustite" and the done label with their check), in characters of Quicksand 600 —
  * a short button holds about 16 at 15 px on a 390 px phone, a long one about 36.
  */
-export function smallLabel(texts: { label: string; hold: string; done: string }, width: ContactWidth): boolean {
-  const longest = Math.max([...texts.label].length, [...texts.hold].length, [...texts.done].length + 4);
+export function smallLabel(texts: { label: string; hold: string; release?: string; done: string }, width: ContactWidth): boolean {
+  const longest = Math.max([...texts.label].length, [...texts.hold].length, [...(texts.release ?? "")].length + 4, [...texts.done].length + 4);
   return longest > (width === "long" ? 36 : 16);
 }

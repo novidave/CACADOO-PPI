@@ -110,6 +110,7 @@ export function ContentSlider({
   first = false,
   articles,
   hold,
+  release,
 }: {
   views: SlideView[];
   title: string;
@@ -127,6 +128,8 @@ export function ContentSlider({
   articles?: Record<string, ReactNode>;
   /** "Držte stlačené" for "Všetky novinky". */
   hold?: string;
+  /** "Pustite" (a finger's hold is complete; the link opens on release) */
+  release?: string;
 }) {
   const region = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLOListElement>(null);
@@ -443,6 +446,7 @@ export function ContentSlider({
                           newTab={false}
                           label={labels.all_news}
                           holdLabel={hold ?? labels.all_news}
+                          releaseLabel={release ?? labels.all_news}
                           doneLabel={labels.all_news_done}
                           className="ppi-hold-news ppi-hold-pri"
                           data={{ "post-all-news": "" }}

@@ -1,5 +1,6 @@
 // Unit tests (Deno) of the shop page's contact buttons (database update 51): order, hidden empty buttons, links,
-// widths and their defaults, where the buttons land in the two columns, and directions by position or address.
+// widths and their defaults, where the buttons land in the two columns, directions by position or address, and
+// Navigovať on Android = a geo: link (2026-11-04, decided from the request's user agent).
 // Run: npm run test:site
 import { assertEquals } from "jsr:@std/assert@1";
 import {
@@ -7,7 +8,9 @@ import {
   contactButtons,
   contactWidths,
   DEFAULT_WIDTHS,
+  geoHref,
   gridPlaces,
+  isAndroid,
   navigateHref,
   smallLabel,
   widthChoices,
@@ -16,6 +19,7 @@ import {
 
 const labels = { facebook: "Facebook", booking: "Rezervovať termín", web: "Web", navigate: "Navigovať" };
 const full: ContactShop = {
+  name: "Farby Košice",
   facebook_url: "https://www.facebook.com/farby",
   booking_url: "https://booking.example.com/farby",
   website: "https://farby.example.sk",
@@ -60,6 +64,50 @@ Deno.test("directions go to the map position, else to the written address", () =
   assertEquals(navigateHref({ ...full, lat: null, lng: null, address: null, city: null }), null);
 });
 
+const UA = {
+  pixel: "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
+  samsung: "Mozilla/5.0 (Linux; Android 13; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36",
+  firefox: "Mozilla/5.0 (Android 14; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0",
+  iphone: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+  ipad: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+  windows: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  linux: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+};
+
+Deno.test("Android from the user agent: phones and tablets with Android only", () => {
+  assertEquals([UA.pixel, UA.samsung, UA.firefox].map(isAndroid), [true, true, true]);
+  assertEquals([UA.iphone, UA.ipad, UA.windows, UA.linux, "", null, undefined].map(isAndroid), [false, false, false, false, false, false, false]);
+});
+
+Deno.test("Navigovať on Android with a map position = geo: with the shop's name (the Maps app), in this tab", () => {
+  const nav = contactButtons(full, DEFAULT_WIDTHS, labels, { android: isAndroid(UA.pixel) }).find((b) => b.key === "navigate")!;
+  assertEquals(nav.href, "geo:48.72,21.26?q=48.72,21.26(Farby%20Ko%C5%A1ice)");
+  assertEquals(nav.newTab, false);
+  // the name is URL-encoded, brackets too (they would end the label)
+  assertEquals(geoHref({ lat: 48.1, lng: 17.1, name: "Ján & syn (Farby) 100%" }), "geo:48.1,17.1?q=48.1,17.1(J%C3%A1n%20%26%20syn%20%28Farby%29%20100%25)");
+  // no name: the point only
+  assertEquals(geoHref({ lat: 48.1, lng: 17.1, name: " " }), "geo:48.1,17.1?q=48.1,17.1");
+  // the other buttons keep their links
+  const android = contactButtons(full, DEFAULT_WIDTHS, labels, { android: true });
+  const other = contactButtons(full, DEFAULT_WIDTHS, labels);
+  assertEquals(android.filter((b) => b.key !== "navigate"), other.filter((b) => b.key !== "navigate"));
+});
+
+Deno.test("Navigovať without a map position, on an iPhone or a computer = the Google Maps link as before", () => {
+  const noPoint = contactButtons({ ...full, lat: null, lng: null }, DEFAULT_WIDTHS, labels, { android: true }).find((b) => b.key === "navigate")!;
+  assertEquals(noPoint.href, "https://www.google.com/maps/dir/?api=1&destination=" + encodeURIComponent("Hlavná 1, 040 01 Košice, SK"));
+  assertEquals(noPoint.newTab, true);
+  assertEquals(geoHref({ lat: null, lng: null, name: "x" }), null);
+  for (const ua of [UA.iphone, UA.ipad, UA.windows, UA.linux]) {
+    const nav = contactButtons(full, DEFAULT_WIDTHS, labels, { android: isAndroid(ua) }).find((b) => b.key === "navigate")!;
+    assertEquals(nav.href, "https://www.google.com/maps/dir/?api=1&destination=48.72,21.26");
+    assertEquals(nav.newTab, true);
+  }
+  // nothing to navigate to: no button, on Android too
+  const none = contactButtons({ ...full, lat: null, lng: null, address: null, city: null }, DEFAULT_WIDTHS, labels, { android: true });
+  assertEquals(none.some((b) => b.key === "navigate"), false);
+});
+
 Deno.test("widths: e-mail long, the others short, unless the owner chose", () => {
   assertEquals(contactWidths({}), DEFAULT_WIDTHS);
   assertEquals(contactWidths(null), DEFAULT_WIDTHS);
@@ -95,4 +143,7 @@ Deno.test("a label that would not fit is set smaller (Screen 11: decided from th
   assertEquals(smallLabel({ label: "obchod@potraviny-centrum.example.sk", ...sk }, "long"), false);
   assertEquals(smallLabel({ label: "obchod@potraviny-centrum.example.sk", ...sk }, "short"), true);
   assertEquals(smallLabel({ label: "nakup.informacie@velmi-dlha-domena-obchodu.example.sk", ...sk }, "long"), true);
+  // "Pustite" (with its check) counts too: the three languages fit a short button, a long text would not
+  for (const release of ["Pustite", "Engedje el", "Let go"]) assertEquals(smallLabel({ label: "Web", ...sk, release }, "short"), false);
+  assertEquals(smallLabel({ label: "Web", ...sk, release: "Teraz prst pustite, prosím" }, "short"), true);
 });

@@ -1,25 +1,65 @@
+import type { Page } from "@playwright/test";
 import { expect, sk, SHOP, test, watchConsole } from "./helpers";
 
 /**
  * The shop page's contact buttons (update 51, Screen 11): real links, press and hold. A quick tap only says "Držte
- * stlačené", letting go early or sliding off cancels, holding 1.2 s opens the link; Enter / Space open it at once; no
- * shadows, no context menu, no text selection.
+ * stlačené", letting go early or sliding off cancels; a mouse held 1.2 s opens the link, a finger held 1.2 s sees
+ * "Pustite" and the link opens ON RELEASE — a real click on the link inside the touchend handler (2026-11-04: a phone
+ * hands a link to its Maps / phone / e-mail app only from a gesture, never from a timer); Enter / Space open it at
+ * once; no shadows, no context menu, no text selection. Navigovať on Android = a geo: link. Runs on Pixel 7 and on an
+ * iPhone-sized screen.
  */
-test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
-  const console = watchConsole(page);
-  // window.open is recorded, not followed (the test stays on the page)
+
+interface Recorded {
+  opened: string[];
+  /** our own clicks on a hold link: where to, whether inside a touchend, and the target at that moment */
+  followed: { href: string | null; inRelease: boolean; target: string | null }[];
+  inRelease: boolean;
+  /** let the recorded clicks navigate (else they are recorded only) */
+  allow: boolean;
+}
+
+/** window.open and the hold links' own clicks are recorded, not followed (the test stays on the page). */
+async function record(page: Page) {
   await page.addInitScript(() => {
-    const w = window as unknown as { opened: string[] };
+    const w = window as unknown as Recorded;
     w.opened = [];
+    w.followed = [];
+    w.inRelease = false;
+    w.allow = false;
     window.open = ((url?: string | URL) => {
       w.opened.push(String(url));
       return null;
     }) as typeof window.open;
+    // true while a touchend is being handled (window capture is first, window bubble last)
+    window.addEventListener("touchend", () => (w.inRelease = true), true);
+    window.addEventListener("touchend", () => (w.inRelease = false));
+    document.addEventListener(
+      "click",
+      (e) => {
+        const a = (e.target as Element | null)?.closest?.("a[data-hold-link]");
+        if (!a || e.isTrusted) return;
+        w.followed.push({ href: a.getAttribute("href"), inRelease: w.inRelease, target: a.getAttribute("target") });
+        if (!w.allow) e.preventDefault();
+      },
+      true,
+    );
   });
+  return {
+    opened: () => page.evaluate(() => (window as unknown as Recorded).opened),
+    followed: () => page.evaluate(() => (window as unknown as Recorded).followed),
+    allow: () => page.evaluate(() => void ((window as unknown as Recorded).allow = true)),
+  };
+}
+
+test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
+  const console = watchConsole(page);
+  const rec = await record(page);
   await page.goto(`/sk/shops/${SHOP}`);
   const group = page.locator("[data-contact-buttons]");
   test.skip((await group.count()) === 0, "this shop has no contact links");
-  const opened = () => page.evaluate(() => (window as unknown as { opened: string[] }).opened);
+  // a new tab (window.open) or this tab (the link's own click): every way a hold link opens
+  const opened = async () => [...(await rec.opened()), ...(await rec.followed()).map((f) => f.href ?? "")];
 
   const buttons = group.locator("a[data-contact]");
   const keys = await buttons.evaluateAll((all) => all.map((b) => (b as HTMLElement).dataset.contact));
@@ -46,8 +86,8 @@ test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
   const box = (await tab.boundingBox())!;
   const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-  // every button is a real link (works without JavaScript)
-  expect(await tab.getAttribute("href")).toMatch(/^https:\/\//);
+  // every button is a real link (works without JavaScript; Navigovať on Android = geo:)
+  expect(await tab.getAttribute("href")).toMatch(/^(https:\/\/|geo:)/);
 
   // a quick tap: "Držte stlačené" for a moment, nothing opens
   await tab.click();
@@ -106,25 +146,33 @@ test("contact buttons: hold to open, a tap does nothing", async ({ page }) => {
 });
 
 /**
- * A finger, as on a real phone: no user gesture to open a pop-up (touchstart gives none, no click after a long press).
- * So on a phone the link loads in the SAME tab the moment the hold completes — no pop-up, no gesture needed, never
- * blocked. A short touch and a touch that slides off load nothing.
+ * A finger, as on a real phone: the hold fills for 1.2 s, then "Pustite" — nothing opens while the finger is down. The
+ * link opens when it lets go: a real click on the link inside the touchend handler, in this tab (the phone may hand it
+ * to its app). A short touch, a touch that slides off while holding and one that slides off after "Pustite" open
+ * nothing.
  */
-test("contact buttons: a finger hold opens the link in the same tab", async ({ page, context }) => {
-  await page.addInitScript(() => {
-    const w = window as unknown as { opened: string[] };
-    w.opened = [];
-    window.open = ((url?: string | URL) => {
-      w.opened.push(String(url));
-      return null;
-    }) as typeof window.open;
-  });
+test("contact buttons: a finger hold opens the link on release, in the same tab", async ({ page, context }) => {
+  const rec = await record(page);
   await page.goto(`/sk/shops/${SHOP}`);
   const group = page.locator("[data-contact-buttons]");
   test.skip((await group.count()) === 0, "this shop has no contact links");
-  const tab = group.locator('[data-contact="facebook"], [data-contact="booking"], [data-contact="web"], [data-contact="navigate"]').first();
+  const nav = group.locator('[data-contact="navigate"]');
+  const tab = (await nav.count()) ? nav : group.locator('[data-contact="facebook"], [data-contact="booking"], [data-contact="web"]').first();
+  test.skip((await tab.count()) === 0, "this shop has no link to open");
+  const href = (await tab.getAttribute("href")) ?? "";
+
+  // Navigovať: geo: on Android when the shop has a map position, the Google Maps link elsewhere
+  const android = await page.evaluate(() => /\bAndroid\b/i.test(navigator.userAgent));
+  if ((await tab.getAttribute("data-contact")) === "navigate") {
+    if (android) expect(href, "Android with a map position gets geo:").not.toMatch(/destination=-?\d+(\.\d+)?,-?\d+/);
+    else expect(href).toMatch(/^https:\/\/www\.google\.com\/maps\/dir\//);
+    if (href.startsWith("geo:")) {
+      expect(href).toMatch(/^geo:-?\d+(\.\d+)?,-?\d+(\.\d+)?\?q=-?\d+(\.\d+)?,-?\d+(\.\d+)?(\([^()]*\))?$/);
+      expect(await tab.getAttribute("target")).toBeNull();
+    }
+  }
+
   // the link's page, answered here (no request leaves the test machine)
-  const target = await tab.evaluate((el) => el.getAttribute("data-contact"));
   const visited: string[] = [];
   await context.route(
     (url) => !url.href.startsWith(new URL(page.url()).origin),
@@ -135,30 +183,63 @@ test("contact buttons: a finger hold opens the link in the same tab", async ({ p
   );
   const box = (await tab.boundingBox())!;
   const at = [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }];
+  const off = [{ x: at[0].x, y: box.y + box.height + 60 }];
   const cdp = await context.newCDPSession(page);
   const touch = (type: "touchStart" | "touchMove" | "touchEnd", points = at) =>
     cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : points });
 
-  // a short touch: nothing
+  // a short touch: "Držte stlačené", nothing
   await touch("touchStart");
   await page.waitForTimeout(200);
   await touch("touchEnd");
+  await expect(tab).toHaveAttribute("data-phase", "hint");
   await page.waitForTimeout(1500);
-  expect(visited).toEqual([]);
+  expect(await rec.followed()).toEqual([]);
 
-  // slide off: nothing
+  // slide off while holding: nothing
   await touch("touchStart");
   await page.waitForTimeout(300);
-  await touch("touchMove", [{ x: at[0].x, y: box.y + box.height + 60 }]);
+  await touch("touchMove", off);
   await expect(tab).toHaveAttribute("data-phase", "idle");
   await page.waitForTimeout(1300);
   await touch("touchEnd");
-  expect(visited).toEqual([]);
+  expect(await rec.followed()).toEqual([]);
 
-  // hold: at 1.2 s the link loads in this tab while the finger is still down; no pop-up
+  // held 1.3 s: "Pustite" with the check, still nothing opened while the finger is down
   await touch("touchStart");
-  await expect.poll(() => visited.length, { timeout: 3000 }).toBe(1);
-  expect(await page.evaluate(() => (window as unknown as { opened?: string[] }).opened ?? [])).toEqual([]);
-  await touch("touchEnd").catch(() => {});
-  expect(target).toBeTruthy();
+  await page.waitForTimeout(1300);
+  await expect(tab).toHaveAttribute("data-phase", "ready");
+  await expect(tab.locator(".ppi-cb-layer")).toHaveText(sk.contact_buttons.release);
+  await expect(tab.locator(".ppi-cb-badge svg")).toBeVisible();
+  expect(await rec.followed()).toEqual([]);
+  expect(visited).toEqual([]);
+  // … then slides off: nothing, also when it lets go
+  await touch("touchMove", off);
+  await expect(tab).toHaveAttribute("data-phase", "idle");
+  await touch("touchEnd");
+  await page.waitForTimeout(400);
+  expect(await rec.followed()).toEqual([]);
+
+  // held 1.3 s and released: the link's own click, inside the touchend handler, in this tab (no target)
+  await touch("touchStart");
+  await page.waitForTimeout(1300);
+  await expect(tab).toHaveAttribute("data-phase", "ready");
+  expect(await rec.followed()).toEqual([]);
+  await touch("touchEnd");
+  expect(await rec.followed()).toEqual([{ href, inRelease: true, target: null }]);
+  await expect(tab).toHaveAttribute("data-phase", "done");
+  await expect(page.locator("[data-contact-announce]")).toContainText(":");
+  expect(await rec.opened(), "no pop-up").toEqual([]);
+  await expect(tab).toHaveAttribute("data-phase", "idle", { timeout: 3500 });
+
+  // an https link really loads in this tab on the release (geo: is handed to the phone's app, not loaded here)
+  if (href.startsWith("https://")) {
+    await rec.allow();
+    await touch("touchStart");
+    await page.waitForTimeout(1300);
+    expect(visited).toEqual([]);
+    await touch("touchEnd");
+    await expect.poll(() => visited.length, { timeout: 3000 }).toBe(1);
+    expect(visited[0]).toBe(href);
+  }
 });

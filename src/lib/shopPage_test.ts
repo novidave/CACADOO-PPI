@@ -1,9 +1,10 @@
 // Unit tests (Deno) of the shop page's Screen 11 rules (2026-10-31): the hold links (contact buttons and "Všetky
-// novinky": a finger or a mouse holds 1.2 s, a short tap only says "Držte stlačené", Enter / Space and a screen
-// reader's activation open at once) and the stock circle (the database's label → green / red / yellow, with the
-// status in words). Run: npm run test:site
+// novinky": a finger or a mouse holds 1.2 s — a finger then sees "Pustite" and the link opens on its release, inside
+// the release's handler (2026-11-04) —, a short tap only says "Držte stlačené", sliding off cancels, Enter / Space and
+// a screen reader's activation open at once) and the stock circle (the database's label → green / red / yellow, with
+// the status in words). Run: npm run test:site
 import { assertEquals } from "jsr:@std/assert@1";
-import { DONE_MS, HINT_MS, HOLD_MS, holdLabel, holdStep, IDLE, type HoldEvent, type HoldState } from "./holdLink.ts";
+import { DONE_MS, HINT_MS, HOLD_MS, holdLabel, holdStep, IDLE, releaseBy, type HoldEvent, type HoldState } from "./holdLink.ts";
 import { STOCK_BORDERS, STOCK_COLORS, STOCK_WORDS, stockState } from "./stockDot.ts";
 
 const run = (events: HoldEvent[], from: HoldState = IDLE) => {
@@ -19,16 +20,46 @@ const run = (events: HoldEvent[], from: HoldState = IDLE) => {
   return { state, opened, timers };
 };
 
-Deno.test("hold: a finger held 1.2 s opens the link in the same tab, then idle", () => {
+Deno.test("hold: a finger held 1.2 s says 'Pustite' and opens nothing until it lets go", () => {
   const r = run([{ type: "press", input: "touch" }, { type: "timer" }]);
-  assertEquals(r.state.phase, "done");
-  assertEquals(r.opened, ["same"]);
-  assertEquals(r.timers, [HOLD_MS, DONE_MS]);
-  assertEquals(run([{ type: "timer" }], r.state).state, IDLE);
+  assertEquals(r.state, { phase: "ready", input: "touch" });
+  assertEquals(r.opened, []);
+  // no timer while ready: the link never opens from a timer (a phone hands a link to its app only from a gesture)
+  assertEquals(r.timers, [HOLD_MS, null]);
+  assertEquals(run([{ type: "timer" }], r.state), { state: r.state, opened: [], timers: [undefined] });
 });
 
-Deno.test("hold: a mouse held 1.2 s opens as the link says (a new tab inside its gesture)", () => {
-  assertEquals(run([{ type: "press", input: "mouse" }, { type: "timer" }]).opened, ["tab"]);
+Deno.test("hold: the release after the fill opens the link (in this tab, by the release), then idle", () => {
+  const r = run([{ type: "press", input: "touch" }, { type: "timer" }, { type: "release" }]);
+  assertEquals(r.state.phase, "done");
+  assertEquals(r.opened, ["release"]);
+  assertEquals(r.timers.at(-1), DONE_MS);
+  // once: a second release (the pointerup and the touchend of one lift) opens nothing more
+  assertEquals(run([{ type: "release" }], r.state).opened, []);
+  assertEquals(run([{ type: "timer" }], r.state).state, IDLE);
+  // a pen too
+  assertEquals(run([{ type: "press", input: "pen" }, { type: "timer" }, { type: "release" }]).opened, ["release"]);
+});
+
+Deno.test("hold: sliding off after 'Pustite' cancels — the release then opens nothing", () => {
+  const r = run([{ type: "press", input: "touch" }, { type: "timer" }, { type: "cancel" }, { type: "release" }]);
+  assertEquals(r.state, IDLE);
+  assertEquals(r.opened, []);
+});
+
+Deno.test("hold: who handles a finger's release — touchend on a phone, pointerup for a pen or without touch events", () => {
+  assertEquals(releaseBy("touch", true), "touchend");
+  assertEquals(releaseBy("touch", false), "pointerup");
+  assertEquals(releaseBy("pen", false), "pointerup");
+  assertEquals(releaseBy("pen", true), "pointerup");
+});
+
+Deno.test("hold: a mouse held 1.2 s opens as the link says at once (a new tab inside its gesture), as before", () => {
+  const r = run([{ type: "press", input: "mouse" }, { type: "timer" }]);
+  assertEquals(r.state.phase, "done");
+  assertEquals(r.opened, ["tab"]);
+  // its release afterwards opens nothing more
+  assertEquals(run([{ type: "release" }], r.state).opened, []);
 });
 
 Deno.test("hold: a short tap only says 'Držte stlačené', then idle; nothing opens", () => {
@@ -44,6 +75,10 @@ Deno.test("hold: sliding off or losing the focus cancels at once", () => {
   const r = run([{ type: "press", input: "touch" }, { type: "cancel" }, { type: "timer" }]);
   assertEquals(r.state, IDLE);
   assertEquals(r.opened, []);
+  // letting go before 1.2 s still only hints, also when the release comes twice (pointerup + touchend)
+  const early = run([{ type: "press", input: "touch" }, { type: "release" }, { type: "release" }, { type: "timer" }]);
+  assertEquals(early.opened, []);
+  assertEquals(early.state, IDLE);
 });
 
 Deno.test("hold: the keyboard never holds — Enter / Space open at once with the done state", () => {
@@ -69,8 +104,11 @@ Deno.test("hold: back from the opened page (back-forward cache) → idle", () =>
 });
 
 Deno.test("hold: the label of each phase", () => {
-  const labels = { idle: "Facebook", hold: "Držte stlačené", done: "Otvorené" };
-  assertEquals(["idle", "holding", "hint", "done"].map((p) => holdLabel(p as never, labels)), ["Facebook", "Držte stlačené", "Držte stlačené", "Otvorené"]);
+  const labels = { idle: "Facebook", hold: "Držte stlačené", release: "Pustite", done: "Otvorené" };
+  assertEquals(
+    ["idle", "holding", "hint", "ready", "done"].map((p) => holdLabel(p as never, labels)),
+    ["Facebook", "Držte stlačené", "Držte stlačené", "Pustite", "Otvorené"],
+  );
 });
 
 Deno.test("stock circle: the database's label decides the colour, never recomputed", () => {

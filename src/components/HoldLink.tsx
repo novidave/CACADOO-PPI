@@ -1,9 +1,9 @@
 "use client";
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { holdStep, IDLE, type HoldEvent, type HoldInput, type HoldOpen, type HoldPhase, type HoldState } from "@/lib/holdLink";
+import { holdStep, IDLE, releaseBy, type HoldEvent, type HoldInput, type HoldOpen, type HoldPhase, type HoldState } from "@/lib/holdLink";
 
-type Face = "idle" | "hold" | "done";
+type Face = "idle" | "hold" | "ready" | "done";
 
 // The orange check is shown only after a hold (or a key): its code is not part of the page's first JavaScript; a press
 // or the focus fetches it, so it is there when the hold completes.
@@ -15,21 +15,24 @@ function inside(el: Element, x: number, y: number) {
   const r = el.getBoundingClientRect();
   return x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 4 && y <= r.bottom + 4;
 }
-const faceOf = (phase: HoldPhase): Face => (phase === "done" ? "done" : phase === "idle" ? "idle" : "hold");
+const faceOf = (phase: HoldPhase): Face => (phase === "done" ? "done" : phase === "ready" ? "ready" : phase === "idle" ? "idle" : "hold");
 
 
 /**
  * A real link (`<a href>`, so it works without JavaScript and for crawlers) that a finger or a mouse opens only after
- * holding it for 1.2 s (`@/lib/holdLink`): the fill grows, "Držte stlačené", then the done label with the orange check
- * and the link opens. A short tap shows "Držte stlačené" for a moment and does nothing. Enter / Space and a screen
- * reader's activation open it at once. No context menu, callout or text selection on a long press. Used by the shop
- * page's contact buttons and "Všetky novinky".
+ * holding it for 1.2 s (`@/lib/holdLink`): the fill grows, "Držte stlačené". A finger then sees the orange check and
+ * "Pustite" and the link opens when it lets go — a real click on the link inside the touchend handler, in this tab, so
+ * the phone hands Google Maps, a phone number or an e-mail to its app (a link opened from a timer stays in the
+ * browser). A mouse opens it at 1.2 s, as before. A short tap shows "Držte stlačené" for a moment and does nothing;
+ * sliding off cancels. Enter / Space and a screen reader's activation open it at once. No context menu, callout or
+ * text selection on a long press. Used by the shop page's contact buttons and "Všetky novinky".
  */
 export function HoldLink({
   href,
   newTab,
   label,
   holdLabel,
+  releaseLabel,
   doneLabel,
   ariaLabel,
   className,
@@ -42,6 +45,8 @@ export function HoldLink({
   newTab: boolean;
   label: string;
   holdLabel: string;
+  /** "Pustite": a finger's hold is complete, the link opens on release */
+  releaseLabel: string;
   doneLabel: string;
   ariaLabel?: string;
   className: string;
@@ -59,20 +64,46 @@ export function HoldLink({
   const state = useRef<HoldState>(IDLE);
   const timer = useRef<number | undefined>(undefined);
   const pressed = useRef(false);
+  // this press came with touch events (a phone): the touchend handler opens the link, not the pointerup before it
+  const touched = useRef(false);
+  // the pointer was lifted: the pointerleave that follows a touch's pointerup is not a slide-off
+  const lifted = useRef(false);
+  // our own click on the link (the release): the browser follows it
+  const following = useRef(false);
+  // a lifted finger whose touchend never came: back to idle (nothing opens without the release's gesture)
+  const lostRelease = useRef<number | undefined>(undefined);
   // A mouse hold whose gesture ran out before 1.2 s (a browser without a long activation): opens on the release.
   const pending = useRef(false);
   const ref = useRef<HTMLAnchorElement>(null);
   // the phase timer calls the newest dispatch (set below)
   const onTimer = useRef<() => void>(() => {});
 
+  /** A real click on the link, in this tab: the browser follows it as a tap would (and may hand it to an app). */
+  const follow = useCallback(() => {
+    const a = ref.current;
+    if (!a) {
+      window.location.assign(href);
+      return;
+    }
+    const target = a.getAttribute("target");
+    if (target) a.removeAttribute("target");
+    following.current = true;
+    try {
+      a.click();
+    } finally {
+      following.current = false;
+      if (target) a.setAttribute("target", target);
+    }
+  }, [href]);
+
   const open = useCallback(
     (how: HoldOpen) => {
       pending.current = false;
       if (how === "native") return;
-      if (newTab && how === "tab") window.open(href, "_blank", "noopener");
-      else window.location.assign(href);
+      if (how === "release" || !newTab) follow();
+      else window.open(href, "_blank", "noopener");
     },
-    [href, newTab],
+    [follow, href, newTab],
   );
 
   const dispatch = useCallback(
@@ -101,17 +132,36 @@ export function HoldLink({
     [newTab, onDone, open],
   );
 
+  /** The finger or the pen let go: before 1.2 s a hint, after it the link opens here (inside the release's handler). */
+  const release = useCallback(
+    (by: "touchend" | "pointerup") => {
+      const phase = state.current.phase;
+      if (phase !== "holding" && phase !== "ready") return false;
+      if (phase === "ready" && releaseBy(state.current.input, touched.current) !== by) return false;
+      dispatch({ type: "release" });
+      return true;
+    },
+    [dispatch],
+  );
+
   useEffect(() => {
     onTimer.current = () => dispatch({ type: "timer" });
   }, [dispatch]);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current);
+      window.clearTimeout(lostRelease.current);
+    },
+    [],
+  );
 
   // The touch belongs to the link: no long-press menu, callout, selection or scroll from it (pointer events still come;
-  // without a click a tap never follows the link — only the hold does).
+  // without a click a tap never follows the link — only the hold and the release do).
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const stop = (e: TouchEvent) => {
+      touched.current = true;
       if (e.cancelable) e.preventDefault();
     };
     el.addEventListener("touchstart", stop, { passive: false });
@@ -131,14 +181,14 @@ export function HoldLink({
   }, [dispatch]);
 
   const content = (face: Face, key: number) =>
-    face === "done" ? (
+    face === "done" || face === "ready" ? (
       <>
         <span className="ppi-cb-badge" aria-hidden="true">
           <Suspense fallback={null}>
             <CheckLoop key={key} />
           </Suspense>
         </span>
-        {doneLabel}
+        {face === "ready" ? releaseLabel : doneLabel}
       </>
     ) : face === "hold" ? (
       holdLabel
@@ -164,6 +214,8 @@ export function HoldLink({
       onPointerDown={(e) => {
         if (!e.isPrimary || e.button !== 0) return;
         pressed.current = true;
+        touched.current = false;
+        lifted.current = false;
         void loadCheck();
         // without capture the pointer can slide off the link, which cancels
         try {
@@ -174,20 +226,34 @@ export function HoldLink({
         dispatch({ type: "press", input: input(e.pointerType) });
       }}
       onPointerUp={() => {
-        if (state.current.phase === "holding") dispatch({ type: "release" });
-        else if (pending.current) open("tab");
+        lifted.current = true;
+        if (!release("pointerup") && pending.current) open("tab");
+        if (state.current.phase === "ready") {
+          window.clearTimeout(lostRelease.current);
+          lostRelease.current = window.setTimeout(() => {
+            if (state.current.phase === "ready") dispatch({ type: "cancel" });
+          }, 600);
+        }
       }}
+      // a phone: the release that opens the link (this handler is the user's gesture)
       onTouchEnd={() => {
-        if (state.current.phase === "holding") dispatch({ type: "release" });
+        window.clearTimeout(lostRelease.current);
+        release("touchend");
       }}
-      onPointerLeave={() => dispatch({ type: "cancel" })}
+      onPointerLeave={(e) => {
+        // a lifted finger leaves the link too: that is the release, not a slide-off
+        if (lifted.current && e.pointerType !== "mouse") return;
+        dispatch({ type: "cancel" });
+      }}
       // A finger keeps its pointer on a link even when it slides away: off the link = cancel.
       onPointerMove={(e) => {
-        if (state.current.phase === "holding" && !inside(e.currentTarget, e.clientX, e.clientY)) dispatch({ type: "cancel" });
+        const held = state.current.phase === "holding" || state.current.phase === "ready";
+        if (held && !inside(e.currentTarget, e.clientX, e.clientY)) dispatch({ type: "cancel" });
       }}
       onTouchMove={(e) => {
         const t = e.touches[0];
-        if (t && state.current.phase === "holding" && !inside(e.currentTarget, t.clientX, t.clientY)) dispatch({ type: "cancel" });
+        const held = state.current.phase === "holding" || state.current.phase === "ready";
+        if (t && held && !inside(e.currentTarget, t.clientX, t.clientY)) dispatch({ type: "cancel" });
       }}
       onPointerCancel={() => dispatch({ type: "cancel" })}
       onBlur={() => dispatch({ type: "cancel" })}
@@ -201,6 +267,11 @@ export function HoldLink({
         if (e.key === " ") e.preventDefault();
       }}
       onClick={(e) => {
+        // Our own click (the release or a same-tab open): the browser follows the link.
+        if (following.current) {
+          pressed.current = false;
+          return;
+        }
         // A click after a press is the browser's own: the hold decides, never the click.
         if (pressed.current) {
           pressed.current = false;
@@ -218,7 +289,7 @@ export function HoldLink({
       <span className="ppi-cb-clip" aria-hidden="true">
         <span className="ppi-cb-fill" />
       </span>
-      {phase === "done" && <span key={turn} className="ppi-cb-ring" aria-hidden="true" />}
+      {(phase === "done" || phase === "ready") && <span key={turn} className="ppi-cb-ring" aria-hidden="true" />}
       <span className="ppi-cb-label" aria-hidden="true">
         <span key={turn} className="ppi-cb-layer" data-entering={turn > 0 || undefined}>
           {content(faceOf(phase), turn)}
