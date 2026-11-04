@@ -2,6 +2,8 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { callerHash } from "@/lib/apiHttp";
 import { archiveEnabled, cleanConversation, type Conversation, openConversation, recordTurn, uploadUrl } from "@/lib/assistantArchive";
 import { getSession } from "@/lib/auth";
+import { cleanChatList, type ChatListLine, LIST_QUESTION, listAttachmentText } from "@/lib/chatList";
+import { getDictionary } from "@/i18n/dictionaries";
 import { docsToken } from "@/lib/docsAccess";
 import {
   type ChatAttachment,
@@ -18,7 +20,8 @@ import {
 
 /**
  * POST {lang, history: [{role, text}], message, attachments?: [{id, name, kind, image?, text?}],
- * conversation?: {id, token}} from the AI assistant on a shop page. Answers {answer, cards,
+ * list?: [{id, name, original, qty}], conversation?: {id, token}} from the AI assistant on a shop page. `list` = the
+ * shopper's own shopping list from the page (2026-11-04; pieces and names only — `cleanChatList` reads nothing else). Answers {answer, cards,
  * list, photo, sources, pictures, docPrices, callShop, conversation} or {error}: unavailable,
  * not_found, no_plan, caller_limit, shop_limit, bad_request, bad_photo, failed. The shop
  * comes from the address; the assistant's tools only ever see that shop. With the archive
@@ -41,7 +44,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
   const { slug } = await ctx.params;
   if (!shopChatEnabled()) return failed("unavailable", 503);
 
-  let body: { lang?: unknown; history?: unknown; message?: unknown; attachments?: unknown; conversation?: unknown };
+  let body: { lang?: unknown; history?: unknown; message?: unknown; attachments?: unknown; list?: unknown; conversation?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -51,8 +54,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
   const lang = typeof body?.lang === "string" && isLocale(body.lang) ? body.lang : "en";
   const attachments = cleanAttachments(body?.attachments);
   if (attachments === null) return failed("bad_photo", 400);
+  const list = cleanChatList(body?.list);
+  if (list === null) return failed("bad_request", 400);
   const message = hideAccessKeys((typeof body?.message === "string" ? body.message.trim() : "").slice(0, MAX_TEXT));
-  if (!message && attachments.length === 0) return failed("bad_request", 400);
+  if (!message && attachments.length === 0 && list.length === 0) return failed("bad_request", 400);
 
   try {
     const shop = await chatShop(slug);
@@ -63,7 +68,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
     // Files sent without words: the files are the question.
     const question =
       message ||
-      (attachments.some((a) => a.kind !== "pdf")
+      (attachments.length === 0
+        ? LIST_QUESTION
+        : attachments.some((a) => a.kind !== "pdf")
         ? "What is on this photo, and does this shop have it?"
         : "Please look at the attached file: which of these things does this shop have?");
     // The access-key session (cookie) goes only to the database, never to the AI.
@@ -73,9 +80,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
     const opened = archiveEnabled() && !given ? await openConversation(shop.id, lang, callerHash(request)) : null;
     const conversation = given ?? opened?.data ?? null;
     const result = await runShopChat(shop, lang, cleanHistory(body?.history), question, attachments, token,
-      conversation ? { id: conversation.id, token: conversation.token } : null);
+      conversation ? { id: conversation.id, token: conversation.token } : null, list);
     const kept = conversation
-      ? await archive(request, shop.id, lang, conversation, result, { message, receivedAt, attachments })
+      ? await archive(request, shop.id, lang, conversation, result, { message, receivedAt, attachments, list })
       : null;
     // The archive's address for the shopper's files and their own PDF ("Stiahnuť túto konverzáciu").
     return reply({ ...result.reply, conversation: kept, upload: kept ? uploadUrl() : undefined });
@@ -95,11 +102,14 @@ async function archive(
   lang: Locale,
   conversation: Conversation,
   result: ChatResult,
-  sent: { message: string; receivedAt: string; attachments: ChatAttachment[] },
+  sent: { message: string; receivedAt: string; attachments: ChatAttachment[]; list: ChatListLine[] },
 ): Promise<Conversation | null> {
+  // The shopper's list goes into the archive as the lines they sent (the owner reads it in Slovak too).
+  const listed = async (language: Locale) => listAttachmentText(sent.list, (await getDictionary(language)).chat.list_mine);
+  const join = (...parts: (string | null)[]) => parts.filter(Boolean).join("\n\n");
   const shopper = {
-    body: sent.message,
-    body_owner: result.archive.messageOwner,
+    body: join(sent.message, await listed(lang)),
+    body_owner: result.archive.messageOwner && join(result.archive.messageOwner, await listed("sk")),
     lang: result.archive.language,
     at: sent.receivedAt,
     attachments: sent.attachments.flatMap((a) => (a.id ? [a.id] : [])),

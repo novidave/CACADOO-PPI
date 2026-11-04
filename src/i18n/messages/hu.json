@@ -356,7 +356,9 @@
     "filter_empty": "Ebben a szűrőben nincs termék.",
     "shopper_sees": "Mit lát a vásárló",
     "shopper_hidden_stale": "Rejtve – az adatok 24 óránál régebbiek",
-    "file_status_cleared": "Nincs feltöltött fájl · töltsön fel újat"
+    "file_status_cleared": "Nincs feltöltött fájl · töltsön fel újat",
+    "welcome_list_insert": "{zoznam} beillesztése az üdvözlő üzenetbe",
+    "welcome_list_hint": "A {zoznam} a vásárlónak egy kék buborékot mutat a bevásárlólistája darabszámával; koppintással beilleszti a csevegésbe. Koppintson a címkére, vagy húzza a szövegbe."
   },
   "items_bulk": {
     "pick": "Kijelölés",
@@ -844,7 +846,14 @@
     "order_err_sms_quota": "Az asszisztensen keresztüli rendelés most szünetel. Kérjük, hívja közvetlenül az üzletet.",
     "order_err_not_available": "A rendelés most ki van kapcsolva.",
     "order_err_conversation": "Frissítse az oldalt, és próbálja újra.",
-    "order_err_failed": "A rendelés nem sikerült. Próbálja újra."
+    "order_err_failed": "A rendelés nem sikerült. Próbálja újra.",
+    "list_mine": "Saját bevásárlólistám",
+    "list_attach": "Bevásárlólista beillesztése a csevegésbe",
+    "list_attach_n": "Bevásárlólista beillesztése a csevegésbe – {n} db",
+    "list_pieces": "{n} db",
+    "list_remove_attached": "Bevásárlólista eltávolítása az üzenetből",
+    "list_empty_hint": "A listája üres. Termékeket a Termékek részben az ár előtti pöttyre koppintva adhat hozzá.",
+    "list_attached": "A bevásárlólista az üzenethez csatolva."
   },
   "docs": {
     "title": "Dokumentumok az asszisztensnek",

@@ -7,6 +7,7 @@ import type { MyShop } from "@/lib/myShops";
 import { CalendarFeedForm } from "@/components/CalendarFeedForm";
 import { PendingButton } from "@/components/PendingButton";
 import { cardClass, ghostClass } from "@/components/owner/ui";
+import { WelcomeField } from "@/components/owner/WelcomeField";
 import { saveAssistantTexts } from "./actions";
 import { connectGoogle, disconnectGoogle } from "./bookings/actions";
 import {
@@ -125,9 +126,14 @@ export function AssistantSettings({
             <Field label={d.assistant_label}>
               <input name="assistant_label" maxLength={40} defaultValue={shop.assistant_label ?? ""} placeholder={dict.chat.title} className={inputClass} />
             </Field>
-            <Field label={d.assistant_welcome}>
-              <textarea name="assistant_welcome" maxLength={300} rows={3} defaultValue={shop.assistant_welcome ?? ""} placeholder={dict.chat.intro} className={inputClass} />
-            </Field>
+            <WelcomeField
+              label={d.assistant_welcome}
+              defaultValue={shop.assistant_welcome ?? ""}
+              placeholder={dict.chat.intro}
+              className={inputClass}
+              insertLabel={d.welcome_list_insert}
+              hint={d.welcome_list_hint}
+            />
             <p className="text-sm text-muted">{d.assistant_hint}</p>
             <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>
           </form>

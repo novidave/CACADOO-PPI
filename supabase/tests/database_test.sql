@@ -1675,6 +1675,9 @@ do $$ begin
   assert public.plain_text('farby.sk/akcia dnes', 300) = 'dnes', 'a bare web address is a link too';
   assert length(public.plain_text(repeat('a', 50), 40)) = 40;
   assert public.plain_text('  <br>  ', 40) is null, 'nothing left = the default text';
+  -- the welcome text's list bubble (2026-11-04): the token is plain text and stays exactly as written
+  assert public.plain_text('Váš nákupný zoznam {zoznam} vložíte do chatu ťuknutím.', 300)
+         = 'Váš nákupný zoznam {zoznam} vložíte do chatu ťuknutím.', '{zoznam} is kept';
 end $$;
 reset role;
 

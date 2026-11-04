@@ -356,7 +356,9 @@
     "filter_empty": "No items in this filter.",
     "shopper_sees": "What the shopper sees",
     "shopper_hidden_stale": "Hidden – data older than 24 h",
-    "file_status_cleared": "No uploaded file · upload a new one"
+    "file_status_cleared": "No uploaded file · upload a new one",
+    "welcome_list_insert": "Insert {zoznam} into the welcome message",
+    "welcome_list_hint": "{zoznam} shows the shopper a blue bubble with the number of pieces in their shopping list; a tap puts it into the chat. Tap the tag or drag it into the text."
   },
   "items_bulk": {
     "pick": "Select",
@@ -844,7 +846,14 @@
     "order_err_sms_quota": "Ordering through the assistant is paused right now. Please call the shop directly.",
     "order_err_not_available": "Orders are switched off right now.",
     "order_err_conversation": "Reload the page and try again.",
-    "order_err_failed": "The order did not go through. Please try again."
+    "order_err_failed": "The order did not go through. Please try again.",
+    "list_mine": "My shopping list",
+    "list_attach": "Put the shopping list into the chat",
+    "list_attach_n": "Put the shopping list into the chat – {n} pcs",
+    "list_pieces": "{n} pcs",
+    "list_remove_attached": "Remove the shopping list from the message",
+    "list_empty_hint": "Your list is empty. Add products by tapping the dot before the price in Products.",
+    "list_attached": "The shopping list is attached to the message."
   },
   "docs": {
     "title": "Documents for the assistant",

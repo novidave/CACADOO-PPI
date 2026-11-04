@@ -246,11 +246,13 @@ scrolls the slider's top back to the top of the screen (smooth, instant with `pr
 via `:has()`, white header), behind the cards (`isolate` + z-index −1), drifting with `animation-timeline: scroll()`
 (still without it), floating / swinging; nothing moves with `prefers-reduced-motion`. **Assistant**: first view = server HTML (`ShopAssistant`) + the small loader `AssistantBoot` (carries text, cursor,
 key row, a tapped "Poslať"); `ShopChat` the same look (`.ppi-ai*`): GDPR pill (`<details>`), "Pridať fotku alebo súbor",
-orange "Poslať" (plane, "Odoslané"), "Napíšte otázku alebo pridajte fotku". **Key row**: `@/components/KeyRow` (row) +
+orange "Poslať" (plane, "Odoslané"), "Napíšte otázku alebo pridajte fotku", the shopping list's bubble (below, "Shop
+assistant"; the server's first view draws the owner's {zoznam} as an empty bubble — never a number). **Key row**: `@/components/KeyRow` (row) +
 `@/components/KeyForm` (150 px "Otvoriť", `KeyVortex`: rings while checking, head + crest + badge on success; part of
 the assistant's code). **Styles**: every shop-page style (contact buttons, Produkty / Zoznam, the Screen 11 parts) lives in
 `@/components/shopPage.css`, imported by `ShopView` and `ContentSlider` only — never in globals.css, so no other page
-waits for it. Shop page first-load JS 148.9 kB (budget 150). e2e: `public.spec.ts` (slider, pills, Čítať,
+waits for it. The slider takes only its look helpers from `@/lib/slideLook` (no imports; `@/lib/pageContent`
+re-exports them), so the slot rules and excerpts never join the shop page's first JavaScript. Shop page first-load JS 148.9 kB (budget 150). e2e: `public.spec.ts` (slider, pills, Čítať,
 key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
 
 ## Commands
@@ -441,8 +443,9 @@ hidden at 0; "Spolu" per currency; "Zoznam je prázdny". **"Kopírovať zoznam"*
 "Nákupný zoznam – <shop>", its address (never shown in this section), "2× <name> – 19,80 €" (the shop's own name in
 brackets after a translation), "Spolu: …"; `navigator.clipboard` → `execCommand` → the text selected in a read-only
 box; success = solid blue, drawn check, "Skopírované" 2.2 s. **State:** localStorage `ppi.list.<shop id>` (try/catch:
-blocked storage keeps the list for the visit), names and prices as shown when added; never sent anywhere; no shop data
-changed. `aria-live` announcements (`shop.said_*`); `prefers-reduced-motion`: no balls or bounces, instant counters.
+blocked storage keeps the list for the visit), names and prices as shown when added; sent nowhere — except, when the
+shopper presses the assistant's list bubble, the pieces and names (never the prices, the total or the address) with
+that one chat message (below, "Shop assistant"); no shop data changed. `aria-live` announcements (`shop.said_*`); `prefers-reduced-motion`: no balls or bounces, instant counters.
 First-load JS: the shop page stays < 150 kB (its status line is `ShopStatusLine` → `LiveStatusLazy`: the hours rule
 loads after the page appears). e2e `e2e/shop-list.spec.ts` (Pixel 7 + an iPhone-sized project).
 
@@ -474,6 +477,25 @@ text of their first 5 pages (read in the browser), once; the files themselves ar
 (below), never logged; "found" without an item becomes "unsure". Every answer also returns `language`, `message_sk`,
 `answer_sk` for the archive. Access keys pasted into the chat become "[•••]" (`hideAccessKeys`). History: last 8
 messages, text only.
+**The shopping list in the assistant (2026-11-04, at the owner's request):** `@/lib/chatList` (no imports;
+`chatList_test.ts` in `npm run test:list`) + `ListBubble` / `SentList` in `ShopChat` + `@/lib/listDrop` + `.ppi-ai-bubble`,
+`.ppi-ai-listbtn`, `.ppi-ai-listchip` in `shopPage.css`. The round #2563EB bubble (white bold number, 1.5 px white ring,
+"9+" above nine) counts the pieces of the page's Zoznam from the same store (`listStore(shopId)` through
+`useSyncExternalStore`: live with every stock-dot tap, also from another tab); in the chat bar it sits on the Zoznam
+tab's list icon (a 44 px button "Vložiť nákupný zoznam do chatu", hidden at 0). Pressing it attaches the list to the
+next message as a chip ("Môj nákupný zoznam · 3 ks", × removes it; pressed again = the newest list) while a copy of the
+bubble arcs and falls onto the chip with one bounce (nothing moves with `prefers-reduced-motion`). The request carries
+`list: [{id, name, original, qty}]` only — never a price, a total or the address; `cleanChatList()` on the server reads
+nothing else (≤ 100 lines, UUID ids, 1–999 pieces, the same item added up). `runShopChat(…, list)` reads the shop's own
+items by id from `public_stock` (this shop only) and gives the AI `<shopping_list>` as data (`listForAi`: the
+database's name + the item's ref, which cards may use; unknown ids as names only); a list without words is the question
+`LIST_QUESTION`. The archive keeps the message + "Môj nákupný zoznam:" and the "2× name (shop's name)" lines (PDF, TXT,
+CSV), the chat shows them under "Vy", the next turns' history carries them as text. **{zoznam}:** the owner's welcome
+text (Asistent → Texty, `@/components/owner/WelcomeField`: a click puts the tag at the cursor, a drag drops it) may hold
+the token `LIST_TOKEN`; `plain_text()` and every translation keep it (translate's `samePlaceholders`, DB check);
+`welcomePieces()` renders the live bubble there ("0" at an empty list; pressed at 0 → "Váš zoznam je prázdny…"); without
+the token the welcome text has no bubble and the default text is unchanged. Texts `chat.list_*`,
+`dashboard.welcome_list_*`. e2e `e2e/assistant-list.spec.ts` (two pieces → "2" → the chip → sent with a test stub).
 
 ## Documents for the assistant (paid)
 

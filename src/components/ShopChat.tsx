@@ -7,9 +7,12 @@ import { BookingPanel } from "./BookingPanel";
 import { CallbackPanel } from "./CallbackPanel";
 import { ContactCodePanel } from "./ContactCodePanel";
 import { ForgetDialog } from "./ForgetDialog";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { looksLikeKey } from "@/lib/accessKey";
+import { bubbleText, type ChatListLine, listLine, listPieces, toChatList, welcomePieces } from "@/lib/chatList";
+import { dropBubble } from "@/lib/listDrop";
+import { listStore, type ListStore, pieces as listCount, serverList } from "@/lib/shoppingList";
 import type { FolderFile, OpenFolder, OpenSession } from "@/lib/docsAccess";
 import type { ChatCard, ChatDocPrice, ChatListItem, ChatReply, ChatSource, ChatTurn } from "@/lib/shopChat";
 import { FolderAccess, FolderViewer, type ViewTarget } from "./FolderAccess";
@@ -66,7 +69,7 @@ interface SentFile {
 }
 
 type Entry =
-  | { role: "user"; text: string; files: SentFile[] }
+  | { role: "user"; text: string; files: SentFile[]; list?: ChatListLine[] }
   | { role: "assistant"; reply: ChatReply }
   | { role: "error"; text: string }
   | { role: "notice"; text: string };
@@ -167,7 +170,8 @@ function toHistory(entries: Entry[]): ChatTurn[] {
   for (const entry of entries) {
     if (entry.role === "user") {
       const names = entry.files.map((f) => f.name).join(", ");
-      turns.push({ role: "user", text: `${entry.text}${names ? ` [files: ${names}]` : ""}`.trim() });
+      const list = entry.list?.length ? ` [shopping list: ${entry.list.map(listLine).join("; ")}]` : "";
+      turns.push({ role: "user", text: `${entry.text}${names ? ` [files: ${names}]` : ""}${list}`.trim() });
     }
     if (entry.role === "assistant") {
       const { reply } = entry;
@@ -189,6 +193,45 @@ function toHistory(entries: Entry[]): ChatTurn[] {
   return turns.slice(-HISTORY);
 }
 
+/** No shop id (never on a shop page): no list. */
+const NO_LIST: ListStore = { subscribe: () => () => {}, get: serverList, set: () => {} };
+
+/**
+ * The visitor's shopping list in the assistant (2026-11-04): the round blue bubble with the pieces of the page's
+ * "Zoznam" (the same store, so it changes live with every tap on a stock dot, also from another tab). A button: pressing
+ * it drops the bubble into the input bar and the list goes with the next message (`onPress`). In the chat bar it is
+ * hidden at 0; in the welcome text (the owner's {zoznam}) it shows "0" and pressing it explains how to add products.
+ */
+function ListBubble({ count, where, labels, onPress }: { count: number; where: "bar" | "welcome"; labels: Labels; onPress: (bubble: Element | null) => void }) {
+  const text = bubbleText(count, where);
+  const dot = useRef<HTMLSpanElement>(null);
+  if (!text) return null;
+  const label = count > 0 ? labels.list_attach_n.replace("{n}", String(count)) : labels.list_attach;
+  return (
+    <button
+      type="button"
+      onClick={() => onPress(dot.current)}
+      aria-label={label}
+      title={labels.list_attach}
+      className={where === "bar" ? "ppi-ai-listbtn" : "ppi-ai-listbtn ppi-ai-listbtn-inline"}
+      data-chat-list-button={where}
+    >
+      {where === "bar" && (
+        // the Zoznam tab's own list icon, the bubble on its corner (as the tab's counter)
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" focusable="false">
+          <path d="M9 6h11M9 12h11M9 18h11" />
+          <circle cx="4.5" cy="6" r="1" fill="currentColor" />
+          <circle cx="4.5" cy="12" r="1" fill="currentColor" />
+          <circle cx="4.5" cy="18" r="1" fill="currentColor" />
+        </svg>
+      )}
+      <span ref={dot} className="ppi-ai-bubble" data-list-bubble>
+        {text}
+      </span>
+    </button>
+  );
+}
+
 /**
  * The shop's AI assistant on the shop page (paid plan only), always open: answers about this
  * shop's items, makes shopping lists and reads photos and PDFs. The conversation scrolls in
@@ -200,6 +243,7 @@ function toHistory(entries: Entry[]): ChatTurn[] {
  */
 export function ShopChat({
   slug,
+  shopId,
   lang,
   shopName,
   timeZone,
@@ -215,6 +259,8 @@ export function ShopChat({
   sendNow = false,
 }: {
   slug: string;
+  /** The shop's id: its page's shopping list ("Zoznam", `ppi.list.<id>`) can go into a message. */
+  shopId?: string;
   lang: string;
   shopName: string;
   timeZone: string;
@@ -239,6 +285,15 @@ export function ShopChat({
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
   const base = `/api/shops/${encodeURIComponent(slug)}`;
+  // The page's own shopping list (the same store as "Zoznam"): its pieces live, and the list attached to the message.
+  const listing = shopId ? listStore(shopId) : NO_LIST;
+  const myList = useSyncExternalStore(listing.subscribe, listing.get, serverList);
+  const count = listCount(myList);
+  const [listSent, setListSent] = useState<ChatListLine[] | null>(null);
+  const [listNote, setListNote] = useState<"" | "empty" | "attached">("");
+  const [dropping, setDropping] = useState(false);
+  const listChip = useRef<HTMLLIElement>(null);
+  const dropFrom = useRef<{ el: Element | null; text: string } | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [text, setText] = useState(initialText);
   const [files, setFilesState] = useState<Attachment[]>([]);
@@ -283,6 +338,29 @@ export function ShopChat({
   const [keyOpen, setKeyOpen] = useState(keysOpen);
   const form = useRef<HTMLFormElement>(null);
   useEffect(() => () => sendTimers.current.forEach((t) => window.clearTimeout(t)), []);
+
+  /** The bubble pressed: an empty list explains itself; else the list is attached (pressed again: the newest list). */
+  const attachList = (bubble: Element | null) => {
+    if (count === 0) {
+      setListNote("empty");
+      return;
+    }
+    const moving = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    dropFrom.current = moving ? { el: bubble, text: bubbleText(count, "bar") } : null;
+    setDropping(moving);
+    setListSent(toChatList(myList));
+    setListNote("attached");
+    setEmptyAsk(false);
+  };
+  // The chip is drawn: the bubble flies onto it (decoration only; the chip shows as it lands).
+  useEffect(() => {
+    const from = dropFrom.current;
+    if (!from || !listSent) return;
+    dropFrom.current = null;
+    dropBubble(from.el, listChip.current, from.text);
+    const t = window.setTimeout(() => setDropping(false), 800);
+    return () => window.clearTimeout(t);
+  }, [listSent]);
 
   const putFiles = (next: Attachment[]) => {
     filesRef.current = next;
@@ -484,6 +562,8 @@ export function ShopChat({
       if (f.preview) URL.revokeObjectURL(f.preview);
     }
     putFiles([]);
+    setListSent(null);
+    setListNote("");
     setEntries([]);
     setProblem(null);
     setConversation(null);
@@ -654,15 +734,17 @@ export function ShopChat({
     event?.preventDefault();
     const message = (override ?? text).trim();
     const ready = filesRef.current.filter((f) => f.ready);
+    // the attached shopping list goes with a typed message only (an automatic message never takes it)
+    const list = override === undefined ? (listSent ?? []) : [];
     if (busy || filesRef.current.some((f) => !f.ready)) return;
-    if (!message && ready.length === 0) {
+    if (!message && ready.length === 0 && list.length === 0) {
       setEmptyAsk(true);
       textInput.current?.focus();
       return;
     }
     setEmptyAsk(false);
     // A message that is nothing but an access key is checked as a key: never sent to the AI or kept.
-    if (keys && ready.length === 0 && looksLikeKey(message)) {
+    if (keys && ready.length === 0 && list.length === 0 && looksLikeKey(message)) {
       setText("");
       const ok = await unlockFolders(message);
       if (!ok) setEntries((now) => [...now, { role: "error", text: labels.key_wrong }]);
@@ -678,10 +760,14 @@ export function ShopChat({
     ];
     setEntries((now) => [
       ...now,
-      { role: "user", text: message, files: ready.map((f) => ({ name: f.name, kind: f.kind, preview: f.preview })) },
+      { role: "user", text: message, files: ready.map((f) => ({ name: f.name, kind: f.kind, preview: f.preview })), list },
     ]);
     setText("");
     putFiles([]);
+    if (list.length) {
+      setListSent(null);
+      setListNote("");
+    }
     setProblem(null);
     setBusy(true);
     try {
@@ -695,6 +781,8 @@ export function ShopChat({
           message,
           conversation: archive ? conv.current : null,
           attachments: ready.map((f) => ({ id: f.id, name: f.name, kind: f.kind, image: f.image, text: f.text })),
+          // pieces and names only: never a price, a total or the shop's address
+          ...(list.length ? { list: list.map((l) => ({ id: l.id, name: l.name, original: l.original, qty: l.qty })) } : {}),
         }),
       });
       const data = await response.json().catch(() => ({ error: "failed" }));
@@ -764,7 +852,13 @@ export function ShopChat({
       <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
         <div className="flex flex-col px-[13px] py-[14px]">
           <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
-            {intro}
+            {welcomePieces(intro).map((piece, i) =>
+              piece.kind === "text" ? (
+                <span key={i}>{piece.text}</span>
+              ) : (
+                <ListBubble key={i} count={count} where="welcome" labels={labels} onPress={attachList} />
+              ),
+            )}
           </p>
           <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log>
           {entries.length > 0 && (
@@ -775,6 +869,7 @@ export function ShopChat({
                     <>
                       <span className="text-xs text-muted">{labels.you}</span>
                       {entry.files.length > 0 && <FileList files={entry.files} labels={labels} />}
+                      {entry.list && entry.list.length > 0 && <SentList lines={entry.list} labels={labels} />}
                       {entry.text && <p className="whitespace-pre-line">{entry.text}</p>}
                     </>
                   )}
@@ -845,8 +940,39 @@ export function ShopChat({
                 {problem}
               </p>
             )}
-            {files.length > 0 && (
+            {listNote === "empty" && (
+              <p role="status" className="mt-1.5 text-[13px] font-semibold text-[#1D4ED8]" data-chat-list-empty>
+                {labels.list_empty_hint}
+              </p>
+            )}
+            <p className="sr-only" aria-live="polite">
+              {listNote === "attached" ? labels.list_attached : ""}
+            </p>
+            {(files.length > 0 || listSent) && (
               <ul className="mt-2.5 flex flex-wrap gap-2" aria-label={labels.photo}>
+                {listSent && (
+                  <li ref={listChip} className="ppi-ai-chip ppi-ai-listchip" data-list-chip data-drop={dropping || undefined}>
+                    <span className="ppi-ai-bubble" aria-hidden="true">
+                      {bubbleText(listPieces(listSent), "bar")}
+                    </span>
+                    <span className="truncate" title={listSent.map(listLine).join("\n")}>
+                      {labels.list_mine} · {labels.list_pieces.replace("{n}", String(listPieces(listSent)))}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setListSent(null);
+                        setListNote("");
+                      }}
+                      aria-label={labels.list_remove_attached}
+                      data-list-chip-remove
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true" focusable="false">
+                        <path d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  </li>
+                )}
                 {files.map((f) => (
                   <li key={f.key} className="ppi-ai-chip" data-chat-file={f.ready ? "ready" : "working"}>
                     {f.preview ? (
@@ -882,6 +1008,7 @@ export function ShopChat({
                 tabIndex={-1}
                 data-chat-input
               />
+              <ListBubble count={count} where="bar" labels={labels} onPress={attachList} />
               <button type="button" onClick={() => fileInput.current?.click()} className="ppi-ai-attach" data-chat-attach>
                 <AttachIcon />
                 {labels.photo}
@@ -980,6 +1107,20 @@ function FileList({ files, labels }: { files: SentFile[]; labels: Labels }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** The list a message took, as the assistant got it: pieces and names, no prices. */
+function SentList({ lines, labels }: { lines: ChatListLine[]; labels: Labels }) {
+  return (
+    <div className="ppi-ai-sentlist" data-chat-sent-list>
+      <span className="font-semibold">{labels.list_mine}</span>
+      <ul>
+        {lines.map((line) => (
+          <li key={line.id}>{listLine(line)}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

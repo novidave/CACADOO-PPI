@@ -111,6 +111,10 @@ Deno.test("only one sane text per item is kept; placeholders must survive", () =
   ok(samePlaceholders("Ahoj {name}, {count} ks", "Hallo {count} Stk, {name}"), "same placeholders in another order");
   ok(!samePlaceholders("Ahoj {name}", "Hallo name"), "a lost placeholder");
   ok(!samePlaceholders("Ahoj", "Hallo {x}"), "an added placeholder");
+  // the welcome text's list bubble (2026-11-04): {zoznam} comes back exactly, in every language
+  ok(samePlaceholders("Váš zoznam {zoznam} vložíte ťuknutím.", "Tap {zoznam} to put your list in."), "{zoznam} kept");
+  ok(!samePlaceholders("Váš zoznam {zoznam}", "Your list {list}"), "a translated token is dropped");
+  ok(!samePlaceholders("Váš zoznam {zoznam}", "Your list"), "a lost token is dropped");
 });
 
 Deno.test("translateRows: grouped per kind and language, stored with the source's hash; a lost placeholder is dropped", async () => {

@@ -286,6 +286,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
       {assistant && (
         <ShopAssistant
           slug={shop.slug}
+          shopId={shop.id}
           lang={lang}
           shopName={shop.name}
           timeZone={shop.timezone}

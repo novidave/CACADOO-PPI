@@ -1,5 +1,6 @@
 import { AssistantBoot, type AssistantProps } from "./AssistantBoot";
 import { AssistantHeading } from "./AssistantHeading";
+import { welcomePieces } from "@/lib/chatList";
 
 /**
  * The shop assistant's first view (performance pass, Screen 11): the same box, texts and field as `ShopChat`, written
@@ -17,7 +18,16 @@ export function ShopAssistant(props: AssistantProps) {
         <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
         <div className="flex flex-col px-[13px] py-[14px]">
           <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
-            {intro}
+            {/* the owner's {zoznam}: the bubble's place, without a number (the list lives in the browser; ShopChat counts) */}
+            {welcomePieces(intro).map((piece, i) =>
+              piece.kind === "text" ? (
+                <span key={i}>{piece.text}</span>
+              ) : (
+                <span key={i} className="ppi-ai-listbtn ppi-ai-listbtn-inline" aria-hidden="true" data-chat-list-placeholder>
+                  <span className="ppi-ai-bubble" />
+                </span>
+              ),
+            )}
           </p>
           <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log />
           <form className="flex flex-col">
