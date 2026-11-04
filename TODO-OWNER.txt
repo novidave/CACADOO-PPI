@@ -171,6 +171,18 @@ OPEN
       with Donáška, cash and "Odpísať zo skladu", and a zone.
    c) Claude runs the check there and tells you the result.
 
+29. Shop page: "Navigovať" opens the Maps app (check once on an Android phone and an iPhone)
+   Why: the buttons now open when you let go (not after 1.2 s by themselves), so the phone may hand the link to its
+   app. This was tested in an emulated phone; only a real phone shows whether the Maps app opens.
+   a) On each phone open your shop's page (cacaduu.com/sk/shops/<your shop>) in the normal browser (Chrome on
+      Android, Safari on iPhone).
+   b) Hold "Navigovať": after about a second the button shows a check and "Pustite". Lift your finger.
+      Android: the Maps app opens (or Android asks which map app to use). iPhone: Google Maps opens in its app when it
+      is installed, else in Safari.
+   c) Hold the phone number the same way and lift: the phone app opens with the number. Slide your finger off a
+      button before lifting: nothing opens.
+   d) Tell Claude what happened on each phone (a screenshot is enough if something fails).
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)

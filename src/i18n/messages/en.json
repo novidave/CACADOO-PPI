@@ -2963,6 +2963,7 @@
   },
   "contact_buttons": {
     "hold": "Keep holding",
+    "release": "Let go",
     "announce": "{label}: {done}",
     "done_facebook": "Opened",
     "done_booking": "Booking opened",

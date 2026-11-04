@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "@/components/shopPage.css";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
@@ -12,7 +13,7 @@ import { blogCount, getBlogPost } from "@/lib/blog";
 import { blogPath } from "@/lib/blogFormat";
 import { docsKeysEnabled } from "@/lib/docsAccess";
 import { addressLine } from "@/lib/format";
-import { contactButtons, contactWidths, CONTACT_KEYS } from "@/lib/contactButtons";
+import { contactButtons, contactWidths, CONTACT_KEYS, isAndroid } from "@/lib/contactButtons";
 import { productRow } from "@/lib/shopRows";
 import {
   DAYS,
@@ -158,15 +159,18 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     shop.has_douchette && { key: "douchette" as const, text: dict.shop.douchette },
     shop.has_card_terminal && { key: "card" as const, text: dict.shop.card_terminal },
   ].filter((a): a is { key: "toilet" | "douchette" | "card"; text: string } => Boolean(a));
-  const contacts = contactButtons({ ...shop, zip: company?.zip }, contactWidths(widths), {
-    facebook: dict.shop.facebook,
-    booking: dict.shop.booking,
-    web: dict.shop.website,
-    navigate: dict.shop.directions,
-  });
+  // Navigovať on Android = a geo: link (the Maps app), decided from this request's user agent (the first HTML is right)
+  const android = isAndroid((await headers()).get("user-agent"));
+  const contacts = contactButtons(
+    { ...shop, zip: company?.zip },
+    contactWidths(widths),
+    { facebook: dict.shop.facebook, booking: dict.shop.booking, web: dict.shop.website, navigate: dict.shop.directions },
+    { android },
+  );
   const cb = dict.contact_buttons;
   const contactLabels = {
     hold: cb.hold,
+    release: cb.release,
     announce: cb.announce,
     done: Object.fromEntries(CONTACT_KEYS.map((k) => [k, cb[`done_${k}`]])) as Record<(typeof CONTACT_KEYS)[number], string>,
   };
@@ -271,6 +275,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           ratio={sliderRatio(content.ratio)}
           articles={articles}
           hold={dict.contact_buttons.hold}
+          release={dict.contact_buttons.release}
           first
         />
       )}
