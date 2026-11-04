@@ -6,6 +6,8 @@ import { smallLabel, type ContactButtonData, type ContactKey } from "@/lib/conta
 
 export interface ContactButtonLabels {
   hold: string;
+  /** "Pustite": a finger's hold is complete, the link opens on release */
+  release: string;
   /** "{label}: {done}" for the screen-reader announcement. */
   announce: string;
   done: Record<ContactKey, string>;
@@ -16,7 +18,8 @@ const fill = (text: string, values: Record<string, string>) => text.replace(/\{(
 /**
  * The shop page's contact buttons (database update 51, Screen 11): two columns, a long button takes both. Each one is a
  * real link (`@/components/HoldLink`: works without JavaScript) that a finger or a mouse opens only after holding it
- * for 1.2 s; Enter / Space open it at once. The order, links, colours and widths come from `@/lib/contactButtons`.
+ * for 1.2 s — a finger on its release ("Pustite"), so the phone opens its Maps, phone or e-mail app; Enter / Space open
+ * it at once. The order, links (Navigovať on Android = geo:), colours and widths come from `@/lib/contactButtons`.
  */
 export function ContactButtons({ buttons, labels }: { buttons: ContactButtonData[]; labels: ContactButtonLabels }) {
   const [said, setSaid] = useState<{ n: number; text: string }>({ n: 0, text: "" });
@@ -31,11 +34,12 @@ export function ContactButtons({ buttons, labels }: { buttons: ContactButtonData
           newTab={b.newTab}
           label={b.label}
           holdLabel={labels.hold}
+          releaseLabel={labels.release}
           doneLabel={labels.done[b.key]}
           className={`ppi-cb ${b.width === "long" ? "col-span-2" : ""}`}
           style={{ "--c": b.color } as CSSProperties}
           data={{ contact: b.key, width: b.width }}
-          small={smallLabel({ label: b.label, hold: labels.hold, done: labels.done[b.key] }, b.width)}
+          small={smallLabel({ label: b.label, hold: labels.hold, release: labels.release, done: labels.done[b.key] }, b.width)}
           onDone={() => announce(fill(labels.announce, { label: b.label, done: labels.done[b.key] }))}
         />
       ))}

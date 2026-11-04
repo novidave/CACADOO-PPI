@@ -62,6 +62,7 @@
 .ppi-cb[data-phase="holding"] {
   transform: translateY(1px) scale(0.985);
 }
+.ppi-cb[data-phase="ready"],
 .ppi-cb[data-phase="done"] {
   border-color: var(--c);
   background: color-mix(in srgb, var(--c) 12%, #fff);
@@ -87,6 +88,7 @@
   transform: scaleX(1);
   transition: transform 1200ms linear;
 }
+.ppi-cb[data-phase="ready"] .ppi-cb-fill,
 .ppi-cb[data-phase="done"] .ppi-cb-fill {
   opacity: 0;
   transition: none;
@@ -185,6 +187,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ppi-cb,
+  .ppi-cb[data-phase="ready"],
   .ppi-cb[data-phase="done"] {
     animation: none;
     transition: none;
@@ -590,6 +593,7 @@
   opacity: 1;
 }
 .ppi-hold-news[data-phase="holding"],
+.ppi-hold-news[data-phase="ready"],
 .ppi-hold-news[data-phase="done"] {
   border-color: #f57c20;
 }
@@ -597,6 +601,7 @@
   transform: scaleX(1);
   transition: transform 1200ms linear;
 }
+.ppi-hold-news[data-phase="ready"] .ppi-cb-fill,
 .ppi-hold-news[data-phase="done"] .ppi-cb-fill {
   transform: scaleX(1);
   transition: none;
@@ -868,6 +873,7 @@
 .ppi-hold-news.ppi-hold-pri .ppi-cb-fill {
   background: rgba(255, 255, 255, 0.28);
 }
+.ppi-hold-news.ppi-hold-pri[data-phase="ready"],
 .ppi-hold-news.ppi-hold-pri[data-phase="done"] {
   border-color: #f57c20;
   background: #fff;

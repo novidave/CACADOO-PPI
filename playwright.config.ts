@@ -5,8 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
  * `E2E_BASE_URL=https://preview.example npm run test:e2e` (default http://localhost:3000). The owner checks need a
  * login (E2E_OWNER_EMAIL + E2E_OWNER_PASSWORD, or E2E_OWNER_LOGIN_URL locally) and a shop made for testing
  * (E2E_OWNER_SHOP — they upload a stock file and approve its columns there); they are skipped without them.
- * Chromium only (the shop PC's folder sync needs it too); a phone (Pixel 7) viewport, and the shop page's list also on
- * an iPhone-sized screen (iPhone 14's size, touch and user agent; Chromium's engine).
+ * Chromium only (the shop PC's folder sync needs it too); a phone (Pixel 7) viewport, and the shop page's list and
+ * contact buttons also on an iPhone-sized screen (iPhone 14's size, touch and user agent; Chromium's engine).
  */
 export default defineConfig({
   testDir: "e2e",
@@ -21,6 +21,6 @@ export default defineConfig({
   },
   projects: [
     { name: "phone", use: { ...devices["Pixel 7"] } },
-    { name: "iphone", testMatch: /shop-list\.spec\.ts/, use: { ...devices["iPhone 14"], browserName: "chromium", defaultBrowserType: "chromium" } },
+    { name: "iphone", testMatch: /(shop-list|contacts)\.spec\.ts/, use: { ...devices["iPhone 14"], browserName: "chromium", defaultBrowserType: "chromium" } },
   ],
 });
