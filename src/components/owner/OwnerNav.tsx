@@ -2,7 +2,7 @@
 
 import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   isBareScreen,
   MENU_GROUPS,
@@ -55,7 +55,27 @@ const NAV_EVENT = "ppi:owner-nav";
  * Runs before the shell is painted (the account layout puts it first): a menu the owner collapsed on this device starts
  * collapsed, without a jump. It only sets `<html data-owner-nav="collapsed">`; the CSS does the rest (globals.css).
  */
-export const NAV_BOOT = `try{if(localStorage.getItem("${NAV_STORAGE}")==="collapsed")document.documentElement.dataset.ownerNav="collapsed"}catch(e){}`;
+export const NAV_BOOT = `try{if(localStorage.getItem("${NAV_STORAGE}")==="collapsed")document.documentElement.dataset.ownerNav="collapsed";if(localStorage.getItem("ppi.owner.ai")==="open")document.documentElement.dataset.ownerAi="open"}catch(e){}`;
+
+/** Where the computer remembers the AI pomocník's panel (this device only; default closed). */
+export const AI_STORAGE = "ppi.owner.ai";
+const AI_EVENT = "ppi:owner-ai";
+export const aiOpenNow = () => typeof document !== "undefined" && document.documentElement.dataset.ownerAi === "open";
+export function subscribeAi(change: () => void) {
+  window.addEventListener(AI_EVENT, change);
+  return () => window.removeEventListener(AI_EVENT, change);
+}
+/** Opens or closes the AI pomocník's panel (computer); the choice is kept on this device. */
+export function setAiOpen(on: boolean) {
+  if (on) document.documentElement.dataset.ownerAi = "open";
+  else delete document.documentElement.dataset.ownerAi;
+  try {
+    window.localStorage.setItem(AI_STORAGE, on ? "open" : "closed");
+  } catch {
+    // blocked storage: the choice lasts for this page only
+  }
+  window.dispatchEvent(new Event(AI_EVENT));
+}
 
 const collapsedNow = () => typeof document !== "undefined" && document.documentElement.dataset.ownerNav === "collapsed";
 function subscribe(change: () => void) {
@@ -71,6 +91,12 @@ function setCollapsed(on: boolean) {
     // blocked storage: the choice lasts for this page only
   }
   window.dispatchEvent(new Event(NAV_EVENT));
+}
+
+/** The AI pomocník panel's question box (after the owner opened the panel). */
+function focusAiBox() {
+  const box = document.querySelector("[data-ai-panel] textarea");
+  if (box instanceof HTMLTextAreaElement) box.focus();
 }
 
 function Icon({ d, size = 22, className = "" }: { d: string; size?: number; className?: string }) {
@@ -102,8 +128,12 @@ function Pending({ children }: { children: ReactNode }) {
   );
 }
 
-/** Every row's icon sits in the same 52 px box (in a 76 px column: 12 px margin on each side), open or collapsed. */
-const iconBox = "flex w-[52px] flex-none items-center justify-center";
+/**
+ * Every row is 52 px high and its icon sits in the same 52 px square, 12 px from the menu's edge (the icon's centre at
+ * 38 px), open or collapsed; collapsed, the row itself is that square (globals.css `[data-nav-cell]`).
+ */
+const iconBox = "flex h-[52px] w-[52px] flex-none items-center justify-center";
+const cell = "relative mx-3 flex h-[52px] flex-none items-center overflow-hidden rounded-xl outline-offset-[-2px]";
 
 /**
  * The owner menu (back-end layout, 2026-11-03; open by default and collapsible since 2026-11-04):
@@ -114,8 +144,12 @@ const iconBox = "flex w-[52px] flex-none items-center justify-center";
  *   sits in the same 52 px box of a fixed 76 px column, so collapsing only hides the labels (badges move to the icon's
  *   corner) and no icon moves. Only the width is animated (nothing with `prefers-reduced-motion`).
  * - under 1024 px (phones and tablets): a top bar with the 48 px menu button on the LEFT and the page's name; the
- *   button opens the same menu as a panel from the left (a modal <dialog>, ≤ 320 px or 85 % of the width, the page
- *   dimmed; Esc, a tap outside or × closes it and the focus goes back to the button).
+ *   SAME button opens and closes the menu (☰ ↔ ✕, `aria-expanded`), which slides in from the left UNDER the top bar
+ *   (≤ 320 px or 85 % of the width, the page dimmed and inert), so the button never moves and is never covered; Esc or
+ *   a tap outside also closes it and the focus goes back to the button.
+ * - "AI pomocník" (2026-11-04, when the server has the AI key): on a computer a switch in the menu (`aria-pressed`, a
+ *   square in the rail too) that opens the chat panel on the right (AssistantPanel); on a phone or a tablet an item of
+ *   the menu that opens its own page /dashboard/pomocnik.
  * The map is @/lib/dashboardPages (OWNER_MENU); labels and badges come from the server. A layout is not drawn again
  * when the page changes, so the current item and the open shop (?shop=) are read here from the address.
  */
@@ -148,9 +182,33 @@ export function OwnerNav({
   const toggle = (group: MenuGroup) => setChoice({ on: pathname, open: open === group ? null : group });
 
   const collapsed = useSyncExternalStore(subscribe, collapsedNow, () => false);
-  const panel = useRef<HTMLDialogElement>(null);
+  const aiOpen = useSyncExternalStore(subscribeAi, aiOpenNow, () => false);
+  const panel = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+
+  // the open phone menu: focus inside, Esc closes (focus back to the button), the page behind inert and not scrolling
+  useEffect(() => {
+    if (!panelOpen) return;
+    const behind = [...document.querySelectorAll<HTMLElement>("[data-owner-page], [data-site-footer], .ppi-ai-panel")];
+    for (const el of behind) el.inert = true;
+    const html = document.documentElement;
+    const overflow = html.style.overflow;
+    html.style.overflow = "hidden";
+    panel.current?.querySelector<HTMLElement>("a[href], button, summary")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPanelOpen(false);
+        opener.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      for (const el of behind) el.inert = false;
+      html.style.overflow = overflow;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [panelOpen]);
 
   if (isBareScreen(path)) return null;
 
@@ -166,7 +224,13 @@ export function OwnerNav({
   };
   const hrefOf = (m: MenuItem) => menuHref(m, lang, shopParam || null);
   const switchTo = (slug: string) => menuHref(current ?? OWNER_MENU.find((m) => m.key === "shop")!, lang, slug);
-  const closePanel = () => panel.current?.close();
+  const closePanel = () => setPanelOpen(false);
+  // opened by the owner: straight into the question box of the panel
+  const toggleAi = (on: boolean) => {
+    setAiOpen(on);
+    if (on) window.setTimeout(focusAiBox, 0);
+  };
+  const aiItem = byKey.get("pomocnik");
 
   /** The menu itself — the same rows beside the page (`aside`) and in the phone's panel (`panel`). */
   const body = (where: "aside" | "panel") => {
@@ -185,9 +249,10 @@ export function OwnerNav({
           aria-label={ariaOf(m)}
           title={labelOf(m)}
           {...{ [attr]: m.key }}
-          className={`ppi-nav-row relative mx-3 flex flex-none items-center overflow-hidden rounded-xl outline-offset-[-2px] ${big ? "h-[52px] text-[17px]" : "h-[46px] text-base"} ${
+          className={`ppi-nav-row ${cell} ${big ? "text-[17px]" : "text-base"} ${
             on ? "bg-[#111] font-bold text-white" : "font-semibold text-[#111] hover:bg-[#F4F4F4]"
           }`}
+          data-nav-cell
         >
           <Pending>
             <span className={iconBox} data-nav-icon>
@@ -209,6 +274,7 @@ export function OwnerNav({
         </Link>
       );
     };
+    // a group's head: a thin line above it, then its own 52 px row (a square in the rail, the name as its title)
     const groupHead = (g: MenuGroup) => (
       <button
         type="button"
@@ -218,7 +284,8 @@ export function OwnerNav({
         aria-label={labels.groups[g]}
         title={labels.groups[g]}
         data-nav-group={g}
-        className="mx-3 mt-1.5 flex h-[46px] flex-none items-center overflow-hidden rounded-xl border-t border-[#E4E4E4] text-[#5C5C5C] outline-offset-[-2px] hover:text-[#111]"
+        data-nav-cell
+        className={`${cell} text-[#5C5C5C] hover:bg-[#F4F4F4] hover:text-[#111]`}
       >
         <span className={iconBox} data-nav-icon>
           <Icon d={NAV_ICONS[g === "page" ? "group_page" : "group_account"]} size={18} />
@@ -230,7 +297,7 @@ export function OwnerNav({
       </button>
     );
     const groupList = (g: MenuGroup) => (
-      <div id={`owner-${where}-${g}`} className={`flex flex-col gap-0.5 ${open === g ? "" : "hidden"}`} data-nav-list={g}>
+      <div id={`owner-${where}-${g}`} className={`flex flex-col gap-1 ${open === g ? "" : "hidden"}`} data-nav-list={g}>
         {inGroup(g).map((m) => row(m, false))}
         {g === "account" && (
           <form action="/auth/signout" method="post" className="contents">
@@ -238,7 +305,8 @@ export function OwnerNav({
               type="submit"
               title={labels.sign_out}
               aria-label={labels.sign_out}
-              className="ppi-nav-row relative mx-3 flex h-[46px] flex-none items-center overflow-hidden rounded-xl text-left text-base font-semibold text-[#111] outline-offset-[-2px] hover:bg-[#F4F4F4]"
+              className={`ppi-nav-row ${cell} text-left text-base font-semibold text-[#111] hover:bg-[#F4F4F4]`}
+              data-nav-cell
               data-nav-signout
             >
               <span className={iconBox} data-nav-icon>
@@ -265,9 +333,10 @@ export function OwnerNav({
             <summary
               aria-label={`${labels.shop}: ${shop?.name ?? ""}`}
               title={shop?.name ?? ""}
-              className="mx-3 flex h-14 cursor-pointer list-none items-center overflow-hidden rounded-xl border border-[#E4E4E4] outline-offset-[-2px] [&::-webkit-details-marker]:hidden"
+              className={`${cell} cursor-pointer list-none border border-[#E4E4E4] [&::-webkit-details-marker]:hidden`}
+              data-nav-cell
             >
-              <span className={iconBox} data-nav-icon>
+              <span className={`${iconBox} -m-px`} data-nav-icon>
                 <span className="flex size-9 items-center justify-center rounded-lg bg-[#F4F4F4] text-base font-bold">{initial}</span>
               </span>
               <span className="flex min-w-0 flex-1 items-center justify-between gap-1.5 pr-2.5" data-nav-label>
@@ -308,10 +377,11 @@ export function OwnerNav({
               rel="noopener"
               aria-label={labels.view_page}
               title={labels.view_page}
-              className="mx-3 flex h-[52px] flex-none items-center overflow-hidden rounded-xl border border-[#E4E4E4] text-base font-semibold text-[#111] outline-offset-[-2px] hover:bg-[#F4F4F4]"
+              className={`${cell} border border-[#E4E4E4] text-base font-semibold text-[#111] hover:bg-[#F4F4F4]`}
+              data-nav-cell
               data-view-page
             >
-              <span className={iconBox} data-nav-icon>
+              <span className={`${iconBox} -m-px`} data-nav-icon>
                 <Icon d={NAV_ICONS.open} size={20} />
               </span>
               <span className="min-w-0 flex-1 truncate pr-2" data-nav-label>
@@ -320,15 +390,35 @@ export function OwnerNav({
             </a>
           )}
         </div>
-        <nav aria-label={labels.nav} className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden pb-3">
+        <nav aria-label={labels.nav} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden pb-3">
           <span className="mx-3 flex h-8 flex-none items-end pb-1" aria-hidden="true">
             <span className="truncate pl-3.5 text-xs font-bold uppercase tracking-[.06em] text-[#5C5C5C]" data-nav-label>
               {labels.groups.main}
             </span>
           </span>
-          {inGroup("main").map((m) => row(m, true))}
+          {inGroup("main").filter((m) => m.key !== "pomocnik" || inPanel).map((m) => row(m, true))}
+          {!inPanel && aiItem && (
+            <button
+              type="button"
+              onClick={() => toggleAi(!aiOpen)}
+              aria-pressed={aiOpen}
+              aria-label={aiItem.label}
+              title={aiItem.label}
+              className={`ppi-nav-row ${cell} text-left text-[17px] ${aiOpen ? "bg-[#111] font-bold text-white" : "font-semibold text-[#111] hover:bg-[#F4F4F4]"}`}
+              data-nav-cell
+              data-ai-toggle
+            >
+              <span className={iconBox} data-nav-icon>
+                <Icon d={NAV_ICONS.pomocnik} />
+              </span>
+              <span className="min-w-0 flex-1 truncate pr-2" data-nav-label>
+                {aiItem.label}
+              </span>
+            </button>
+          )}
           {MENU_GROUPS.filter((g) => g !== "main").map((g) => (
-            <div key={g} className="flex flex-col gap-0.5">
+            <div key={g} className="flex flex-col gap-1">
+              <div className="mx-3 mt-1.5 h-px flex-none bg-[#E4E4E4]" aria-hidden="true" />
               {groupHead(g)}
               {groupList(g)}
             </div>
@@ -340,55 +430,40 @@ export function OwnerNav({
 
   return (
     <>
-      {/* phones and tablets (under 1024 px): the menu button on the left, then the page's name */}
-      <div className="sticky top-0 z-30 flex min-h-14 items-center gap-2 border-b border-[#E4E4E4] bg-white px-2.5 lg:hidden" data-owner-topbar>
+      {/* phones and tablets (under 1024 px): ONE menu button on the left (it opens and closes the menu), then the page's name */}
+      <div className="sticky top-0 z-50 flex h-14 items-center gap-2 border-b border-[#E4E4E4] bg-white px-2.5 lg:hidden" data-owner-topbar>
         <button
           ref={opener}
           type="button"
-          aria-label={labels.open_menu}
-          aria-haspopup="dialog"
+          aria-label={panelOpen ? labels.close_menu : labels.open_menu}
           aria-expanded={panelOpen}
           aria-controls="owner-panel"
-          onClick={() => {
-            panel.current?.showModal();
-            setPanelOpen(true);
-          }}
+          onClick={() => setPanelOpen(!panelOpen)}
           className="flex size-12 flex-none items-center justify-center rounded-xl border border-[#E4E4E4]"
           data-owner-menu-button
         >
-          <Icon d={NAV_ICONS.menu} />
+          <Icon d={panelOpen ? NAV_ICONS.close : NAV_ICONS.menu} />
         </button>
         <strong className="min-w-0 truncate text-lg">{current ? labelOf(current) : (shop?.name ?? "")}</strong>
       </div>
-      <dialog
+      {panelOpen && <div className="fixed inset-x-0 bottom-0 top-14 z-40 bg-[#111]/40 lg:hidden" onClick={closePanel} aria-hidden="true" data-owner-panel-backdrop />}
+      <div
         ref={panel}
         id="owner-panel"
+        role="region"
         aria-label={labels.nav}
-        onClose={() => {
-          setPanelOpen(false);
-          opener.current?.focus();
-        }}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) closePanel();
-        }}
-        className="ppi-owner-panel fixed inset-y-0 left-0 right-auto m-0 h-dvh max-h-none w-[min(320px,85vw)] max-w-none bg-white p-0 text-[#111] backdrop:bg-[#111]/40 lg:hidden"
+        hidden={!panelOpen}
+        data-open={panelOpen || undefined}
+        className="ppi-owner-panel fixed left-0 z-40 flex w-[min(320px,85vw)] flex-col overflow-hidden bg-white text-[#111] shadow-[8px_0_24px_rgba(17,17,17,.12)] lg:hidden"
         data-owner-panel
       >
-        <div className="flex h-full flex-col">
-          <div className="flex flex-none items-center justify-between gap-2 border-b border-[#E4E4E4] py-1 pl-[26px] pr-2">
-            <strong className="text-base">{labels.nav}</strong>
-            <button type="button" onClick={closePanel} aria-label={labels.close_menu} className="flex size-12 flex-none items-center justify-center rounded-xl" data-owner-panel-close>
-              <Icon d={NAV_ICONS.close} />
-            </button>
-          </div>
-          {body("panel")}
-        </div>
-      </dialog>
+        {body("panel")}
+      </div>
 
       {/* computers (1024 px and wider): open by default, "Zbaliť menu" collapses it to the 76 px rail */}
       <aside
         id="owner-menu"
-        className="ppi-owner-aside sticky top-0 hidden h-svh flex-none flex-col overflow-hidden border-r border-[#E4E4E4] bg-white lg:flex"
+        className="ppi-owner-aside sticky top-0 hidden h-svh flex-none flex-col overflow-hidden bg-white lg:flex"
         data-owner-nav={collapsed ? "collapsed" : "open"}
       >
         {body("aside")}
@@ -400,7 +475,8 @@ export function OwnerNav({
             aria-controls="owner-menu"
             aria-label={collapsed ? labels.expand_menu : labels.collapse_menu}
             title={collapsed ? labels.expand_menu : labels.collapse_menu}
-            className="mx-3 flex h-12 w-[calc(100%-24px)] items-center overflow-hidden rounded-xl text-left text-[15px] font-semibold text-[#5C5C5C] outline-offset-[-2px] hover:bg-[#F4F4F4] hover:text-[#111]"
+            className={`${cell} w-[calc(100%-24px)] text-left text-[15px] font-semibold text-[#5C5C5C] hover:bg-[#F4F4F4] hover:text-[#111]`}
+            data-nav-cell
             data-nav-collapse
           >
             <span className={iconBox} data-nav-icon>

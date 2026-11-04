@@ -125,7 +125,8 @@ map, since 2026-10-31; no API key), pins in the status colour
 with the status in words in each pin's tooltip (no legend under the map, at the owner's request; the map data's credit
 OpenMapTiles/OpenStreetMap — required by their licences, never removed — stays closed behind MapLibre's small "i"
 button, the text only after a tap, 2026-10-27); always an extra — every page must work and show its data without it.
-**Back-end layout (2026-11-03, at the owner's request; menu and tabs fixed 2026-11-04):** every owner page sits in ONE
+**Back-end layout (2026-11-03, at the owner's request; menu and tabs fixed 2026-11-04; squares, one phone button and
+the AI pomocník 2026-11-04, update 76):** every owner page sits in ONE
 shell — canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 1–21. The map is only `@/lib/dashboardPages`
 `OWNER_MENU` (route → item, group main | page | account, `menuItemFor()`, `menuHref()` keeps `?shop=`,
 `isBareScreen()`; tests `dashboardPages_test.ts` in `npm run test:content`: every owner page belongs to exactly one
@@ -134,19 +135,29 @@ prepares the labels (`nav.*`), the shops (`my_shops`, "Zobraziť moju stránku" 
 the badges per shop (CRM = `owner_conversations_new` + waiting callbacks, Objednávky jedla = `owner_food_tab().new`);
 `@/components/owner/OwnerNav` (client: a layout is not drawn again on navigation, so the current item and `?shop=` come
 from the address) draws: **≥ 1024 px the 256 px menu, open by default on EVERY page** (Predaj, the Príjemka editor,
-Inventúra counting and the food board too; no "work screens" any more): shop switcher 56 px + 52 px "Zobraziť moju
-stránku"; Hlavné 52 px rows / 17 px; "Stránka obchodu" and "Účet a nastavenia" 46 px / 16 px, one open at a time,
-header = button with `aria-expanded`; at the bottom "Zbaliť menu" / "Rozbaliť menu" (48 px, `aria-expanded`,
+Inventúra counting and the food board too; no "work screens" any more): EVERY row is 52 px (`data-nav-cell`): the shop
+switcher, "Zobraziť moju stránku", Hlavné (17 px), the group heads (a thin line above, `aria-expanded`, one open at a
+time) and their rows (16 px), "AI pomocník" and at the bottom "Zbaliť menu" / "Rozbaliť menu" (`aria-expanded`,
 `aria-controls="owner-menu"`) folds it to the **76 px rail** and back, remembered in localStorage `ppi.owner.nav`
 (try/catch, default open; `NAV_BOOT`, an inline script before the menu, sets `<html data-owner-nav="collapsed">` before
-the first paint — `suppressHydrationWarning` on `<html>`). **Icons never move:** the same rows and heights in both
-states, every icon in its 52 px box (`data-nav-icon`) in a fixed 76 px column; collapsing only hides the labels
-(`data-nav-label`) and moves the badges to the icon's corner; the switcher and "Zobraziť moju stránku" keep their
-height with only the initial / icon; group headers keep their row (thin line + icon, `title` = the name); collapsed rows
-carry `aria-label` + `title`. Only the width is animated (nothing with `prefers-reduced-motion`); the page takes the
-freed width, the tab row keeps its vertical place. **< 1024 px** a top bar (the 48 px menu button on the LEFT, then the
-page's name) and the full menu as a panel from the left (`<dialog id="owner-panel">`, ≤ 320 px or 85 % wide, dimmed
-page; Esc, a tap outside or × closes it; the focus moves in and back to the button). The QR terminal has no menu.
+the first paint — `suppressHydrationWarning` on `<html>`). **Icons never move and sit in even squares:** the same rows
+and heights in both states, every icon in its 52 px square (`data-nav-icon`) whose centre is 38 px from the menu's left
+edge (12 px margin + 26) in both states; collapsed, every item IS that 52 × 52 square, centred in the 76 px rail (12 px
+each side; the menu's right line is a box-shadow and its scrollbar hidden, so nothing takes width), active / hover fill
+the square (radius 12), badges in the square's top-right corner; collapsing only hides the labels (`data-nav-label`);
+group heads keep their row (thin line + icon, `title` = the name); collapsed rows carry `aria-label` + `title`. Only the width is animated (nothing with `prefers-reduced-motion`); the page takes the
+freed width, the tab row keeps its vertical place. **< 1024 px** a top bar (ONE 48 px menu button on the LEFT, then the
+page's name): the same button opens and closes the menu (☰ ↔ ✕, `aria-expanded`, `aria-controls="owner-panel"`,
+"Otvoriť menu" / "Zavrieť menu") and never moves — the top bar (z 50) stays above the panel, which slides in from the
+left UNDER it (`#owner-panel`, top 56 px, ≤ 320 px or 85 % wide; the page dimmed and `inert`, not scrolling); Esc or a
+tap outside also closes it; the focus moves in and back to the button. **AI pomocník** (update 76, only when the
+server has `ANTHROPIC_API_KEY`): on a computer a switch in the menu under Hlavné (`data-ai-toggle`, `aria-pressed`, a
+square in the rail too) opens `@/components/owner/AssistantPanel` on the RIGHT (380 px, full height, the page between
+the menu and it — it never covers the tabs; `<html data-owner-ai="open">` from localStorage `ppi.owner.ai` before the
+first paint; Esc closes it, the focus back to the switch; it lives in the account layout, so the conversation stays
+while moving between pages); on a phone or a tablet an item of the menu panel under Hlavné that opens its own page
+`/[lang]/dashboard/pomocnik` (only the chat under the top bar, the box at the bottom above the keyboard with the safe
+area, no legal footer). The QR terminal has no menu.
 Active = black, white bold, `aria-current="page"`; badges 22 px black pills (white on the active item); icons inline SVG
 (`@/components/owner/navIcons`, 22 px, stroke 2, `currentColor`). globals.css (owner block): the site's header hidden
 inside the shell (`body:has([data-owner-shell])`), `scrollbar-gutter: stable` on the page (the scrollbar never moves
@@ -161,16 +172,20 @@ Nastavenia and the order detail), CRM = `CrmHead` (Prehľad, Konverzácie, Konta
 AI asistent and Rezervácie their `PageHead`; each page = an outer `w-full` column, the head, then its own max width.
 **Nothing that differs between tabs sits above the tabs** (messages after a save, plan boxes, banners, state strips,
 "Pozastaviť", filters, the kitchen board, SMS usage) and every tab passes the same badges. "SMS tento mesiac"
-(`@/components/SmsUsage`) only on CRM → Kontakty (right under the tabs, above "Nový kontakt", owner quota), a contact's
-Správy (under its own tabs) and Rezervácie → Nastavenia (booking quota) — plus Hodiny cez SMS, which has no tabs.
+(`@/components/SmsUsage`) only on CRM → Kontakty (right under the tabs, above "Nový kontakt", owner quota), CRM → Správy
+(under the tabs), a contact's Správy (under its own tabs) and Rezervácie → Nastavenia (booking quota) — plus Hodiny cez
+SMS, which has no tabs.
 e2e `e2e/owner-shell.spec.ts` (1180×820, 820×1180, 390×844; needs an owner login + `E2E_OWNER_SHOP`): the tab row's box
 identical (±0.5 px) on every tab of Rezervácie, Sklad (incl. Predaj, the Príjemka editor, a product card, Inventúra
 counting), Objednávky jedla, CRM and AI asistent; nothing tab-specific above it; SMS usage under the tabs on Kontakty;
-the menu open on Predaj, collapse keeps every icon's x/y and survives a reload; the menu button left, the panel from
-the left, Esc / outside / × close it. **L2 (moves):** each item's tabs are
+the menu open on Predaj, every icon's centre at 38 px, collapse keeps every icon's x/y (each item a 52 × 52 square
+12 px in) and survives a reload; the AI panel on the right keeps the tabs in place, Esc closes it; the menu button the
+same box open and closed, the panel under the top bar, Esc / outside / the button close it; the pomocník item opens
+its page; `e2e/crm-messages.spec.ts` (the three sizes: search, "+ Nový kontakt" selects it, a tag, Náhľad, a test-mode
+send). **L2 (moves):** each item's tabs are
 `ITEM_TABS` (`tabHref()`), drawn by `@/components/owner/PageHead` (h1 28 px, tabs 56 px, active #111 + 3 px line, `data-item-tabs`):
-**CRM** = `/dashboard/crm` (Prehľad, `?at=conversations` with the cloud folder) + Kontakty / Šablóny (`/dashboard/contacts`),
-the conversation page goes back there; **Rezervácie** = `/dashboard/bookings?tab=` calendar | services | resources | rules
+**CRM** = `/dashboard/crm` (Prehľad, `?at=conversations` with the cloud folder) + Kontakty / Šablóny (`/dashboard/contacts`)
++ Správy (`/dashboard/crm/messages`, update 76), the conversation page goes back there; **Rezervácie** = `/dashboard/bookings?tab=` calendar | services | resources | rules
 | blocks | settings (update 63's booking parts of `AssistantSettings`, `only=`; settings = messages + calendar;
 `bookingPartUrl()` is every booking form's way back; `?view=settings` and `/dashboard/assistant?at=settings&part=…`
 forward there); **AI asistent** = `/dashboard/assistant` (texts, the food-ordering card, the folders card),
@@ -251,7 +266,9 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
 - `npm run test:conversations` — unit tests (Deno) of the owner's conversation exports (`src/lib/conversationExport_test.ts`):
   times in the shop's time zone, CSV cells (quotes, ";", new lines, formulas written as text), BOM + CRLF, TXT lines
 - `npm run test:crm` — unit tests (Deno) of "Kontakty" (`src/lib/crm_test.ts`): SMS parts (GSM-7 160/153, Unicode
-  70/67), tags from one field, refusals as texts
+  70/67), tags from one field, refusals as texts; and of the variable tags and "Opraviť gramatiku"
+  (`src/lib/messageTags_test.ts`: insert at the cursor / over a selection / at a drop point, unknown variables, a
+  correction keeps every variable and line break (mocked AI), the changed words, SMS parts before / after, Bez diakritiky)
 - `npm run test:list` — unit tests (Deno) of the shop page's Zoznam (`src/lib/shoppingList_test.ts`): add / set / remove,
   "9+", totals in cents per currency, Slovak plurals, the copied text, broken stored lists, blocked storage
 - `npm run test:search` — unit tests (Deno) of the forgiving search's word rules (`src/lib/searchWords_test.ts`): the
@@ -280,7 +297,8 @@ key vortex, no sideways scroll, OSM Bright), `contacts.spec.ts`.
   sent to the geocoder, the map links, the courier cookie (`@/lib/courierKey`), words for every refusal and state in
   sk/hu/en, OrderPanel only through `next/dynamic`; the SQL rules (quotes, zones, cutoff …) are DB blocks 73–75
 - `npm run test:telegram` — the Telegram bot's texts in `supabase/functions/telegram/index.ts` match the message
-  files (`node scripts/telegram-texts.mjs` writes them)
+  files (`node scripts/telegram-texts.mjs` writes them), and the owner assistant core (`src/lib/ownerAssistantCore.ts`
+  with the docs/help topics) is the same in the function (`node scripts/assistant-core.mjs` writes it)
 - `npm run check:functions` — type-checks the Supabase Edge Functions (Deno) in `supabase/functions/`
 - `npm run test:functions` — unit tests of the Edge Functions (Deno): stock-pull file reading and mapping, Stripe
   checkout and webhook, page-sections PDF cleaning and limits, partner-feeds formats, parts and size limit
@@ -726,6 +744,55 @@ Business Profile — the telegram function calls hours-sms `POST /service` (bear
 `google_push` of the named shop, `shopBySlug` → `pushToGoogle`, the same push as "Poslať hodiny do Google teraz");
 the reply adds "Google Mapy: hodiny aktualizované" / a failure line (`google_pushed` / `google_failed`), nothing when
 not connected. T4 (setup helper, files/photos/blog drafts) needs a Pomocník, which does not exist yet.
+
+## CRM → Správy, variables as tags, "Opraviť gramatiku" and the AI pomocník (update 76, 2026-11-04)
+
+`supabase/sql/76_crm_messages_ai.sql` + `dashboard/crm/messages` + `@/components/owner/MessageCenter` /
+`MessageTools` (`TagChips`, `TagPreview`, `GrammarFix`, `TemplateFields`) + `@/components/MessageComposer` + `@/lib/messageTags`
+(shared, `messageTags_test.ts` in `npm run test:crm`) + `@/lib/grammar` + `contacts/messageActions.ts` +
+`/api/owner/contacts/search` + `@/lib/ownerAssistantCore` / `@/lib/ownerAssistant` / `@/lib/assistantStore` +
+`/api/owner/assistant` (+ `/confirm`) + `@/components/owner/AssistantChat` / `AssistantPanel` + `dashboard/pomocnik` +
+`docs/help/*.md` + admin `OwnerAiAdmin.tsx`. **CRM → Správy** (tab after Šablóny): "Komu" = a live search of the shop's
+contacts (`owner_contact_search`: name / e-mail words, partial and without accents, or ≥ 3 phone digits; members, only
+the shop's contacts; 200 ms, only the newest answer, ↑ ↓ Enter) + "+ Nový kontakt" (52 px, a `<dialog>` with the contact
+fields → `owner_save_contact` → that contact is the recipient, `?to=`); then the one composer (the channels the contact
+has, a template, tags, "Opraviť gramatiku", "Náhľad" = `owner_message_preview`, "Odoslať" = crm-messages `send` with its
+quotas and log); under it every message sent to the shop's contacts (`owner_messages_log`: never the SMS codes; channel,
+status, words; a row opens the contact's Správy). A contact's own Správy uses the same composer. Each composer step is its
+own `<form key>` (the site's double-tap guard `TapFeedback` would otherwise block "Odoslať" after "Náhľad" for 15 s).
+**Variables as tags** under every message and template text: {meno} {obchod} {produkt} {datum} {cas} {{shop_phone}}
+{{shop_email}} {{shop_address}} {{shop_web}} (`MESSAGE_TAGS`), each with its meaning (`contacts.var_*`) on hover, keyboard
+focus or a long press; a click or Tab + Enter puts it at the cursor of the field last used (subject or text) or over
+the selection (`insertToken`: a space where it would touch a word), a drag drops it at the drop point (the browser's
+own drop); stored as plain text, shown as pills in the live line under the field (`tagPieces`), an unknown one named
+"Neznáma premenná {xyz}" (`unknownVariables`); crm_render() fills them as before. **"Opraviť gramatiku"** (e-mail and
+SMS, messages and templates; paid; hidden without `ANTHROPIC_API_KEY`): `owner_grammar_hit` first (members with the
+plan, `owner_ai_settings.grammar_daily_limit` per shop and shop day, default 30, 0 = off — admin "AI pre majiteľov"),
+then Claude (`aiModel()`, structured output `{text, subject, language}`, the text is data) fixes spelling, grammar and
+punctuation in the text's language; the result is used ONLY when every variable and line break came back exactly
+(`keepsStructure` / `fixGrammarWith`, else `err_grammar_structure`); before → after with the changed words marked
+(`wordDiff`), "Použiť" / "Zahodiť", nothing sent or saved; an SMS shows its parts before and after (GSM-7 / Unicode,
+`smsCompare`) and offers "Bez diakritiky" (`withoutAccents`, variables kept) when the accents add parts; the tokens go to
+`owner_ai_usage` (`owner_ai_spend`, kind grammar). **The AI pomocník = one engine for the website and Telegram:**
+`src/lib/ownerAssistantCore.ts` has no imports and is copied unchanged into `supabase/functions/telegram/index.ts` by
+`node scripts/assistant-core.mjs`, which also writes the help topics of `docs/help/*.md` (front matter title, link,
+words) into it; `npm run test:telegram` fails when the copy or the topics differ — edit the core or docs/help, then run
+the script. The engine: read tools through the caller's `call` (the owner MCP's one door), `help_search` (answers
+how-to questions only from docs/help, the owner gets a link to the screen), `propose_*` only (hours, booking status,
+stock, mark handled; ≤ 3 per message; before → after lines from the `telegram` texts) — every change waits for
+"Potvrdiť"; `forAi` masks phones and drops e-mails, addresses, notes, costs, suppliers, IBAN, tokens. The website:
+`/api/owner/assistant` → `assistant_ai_hit` (the Telegram bot's AI switch and daily limit — ONE limit per owner and day
+for the website and Telegram together, `owner_ai_messages_today`; members with the plan) → the engine with
+`assistant_web_call` (= `owner_mcp_call` with the owner's own grant of kind `web`, shop.read + shop.write, every Pro
+shop of theirs, its token `cwa_…` only in the Vault, `assistant_web_links`; a write outside a confirmation →
+`needs_confirmation`; activity marked `source: web`) and `assistant_pending_new` (write tools only, 10 minutes) → cards;
+`/api/owner/assistant/confirm` → `assistant_confirm` (the same owner, once, in time; `used` / `expired` / `not_found`) or
+`assistant_cancel`, then `refreshShop`. "Zastaviť" aborts the request and the Claude call. The conversation lives only
+in the browser (`assistantStore`: last 8 turns sent, cleared by "Nová konverzácia" or another shop). The Telegram
+function's AI uses the same core (live with TODO 23's telegram deploy). Tables `owner_ai_settings`, `owner_ai_usage`,
+`assistant_web_links`, `assistant_pending` (no grants; functions only). Texts `crm_msg`, `pomocnik`, `contacts.tag*` /
+`grammar*` / `sms_*`, `admin_owner_ai`. Tests: DB block "update 76", `npm run test:crm`, `test:telegram`,
+`test:functions`, e2e `crm-messages.spec.ts`, `owner-shell.spec.ts`.
 
 ## "Sklad v Cacaduu" (phase A, update 67, Prompt 14, 2026-11-02)
 

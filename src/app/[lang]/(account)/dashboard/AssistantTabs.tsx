@@ -39,7 +39,7 @@ export function CrmHead({
   lang: string;
   shops: MyShop[];
   shop: MyShop;
-  current: "overview" | "conversations" | "contacts" | "templates";
+  current: "overview" | "conversations" | "contacts" | "templates" | "messages";
   waiting: number;
   switchHref: (slug: string) => string;
 }) {

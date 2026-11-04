@@ -161,5 +161,7 @@ export async function sendMessage(_state: ComposeState, formData: FormData): Pro
   }
   revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/contacts/${input.p_contact_id}`);
   if (inConversation) revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/conversations/${conversation}`);
+  // CRM → Správy shows every sent message under its composer
+  revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/crm/messages`);
   return { step: "done", message: data.status === "sent" ? "sent" : data.status === "test" ? "sent_test" : "sent_failed" };
 }

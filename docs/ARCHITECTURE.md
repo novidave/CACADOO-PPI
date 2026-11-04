@@ -3264,3 +3264,59 @@ behaves like that.
 - Found by the e2e: a new delivery order offered "Do prípravy" twice; its second button is now "Na ceste" (SQL allows
   new → on_the_way).
 
+
+## Update 76 — CRM → Správy, variables as tags, "Opraviť gramatiku" and the AI pomocník (4 November 2026)
+
+`supabase/sql/76_crm_messages_ai.sql` + `dashboard/crm/messages` + `@/components/owner/MessageCenter` / `MessageTools` +
+`@/components/MessageComposer` + `@/lib/messageTags` + `@/lib/grammar` + `contacts/messageActions.ts` +
+`/api/owner/contacts/search` + `@/lib/ownerAssistantCore` (copied into the telegram function by
+`scripts/assistant-core.mjs`) + `@/lib/ownerAssistant` + `@/lib/assistantStore` + `/api/owner/assistant` (+ `/confirm`) +
+`@/components/owner/AssistantChat` / `AssistantPanel` + `dashboard/pomocnik` + `docs/help/*.md` + admin `OwnerAiAdmin.tsx`.
+
+- **Správy:** the fourth CRM tab. "Komu" = `owner_contact_search(shop, q, limit)` (members; name / e-mail words,
+  partial and without accents, or ≥ 3 phone digits; ≤ 20 of that shop's contacts) through `/api/owner/contacts/search`
+  (200 ms, only the newest answer). "+ Nový kontakt" = a `<dialog>` → `createContactInline` → `owner_save_contact` → the
+  new contact is the recipient (`?to=`). The composer is the contact page's (`MessageComposer`, keyed per contact): the
+  contact's channels, a template, Náhľad (`owner_message_preview`), Odoslať (crm-messages `send` → `owner_message_queue`,
+  quotas and the log as before). Under it `owner_messages_log(shop, q, channel, status, limit, offset)` (members; every
+  message to the shop's contacts except the SMS codes). Each composer step is its own keyed `<form>` (the site's
+  `TapFeedback` keeps a reused form "pending" for 15 s, which blocked "Odoslať" after "Náhľad").
+- **Variables as tags:** `MESSAGE_TAGS` in `@/lib/messageTags` (shared, `messageTags_test.ts`): chips under every message
+  and template field; click / Tab + Enter → `insertToken()` at the caret of the last used field (subject or text) or
+  over the selection, a space added where it would touch a word; drag = the browser's own drop. The field stays plain
+  text; `tagPieces()` draws the pills under it and `unknownVariables()` names "Neznáma premenná {xyz}". `crm_render()`
+  fills them as before.
+- **"Opraviť gramatiku":** `fixGrammar` (server action) → `owner_grammar_hit(shop)` (members with the plan;
+  `owner_ai_settings.grammar_daily_limit` per shop and shop-local day, default 30, 0 = `grammar_off`) → `claudeGrammar()`
+  (`aiModel()`, structured output `{text, subject, language}`; the text is data) → `fixGrammarWith()` keeps the answer
+  only when every variable and line break came back (`keepsStructure`), else `err_grammar_structure` →
+  `owner_ai_spend(shop, 'grammar', in, out)` into `owner_ai_usage`. The browser shows before → after (`wordDiff`), the
+  SMS parts before / after (`smsCompare`) and "Bez diakritiky" (`withoutAccents`, variables kept); nothing is saved or
+  sent until the owner uses the text.
+- **The AI pomocník — one engine:** `ownerAssistantCore.ts` (no imports) holds the system prompt, the tools (reads through
+  the caller's `call`, `help_search` over the `docs/help` topics written into it by the script, `propose_*` only, ≤ 3 per
+  message), `forAi` (phones masked; e-mails, addresses, notes, costs, suppliers, margins, IBAN and tokens dropped) and
+  `runAssistant()`. Telegram (`aiAnswer`) and the website use the same file; `npm run test:telegram` fails when the copy
+  or the help topics differ.
+- **The website's door:** `/api/owner/assistant` → `assistant_ai_hit(shop)` (the Telegram bot's AI switch and daily limit;
+  `owner_ai_messages_today()` counts the owner's Telegram AND web messages: one limit per owner and day; members with the
+  plan) → `runAssistant` with `call` = `assistant_web_call(tool, args)` = `owner_mcp_call()` with the owner's own grant of
+  kind `web` (`assistant_web_token()`: shop.read + shop.write, every Pro shop the owner is a member of, the `cwa_…` token
+  only in the Vault, its id in `assistant_web_links`; a write outside a confirmation → `needs_confirmation`; activity
+  `source: web`) and `propose` = `assistant_pending_new()` (write tools only, 10 minutes, 60 an hour) →
+  `{answer, proposals, links}`. `/api/owner/assistant/confirm` → `assistant_confirm(id)` (the same owner, once, in time:
+  `used` / `expired` / `not_found`) or `assistant_cancel(id)`, then `refreshShop`. Tokens → `owner_ai_spend(…, 'assistant')`.
+  "Zastaviť" aborts the fetch and the route aborts the Claude call.
+- **Where it shows:** only with `ANTHROPIC_API_KEY` (`ownerAiReady()`). ≥ 1024 px: `data-ai-toggle` in the menu (a square
+  in the rail too) → `AssistantPanel` (380 px on the right, in the account layout, `<html data-owner-ai="open">` from
+  localStorage `ppi.owner.ai` before the first paint; Esc closes and returns the focus to the switch). < 1024 px: the menu
+  item "AI pomocník" → `/[lang]/dashboard/pomocnik` (the chat only, the box at the bottom with the safe area). The
+  conversation lives only in the browser (`assistantStore`, the last 8 turns go with a question).
+- **The menu (same PR):** every row 52 px with its icon in a 52 px square whose centre is 38 px from the menu's edge in
+  both states; collapsed, each item IS that square, 12 px in from each side of the 76 px rail. Phones and tablets: one
+  48 px button in the sticky top bar opens and closes the panel (☰ ↔ ✕); the panel opens under the top bar (top 56 px),
+  the page behind is `inert`.
+- **Admin:** "AI pre majiteľov" (`admin_owner_ai()` / `admin_save_owner_ai()`): the grammar limit and today's / this
+  month's calls and tokens; the pomocník's switch and limit stay on the "Telegram bot" card.
+- Tests: DB block "update 76"; `npm run test:crm` (`messageTags_test.ts`), `test:telegram` (the core and the help topics);
+  e2e `crm-messages.spec.ts`, `owner-shell.spec.ts`.

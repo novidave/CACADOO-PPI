@@ -22,7 +22,7 @@ export const FOLDER_SECTIONS = ["folders"];
  * The tabs of a menu item, in their order (the back-end layout): plain links under the page's heading. Sklad: Prehľad ·
  * Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia; Objednávky jedla: Objednávky · Menu · Nastavenia
  * ("Kuriéri" comes with the courier app); Rezervácie: Kalendár · Služby · Zdroje · Pravidlá · Blokované časy · Nastavenia;
- * CRM: Prehľad · Konverzácie · Kontakty · Šablóny; AI asistent: Nastavenia · Dokumenty · Súkromné priečinky.
+ * CRM: Prehľad · Konverzácie · Kontakty · Šablóny · Správy; AI asistent: Nastavenia · Dokumenty · Súkromné priečinky.
  */
 export interface ItemTab {
   key: string;
@@ -59,6 +59,8 @@ export const ITEM_TABS = {
     { key: "conversations", path: "/dashboard/crm", query: { at: "conversations" } },
     { key: "contacts", path: "/dashboard/contacts" },
     { key: "templates", path: "/dashboard/contacts", query: { view: "templates" } },
+    // 2026-11-04: one place to write to any contact (recipient search, the composer, every sent message)
+    { key: "messages", path: "/dashboard/crm/messages" },
   ],
   assistant: [
     { key: "settings", path: "/dashboard/assistant" },
@@ -193,6 +195,7 @@ export type MenuKey =
   | "food"
   | "bookings"
   | "crm"
+  | "pomocnik"
   | "shop"
   | "content"
   | "blog"
@@ -241,6 +244,8 @@ export const OWNER_MENU: MenuItem[] = [
     shop: true,
     badge: "crm",
   },
+  // 2026-11-04: the AI pomocník — on a computer a switch in the menu (a panel on the right), on a phone its own page
+  { key: "pomocnik", group: "main", path: "/dashboard/pomocnik", owns: [{ path: "/dashboard/pomocnik" }], shop: true },
   { key: "shop", group: "page", path: "/dashboard", owns: [{ path: "/dashboard", exact: true }], shop: true },
   { key: "content", group: "page", path: "/dashboard/content", owns: [{ path: "/dashboard/content" }, { path: "/dashboard/sections" }], shop: true },
   { key: "blog", group: "page", path: "/dashboard/blog", owns: [{ path: "/dashboard/blog" }], shop: true },

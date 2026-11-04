@@ -8,6 +8,7 @@ import { formatDateTime } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { MessageComposer, type ComposerTemplate } from "@/components/MessageComposer";
+import { ownerAiReady } from "@/lib/grammar";
 import { PendingButton } from "@/components/PendingButton";
 import { SmsUsage } from "@/components/SmsUsage";
 import { loadSmsUsage } from "@/lib/smsUsage";
@@ -253,6 +254,8 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
               smsLive={config.data?.sms_live === true}
               templates={(templates.data ?? []) as ComposerTemplate[]}
               texts={c as Record<string, string>}
+              shopId={contact.shop_id}
+              grammarOn={ownerAiReady()}
             />
           ) : (
             <p className="border border-line p-3 text-sm">{c.needs_plan}</p>

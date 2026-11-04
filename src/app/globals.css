@@ -347,18 +347,31 @@ html:has([data-owner-shell]) {
 
 /*
  * The owner menu on a computer (@/components/owner/OwnerNav): 256 px open, 76 px collapsed (`<html
- * data-owner-nav="collapsed">`, set before the first paint from localStorage). The rows stay the same; only the labels
- * hide and the badges move to the icon's corner, so no icon moves. Only the width is animated.
+ * data-owner-nav="collapsed">`, set before the first paint from localStorage). Every row is 52 px high in both states
+ * and every icon sits in a 52 px square whose centre is 38 px from the menu's left edge (12 px margin + 26), so
+ * collapsing only hides the labels: each item becomes an even 52 × 52 square, centred in the 76 px rail, its icon in
+ * the middle, the badge in the square's top-right corner. The line on the right is a shadow (a border would take a
+ * pixel off the rail) and the menu's own scrollbar is hidden (it would take the width). Only the width is animated.
  */
 .ppi-owner-aside {
   width: 256px;
+  box-shadow: inset -1px 0 0 #e4e4e4;
   transition: width 0.2s ease;
+}
+.ppi-owner-aside nav {
+  scrollbar-width: none;
+}
+.ppi-owner-aside nav::-webkit-scrollbar {
+  display: none;
 }
 .ppi-owner-aside [data-nav-label] {
   transition: opacity 0.15s ease;
 }
 html[data-owner-nav="collapsed"] .ppi-owner-aside {
   width: 76px;
+}
+html[data-owner-nav="collapsed"] .ppi-owner-aside [data-nav-cell] {
+  width: 52px;
 }
 html[data-owner-nav="collapsed"] .ppi-owner-aside [data-nav-label] {
   opacity: 0;
@@ -367,7 +380,7 @@ html[data-owner-nav="collapsed"] .ppi-owner-aside [data-nav-label] {
 html[data-owner-nav="collapsed"] .ppi-owner-aside [data-nav-badge] {
   position: absolute;
   top: 3px;
-  left: 32px;
+  right: 3px;
   margin: 0;
   height: 18px;
   min-width: 18px;
@@ -386,8 +399,16 @@ html[data-owner-nav="collapsed"] .ppi-owner-aside .ppi-shop-list {
   width: 16rem;
   margin: 0;
 }
-/* phones and tablets: the menu slides in from the left */
-.ppi-owner-panel[open] {
+
+/*
+ * Phones and tablets: the menu panel slides in from the left UNDER the top bar (56 px), so the one menu button stays
+ * where it is and closes it again; the page behind is dimmed and inert.
+ */
+.ppi-owner-panel {
+  top: 56px;
+  height: calc(100dvh - 56px);
+}
+.ppi-owner-panel[data-open] {
   animation: ppi-panel-in 0.2s ease-out;
 }
 @keyframes ppi-panel-in {
@@ -398,12 +419,30 @@ html[data-owner-nav="collapsed"] .ppi-owner-aside .ppi-shop-list {
     transform: none;
   }
 }
+
+/*
+ * The AI pomocník on a computer: a 380 px panel on the right, the page between the menu and it (`<html
+ * data-owner-ai="open">`, set before the first paint from localStorage); never on a phone or a tablet (there it is a
+ * page of its own) and not on the pomocník's own page.
+ */
+.ppi-ai-panel {
+  display: none;
+}
+@media (min-width: 1024px) {
+  html[data-owner-ai="open"] .ppi-ai-panel {
+    display: flex;
+  }
+}
+/* the pomocník's own page fills the screen under the top bar: no legal footer under the chat */
+body:has([data-pomocnik-page]) > [data-site-footer] {
+  display: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .ppi-owner-aside,
   .ppi-owner-aside [data-nav-label] {
     transition: none;
   }
-  .ppi-owner-panel[open] {
+  .ppi-owner-panel[data-open] {
     animation: none;
   }
 }

@@ -13,7 +13,9 @@ import { CrmHead, waitingCount } from "../AssistantTabs";
 import { countText } from "../Conversations";
 import { hiddenFields, inputClass, ProOnly } from "../shared";
 import { deleteTemplate, saveContact, saveTemplate } from "./actions";
-import { chooseShop, ContactFields, type ContactRow, Notice, VariableList } from "./parts";
+import { chooseShop, ContactFields, type ContactRow, Notice } from "./parts";
+import { TemplateFields } from "@/components/owner/MessageTools";
+import { ownerAiReady } from "@/lib/grammar";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/contacts">): Promise<Metadata> {
   const { lang } = await params;
@@ -100,7 +102,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
       {unavailable ? (
         <p className="text-sm text-muted">{c.unavailable}</p>
       ) : view === "templates" ? (
-        <Templates templates={(templates.data ?? []) as Template[]} dict={dict} hidden={hidden} hasPlan={hasPlan} />
+        <Templates templates={(templates.data ?? []) as Template[]} dict={dict} hidden={hidden} hasPlan={hasPlan} shopId={shop.id} grammarOn={hasPlan && ownerAiReady()} />
       ) : (
         <section className="flex flex-col gap-4" data-contacts>
           {hasPlan && (
@@ -208,11 +210,15 @@ function Templates({
   dict,
   hidden,
   hasPlan,
+  shopId,
+  grammarOn,
 }: {
   templates: Template[];
   dict: Dictionary;
   hidden: (extra?: Record<string, string>) => React.ReactNode;
   hasPlan: boolean;
+  shopId: string;
+  grammarOn: boolean;
 }) {
   const c = dict.contacts;
   const a = dict.asst;
@@ -223,22 +229,13 @@ function Templates({
         <span className="text-sm">{c.template_name}</span>
         <input name="name" required maxLength={80} defaultValue={tpl?.name ?? ""} className={inputClass} />
       </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{a.template_channel}</span>
-        <select name="channel" defaultValue={tpl?.channel ?? "sms"} className={`${inputClass} min-h-11 bg-white`}>
-          <option value="sms">{a.channel_sms}</option>
-          <option value="email">{a.channel_email}</option>
-          <option value="both">{a.channel_both}</option>
-        </select>
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{a.template_subject}</span>
-        <input name="subject" maxLength={200} defaultValue={tpl?.subject ?? ""} className={inputClass} />
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-sm">{c.body}</span>
-        <textarea name="body" required rows={6} maxLength={10000} defaultValue={tpl?.body ?? ""} className={inputClass} />
-      </label>
+      <TemplateFields
+        texts={c as Record<string, string>}
+        labels={{ channel: a.template_channel, sms: a.channel_sms, email: a.channel_email, both: a.channel_both, subject: a.template_subject, body: c.body }}
+        defaults={{ channel: (tpl?.channel ?? "sms") as "sms" | "email" | "both", subject: tpl?.subject ?? "", body: tpl?.body ?? "" }}
+        shopId={shopId}
+        grammarOn={grammarOn}
+      />
     </>
   );
   return (
@@ -282,7 +279,6 @@ function Templates({
           </form>
         </details>
       )}
-      <VariableList dict={dict} />
     </section>
   );
 }
