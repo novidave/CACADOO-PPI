@@ -43,6 +43,7 @@ export function SaleQrView({
   ok,
   err,
   form,
+  heading = "h1",
 }: {
   s: Dictionary["sklad"];
   lang: Locale;
@@ -54,6 +55,8 @@ export function SaleQrView({
   ok?: string;
   err?: string;
   form: (kind: "paid" | "other" | "cancel", label: string, cls: string) => ReactNode;
+  /** "h2" inside Môj obchod, where Sklad's head (title + tabs) is the page's h1; a paired phone keeps "h1". */
+  heading?: "h1" | "h2";
 }) {
   const ctx = { lang };
   return (
@@ -66,7 +69,7 @@ export function SaleQrView({
       </Link>
       <Notice s={s} ok={ok} err={err} />
       <div className="flex flex-col items-center gap-1 text-center">
-        <PageTitle>{s.qr_title}</PageTitle>
+        {heading === "h1" ? <PageTitle>{s.qr_title}</PageTitle> : <h2 className="text-[28px] font-bold leading-tight">{s.qr_title}</h2>}
         <span className="text-muted">{s.qr_amount}</span>
         <strong className="text-[40px] leading-tight">{total}</strong>
       </div>

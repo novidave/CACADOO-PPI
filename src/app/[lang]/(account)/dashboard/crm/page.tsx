@@ -1,18 +1,17 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
-import { getDictionary, t } from "@/i18n/dictionaries";
+import { getDictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom } from "@/lib/dashboardPages";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
-import { itemTabs, PageHead } from "@/components/owner/PageHead";
 import { AssistantOverview, loadOverview } from "../AssistantOverview";
-import { waitingCount } from "../AssistantTabs";
+import { CrmHead, waitingCount } from "../AssistantTabs";
 import { Callbacks, loadCallbacks } from "../Callbacks";
 import { CloudFolder, cloudSummary, loadCloud } from "../CloudFolder";
 import { conversationFilter, Conversations, conversationsSummary, loadConversations } from "../Conversations";
-import { hiddenFields, messages, ProOnly, ShopSwitcher } from "../shared";
+import { hiddenFields, messages, ProOnly } from "../shared";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/crm">): Promise<Metadata> {
   const { lang } = await params;
@@ -41,7 +40,6 @@ export default async function CrmPage({ params, searchParams }: PageProps<"/[lan
   if (movedFrom("crm", at)) redirect(forwardUrl(lang, at, sp));
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
   const { supabase } = session;
-  const d = dict.dashboard;
   const c = dict.conversations;
   const tab = at === "conversations" || at === "cloud" ? "conversations" : "overview";
 
@@ -75,23 +73,21 @@ export default async function CrmPage({ params, searchParams }: PageProps<"/[lan
   // What a free shop still has (from its Pro time) stays reachable; otherwise "Dostupné v Pro".
   const showConversations = planActive || (conversations?.all ?? 0) > 0;
   const showCloud = Boolean(cloud && (planActive || cloud.connection));
-  const tabs = itemTabs(dict, lang, "crm", shop.slug, { conversations: waiting }).map((x) =>
-    x.key === "conversations" && waiting > 0 ? { ...x, badgeLabel: t(dict.asst.waiting_badge, { n: waiting }) } : x,
-  );
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
-      <PageHead title={dict.nav.crm} item="crm" tabs={tabs} current={tab} tabsLabel={dict.nav.tabs_label}>
-        <ShopSwitcher
-          shops={shops}
-          current={shop}
-          label={d.shop}
-          href={(slug) => `/${lang}/dashboard/crm?${new URLSearchParams({ shop: slug, ...(tab !== "overview" ? { at: tab } : {}) })}`}
-        />
-        {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
-        {m.top}
-        {!planActive && tab === "overview" && <ProOnly dict={dict} href={planUrl} />}
-      </PageHead>
+    <div className="flex w-full flex-col gap-5">
+      <CrmHead
+        dict={dict}
+        lang={lang}
+        shops={shops}
+        shop={shop}
+        current={tab}
+        waiting={waiting}
+        switchHref={(slug) => `/${lang}/dashboard/crm?${new URLSearchParams({ shop: slug, ...(tab !== "overview" ? { at: tab } : {}) })}`}
+      />
+      <div className="flex max-w-3xl flex-col gap-5">
+      {m.top}
+      {!planActive && tab === "overview" && <ProOnly dict={dict} href={planUrl} />}
 
       {tab === "overview" && overview && <AssistantOverview data={overview} lang={lang} dict={dict} shop={shop.slug} timeZone={shop.timezone} />}
 
@@ -128,6 +124,7 @@ export default async function CrmPage({ params, searchParams }: PageProps<"/[lan
           )}
         </section>
       )}
+      </div>
     </div>
   );
 }

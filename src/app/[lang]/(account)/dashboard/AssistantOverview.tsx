@@ -5,8 +5,6 @@ import { t, type Dictionary } from "@/i18n/dictionaries";
 import { localMidnight, shopToday } from "@/lib/bookingTools";
 import { assistantTabUrl } from "@/lib/dashboardPages";
 import { formatDateTime, formatTime } from "@/lib/format";
-import { loadSmsUsage, type SmsUsage as Usage } from "@/lib/smsUsage";
-import { SmsUsage } from "@/components/SmsUsage";
 import { loadCallbacks, type CallbackRow } from "./Callbacks";
 import { cardClass } from "@/components/owner/ui";
 
@@ -22,7 +20,6 @@ export interface Overview {
   waiting: CallbackRow[];
   today: { conversations: number | null; bookings: number | null; contacts: number | null; unanswered: number };
   next: NextBooking[] | null;
-  sms: Usage | null;
   google: boolean;
 }
 
@@ -35,13 +32,12 @@ export async function loadOverview(supabase: SupabaseClient, shopId: string, tim
     const { count: n, error } = await q;
     return error ? null : (n ?? 0);
   };
-  const [callbacks, conversations, contacts, todayBookings, next, sms, google] = await Promise.all([
+  const [callbacks, conversations, contacts, todayBookings, next, google] = await Promise.all([
     loadCallbacks(supabase, shopId),
     count(supabase.from("assistant_conversations").select("id", { count: "exact", head: true }).eq("shop_id", shopId).gte("started_at", midnight.toISOString())),
     count(supabase.from("shop_contacts").select("id", { count: "exact", head: true }).eq("shop_id", shopId).gte("created_at", midnight.toISOString())),
     supabase.rpc("owner_booking_list", { p_shop_id: shopId, p_from: midnight.toISOString(), p_to: tomorrow.toISOString(), p_status: "confirmed" }),
     supabase.rpc("owner_booking_list", { p_shop_id: shopId, p_from: now.toISOString(), p_to: new Date(now.getTime() + 30 * 86_400_000).toISOString(), p_status: "confirmed" }),
-    loadSmsUsage(supabase, shopId),
     supabase.from("booking_google_connections").select("status").eq("shop_id", shopId).maybeSingle(),
   ]);
   const waiting = (callbacks ?? []).filter((c) => !c.answered_at);
@@ -51,7 +47,6 @@ export async function loadOverview(supabase: SupabaseClient, shopId: string, tim
     waiting,
     today: { conversations, bookings: todays ? todays.length : null, contacts, unanswered: waiting.length },
     next: next.error ? null : ((next.data ?? []) as NextBooking[]).slice(0, 3),
-    sms,
     google: !google.error && (google.data as { status?: string } | null)?.status === "ok",
   };
 }
@@ -60,7 +55,7 @@ const card = cardClass; // back-end layout L3 (@/components/owner/ui)
 
 /**
  * Asistent → Prehľad (update 63, the Main screen): who waits for an answer (with "Odpovedať"), today's numbers, the next
- * bookings and this month's SMS. Every number links to its tab.
+ * bookings (this month's SMS: Kontakty and Rezervácie → Nastavenia). Every number links to its tab.
  */
 export function AssistantOverview({
   data,
@@ -153,11 +148,6 @@ export function AssistantOverview({
         <p className="text-[13px] text-muted">{data.google ? a.source_google : a.source_cacaduu}</p>
       </section>
 
-      {data.sms && (
-        <section className={card} data-overview-sms>
-          <SmsUsage usage={data.sms} lang={lang} timeZone={timeZone} dict={dict} />
-        </section>
-      )}
     </div>
   );
 }

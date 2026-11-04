@@ -330,6 +330,84 @@ body:has([data-owner-shell]) > [data-site-main] {
 body:has([data-owner-shell]) > [data-site-footer] {
   margin-top: 0;
 }
+/*
+ * The tabs never move (2026-11-04): the page always keeps the scrollbar's room, so a short tab and a long one put the
+ * title and the tab row at the same x; the tab row scrolls sideways on a phone without a scrollbar of its own (one
+ * would change its height).
+ */
+html:has([data-owner-shell]) {
+  scrollbar-gutter: stable;
+}
+.ppi-tabs {
+  scrollbar-width: none;
+}
+.ppi-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * The owner menu on a computer (@/components/owner/OwnerNav): 256 px open, 76 px collapsed (`<html
+ * data-owner-nav="collapsed">`, set before the first paint from localStorage). The rows stay the same; only the labels
+ * hide and the badges move to the icon's corner, so no icon moves. Only the width is animated.
+ */
+.ppi-owner-aside {
+  width: 256px;
+  transition: width 0.2s ease;
+}
+.ppi-owner-aside [data-nav-label] {
+  transition: opacity 0.15s ease;
+}
+html[data-owner-nav="collapsed"] .ppi-owner-aside {
+  width: 76px;
+}
+html[data-owner-nav="collapsed"] .ppi-owner-aside [data-nav-label] {
+  opacity: 0;
+  visibility: hidden;
+}
+html[data-owner-nav="collapsed"] .ppi-owner-aside [data-nav-badge] {
+  position: absolute;
+  top: 3px;
+  left: 32px;
+  margin: 0;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+html[data-owner-nav="collapsed"] .ppi-owner-aside [data-nav-extra] {
+  display: none;
+}
+/* the shops' list opens beside the rail (fixed: the rail's own overflow would cut it) */
+html[data-owner-nav="collapsed"] .ppi-owner-aside .ppi-shop-list {
+  position: fixed;
+  top: 12px;
+  left: 84px;
+  right: auto;
+  width: 16rem;
+  margin: 0;
+}
+/* phones and tablets: the menu slides in from the left */
+.ppi-owner-panel[open] {
+  animation: ppi-panel-in 0.2s ease-out;
+}
+@keyframes ppi-panel-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-owner-aside,
+  .ppi-owner-aside [data-nav-label] {
+    transition: none;
+  }
+  .ppi-owner-panel[open] {
+    animation: none;
+  }
+}
+
 /* The courier app (database update 75, /[lang]/kurier): no Cacaduu header and no menu — only its own three parts. */
 body:has([data-courier-app]) > [data-site-header] {
   display: none;

@@ -4,15 +4,14 @@ import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
-import type { FoodSettings, FoodZone } from "@/lib/foodOwner";
+import { foodTab, type FoodSettings, type FoodZone } from "@/lib/foodOwner";
 import { money, plural } from "@/lib/foodRules";
 import { DbError } from "@/components/DbError";
-import { itemTabs, PageHead } from "@/components/owner/PageHead";
 import { cardClass, Toggle } from "@/components/owner/ui";
 import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, inputClass, ProOnly } from "../../../shared";
 import { checkMenu, deleteZone, saveFoodSettings, saveZone } from "../actions";
-import { btn, btnGhost, FoodNotice } from "../parts";
+import { btn, btnGhost, FoodHead, FoodNotice } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders/settings">): Promise<Metadata> {
   const { lang } = await params;
@@ -49,9 +48,10 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
   if (chosen.error) return <DbError message={chosen.error} dict={dict} />;
   const shop = chosen.shop;
   if (!shop) redirect(`/${lang}/dashboard`);
-  const [res, docsRes] = await Promise.all([
+  const [res, docsRes, foodTabRes] = await Promise.all([
     supabase.rpc("owner_food_settings", { p_shop_id: shop.id }),
     supabase.rpc("owner_food_menu_docs", { p_shop_id: shop.id }),
+    foodTab(supabase, shop.id),
   ]);
   if (res.error) return <DbError message={res.error.message} dict={dict} />;
   const s = res.data as FoodSettings;
@@ -71,8 +71,17 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
   const withCurrent = (list: number[], v: number) => (list.includes(v) ? list : [...list, v].sort((a, b) => a - b));
 
   return (
-    <div className="flex w-full max-w-xl flex-col gap-5" data-food-settings={view}>
-      <PageHead title={dict.nav.food} item="food" tabs={itemTabs(dict, lang, "food", shop.slug)} current={view} tabsLabel={dict.nav.tabs_label} />
+    <div className="flex w-full flex-col gap-5">
+      <FoodHead
+        dict={dict}
+        lang={lang}
+        shops={chosen.shops}
+        shop={shop}
+        current={view}
+        newOrders={foodTabRes?.new ?? 0}
+        switchHref={(slug) => `/${lang}/dashboard/assistant/orders/settings?${new URLSearchParams({ shop: slug, ...(view === "menu" ? { view } : {}) })}`}
+      />
+      <div className="flex w-full max-w-xl flex-col gap-5" data-food-settings={view}>
       {!canWrite && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
       <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />
 
@@ -249,6 +258,7 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
         )}
       </section>
       )}
+      </div>
     </div>
   );
 }

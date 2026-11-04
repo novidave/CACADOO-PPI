@@ -71,11 +71,12 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   };
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <PageHead title={dict.nav.assistant} item="assistant" tabs={itemTabs(dict, lang, "assistant", shop.slug)} current="settings" tabsLabel={dict.nav.tabs_label}>
         <ShopSwitcher shops={shops} current={shop} label={d.shop} href={(slug) => `/${lang}/dashboard/assistant?${new URLSearchParams({ shop: slug })}`} />
         {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
       </PageHead>
+      <div className="flex max-w-3xl flex-col gap-5">
       <AssistantSettings
         setup={null}
         shop={shop}
@@ -89,6 +90,7 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
         food={food}
         only={ASSISTANT_PARTS}
       />
+      </div>
     </div>
   );
 }

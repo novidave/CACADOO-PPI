@@ -9,14 +9,14 @@ import { OWNER_MENU } from "@/lib/dashboardPages";
 import { foodTab } from "@/lib/foodOwner";
 import type { MyShop } from "@/lib/myShops";
 import { LanguagePicker } from "@/components/LanguagePicker";
-import { OwnerNav, type NavItemView, type NavShop } from "@/components/owner/OwnerNav";
+import { NAV_BOOT, OwnerNav, type NavItemView, type NavShop } from "@/components/owner/OwnerNav";
 
 // Private pages: never indexed, never cached.
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 /**
  * The owner area's one shell (back-end layout, 2026-11-03): the menu (@/components/owner/OwnerNav; the map is
- * @/lib/dashboardPages OWNER_MENU) beside the page. The site's own header is not shown here (globals.css,
+ * @/lib/dashboardPages OWNER_MENU) beside the page from 1024 px, a top bar with the menu button under it. The site's own header is not shown here (globals.css,
  * `[data-owner-shell]`); its language picker moves to the end of "Účet a nastavenia". Badges per shop: CRM = new
  * conversations + shoppers waiting for an answer, Objednávky jedla = orders still new.
  */
@@ -50,7 +50,9 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
   const navShops: NavShop[] = shops.map((s) => ({ slug: s.slug, name: s.name, page: s.is_active ? shopHref(sites, lang, s.slug, s.country) : null }));
 
   return (
-    <div className="flex min-h-svh flex-col md:flex-row" data-owner-shell>
+    <div className="flex min-h-svh flex-col lg:flex-row" data-owner-shell>
+      {/* a menu collapsed on this device starts collapsed, before the first paint (OwnerNav) */}
+      <script dangerouslySetInnerHTML={{ __html: NAV_BOOT }} suppressHydrationWarning />
       <OwnerNav
         lang={lang}
         items={items}
@@ -64,7 +66,8 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
           view_page: n.view_page,
           open_menu: n.open_menu,
           close_menu: n.close_menu,
-          items: { one: n.items_one, few: n.items_few, many: n.items_other, other: n.items_other },
+          collapse_menu: n.collapse_menu,
+          expand_menu: n.expand_menu,
           sign_out: n.sign_out,
           signed_in: n.signed_in,
         }}

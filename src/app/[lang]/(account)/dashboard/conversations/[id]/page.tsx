@@ -13,7 +13,7 @@ import { markCallback } from "../../callbackActions";
 import { deleteConversation, markConversation, saveConversationNote } from "../../conversationActions";
 import { linkConversation } from "../../contacts/actions";
 import { conversationPdfUrl, countText, ExportState, languageName, type ExportStatus } from "../../Conversations";
-import { PageTitle } from "@/components/owner/PageHead";
+import { CrmHead, waitingCount } from "../../AssistantTabs";
 import { fieldClass } from "@/components/owner/ui";
 
 export const metadata: Metadata = { robots: { index: false } };
@@ -106,7 +106,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     );
   }
 
-  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes, marksRes, contactRes, contactsRes, callbackRes] = await Promise.all([
+  const [shopsRes, messagesRes, attachmentsRes, linksRes, exportRes, cloudRes, marksRes, contactRes, contactsRes, callbackRes, waiting] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase
       .from("assistant_messages")
@@ -128,9 +128,12 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     supabase.from("shop_contacts").select("id, name, phone, email").eq("shop_id", conv.shop_id).order("updated_at", { ascending: false }).limit(200),
     // The shopper left a contact after an unanswered question (database update 59; left out before it).
     supabase.from("assistant_conversations").select("callback_at, callback_name, callback_email, callback_answered_at").eq("id", id).maybeSingle(),
+    // CRM's head: the waiting shoppers' badge on Konverzácie, as on every CRM tab
+    waitingCount(supabase, conv.shop_id),
   ]);
   if (messagesRes.error) return <DbError message={messagesRes.error.message} dict={dict} />;
-  const shop = ((shopsRes.data ?? []) as MyShop[]).find((s) => s.id === conv.shop_id);
+  const shops = (shopsRes.data ?? []) as MyShop[];
+  const shop = shops.find((s) => s.id === conv.shop_id);
   if (!shop) notFound();
   const messages = (messagesRes.data ?? []) as Message[];
   const attachments = (attachmentsRes.data ?? []) as Attachment[];
@@ -209,12 +212,23 @@ export default async function ConversationPage({ params, searchParams }: PagePro
     : [];
 
   return (
+    <div className="flex w-full flex-col gap-5">
+      {/* CRM's head, exactly as on the Konverzácie tab: the conversation sits under it */}
+      <CrmHead
+        dict={dict}
+        lang={lang}
+        shops={shops}
+        shop={shop}
+        current="conversations"
+        waiting={waiting}
+        switchHref={(slug) => `/${lang}/dashboard/crm?${new URLSearchParams({ shop: slug, at: "conversations" })}`}
+      />
     <div className="flex max-w-3xl flex-col gap-6">
       <header className="flex flex-col gap-2">
         <Link href={back(shop.slug)} className="text-sm underline underline-offset-4">
           {c.back}
         </Link>
-        <PageTitle>{t(c.heading, { date: formatDateTime(started, lang, tz) })}</PageTitle>
+        <h2 className="text-[24px] font-bold leading-tight">{t(c.heading, { date: formatDateTime(started, lang, tz) })}</h2>
         <p className="text-sm text-muted">{shop.name}</p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
           <dt className="text-muted">{c.started}</dt>
@@ -490,6 +504,7 @@ export default async function ConversationPage({ params, searchParams }: PagePro
         </label>
         <PendingButton pending={dict.owner.saving}>{c.delete_button}</PendingButton>
       </form>
+    </div>
     </div>
   );
 }

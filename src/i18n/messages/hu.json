@@ -4805,6 +4805,8 @@
     "view_page": "Az oldalam megtekintése",
     "open_menu": "Menü megnyitása",
     "close_menu": "Menü bezárása",
+    "collapse_menu": "Menü összecsukása",
+    "expand_menu": "Menü kibontása",
     "items_one": "{n} elem",
     "items_few": "{n} elem",
     "items_other": "{n} elem",

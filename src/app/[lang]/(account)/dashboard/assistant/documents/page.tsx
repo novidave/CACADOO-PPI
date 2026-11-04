@@ -50,7 +50,7 @@ export default async function DocumentsPage({ params, searchParams }: PageProps<
   );
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <PageHead title={dict.nav.assistant} item="assistant" tabs={itemTabs(dict, lang, "assistant", shop.slug)} current="documents" tabsLabel={dict.nav.tabs_label}>
         <ShopSwitcher
           shops={shops}
@@ -59,8 +59,9 @@ export default async function DocumentsPage({ params, searchParams }: PageProps<
           href={(slug) => `/${lang}/dashboard/assistant/documents?${new URLSearchParams({ shop: slug })}`}
         />
         {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
-        {m.top}
       </PageHead>
+      <div className="flex max-w-3xl flex-col gap-5">
+      {m.top}
       <section id="docs" className="flex scroll-mt-4 flex-col gap-3" data-tab-panel="docs">
         {docsData && showDocs && (
           <p className="text-sm text-muted">{t(d.summary_docs, { documents: docsData.docs.length, pictures: docsData.pictures.length })}</p>
@@ -75,6 +76,7 @@ export default async function DocumentsPage({ params, searchParams }: PageProps<
           </>
         )}
       </section>
+      </div>
     </div>
   );
 }

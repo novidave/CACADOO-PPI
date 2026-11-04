@@ -9,6 +9,7 @@ import { BOOKING_TAB_OF_PART, bookingPartUrl } from "@/lib/dashboardPages";
 import { formatDate, utcToLocalInput } from "@/lib/format";
 import { addDays, displayTime, rangesFor, validRanges, weekdayOf } from "@/lib/hours";
 import { loadSmsUsage, quotaLeft } from "@/lib/smsUsage";
+import { SmsUsage } from "@/components/SmsUsage";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { itemTabs, PageHead } from "@/components/owner/PageHead";
@@ -144,7 +145,7 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
   const resourceName = (id: string | null) => setup?.resources.find((r) => r.id === id)?.name ?? null;
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <PageHead title={dict.nav.bookings} item="bookings" tabs={itemTabs(dict, lang, "bookings", shop.slug)} current={tab} tabsLabel={dict.nav.tabs_label}>
         <ShopSwitcher
           shops={chosen.shops}
@@ -153,8 +154,11 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
           href={(slug) => `/${lang}/dashboard/bookings?${new URLSearchParams({ shop: slug, ...(tab !== "calendar" ? { tab } : {}) })}`}
         />
         {chosen.shops.length > 1 && <p className="text-muted">{shop.name}</p>}
-        {!hasPlan && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
       </PageHead>
+      <div className="flex max-w-3xl flex-col gap-5">
+      {/* Nastavenia: this month's booking SMS (codes and reminders), right under the tabs */}
+      {tab === "settings" && hasPlan && sms && <SmsUsage usage={sms} lang={lang} timeZone={shop.timezone} dict={dict} only="booking" />}
+      {!hasPlan && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
 
       {/* Služby · Zdroje · Pravidlá · Blokované časy · Nastavenia: update 63's booking settings, one part per tab */}
       {tab !== "calendar" && (
@@ -404,6 +408,7 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
         <p className="text-[13px] text-muted">{a.bookings_footer}</p>
       </section>
       )}
+      </div>
     </div>
   );
 }
