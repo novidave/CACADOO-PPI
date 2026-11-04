@@ -1505,7 +1505,9 @@ price 30/700 + stock pill, the full stock sentence, `@/components/ItemListButton
 `<details>`, closed, Značka / Kategória / EAN; hidden without rows) · Kde kúpiť (strip with the logo, address, status
 pill, Navigovať + the phone number as `ContactButtons` hold links, Android `geo:`, the map) · "Dostupné aj v" (the same
 rule as before) · footer. **Blog list:** back chip, "Novinky" 32/700 + subtitle, the first post of page 1 as the hero
-(photo 330 px with a scrim, white date chip, title, "Čítať →"; its 800 px file preloaded), the others as cards (96 px
+card, **text first** (the owner's choice, 2026-11-04: date chip, title 22/700, a 112 px photo square beside it, three
+lines of text 16 px, "Čítať →"; the text must stay the page's largest element — a 330 px photo hero finished at ~3.0 s
+on slow 4G and broke the 2.0 s LCP budget; never preload the hero photo), the others as cards (96 px
 thumbnail with ▶ for videos, date chip, title, 2 lines), "Novšie / Staršie" pills + "Strana X z Y" (?page= kept); no
 visible RSS link (the RSS route and `<link rel="alternate">` stay); the breadcrumb only in the JSON-LD. **Blog post:**
 back chip "Novinky", meta line "{date} · n MIN ČÍTANIA · upravené {date}" (`readingMinutes`), h1 28/700 + copy-link

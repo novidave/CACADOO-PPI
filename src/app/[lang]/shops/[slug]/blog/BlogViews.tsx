@@ -104,10 +104,12 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
   const listUrl = blogUrl(base, lang, place);
   const here = (n: number) => `${blogPath(lang, place, onSite)}${n > 1 ? `?page=${n}` : ""}`;
   const date = (post: BlogPost) => formatDate(post.publish_at, lang, shop.timezone);
-  // the first post of the first page is the hero card; its photo is the page's largest picture (preloaded, 800 px)
+  // The first post of the first page is the hero card, text first (the owner's choice, 2026-11-04): its title and three
+  // lines of text are the page's largest element, painted with the first frame; the photo is a 112 px square beside
+  // the title, never preloaded (a photo hero was the largest element and, sharing slow 4G with the page's scripts,
+  // finished at ~3.0 s — the budget is 2.0 s, PERFORMANCE.md).
   const hero = requested === 1 ? posts[0] : undefined;
   const heroPhoto = hero?.photos[0];
-  if (heroPhoto) preload(photoSrc(heroPhoto.small), { as: "image", fetchPriority: "high" });
   const rest = hero ? posts.slice(1) : posts;
 
   return (
@@ -133,27 +135,26 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
         <ol className="flex flex-col gap-3">
           {hero && (
             <li data-blog-post={hero.slug} data-blog-hero>
-              <Link href={blogPath(lang, place, onSite, hero.slug)} className={`relative block overflow-hidden rounded-[18px] ${heroPhoto ? "h-[330px] text-white" : "border border-[#ECE7DE] bg-white p-5"}`}>
-                {heroPhoto && (
-                  <>
-                    {/* eslint-disable-next-line @next/next/no-img-element -- the stored 800 px WebP straight from the bucket */}
-                    <img src={photoSrc(heroPhoto.small)} alt="" width={heroPhoto.small_width ?? 800} height={heroPhoto.small_height ?? 600} fetchPriority="high" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
-                    <span className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent" aria-hidden="true" />
-                    {hero.photos.some((p) => p.kind === "video") && (
-                      <span className="absolute inset-0 flex items-center justify-center" data-blog-list-video aria-hidden="true">
-                        <PlayMark size={56} />
-                      </span>
-                    )}
-                  </>
-                )}
-                <span className={`flex flex-col items-start gap-2.5 ${heroPhoto ? "absolute inset-x-0 bottom-0 p-5" : ""}`}>
-                  <DateChip date={hero.publish_at} text={date(hero)} />
-                  <span className="text-[22px] leading-snug font-bold">{hero.title}</span>
-                  {!heroPhoto && hero.body.trim() && <span className="line-clamp-2 text-[15px] text-[#5B6670]">{excerpt(hero.body, 240)}</span>}
-                  <span className={`inline-flex min-h-9 items-center rounded-full px-4 text-[15px] font-bold ${heroPhoto ? "bg-white text-[#1A1A1A]" : "bg-[#FFF1E6] text-[#9A3A0A]"}`}>
-                    {b.read_arrow}
+              <Link href={blogPath(lang, place, onSite, hero.slug)} className="flex flex-col items-start gap-3 rounded-[18px] border-[1.5px] border-[#FBCFA9] bg-white p-4">
+                <span className="flex w-full items-start gap-3.5">
+                  <span className="flex min-w-0 flex-1 flex-col items-start gap-2">
+                    <DateChip date={hero.publish_at} text={date(hero)} />
+                    <span className="text-[22px] leading-snug font-bold">{hero.title}</span>
                   </span>
+                  {heroPhoto && (
+                    <span className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[14px]" data-blog-hero-photo>
+                      {/* eslint-disable-next-line @next/next/no-img-element -- the stored 800 px WebP straight from the bucket */}
+                      <img src={photoSrc(heroPhoto.small)} alt="" width={112} height={112} decoding="async" className="h-full w-full object-cover" />
+                      {hero.photos.some((p) => p.kind === "video") && (
+                        <span className="absolute inset-0 flex items-center justify-center" data-blog-list-video aria-hidden="true">
+                          <PlayMark size={36} />
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </span>
+                {hero.body.trim() && <span className="line-clamp-3 text-[16px] leading-normal text-[#5B6670]">{excerpt(hero.body, 320)}</span>}
+                <span className="inline-flex min-h-9 items-center rounded-full bg-[#FFF1E6] px-4 text-[15px] font-bold text-[#9A3A0A]">{b.read_arrow}</span>
               </Link>
             </li>
           )}

@@ -108,6 +108,12 @@ Same result sets before and after (41 of 41 search queries compared row by row).
 - **Not yet under 2.0 s in the simulation:** the main page (2.0–2.2 s), the blog list (2.0–2.6 s) and the shop page
   (2.1–2.6 s); the budget check flags them. Their LCP is a heading or a line of text, so it is the fonts and the
   page's own size, not a picture. Real throttled phone browser: 0.8–1.1 s.
+- **Blog list: the hero card is text first** (unified design, 2026-11-04). A 330 px photo hero became the page's
+  largest element and finished at ≈ 3.0 s although it was preloaded with `fetchPriority` high: with the throttling
+  applied while loading, every open request gets an even share of the bandwidth whatever its priority, so the 800 px
+  photo (~90 kB) ends together with the page's scripts (even a 30 kB file would land ≈ 2.3 s). The owner kept the
+  2.0 s budget: the hero's title and three lines of text are the largest element (painted with the first frame) and
+  its photo is a 112 px square, not preloaded. Keep every picture on that page smaller than its largest text.
 - **Lighthouse CI applies the throttling while loading** (`throttlingMethod: "devtools"`). Lighthouse's default
   simulation added every async script's download to the LCP even when the largest element paints with the first frame
   (main page: observed 0.14 s, simulated 2.0–2.5 s) and it hid the map's real main-thread work.
