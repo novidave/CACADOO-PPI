@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { cropPosition, DEFAULT_RATIO, ratioCss, ratioValue, slideTag, srcSet, type SliderRatio, type SlideImage, type SlideView } from "@/lib/pageContent";
+import { cropPosition, DEFAULT_RATIO, ratioCss, ratioValue, slideTag, srcSet, type SliderRatio, type SlideImage, type SlideView } from "@/lib/slideLook";
 import { HoldLink } from "./HoldLink";
 import { PlayMark } from "./PlayMark";
 import "@/components/shopPage.css";

@@ -6,6 +6,11 @@
  */
 
 import type { PostVideo, VideoTarget } from "./video";
+import { DEFAULT_RATIO, type Crop, type SlideImage, type SliderRatio } from "./slideLook";
+
+// The slider's look lives in ./slideLook (the shop page's browser code needs only that); re-exported here.
+export { cropPosition, DEFAULT_RATIO, ratioCss, ratioValue, slideTag, srcSet } from "./slideLook";
+export type { Crop, SlideImage, SliderRatio, SlideView } from "./slideLook";
 
 export type SlotKind = "auto_post" | "pinned_post" | "pdf" | "picture";
 export const SLOT_KINDS: SlotKind[] = ["auto_post", "pdf", "pinned_post", "picture"];
@@ -22,13 +27,7 @@ export interface Slot {
 
 // ---------------------------------------------------------------- the fixed frame (update 44)
 
-/** "Pomer strán slidera": every slide has the same frame; null / missing = 4:5 (1080 × 1350 px uploads). */
-export type SliderRatio = "4:5" | "1:1" | "16:9";
 export const SLIDER_RATIOS: SliderRatio[] = ["4:5", "1:1", "16:9"];
-export const DEFAULT_RATIO: SliderRatio = "4:5";
-
-/** "Výrez": which part of a picture stays visible when it does not have the frame's ratio. */
-export type Crop = "top" | "center" | "bottom";
 export const CROPS: Crop[] = ["top", "center", "bottom"];
 
 export function sliderRatio(value: unknown): SliderRatio {
@@ -37,22 +36,6 @@ export function sliderRatio(value: unknown): SliderRatio {
 
 export function slideCrop(value: unknown): Crop {
   return CROPS.includes(value as Crop) ? (value as Crop) : "center";
-}
-
-/** The frame's width ÷ height (4:5 → 0.8). */
-export function ratioValue(ratio: SliderRatio): number {
-  const [w, h] = ratio.split(":").map(Number);
-  return w / h;
-}
-
-/** CSS aspect-ratio of the frame ("4 / 5"). */
-export function ratioCss(ratio: SliderRatio): string {
-  return ratio.replace(":", " / ");
-}
-
-/** CSS object-position of a "Výrez". */
-export function cropPosition(crop: Crop): string {
-  return crop === "top" ? "50% 0%" : crop === "bottom" ? "50% 100%" : "50% 50%";
 }
 
 /** A suggested upload size for a ratio ("1080 × 1350"), shown in the upload hint. */
@@ -209,57 +192,9 @@ export function canAdd(slots: Slot[], kind: SlotKind, limits: Pick<ContentLimits
 
 // ---------------------------------------------------------------- what the slider draws
 
-export interface SlideImage {
-  small: string;
-  large: string;
-  /** The large picture's size (the small one has the same proportions, at most 800 px wide). */
-  width: number;
-  height: number;
-}
-
-export type SlideView =
-  | {
-      kind: "post";
-      key: string;
-      href: string;
-      title: string;
-      /** "20. 10. 2026", in the shop's time zone. */
-      date: string;
-      dateTime: string;
-      excerpt: string;
-      image: SlideImage | null;
-      /** A video post (update 39): where its ▶ leads; `facebook` = to the post on Facebook. */
-      video: { href: string; external: boolean; facebook: boolean } | null;
-    }
-  | {
-      kind: "pdf";
-      key: string;
-      title: string;
-      layout: "slider" | "stacked";
-      pages: (SlideImage & { text: string })[];
-      download: string | null;
-      crop: Crop;
-    }
-  | {
-      kind: "picture";
-      key: string;
-      /** Only when the owner gave the picture a title. */
-      title: string | null;
-      alt: string;
-      image: SlideImage;
-      text: string;
-      download: string | null;
-      crop: Crop;
-    };
-
 /** A file's page picture: 800 px wide (never more than the picture itself) and 1600 px. */
 export function pageImage(page: Pick<ContentPage, "width" | "height">, small: string, large: string): SlideImage {
   return { small, large, width: page.width, height: page.height };
-}
-
-/** srcset for a picture that may be narrower than 800 px (a picture is never made larger: one file then). */
-export function srcSet(image: SlideImage): string | undefined {
-  return image.width > 800 ? `${image.small} 800w, ${image.large} ${image.width}w` : undefined;
 }
 
 /** The first two lines' worth of a post's text, as written (cut at a word). */
@@ -287,9 +222,4 @@ export function articlePhoto<P extends { kind: "photo" | "video" }>(photos: P[])
   const real = photos.filter((p) => p.kind === "photo");
   const pool = real.length ? real : photos;
   return pool[1] ?? pool[0] ?? null;
-}
-
-/** The slide's tag on the picture: a post is news ("Novinka"), a PDF or a picture an offer ("Ponuka"). */
-export function slideTag(kind: SlideView["kind"]): "tag_post" | "tag_offer" {
-  return kind === "post" ? "tag_post" : "tag_offer";
 }
