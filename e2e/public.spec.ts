@@ -131,48 +131,11 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
         return [r.x, r.y, r.width, r.height].map(Math.round).join(",");
       });
       const before = await nav();
-      // TEMP diagnostics: who scrolls the page during the tap
-      await page.evaluate(() => {
-        const w = window as unknown as { __log: string[] };
-        w.__log = [];
-        const at = () => `${Math.round(performance.now())}`;
-        const stack = () => (new Error().stack ?? "").split("\n").slice(2, 5).map((l) => l.trim().slice(0, 120)).join(" | ");
-        addEventListener("scroll", () => w.__log.push(`${at()} scroll y=${Math.round(scrollY)}`), { passive: true });
-        const wrap = (obj: object, name: string) => {
-          const o = obj as Record<string, (...a: unknown[]) => unknown>;
-          const orig = o[name];
-          o[name] = function (this: unknown, ...a: unknown[]) {
-            const el = this instanceof Element ? this.outerHTML.slice(0, 80) : "window";
-            w.__log.push(`${at()} ${name}(${JSON.stringify(a).slice(0, 80)}) on ${el} :: ${stack()}`);
-            return orig.apply(this, a);
-          };
-        };
-        wrap(Element.prototype, "scrollIntoView");
-        wrap(HTMLElement.prototype, "focus");
-        wrap(window, "scrollTo");
-        wrap(window, "scrollBy");
-        wrap(Element.prototype, "scrollTo");
-      });
-      const diag = await second.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const t = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-        const vv = window.visualViewport;
-        return {
-          rect: [r.x, r.y, r.width, r.height].map(Math.round),
-          hit: t === el ? "self" : (t?.outerHTML ?? "null").slice(0, 200),
-          scrollY: Math.round(scrollY),
-          vv: vv ? [vv.offsetTop, vv.pageTop, vv.height, vv.scale].map((n) => Math.round(n * 100) / 100) : null,
-          active: document.activeElement?.outerHTML.slice(0, 120),
-          docH: document.documentElement.scrollHeight,
-          innerH: innerHeight,
-        };
-      });
       await second.tap();
       await expect(second).toHaveAttribute("aria-pressed", "true");
       await expect(slider.locator('[data-slider-dot="0"]')).toHaveAttribute("aria-pressed", "false");
       await page.waitForTimeout(600);
-      const log = await page.evaluate(() => (window as unknown as { __log: string[] }).__log.slice(0, 40));
-      expect(await nav(), JSON.stringify({ diag, log }, null, 1)).toEqual(before);
+      expect(await nav()).toEqual(before);
       // a swipe back to the first slide
       const track = slider.locator("[data-slider-track]");
       await track.evaluate((el) => el.scrollTo({ left: 0, behavior: "instant" }));
