@@ -86,9 +86,19 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
     await expect(slider.getByText("Zobraziť text")).toHaveCount(0);
     await expect(slider.locator("[data-slider-next], [data-slider-prev], [data-slider-counter]")).toHaveCount(0);
     const article = slider.locator("[data-post-article]");
-    // the slider's top at the top of the screen (or the page scrolled as far as it goes)
+    // the slider's top at the top of the screen (or the page scrolled as far as it goes: a short page)
     const atTop = () =>
       slider.evaluate((el) => Math.abs(el.getBoundingClientRect().top) <= 1 || window.scrollY >= document.documentElement.scrollHeight - innerHeight - 1);
+    // the article folds for 450 ms while the page scrolls: wait until the slider stands still
+    const settled = async () => {
+      let last = Number.NaN;
+      for (let i = 0; i < 30; i++) {
+        await page.waitForTimeout(150);
+        const now = await slider.evaluate((el) => Math.round(el.getBoundingClientRect().top));
+        if (now === last) return;
+        last = now;
+      }
+    };
     const read = slider.locator('[data-slide="0"] [data-slide-read][aria-expanded]');
     if ((await article.count()) && (await read.count())) {
       await expect(article.locator("[data-inline-article]").first()).toBeAttached();
@@ -102,7 +112,8 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
       await page.evaluate(() => window.scrollBy(0, 400));
       await article.locator("[data-post-close]").first().tap();
       await expect(read).toHaveAttribute("aria-expanded", "false");
-      await expect.poll(() => atTop(), { timeout: 3000 }).toBe(true);
+      await settled();
+      expect(await atTop(), "the slider's top at the top of the screen").toBe(true);
       await expect(read).toBeFocused();
       // the "Zavrieť" on the slide does the same
       await read.tap();
@@ -110,7 +121,8 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
       await page.evaluate(() => window.scrollBy(0, 300));
       await read.tap();
       await expect(read).toHaveAttribute("aria-expanded", "false");
-      await expect.poll(() => atTop(), { timeout: 3000 }).toBe(true);
+      await settled();
+      expect(await atTop(), "the slider's top at the top of the screen").toBe(true);
     }
     const second = slider.locator('[data-slider-dot="1"]');
     if (await second.count()) {

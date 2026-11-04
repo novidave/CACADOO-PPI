@@ -16,7 +16,6 @@ import { addressLine } from "@/lib/format";
 import { contactButtons, contactWidths, CONTACT_KEYS, isAndroid } from "@/lib/contactButtons";
 import { productRow } from "@/lib/shopRows";
 import {
-  DAYS,
   dayName,
   displayTime,
   hasHours,
