@@ -17,6 +17,16 @@ export const test = base.extend({
       (url) => url.origin === origin,
       (route) => route.continue({ headers: { ...route.request().headers(), ...extra } }),
     );
+    // The preview toolbar's comment layer (<vercel-live-feedback>, previews only — never on cacaduu.com) still comes
+    // and lies over parts of the page: it took a tap on the slider's pills and Playwright scrolled the page to get past
+    // it (2026-11-04). Hidden in every test, so a tap reaches the page as on the live site.
+    await context.addInitScript(() => {
+      document.addEventListener("DOMContentLoaded", () => {
+        const style = document.createElement("style");
+        style.textContent = "vercel-live-feedback, vercel-live-toolbar { display: none !important; }";
+        document.head.append(style);
+      });
+    });
     await provide(context);
   },
 });

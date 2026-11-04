@@ -363,6 +363,49 @@ export function statusText(status: ShopStatus, labels: StatusLabels, lang: strin
   return [p.main, p.detail, p.label].filter(Boolean).join(" · ");
 }
 
+/**
+ * The shop page's week list (2026-11-04): each weekday's REAL hours in the coming 7 days (today included) — a special
+ * day of the owner replaces that weekday's regular hours ("Zatvorené" when it is closed), a day shops must close by
+ * law shows what is left of it; a public day off keeps the regular hours (nobody knows). Same rule as shopStatus.
+ */
+export function weekHours(input: StatusInput, now: Date = new Date()): { day: DayKey; date: string; ranges: [string, string][]; changed: boolean }[] {
+  const { date: today } = localDateTime(now, input.timeZone);
+  return DAYS.map((day) => {
+    const offset = [0, 1, 2, 3, 4, 5, 6].find((n) => weekdayOf(addDays(today, n)) === day) ?? 0;
+    const date = addDays(today, offset);
+    const cal = input.days.find((d) => d.date === date);
+    const info = dayInfo(input, date);
+    if (info.kind === "special") return { day, date, ranges: cal?.special?.closed ? [] : validRanges(cal?.special?.ranges ?? []), changed: true };
+    if (info.kind === "closed_by_law") return { day, date, ranges: info.spans.map((s) => [fmt(s.start), fmt(s.end)] as [string, string]), changed: true };
+    return { day, date, ranges: rangesFor(input.hours, day), changed: false };
+  });
+}
+
+/** The short texts of the shop page's closed pill ("Otvára o 12:00" / "Otvára zajtra" / "Otvára v piatok"). */
+export interface PillLabels {
+  pill_opens_at: string;
+  pill_opens_tomorrow: string;
+  pill_opens_mon: string;
+  pill_opens_tue: string;
+  pill_opens_wed: string;
+  pill_opens_thu: string;
+  pill_opens_fri: string;
+  pill_opens_sat: string;
+  pill_opens_sun: string;
+}
+
+/**
+ * The closed pill's short text on the shop page (2026-11-04): only when it opens again within a week — later today
+ * "Otvára o 12:00", tomorrow "Otvára zajtra", later "Otvára v <deň>"; null otherwise (the full status stays). The
+ * full status words go to the pill's aria-label.
+ */
+export function closedPillText(status: ShopStatus, labels: PillLabels): string | null {
+  if (status.state !== "closed" || !status.next) return null;
+  if (status.next.inDays === 0) return fill(labels.pill_opens_at, { time: displayTime(status.next.time) });
+  if (status.next.inDays === 1) return labels.pill_opens_tomorrow;
+  return labels[`pill_opens_${status.next.day}`];
+}
+
 /** The special days and holidays from today on (shop's time zone), for the list under the hours. */
 export function upcomingDays(input: StatusInput, now: Date = new Date(), count = 14) {
   const { date: today } = localDateTime(now, input.timeZone);

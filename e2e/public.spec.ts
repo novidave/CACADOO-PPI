@@ -34,6 +34,31 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
   const status = page.locator("[data-status]").first();
   await expect(status.locator("[data-status-dot]")).toBeVisible();
   await expect(status).toContainText(/\p{L}/u);
+  // 2026-11-04: no "Preložené automaticky · Zobraziť originál" on customer pages
+  await expect(page.getByText(sk.translation.machine)).toHaveCount(0);
+  await expect(page.locator("[data-show-original]")).toHaveCount(0);
+  // ONE opening hours card: the coming holidays / special days inside it (then a thin line), no separate card
+  await expect(page.locator("[data-hours]")).toHaveCount(1);
+  await expect(page.locator("[data-special-days]")).toHaveCount(0);
+  const upcoming = page.locator("[data-hours] [data-hours-upcoming]");
+  await expect(page.locator("[data-hours] [data-hours-divider]")).toHaveCount(await upcoming.count());
+  // closed: only the short words in the pill ("Otvára …"), the full status is its name
+  const pill = page.locator("[data-status-pill]");
+  if ((await pill.getAttribute("data-status-short")) !== null) {
+    await expect(pill).toHaveAttribute("data-status", "closed");
+    await expect(pill).toHaveAttribute("aria-label", new RegExp(`^${sk.status.closed}`));
+    await expect(pill).not.toContainText("·");
+    await expect(pill.locator("[data-status-dot][data-opening]")).toHaveCount(1);
+  }
+  // the same gap between every card of the page, from the details to the products
+  const gaps = await page.locator("[data-shop-page]").evaluate((col) => {
+    const kids = [...col.children].filter((el) => {
+      const s = getComputedStyle(el);
+      return el.getBoundingClientRect().height > 0 && s.position !== "absolute" && s.position !== "fixed" && s.display !== "none";
+    });
+    return kids.slice(1).map((el, i) => Math.round(el.getBoundingClientRect().top - kids[i].getBoundingClientRect().bottom));
+  });
+  expect(new Set(gaps).size, `gaps between the cards: ${gaps.join(", ")}`).toBe(1);
   // The map's box is there at once (space reserved), the map itself comes later or on a tap.
   const map = page.locator("[data-map]").first();
   await expect(map).toBeVisible();
@@ -61,6 +86,19 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
     await expect(slider.getByText("Zobraziť text")).toHaveCount(0);
     await expect(slider.locator("[data-slider-next], [data-slider-prev], [data-slider-counter]")).toHaveCount(0);
     const article = slider.locator("[data-post-article]");
+    // the slider's top at the top of the screen (or the page scrolled as far as it goes: a short page)
+    const atTop = () =>
+      slider.evaluate((el) => Math.abs(el.getBoundingClientRect().top) <= 1 || window.scrollY >= document.documentElement.scrollHeight - innerHeight - 1);
+    // the article folds for 450 ms while the page scrolls: wait until the slider stands still
+    const settled = async () => {
+      let last = Number.NaN;
+      for (let i = 0; i < 30; i++) {
+        await page.waitForTimeout(150);
+        const now = await slider.evaluate((el) => Math.round(el.getBoundingClientRect().top));
+        if (now === last) return;
+        last = now;
+      }
+    };
     const read = slider.locator('[data-slide="0"] [data-slide-read][aria-expanded]');
     if ((await article.count()) && (await read.count())) {
       await expect(article.locator("[data-inline-article]").first()).toBeAttached();
@@ -70,8 +108,21 @@ test("shop page: map, status dot, slider, assistant, access key", async ({ page 
       // the open post offers "Všetky novinky" (a hold link to the blog), no longer "Opýtať sa asistenta"
       const allNews = article.locator("[data-post-all-news]").first();
       if (await allNews.count()) await expect(allNews).toHaveAttribute("href", /\/blog/);
+      // closing it brings the slider's top back to the top of the screen and the focus to its "Čítať"
+      await page.evaluate(() => window.scrollBy(0, 400));
+      await article.locator("[data-post-close]").first().tap();
+      await expect(read).toHaveAttribute("aria-expanded", "false");
+      await settled();
+      expect(await atTop(), "the slider's top at the top of the screen").toBe(true);
+      await expect(read).toBeFocused();
+      // the "Zavrieť" on the slide does the same
+      await read.tap();
+      await expect(read).toHaveAttribute("aria-expanded", "true");
+      await page.evaluate(() => window.scrollBy(0, 300));
       await read.tap();
       await expect(read).toHaveAttribute("aria-expanded", "false");
+      await settled();
+      expect(await atTop(), "the slider's top at the top of the screen").toBe(true);
     }
     const second = slider.locator('[data-slider-dot="1"]');
     if (await second.count()) {

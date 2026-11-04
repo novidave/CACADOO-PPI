@@ -1630,7 +1630,16 @@
     "check_hours": "overte otváracie hodiny",
     "closed_from": "zatvorené od {time}",
     "today": "dnes",
-    "upcoming_short": "Sviatky · najbližších 14 dní"
+    "upcoming_short": "Sviatky · najbližších 14 dní",
+    "pill_opens_at": "Otvára o {time}",
+    "pill_opens_tomorrow": "Otvára zajtra",
+    "pill_opens_mon": "Otvára v pondelok",
+    "pill_opens_tue": "Otvára v utorok",
+    "pill_opens_wed": "Otvára v stredu",
+    "pill_opens_thu": "Otvára vo štvrtok",
+    "pill_opens_fri": "Otvára v piatok",
+    "pill_opens_sat": "Otvára v sobotu",
+    "pill_opens_sun": "Otvára v nedeľu"
   },
   "holidays": {
     "title": "Sviatky a mimoriadne zatvorenie",
