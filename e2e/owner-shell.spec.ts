@@ -5,9 +5,12 @@ import type { Page } from "@playwright/test";
  * The owner area's shell (back-end layout, 2026-11-03; tabs and menu fixed 2026-11-04). Rezervácie is the model: switching
  * a tab never moves the title or the tab row, only what is under the tabs changes — every owner page with tabs behaves
  * the same (the tab row's box is identical on every tab and on the pages under them, ±0.5 px). At 1180×820 the 256 px
- * menu is open on every page (Predaj too) and "Zbaliť menu" folds it to the 76 px rail without moving a single icon,
- * remembered after a reload; at 820×1180 and 390×844 the top bar has the menu button on the left and the menu is a
- * panel from the left that Esc closes. "SMS tento mesiac" sits under the tabs on Kontakty. No page scrolls sideways.
+ * menu is open on every page (Predaj too) and "Zbaliť menu" folds it to the 76 px rail without moving a single icon
+ * (every icon's centre 38 px from the edge; collapsed, every item an even 52 × 52 square), remembered after a reload;
+ * "AI pomocník" opens its panel on the right without moving the tabs. At 820×1180 and 390×844 the top bar has ONE menu
+ * button on the left (the same box open and closed) and the menu slides in from the left under it; Esc, a tap outside
+ * or the same button closes it; "AI pomocník" opens its own page. "SMS tento mesiac" sits under the tabs on Kontakty.
+ * No page scrolls sideways.
  * Needs an owner login (E2E_OWNER_EMAIL + E2E_OWNER_PASSWORD or E2E_OWNER_LOGIN_URL) and E2E_OWNER_SHOP for the shop
  * pages; skipped without them. An item the shop does not use (no Sklad, food ordering off) is skipped with a note.
  */
@@ -177,7 +180,7 @@ for (const size of SIZES) {
         await expect(button).toHaveAttribute("aria-expanded", "true");
         await expect(button).toHaveAttribute("aria-controls", "owner-menu");
         await expect(button).toHaveAccessibleName(sk.nav.collapse_menu);
-        expect((await button.boundingBox())!.height).toBeCloseTo(48, 0);
+        expect((await button.boundingBox())!.height, "the collapse button is a 52 px row too").toBeCloseTo(52, 0);
         const icons = () =>
           page.$$eval("#owner-menu [data-nav-icon]", (els) =>
             els.filter((e) => e.getBoundingClientRect().height > 0).map((e) => {
@@ -185,6 +188,11 @@ for (const size of SIZES) {
               return [Math.round(r.x * 2) / 2, Math.round(r.y * 2) / 2];
             }),
           );
+        // every icon's centre 38 px from the menu's left edge (12 px margin + half of its 52 px square)
+        const centres = await page.$$eval("#owner-menu [data-nav-icon]", (els) =>
+          els.filter((e) => e.getBoundingClientRect().height > 0).map((e) => e.getBoundingClientRect().x + e.getBoundingClientRect().width / 2),
+        );
+        for (const x of centres) expect(Math.abs(x - 38), "an icon's centre at 38 px").toBeLessThanOrEqual(0.5);
         const tabs = await tabRow(page, "sklad");
         const before = await icons();
         expect(before.length).toBeGreaterThan(8);
@@ -194,6 +202,15 @@ for (const size of SIZES) {
         await expect(aside).toHaveAttribute("data-owner-nav", "collapsed");
         await expect.poll(async () => (await aside.boundingBox())!.width).toBeCloseTo(76, 0);
         expect(await icons(), "no icon moved").toEqual(before);
+        // collapsed: every item an even 52 × 52 square, 12 px from each side of the 76 px rail
+        const squares = await page.$$eval("#owner-menu [data-nav-cell]", (els) =>
+          els.filter((e) => e.getBoundingClientRect().height > 0).map((e) => {
+            const r = e.getBoundingClientRect();
+            return [Math.round(r.x), Math.round(r.width), Math.round(r.height)];
+          }),
+        );
+        expect(squares.length).toBeGreaterThan(8);
+        for (const [x, w, h] of squares) expect([x, w, h], "a 52 × 52 square, 12 px in").toEqual([12, 52, 52]);
         await expect(button).toHaveAttribute("aria-expanded", "false");
         await expect(button).toHaveAccessibleName(sk.nav.expand_menu);
         // collapsed rows say what they are; labels are hidden
@@ -217,6 +234,36 @@ for (const size of SIZES) {
         await expect(aside).toHaveAttribute("data-owner-nav", "open");
         await page.reload();
         await expect(aside).toHaveAttribute("data-owner-nav", "open");
+      });
+
+      test("AI pomocník opens on the right without moving the tabs; Esc closes it", async ({ page }) => {
+        await page.goto(`/sk/dashboard/bookings${q}`);
+        const toggle = page.locator("[data-ai-toggle]");
+        if ((await toggle.count()) === 0) {
+          test.info().annotations.push({ type: "skipped", description: "no AI pomocník (ANTHROPIC_API_KEY not set on the site)" });
+          return;
+        }
+        const tabs = (await tabRow(page, "bookings"))!;
+        await expect(toggle).toHaveAttribute("aria-pressed", "false");
+        await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-pressed", "true");
+        const panel = page.locator("[data-ai-panel]");
+        await expect(panel).toBeVisible();
+        const box = (await panel.boundingBox())!;
+        expect(box.width).toBeCloseTo(380, 0);
+        const viewport = page.viewportSize()!;
+        expect(box.x + box.width, "on the right").toBeGreaterThan(viewport.width - 20);
+        const withPanel = (await tabRow(page, "bookings"))!;
+        expect(Math.abs(withPanel.y - tabs.y), "the tabs keep their place").toBeLessThanOrEqual(0.5);
+        expect(withPanel.x + 1, "the panel never covers the tabs").toBeLessThan(box.x);
+        await expect(page.locator("[data-ai-input]")).toBeFocused();
+        // it stays while moving between pages
+        await page.goto(`/sk/dashboard/crm${q}`);
+        await expect(panel).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(panel).toBeHidden();
+        await expect(toggle).toBeFocused();
+        await expect(toggle).toHaveAttribute("aria-pressed", "false");
       });
 
       test("only one group is open; the group of the page opens by itself; the site header is hidden", async ({ page }) => {
@@ -249,23 +296,34 @@ for (const size of SIZES) {
         }
       });
     } else {
-      test("the menu button is on the left; the panel comes from the left and closes with Esc, outside or X", async ({ page }) => {
+      test("one menu button: the same place open and closed; the panel under the top bar; Esc, outside or the button close it", async ({ page }) => {
         await page.goto(`/sk/dashboard/sklad/sale${q}`);
         await expect(page.locator("#owner-menu")).toBeHidden();
         const button = page.locator("[data-owner-menu-button]");
-        const b = (await button.boundingBox())!;
-        expect(b.x, "the button on the left").toBeLessThan(20);
-        expect(b.width).toBeCloseTo(48, 0);
+        const closed = (await button.boundingBox())!;
+        expect(closed.x, "the button on the left").toBeLessThan(20);
+        expect(closed.width).toBeCloseTo(48, 0);
         const title = (await page.locator("[data-owner-topbar] strong").boundingBox())!;
-        expect(title.x, "the title after the button").toBeGreaterThan(b.x + b.width);
+        expect(title.x, "the title after the button").toBeGreaterThan(closed.x + closed.width);
         const panel = page.locator("[data-owner-panel]");
         await button.click();
         await expect(panel).toBeVisible();
         await expect(button).toHaveAttribute("aria-expanded", "true");
+        await expect(button).toHaveAccessibleName(sk.nav.close_menu);
+        const open = (await button.boundingBox())!;
+        expect([open.x, open.y, open.width, open.height], "the same box open and closed").toEqual([closed.x, closed.y, closed.width, closed.height]);
+        // the button stays on top (never covered by the panel or the dimmed page)
+        expect(await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest("[data-owner-menu-button]")), [open.x + 20, open.y + 20])).toBe(true);
         const p = (await panel.boundingBox())!;
         expect(p.x, "from the left edge").toBeLessThanOrEqual(0.5);
+        expect(p.y, "under the top bar").toBeGreaterThanOrEqual(55.5);
         expect(p.width).toBeLessThanOrEqual(Math.min(320, size.width * 0.85) + 0.5);
         expect(await page.evaluate(() => Boolean(document.activeElement?.closest("[data-owner-panel]"))), "the focus moves into the panel").toBe(true);
+        // the same button closes it
+        await button.click();
+        await expect(panel).toBeHidden();
+        await expect(button).toHaveAccessibleName(sk.nav.open_menu);
+        await button.click();
         await page.keyboard.press("Escape");
         await expect(panel).toBeHidden();
         await expect(button).toBeFocused();
@@ -274,10 +332,24 @@ for (const size of SIZES) {
         await expect(panel).toBeVisible();
         await page.mouse.click(size.width - 40, size.height / 2);
         await expect(panel).toBeHidden();
-        await button.click();
-        await page.locator("[data-owner-panel-close]").click();
-        await expect(panel).toBeHidden();
-        await expect(button).toBeFocused();
+        await noSideways(page);
+      });
+
+      test("AI pomocník is an item of the menu and opens its own page with only the chat", async ({ page }) => {
+        await page.goto(`/sk/dashboard${q}`);
+        await page.locator("[data-owner-menu-button]").click();
+        const item = page.locator('[data-owner-panel] [data-panel-item="pomocnik"]');
+        if ((await item.count()) === 0) {
+          test.info().annotations.push({ type: "skipped", description: "no AI pomocník (ANTHROPIC_API_KEY not set on the site)" });
+          return;
+        }
+        await item.click();
+        await page.waitForURL(/\/dashboard\/pomocnik/);
+        await expect(page.locator("[data-pomocnik-page]")).toBeVisible();
+        await expect(page.locator("[data-owner-topbar] strong")).toHaveText(sk.nav.pomocnik);
+        const input = (await page.locator("[data-ai-input]").boundingBox())!;
+        expect(input.y + input.height, "the question box at the bottom").toBeGreaterThan(size.height - 90);
+        await expect(page.locator("[data-site-footer]")).toBeHidden();
         await noSideways(page);
       });
     }

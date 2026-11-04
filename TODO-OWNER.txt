@@ -126,6 +126,9 @@ OPEN
    b) Then item 2 (connect the Google Business Profile) can be done.
    Note (2026-11-03): this telegram deploy also switches on the Telegram notice of a new food order. Until then new
    orders arrive by e-mail, with the sound in Asistent → Objednávky, and nothing else changes in the live bot.
+   Note (2026-11-04): it also moves the bot's free-text AI onto the same engine as the website's "AI pomocník" (it
+   then also answers "how do I …" questions with a link to the screen). Until then the live bot answers as before;
+   the daily AI limit is already shared between the bot and the website.
 
 24. Privacy page: food orders (waits for your OK)
    Why: a shopper who orders food in the shop assistant gives the shop a name, a mobile number and, for delivery,
@@ -170,6 +173,20 @@ OPEN
    b) In that copy: one Pro shop with "Sklad v Cacaduu", one product with a price and stock, "Objednávky jedla" on
       with Donáška, cash and "Odpísať zo skladu", and a zone.
    c) Claude runs the check there and tells you the result.
+
+28. CRM → Správy and the AI pomocník: try them once (in a shop with Pro)
+   Why: the screens were tested without a real login (the database and the AI part were tested on their own).
+   a) Môj obchod → CRM → Správy → "+ Nový kontakt": your own name and mobile number → "Uložiť". It is now under "Komu".
+   b) Type a few words, click the tag {meno} under the text, then "Opraviť gramatiku" (it shows before → after;
+      "Použiť" or "Zahodiť") → "Náhľad" (your name instead of {meno}) → "Odoslať". The SMS arrives on your phone
+      and the message is in the list under the box.
+   c) On a computer: the menu → "AI pomocník" opens the chat on the right. Ask e.g. "Aké mám dnes rezervácie?" and
+      "Zajtra zatvorené" — the second one shows a card; nothing changes until you tap "Potvrdiť" (or "Zrušiť").
+      On a phone: the menu → "AI pomocník" opens it as its own page.
+   d) The limits are yours to change in Predplatné a domény (admin): "Telegram bot" → the AI switch and "AI správ
+      na používateľa za deň" (one limit per owner and day for the bot AND the website together, now 50), and
+      "AI pre majiteľov" → "Opráv gramatiky za deň na obchod" (default 30, 0 = off).
+   e) Tell Claude what happened (a screenshot is enough if something fails).
 
 DONE
 ----

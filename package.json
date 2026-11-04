@@ -27,10 +27,10 @@
     "test:mcp": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerMcpRules_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerMcpRules_test.ts",
     "test:list": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/shoppingList_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/shoppingList_test.ts",
     "test:conversations": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/conversationExport_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/conversationExport_test.ts",
-    "test:crm": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts",
+    "test:crm": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts src/lib/messageTags_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/crm_test.ts src/lib/messageTags_test.ts",
     "test:booking": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts",
     "test:e2e": "playwright test",
-    "test:telegram": "node scripts/telegram-texts.mjs --check",
+    "test:telegram": "node scripts/telegram-texts.mjs --check && node scripts/assistant-core.mjs --check",
     "test:food": "deno test --no-check --no-lock --unstable-sloppy-imports --allow-read src/lib/food_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports --allow-read src/lib/food_test.ts",
     "test:sklad": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/sklad_test.ts src/lib/ekasa_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/sklad_test.ts src/lib/ekasa_test.ts"
   },

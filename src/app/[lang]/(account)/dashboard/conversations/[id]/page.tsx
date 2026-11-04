@@ -8,6 +8,7 @@ import { formatDateTime, formatTime, localDay } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { MessageComposer, type ComposerTemplate } from "@/components/MessageComposer";
+import { ownerAiReady } from "@/lib/grammar";
 import { PendingButton } from "@/components/PendingButton";
 import { markCallback } from "../../callbackActions";
 import { deleteConversation, markConversation, saveConversationNote } from "../../conversationActions";
@@ -477,6 +478,8 @@ export default async function ConversationPage({ params, searchParams }: PagePro
               smsLive={replyConfig?.data?.sms_live === true}
               templates={(replyTemplates?.data ?? []) as ComposerTemplate[]}
               texts={k as Record<string, string>}
+              shopId={conv.shop_id}
+              grammarOn={ownerAiReady()}
             />
           ) : (
             <p className="border border-line p-3 text-sm">{k.needs_plan}</p>

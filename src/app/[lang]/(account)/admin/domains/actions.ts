@@ -286,6 +286,15 @@ export async function saveTelegramSettings(formData: FormData) {
   back(error ? { err: "telegram" } : { ok: "telegram" }, "telegram");
 }
 
+/** "AI pre majiteľov" (database update 76): the daily limit of "Opraviť gramatiku" per shop. */
+export async function saveOwnerAi(formData: FormData) {
+  const { session, back } = await start(formData);
+  const limit = Number(formData.get("grammar_daily_limit"));
+  if (!Number.isInteger(limit) || limit < 0 || limit > 1000) back({ err: "owner_ai" }, "owner-ai");
+  const { error } = await session.supabase.rpc("admin_save_owner_ai", { p_grammar_daily_limit: limit });
+  back(error ? { err: "owner_ai" } : { ok: "owner_ai" }, "owner-ai");
+}
+
 /** "Nastaviť webhook": the telegram function tells Telegram its address and the secret header (is_admin checked there). */
 export async function setTelegramWebhook(formData: FormData) {
   const { session, back } = await start(formData);

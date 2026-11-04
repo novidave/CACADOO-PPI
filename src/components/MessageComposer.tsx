@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { previewMessage, sendMessage, type ComposeState } from "@/app/[lang]/(account)/dashboard/contacts/actions";
-import { SMS_MAX, smsParts, TEMPLATE_VARIABLES, variableToken } from "@/lib/crm";
+import { SMS_MAX, smsParts } from "@/lib/crm";
 import { fieldClass } from "@/components/owner/ui";
+import { GrammarFix, TagChips, TagPreview } from "@/components/owner/MessageTools";
 
 export interface ComposerTemplate {
   id: string;
@@ -21,9 +22,12 @@ const fill = (text: string, values: Record<string, string | number>) =>
   text.replace(/\{(\w+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all));
 
 /**
- * "Poslať správu" on a contact card: SMS or e-mail, an e-mail template (its subject and text are copied in to edit),
- * the variables to use, the SMS length in parts. "Náhľad" shows the message exactly as the database fills it in
- * (owner_message_preview); only then "Odoslať" sends it through crm-messages (written down first, then sent).
+ * "Poslať správu" — one composer for CRM → Správy, a contact's Správy and a conversation's answer: SMS or e-mail, a
+ * template (its subject and text are copied in to edit), the variables as tags (a click or Tab + Enter puts one at the
+ * cursor, a drag drops it where it is let go; the live line under the text shows them as pills and names an unknown
+ * one), "Opraviť gramatiku" (2026-11-04, paid), the SMS length in parts. "Náhľad" shows the message exactly as the
+ * database fills it in (owner_message_preview); only then "Odoslať" sends it through crm-messages (written down first,
+ * then sent).
  */
 export function MessageComposer({
   lang,
@@ -35,6 +39,8 @@ export function MessageComposer({
   smsLive,
   templates,
   texts,
+  shopId,
+  grammarOn = false,
 }: {
   lang: string;
   contactId: string;
@@ -46,11 +52,18 @@ export function MessageComposer({
   smsLive: boolean;
   templates: ComposerTemplate[];
   texts: ComposerTexts;
+  /** the shop (for "Opraviť gramatiku": its daily limit and plan) */
+  shopId?: string;
+  /** the server has the AI key (the button is hidden without it) */
+  grammarOn?: boolean;
 }) {
   const [channel, setChannel] = useState<"sms" | "email">(hasPhone ? "sms" : "email");
   const [template, setTemplate] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const subjectRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const lastField = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const [state, dispatch, pending] = useActionState(async (previous: ComposeState, form: FormData): Promise<ComposeState> => {
     const intent = form.get("intent");
     if (intent === "edit") return { step: "edit" };
@@ -78,9 +91,11 @@ export function MessageComposer({
     </>
   );
 
+  // Each step is its own <form> (a key): the site's double-tap guard (TapFeedback) marks a sent form busy, and a reused
+  // form would keep that mark, so "Odoslať" after "Náhľad" would wait 15 s.
   if (state.step === "done") {
     return (
-      <form action={dispatch} className="flex flex-col gap-3 border border-line p-3" data-composer="done">
+      <form key="done" action={dispatch} className="flex flex-col gap-3 border border-line p-3" data-composer="done">
         <p role="status" className="font-medium" data-compose-result={state.message}>
           {texts[state.message ?? "sent"]}
         </p>
@@ -93,7 +108,7 @@ export function MessageComposer({
 
   if (state.step === "preview" && state.preview) {
     return (
-      <form action={dispatch} className="flex flex-col gap-3 border border-foreground p-3" data-composer="preview">
+      <form key="preview" action={dispatch} className="flex flex-col gap-3 border border-foreground p-3" data-composer="preview">
         {hidden}
         <input type="hidden" name="subject" value={subject} />
         <input type="hidden" name="body" value={body} />
@@ -136,7 +151,7 @@ export function MessageComposer({
   }
 
   return (
-    <form action={dispatch} className="flex flex-col gap-3 border border-line p-3" data-composer="edit">
+    <form key="edit" action={dispatch} className="flex flex-col gap-3 border border-line p-3" data-composer="edit">
       {hidden}
       <h3 className="font-semibold">{texts.compose_title}</h3>
       {state.message && (
@@ -196,15 +211,26 @@ export function MessageComposer({
       {channel === "email" && (
         <label className="flex flex-col gap-1">
           <span className="text-sm">{texts.subject}</span>
-          <input name="subject" value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} className={input} />
+          <input
+            ref={subjectRef}
+            name="subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            onFocus={(e) => (lastField.current = e.currentTarget)}
+            maxLength={200}
+            className={input}
+            data-compose-subject
+          />
         </label>
       )}
       <label className="flex flex-col gap-1">
         <span className="text-sm">{texts.body}</span>
         <textarea
+          ref={bodyRef}
           name="body"
           value={body}
           onChange={(e) => setBody(e.target.value)}
+          onFocus={(e) => (lastField.current = e.currentTarget)}
           rows={channel === "sms" ? 4 : 8}
           maxLength={channel === "sms" ? SMS_MAX : 10000}
           className={input}
@@ -216,16 +242,20 @@ export function MessageComposer({
           {fill(texts.sms_chars, { n: parts.chars, parts: parts.parts })}
         </p>
       )}
-      <details className="text-xs">
-        <summary className="cursor-pointer text-muted">{texts.variables}</summary>
-        <ul className="mt-1 flex flex-col gap-0.5">
-          {TEMPLATE_VARIABLES.map((v) => (
-            <li key={v}>
-              <code className="font-mono">{variableToken(v)}</code> <span className="text-muted">– {texts[`var_${v}`]}</span>
-            </li>
-          ))}
-        </ul>
-      </details>
+      <TagPreview text={body} texts={texts} />
+      <TagChips texts={texts} target={() => (lastField.current?.isConnected ? lastField.current : bodyRef.current)} />
+      {grammarOn && shopId && (
+        <GrammarFix
+          shopId={shopId}
+          channel={channel}
+          texts={texts}
+          read={() => ({ text: body, subject: channel === "email" ? subject : null })}
+          apply={(text, s) => {
+            setBody(text);
+            if (s !== null) setSubject(s);
+          }}
+        />
+      )}
       <button
         type="submit"
         name="intent"

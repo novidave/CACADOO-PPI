@@ -10,13 +10,16 @@ import { foodTab } from "@/lib/foodOwner";
 import type { MyShop } from "@/lib/myShops";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { NAV_BOOT, OwnerNav, type NavItemView, type NavShop } from "@/components/owner/OwnerNav";
+import { AssistantPanel } from "@/components/owner/AssistantPanel";
+import { ownerAiReady } from "@/lib/grammar";
 
 // Private pages: never indexed, never cached.
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 /**
  * The owner area's one shell (back-end layout, 2026-11-03): the menu (@/components/owner/OwnerNav; the map is
- * @/lib/dashboardPages OWNER_MENU) beside the page from 1024 px, a top bar with the menu button under it. The site's own header is not shown here (globals.css,
+ * @/lib/dashboardPages OWNER_MENU) beside the page from 1024 px, a top bar with the menu button under it; the AI
+ * pomocník's panel on the right (@/components/owner/AssistantPanel, computer only, when the server has the AI key). The site's own header is not shown here (globals.css,
  * `[data-owner-shell]`); its language picker moves to the end of "Účet a nastavenia". Badges per shop: CRM = new
  * conversations + shoppers waiting for an answer, Objednávky jedla = orders still new.
  */
@@ -42,7 +45,9 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
   );
 
   const n = dict.nav;
-  const items: NavItemView[] = OWNER_MENU.filter((m) => !m.admin || session.isAdmin).map((m) => ({
+  // the AI pomocník only when the server has the AI key (its switch, its page and its panel)
+  const aiReady = ownerAiReady();
+  const items: NavItemView[] = OWNER_MENU.filter((m) => (!m.admin || session.isAdmin) && (m.key !== "pomocnik" || aiReady)).map((m) => ({
     key: m.key,
     label: n[m.key],
     ...(m.badge ? { badges: Object.fromEntries(counts.map((c) => [c.slug, c[m.badge!]])), badgeLabel: m.badge === "food" ? n.badge_food : n.badge_crm } : {}),
@@ -81,6 +86,7 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
       <div className="min-w-0 flex-1 px-4 py-5 md:px-6 lg:px-8" data-owner-page>
         {children}
       </div>
+      {aiReady && <AssistantPanel lang={lang} shops={shops.map((s) => s.slug)} texts={dict.pomocnik as Record<string, string>} />}
     </div>
   );
 }

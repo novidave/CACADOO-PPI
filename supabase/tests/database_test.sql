@@ -14083,4 +14083,229 @@ end $$;
 reset role;
 drop table t75;
 
+\echo '--- update 76: CRM → Správy (recipient search, the log), Opraviť gramatiku (limit per shop, AI spend), the website''s AI pomocník (one door, Potvrdiť only, actor web, one daily limit with Telegram)'
+create temporary table t76 (k text primary key, v text);
+grant all on t76 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_c uuid;
+begin
+  insert into t76 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('d', (current_date + 40)::text),
+    ('tg', (select to_jsonb(t) from public.telegram_settings t where t.id)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_76')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days',
+    stripe_subscription_id = coalesce(public.subscriptions.stripe_subscription_id, 'sub_test_76');
+  insert into public.shop_contacts (shop_id, name, phone, email, source)
+  values (v_a, 'Ján Novák', '+421905111222', 'jan76@example.invalid', 'owner') returning id into v_c;
+  insert into t76 values ('jan', v_c::text);
+  insert into public.shop_contacts (shop_id, name, phone, source) values (v_a, 'Eva Malá', '+421905333444', 'owner');
+  insert into public.shop_contacts (shop_id, name, source) values (v_b, 'Ján Iný', 'owner');
+  -- the log: an owner's SMS and a booking code (never shown) to Ján
+  insert into public.shop_outgoing_messages (shop_id, contact_id, channel, recipient, body, status, kind)
+  values (v_a, v_c, 'sms', '+421905111222', E'Dobrý deň Ján,\nvaša objednávka je pripravená.', 'test', 'owner'),
+         (v_a, v_c, 'sms', '+421905111222', 'Kód ••••••', 'test', 'booking_code');
+  update public.owner_ai_settings set grammar_daily_limit = 2 where id;
+  update public.telegram_settings set ai_enabled = true, ai_daily_limit = 50 where id;
+end $$;
+reset role;
+
+-- the recipient bar: partial words, accents ignored, digits of the phone — only the shop's own contacts
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_n integer;
+  vj jsonb;
+begin
+  assert (select count(*) from public.owner_contact_search(v_a, 'jan nov')) = 1, 'two partial words';
+  assert (select name from public.owner_contact_search(v_a, 'novak')) = 'Ján Novák', 'accents ignored';
+  assert (select count(*) from public.owner_contact_search(v_a, '0905 111')) = 1, 'the phone''s digits';
+  assert not exists (select 1 from public.owner_contact_search(v_a, 'ján') where name = 'Ján Iný'), 'another shop''s contact';
+  assert (select count(*) from public.owner_contact_search(v_b, 'ján')) = 0, 'not a member of that shop';
+  assert (select count(*) from public.owner_contact_search(v_a, '   ')) = 0, 'nothing typed';
+  -- the log: the owner's message, never the codes; filters; another shop's log is empty
+  select count(*) into v_n from public.owner_messages_log(v_a, null, null, null, 200) where recipient = '+421905111222';
+  assert v_n = 1, 'only the owner''s message, never a code: ' || v_n;
+  assert (select first_line from public.owner_messages_log(v_a, null, null, null, 200) where recipient = '+421905111222') = 'Dobrý deň Ján,', 'its first line';
+  assert (select contact_name from public.owner_messages_log(v_a, 'sms', 'test', 'novák pripravená')) = 'Ján Novák', 'filters';
+  assert not exists (select 1 from public.owner_messages_log(v_a, 'email', null, null, 200) where recipient = '+421905111222'), 'channel filter';
+  assert (select count(*) from public.owner_messages_log(v_b)) = 0, 'another shop';
+  -- Opraviť gramatiku: 2 a day per shop (the admin's setting), the tokens counted
+  assert public.owner_grammar_hit(v_a) = 1;
+  assert public.owner_grammar_hit(v_a) = 0;
+  begin perform public.owner_grammar_hit(v_a); raise exception 'no grammar limit';
+  exception when program_limit_exceeded then if sqlerrm <> 'grammar_limit' then raise; end if; end;
+  begin perform public.owner_grammar_hit(v_b); raise exception 'another owner''s shop';
+  exception when insufficient_privilege then null; end;
+  perform public.owner_ai_spend(v_a, 'grammar', 120, 30);
+  begin perform public.owner_ai_spend(v_b, 'grammar', 1, 1); raise exception 'spend on another shop';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.owner_ai_usage; raise exception 'owner read the usage table';
+  exception when insufficient_privilege then null; end;
+  begin perform public.admin_owner_ai(); raise exception 'not the admin';
+  exception when insufficient_privilege then null; end;
+  -- the AI pomocník: reads through the one door with the owner's own web grant
+  assert public.assistant_ai_hit('potraviny-centrum') >= 0;
+  vj := public.assistant_web_call('get_shop_details', '{"shop": "potraviny-centrum"}');
+  assert vj ->> 'shop' = 'potraviny-centrum', vj::text;
+  begin perform public.assistant_web_call('get_shop_details', '{"shop": "drogeria-kostolne"}'); raise exception 'another owner''s shop';
+  exception when insufficient_privilege then null; end;
+  begin perform public.assistant_ai_hit('drogeria-kostolne'); raise exception 'AI for another owner''s shop';
+  exception when insufficient_privilege then null; end;
+  begin perform count(*) from public.assistant_pending; raise exception 'owner read the pending table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+begin
+  assert (select calls from public.owner_ai_usage u join public.shops s on s.id = u.shop_id
+          where s.slug = 'potraviny-centrum' and u.kind = 'grammar' and u.user_id = '00000000-0000-0000-0000-00000000000a'
+          order by u.day desc limit 1) = 2, 'two fixes counted';
+  assert (select input_tokens + output_tokens from public.owner_ai_usage u join public.shops s on s.id = u.shop_id
+          where s.slug = 'potraviny-centrum' and u.kind = 'grammar' order by u.day desc limit 1) = 150, 'the tokens';
+  assert exists (select 1 from public.owner_mcp_tokens t join public.assistant_web_links l on l.grant_id = t.id
+                 where l.user_id = '00000000-0000-0000-0000-00000000000a' and t.kind = 'web' and t.revoked_at is null
+                   and t.scopes = array['shop.read', 'shop.write']), 'a web grant';
+end $$;
+reset role;
+-- (as the database owner: the token only in the Vault)
+do $$ begin
+  assert exists (select 1 from vault.secrets s join public.assistant_web_links l on l.vault_id = s.id
+                 where l.user_id = '00000000-0000-0000-0000-00000000000a' and s.secret ~ '^cwa_[0-9a-f]{64}$'), 'the web token only in the Vault';
+end $$;
+
+-- every write waits for Potvrdiť: the same owner, 10 minutes, once; the activity log says web
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t76 where k = 'd');
+  v_p uuid;
+  vj jsonb;
+begin
+  begin perform public.assistant_web_call('set_opening_hours', jsonb_build_object('shop', 'potraviny-centrum', 'special',
+          jsonb_build_array(jsonb_build_object('from', v_d, 'closed', true)))); raise exception 'write without Potvrdiť';
+  exception when insufficient_privilege then if sqlerrm <> 'needs_confirmation' then raise; end if; end;
+  begin perform public.assistant_pending_new('get_shop_details', '{}', '{}'); raise exception 'pending read tool';
+  exception when invalid_parameter_value then if sqlerrm <> 'unknown_tool' then raise; end if; end;
+  begin perform public.assistant_pending_new('preview_message', '{}', '{}'); raise exception 'pending message';
+  exception when invalid_parameter_value then if sqlerrm <> 'unknown_tool' then raise; end if; end;
+  v_p := public.assistant_pending_new('set_opening_hours', jsonb_build_object('shop', 'potraviny-centrum', 'special',
+           jsonb_build_array(jsonb_build_object('from', v_d, 'closed', true))), '{"lines": ["closed"]}');
+  insert into t76 values ('p', v_p::text);
+  assert not exists (select 1 from public.shop_special_hours where shop_id = v_a and date = v_d), 'nothing before Potvrdiť';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$ begin
+  begin perform public.assistant_confirm((select v::uuid from t76 where k = 'p')); raise exception 'another owner confirmed';
+  exception when no_data_found then null; end;
+  assert public.assistant_cancel((select v::uuid from t76 where k = 'p')) is null, 'another owner cancelled';
+  begin perform public.assistant_ai_hit('drogeria-kostolne'); raise exception 'AI without the plan';
+  exception when raise_exception then if sqlerrm <> 'no_plan' then raise; end if; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d date := (select v::date from t76 where k = 'd');
+  v_p uuid := (select v::uuid from t76 where k = 'p');
+  vj jsonb;
+begin
+  vj := public.assistant_confirm(v_p);
+  assert vj ->> 'tool' = 'set_opening_hours' and vj -> 'summary' = '{"lines": ["closed"]}'::jsonb, vj::text;
+  assert exists (select 1 from public.shop_special_hours where shop_id = v_a and date = v_d and closed), 'closed that day';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'hours_changed' and details ->> 'source' = 'web'),
+    'the activity log says web';
+  begin perform public.assistant_confirm(v_p); raise exception 'confirmed twice';
+  exception when invalid_parameter_value then if sqlerrm <> 'used' then raise; end if; end;
+  v_p := public.assistant_pending_new('set_opening_hours', '{"shop": "potraviny-centrum", "special": []}', '{}');
+  insert into t76 values ('p2', v_p::text);
+  assert public.assistant_cancel(v_p);
+  begin perform public.assistant_confirm(v_p); raise exception 'confirmed after Zrušiť';
+  exception when invalid_parameter_value then if sqlerrm <> 'used' then raise; end if; end;
+  insert into t76 values ('p3', public.assistant_pending_new('set_opening_hours', '{"shop": "potraviny-centrum", "special": []}', '{}')::text);
+end $$;
+reset role;
+set role service_role;
+update public.assistant_pending set expires_at = now() - interval '1 second' where id = (select v::uuid from t76 where k = 'p3');
+-- one daily limit for the website and Telegram: the owner's messages today + 1 = the last one
+update public.telegram_settings set ai_daily_limit = public.owner_ai_messages_today('00000000-0000-0000-0000-00000000000a') + 1 where id;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin perform public.assistant_confirm((select v::uuid from t76 where k = 'p3')); raise exception 'expired confirmation';
+  exception when invalid_parameter_value then if sqlerrm <> 'expired' then raise; end if; end;
+  assert public.assistant_ai_hit('potraviny-centrum') = 0, 'the last message today';
+  begin perform public.assistant_ai_hit('potraviny-centrum'); raise exception 'no AI limit';
+  exception when program_limit_exceeded then if sqlerrm <> 'ai_limit' then raise; end if; end;
+end $$;
+reset role;
+set role service_role;
+update public.telegram_settings set ai_enabled = false, ai_daily_limit = 50 where id;
+update public.owner_ai_settings set grammar_daily_limit = 0 where id;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin
+  begin perform public.assistant_ai_hit('potraviny-centrum'); raise exception 'AI switched off';
+  exception when raise_exception then if sqlerrm <> 'ai_off' then raise; end if; end;
+  begin perform public.owner_grammar_hit((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'grammar switched off';
+  exception when raise_exception then if sqlerrm <> 'grammar_off' then raise; end if; end;
+end $$;
+reset role;
+
+-- the admin: the grammar limit and the use of the owners' AI tools
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+do $$
+declare
+  vj jsonb;
+begin
+  perform public.admin_save_owner_ai(30);
+  vj := public.admin_owner_ai();
+  assert (vj ->> 'grammar_daily_limit')::int = 30 and (vj -> 'today' -> 'grammar' ->> 'calls')::int >= 2, vj::text;
+  begin perform public.admin_save_owner_ai(5000); raise exception 'limit out of range';
+  exception when invalid_parameter_value then null; end;
+end $$;
+reset role;
+
+-- tidy up
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_tg jsonb := (select v::jsonb from t76 where k = 'tg');
+begin
+  delete from public.shop_outgoing_messages where shop_id = v_a and recipient = '+421905111222';
+  delete from public.shop_contacts where (shop_id = v_a and name in ('Ján Novák', 'Eva Malá')) or (shop_id = v_b and name = 'Ján Iný');
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t76 where k = 'd');
+  delete from public.assistant_pending where user_id = '00000000-0000-0000-0000-00000000000a';
+  update public.telegram_settings set ai_enabled = (v_tg ->> 'ai_enabled')::boolean, ai_daily_limit = (v_tg ->> 'ai_daily_limit')::int where id;
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t76 where k = 'sub'))
+  where (select v from t76 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t76 where k = 'had_plan');
+end $$;
+reset role;
+drop table t76;
+
 \echo 'ALL DATABASE CHECKS PASSED'

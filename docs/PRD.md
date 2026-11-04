@@ -62,6 +62,7 @@ Claude Code reads this file first, so keep it true: when a feature changes, chan
 | "Sklad v Cacaduu" phase F — Zariadenia (database update 72, approved by the owner): a shop assistant's phone or the counter's phone joins one shop's Sklad by a QR code, without the owner's password; only the ticked screens (Predaj, Príjem tovaru — pieces only, Inventúra counting, QR terminál); never purchase prices, suppliers or margins; everything under the phone's name; "Odpojiť" at once, 90 days unused → off, ≤ 10 per shop | Built and tested; live after database update 72 and the merge (SETUP.md part BD) |
 | "Objednávky jedla" (Prompt 15) phase F1 — the data and the rules (database update 73): food orders in the shop assistant, pickup and delivery (zones by town, postcode or kilometres with a fee and a minimum), paid only on receipt (PAY by square, cash, card on the shop's own terminal); prices only from Sklad, sold out refused; the order placed the moment the customer types the SMS code; status steps with an audit log; the stock taken once on delivery; a monthly order SMS quota | F1–F4 live (F4: couriers, SMS-code login without an account, the courier app, assignment, cash); F5 tests: `npm run test:food`, e2e `e2e/food.spec.ts` (runs where SMS are in test mode) |
 | Back-end layout "Môj obchod" (2026-11-03, fixed 2026-11-04): one shell for every owner page — on a computer the 256 px menu open on every page, "Zbaliť menu" folds it to a 76 px rail without moving an icon (remembered); on phones and tablets a top bar with the menu button on the left and the menu as a panel from the left; the tabs of every item in one fixed place (Rezervácie is the model: switching a tab moves neither the title nor the tabs); one menu map | L1–L3 live; the 2026-11-04 fix (one tab place, the collapsible menu, the left panel) in its own PR; L4 (courier mode) waits for the courier app |
+| CRM → Správy, variables as tags, "Opraviť gramatiku" and the AI pomocník (database update 76, 2026-11-04): a fourth CRM tab to write to any contact (live search, "+ Nový kontakt", the log of sent messages); the variables as chips under every message and template; Claude corrects spelling and grammar (before → after, every variable kept, SMS parts and "Bez diakritiky"; 30 a day per shop); the AI pomocník on the right of a computer or as its own page on a phone — answers from the shop's data and the help pages, every change only after "Potvrdiť"; one engine with the Telegram bot | Built and tested; live after database update 76 and the merge; the Telegram bot moves onto the shared engine with its next deploy (TODO 23) |
 | Sample shops from the build (4 shops) | Still in the database: remove before launch (SETUP.md part D) |
 
 ## 1. Product summary
@@ -2381,4 +2382,29 @@ shop allows its couriers), "Doručené" only after a payment mark (takes the sto
 sees it on the board and the order); every step resent on a weak signal and applied once. The owner: Objednávky jedla →
 Kuriéri (artboard 6: the couriers, what each is doing, the cash each holds and "Vyúčtovať hotovosť", assignment by
 hand or "Voľný kuriér automaticky", the three courier switches) and "Prideliť" on an order.
+
+### 6.46 CRM → Správy, variables as tags, "Opraviť gramatiku" and the AI pomocník (database update 76, 4 November 2026, at the owner's request)
+
+- **CRM → Správy** (after Šablóny, the same head and tabs; "SMS tento mesiac" under the tabs): "Komu" finds a contact as
+  the owner types (name or e-mail words, partial, without accents, or a part of the number; only the shop's contacts);
+  "+ Nový kontakt" opens a dialog and the saved contact becomes the recipient; then the same composer as a contact's
+  Správy (the channels the contact has, a template, the tags, "Opraviť gramatiku", "Náhľad", "Odoslať" with the quotas
+  and the log). Under it every message sent to the shop's contacts (search, channel and status filters; a row opens
+  the contact's Správy). SMS codes never appear there.
+- **Variables as tags** under every message and template text: {meno} {obchod} {produkt} {datum} {cas} and the e-mail's
+  {{shop_phone}} {{shop_email}} {{shop_address}} {{shop_web}}, each with its meaning on hover, focus or a long press;
+  a click or Tab + Enter puts it at the cursor (or over the selection), a drag drops it where it is let go; the text
+  stays plain text, a line under it shows the variables as pills and names an unknown one ("Neznáma premenná {xyz}").
+- **"Opraviť gramatiku"** (Pro, only with the AI key): spelling, grammar and punctuation in the text's own language; the
+  correction is offered only when every variable and line break is kept; before → after with the changed words marked,
+  "Použiť" / "Zahodiť"; for an SMS the parts before and after and "Bez diakritiky" when the accents cost parts. 30 a day
+  per shop by default (admin "AI pre majiteľov", 0 = off); nothing is sent or saved by it.
+- **AI pomocník** (Pro, only with the AI key): one engine for the website and the Telegram bot; it reads the shop's data
+  through the owner MCP's door, answers "how do I …" questions from the help pages with a link to the screen, and
+  proposes changes (opening hours, a booking's status, stock, a conversation handled) as cards — nothing changes before
+  "Potvrdiť". It never sees full phone numbers, e-mails, addresses, purchase prices, secrets or other shops' data. One
+  daily AI limit per owner for the website and Telegram together (admin "Telegram bot"). On a computer a switch in the
+  menu opens it on the right (380 px, the tabs stay in place); on a phone or tablet it is its own page.
+- **The menu:** collapsed, every item is an even 52 × 52 square centred in the 76 px rail and the icons never move;
+  phones and tablets have one menu button that opens and closes the menu under the top bar.
 

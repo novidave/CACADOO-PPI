@@ -12,6 +12,8 @@ import { deleteDomainPrice, domainAction, refreshCredit, saveDomainPrice, saveDo
 import { BlogAdmin, type BlogAdminInfo } from "./BlogAdmin";
 import { SmsAdmin, type SmsQuotaRow } from "./SmsAdmin";
 import { TelegramAdmin, type TelegramSettings, type TelegramWebhookInfo } from "./TelegramAdmin";
+import { OwnerAiAdmin, type OwnerAiInfo } from "./OwnerAiAdmin";
+import { ownerAiReady } from "@/lib/grammar";
 import { InventoryAdmin, type InventoryOverview } from "./InventoryAdmin";
 import { ErrorsAdmin, type ServerErrorRow } from "./ErrorsAdmin";
 import { type AdminHoliday, HolidaysAdmin } from "./HolidaysAdmin";
@@ -112,7 +114,7 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
     hyear: String(hyear),
   })}`;
 
-  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo, serverErrors, inventory, smsQuotas, smsProvider, telegramInfo, telegramSettings] = await Promise.all([
+  const [overview, stats, prices, holidays, sectionLimits, searchSettings, sourcesEnv, partnerSettings, partnerEnv, blogLimits, blogInfo, serverErrors, inventory, smsQuotas, smsProvider, telegramInfo, telegramSettings, ownerAi] = await Promise.all([
     session.supabase.rpc("admin_domain_overview", { p_q: q || null, p_status: status || null, p_kind: kind || null }),
     session.supabase.rpc("admin_domain_stats"),
     session.supabase.from("domain_prices").select("tld, price_cents, renewal_cents, vat_included, sort_order, active").order("sort_order"),
@@ -152,6 +154,8 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
       .then(({ data, error }) => (error || !data ? null : data))
       .catch(() => null),
     session.supabase.rpc("admin_telegram_settings"),
+    // "AI pre majiteľov" (database update 76; unavailable before it)
+    session.supabase.rpc("admin_owner_ai"),
   ]);
   const limitRows = sectionLimits.error ? null : ((sectionLimits.data ?? []) as LimitsRow[]);
   if (overview.error) return <DbError message={overview.error.message} dict={dict} />;
@@ -501,6 +505,8 @@ export default async function AdminDomainsPage({ params, searchParams }: PagePro
         dict={dict}
         hidden={hidden}
       />
+
+      <OwnerAiAdmin info={ownerAi.error ? null : (ownerAi.data as OwnerAiInfo | null)} aiKey={ownerAiReady()} dict={dict} hidden={hidden} />
 
       <BlogAdmin
         limits={blogLimits.error ? null : ((blogLimits.data ?? []) as { plan: "free" | "pro"; max_posts: number | null }[])}
