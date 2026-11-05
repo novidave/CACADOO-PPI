@@ -18,7 +18,6 @@ import { expect, loginOwner, sk, test, watchConsole } from "./helpers";
 const SHOP = process.env.E2E_FOOD_SHOP ?? "";
 const PHONE = process.env.E2E_FOOD_PHONE ?? "";
 const m = sk.menu;
-const c = sk.chat;
 
 /** The smallest PDF that is a PDF (the AI's answer is stubbed; the browser only reads its text). */
 const PDF = Buffer.from(
