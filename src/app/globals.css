@@ -363,10 +363,15 @@ body:has([data-owner-shell]) > [data-site-footer] {
 html:has([data-owner-shell]) {
   scrollbar-gutter: stable;
 }
-.ppi-tabs {
+/*
+ * The owner tab row's own class: never `.ppi-tabs` — that is the shop page's Produkty / Zoznam box in shopPage.css (a
+ * grey two-column grid), and a stylesheet the Menu editor's preview loaded stays on the page after a client-side
+ * navigation (src/lib/cssScope_test.ts keeps the two sets of names apart).
+ */
+.ppi-item-tabs {
   scrollbar-width: none;
 }
-.ppi-tabs::-webkit-scrollbar {
+.ppi-item-tabs::-webkit-scrollbar {
   display: none;
 }
 

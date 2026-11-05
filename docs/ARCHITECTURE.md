@@ -3183,7 +3183,7 @@ tabs moves neither the title nor the tab row, only what is under the tabs change
 behaves like that.
 
 - **One place for the tabs.** `@/components/owner/PageHead` is one block (title row 52 px with the item's actions, then
-  only what is the same on every tab — the shop switcher —, then the 56 px tab row; the hidden-scrollbar `.ppi-tabs`
+  only what is the same on every tab — the shop switcher —, then the 56 px tab row; the hidden-scrollbar `.ppi-item-tabs`
   scrolls sideways inside itself on a phone) and the first thing in the content area. Each tabbed page = an outer
   `w-full` column, its item's head, then an inner column with the page's own width: `SkladShell` (`wide` = Predaj, the
   Príjemka editor, Inventúra counting, the QR payment page — no `work` / compact head any more), `FoodHead`

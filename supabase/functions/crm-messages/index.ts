@@ -25,7 +25,7 @@
 //   - action "food_sms" {shop_id, order_id} with the owner's login (database update 74): "Objednávka je na ceste" —
 //     owner_food_sms_queue writes it down first (the shop's 'order' quota, once per order), then it is sent here.
 // E-mail goes through Brevo from ALERT_EMAIL_FROM with the shop's name as the sender's name and the shop's e-mail as
-// "reply to". SMS goes through one provider behind the SmsProvider interface (SMS_PROVIDER: brevo, twilio; unset or
+// "reply to". SMS goes through one provider behind the SmsProvider interface (SMS_PROVIDER: brevo, twilio, infobip; unset or
 // "test" = written down as "test", not sent) and takes its parts of the shop's monthly "owner" quota first (database
 // update 58: owner_message_queue refuses with sms_quota at the limit). Never logged: numbers, addresses, texts, keys.
 //
