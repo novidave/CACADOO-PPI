@@ -383,10 +383,9 @@ hore); the cards below as before — Donáška and the zones only with Donáška
 `[data-needs-delivery]` / `[data-needs-payments]` hidden by CSS `:has()`) — and the SaveBar (texts `food.mod_*`).
 Switched off = hidden: without the courier app no Kuriéri tab (`FoodHead couriers`, from `owner_food_tab().parts`);
 without Platby no pay chip on the board, no payment section, step or QR on an order's page (finishing needs no mark),
-no method in the order panel ("Platíte až pri prevzatí", `pay_method` null — the bookings function lets SQL decide)
-and in the owner's e-mail (crm-messages); without the QR terminal no "Ukázať QR". **The assistant** (`foodPrompt`, the
+no method in the owner's e-mail (crm-messages); without the QR terminal no "Ukázať QR". **The assistant** (`foodPrompt`, the
 `food_menu` / `food_quote` results): the times from `food_state` (`ready_pickup_min` / `ready_delivery_min`, never its own
-estimate), a long delay said BEFORE the order, without Platby no payment choice, without Donáška only pickup; the order
+estimate), a long delay said BEFORE the order, never a payment choice (update 85), without Donáška only pickup; the order
 panel shows the same minutes and, with a long delay, "Teraz čakáme dlhšie …" (`chat.order_long_wait*`). e2e
 `food-feed.spec.ts` "Len feed" (both sizes): the Kuriéri tab and the pay tags go, finished without a payment step; the
 shop's own switches restored after.
@@ -924,7 +923,9 @@ exclusion constraint per lane (with buffers) makes double booking impossible; ca
 This replaces update 57's slot rules and its 09:00 reminder: reminders 2 h before / the day before from 18:00 shop time.
 CRM: contacts know their last contact and whether they wait; the owner's SMS / e-mail replies belong to the
 conversation (role owner; in the PDF, TXT and CSV); one `sms_codes` table (contact, booking, delete_all: 6 digits,
-hash only, 10 min, 5 tries, 3/number/hour, 10/caller/hour); templates for SMS and/or e-mail with {meno} {obchod}
+hash only, 10 min, 5 tries, 3/number/hour, 10/caller/hour — since update 85 a code whose SMS failed at the provider
+does not count (`sms_codes.message_id` → its message's status; `sms_codes_counted()`), and the limit reached while
+the number's last SMS failed answers `sms_failed`, not `too_many`); templates for SMS and/or e-mail with {meno} {obchod}
 {produkt} {datum} {cas}; `crm_settings` (reminders, alert address, the customer's SMS when the owner moves or cancels);
 conversations are kept until the owner deletes them (no keep-time choice). The shop assistant books **only for a
 contact verified with the page's own SMS code field** (the AI never sees the code); "Vymazať moje údaje" = "Všetko o
@@ -1151,9 +1152,25 @@ the search's Nominatim rule) + `@/lib/foodRules` (shared: `townOf`, `cleanCart`,
 `plural`, `nextSteps`) + `@/lib/shopChat` (only with food on and a conversation: tools `food_menu` (refs f1…, prices
 from Sklad, document excerpts for allergens) and `food_quote` (never an address); the answer's `order_lines` /
 `order_kind` → `reply.order` built on the server from food_menu's own results, unknown refs dropped, priced again by
-`food_quote`) + `@/components/OrderPanel` (loaded by `next/dynamic` only with the first cart card: Upraviť, pickup /
-delivery, QR / Hotovosť / Kartou (only what is on), "Pokračovať" → the page's own form (name, phone, address, note,
-consent) → "Poslať overovací kód" → the code → "Objednať · <total>" → "Objednané · č. <n>") + `/api/shops/[slug]/order`
+`food_quote`) + `@/components/OrderPanel` (loaded by `next/dynamic` only with the first cart card: Upraviť; **update
+85** (`supabase/sql/85_food_order_panel.sql`, `orderKinds` / `firstKind` / `readyClock` / `payNoteLine` in
+`@/lib/foodRules`): "Osobný odber" (bag) and "Donáška" (scooter) as two big buttons side by side — real radio inputs,
+visually hidden (`sr-only`; ← → move between them natively, the checked one announced), ≥ 52 px, half the width each,
+the chosen one black with white bold text, the other white with a 1.5 px #E2E2E2 line, radius 12; Donáška only while
+`food_state.delivery` (on + a zone), else only Osobný odber, already chosen; Donáška shows the address field under the
+buttons (Osobný odber hides it, what was typed stays), every change asks `food_quote` again; under them one line from
+the database's minutes ("Hotové o 18:40" / "Donáška do 19:10", `chat.order_ready_at` / `order_delivery_by`, the
+shop's time zone; never the assistant's estimate); **no payment choice** — the customer never picks a method, every
+order has `pay_method` null (`food_order_create` ignores what is sent; the route and the bookings function send
+null), the owner / courier marks it at the handover (the feed's payment dialog, the order page, the courier app;
+picked up / delivered still need the mark while Platby is on); "Pokračovať" → the page's own form (name, phone, note,
+consent) → "Poslať overovací kód" → the code → "Objednať · <total>" → "Objednané · č. <n>": the time, then ONE line
+— the payment note (`food_settings.pay_note`, Objednávky jedla → Nastavenia "Poznámka k platbe po objednaní", ≤ 120,
+`plain_text`; empty = `chat.order_pay_note_default` "Uprednostňujeme platbu QR kódom alebo v hotovosti. Ďakujeme!",
+"-" = no line; translated like the assistant's texts: kind `food_pay_note`, a preset of every run, `foodPayNote()` →
+`reply.order.pay_note_translated`; only the customer sees it, never the owner's e-mail) —, the address, the total; a
+code SMS that failed at the provider shows `chat.order_err_sms_failed` ("SMS sa nepodarilo odoslať – skúste to znova
+o chvíľu alebo zavolajte do obchodu")) + `/api/shops/[slug]/order`
 (quote · code · place; 20/min per caller; place re-quotes on the server) + bookings function `code_start` purpose
 `order` (SMS `order_code`) and `order_place` (→ `food_order_create`). The AI never confirms an order. Texts `chat.order_*`.
 **F3 — the owner's side (update 74, boards 11–14):** `supabase/sql/74_food_owner.sql` + `dashboard/assistant/orders`

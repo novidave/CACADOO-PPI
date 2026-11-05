@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
-import type { CartLine, PayMethod } from "@/lib/foodRules";
+import { type CartLine, firstKind, type OrderKind, orderKinds, payNoteLine, readyClock } from "@/lib/foodRules";
 import type { ChatOrder } from "@/lib/shopChat";
 import type { Quote } from "@/lib/food";
 
@@ -17,17 +17,22 @@ type Step =
   | { kind: "cart" }
   | { kind: "form" }
   | { kind: "code"; id: string; phone: string; testCode: string | null; sentAt: number }
-  | { kind: "done"; number: number; readyBy: string; timezone: string; total: number; pay: PayMethod | null; address: string | null };
+  | { kind: "done"; number: number; readyBy: string; timezone: string; total: number; address: string | null };
+
+/** The moment the panel's time line counts from (taken when a quote arrives, never while drawing). */
+const clockNow = () => Date.now();
 
 const fill = (text: string, values: Record<string, string | number>) =>
   text.replace(/\{(\w+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all));
 
 /**
  * A food order in the shop assistant (database update 73, boards 9 and 10): the cart card the answer offered (built
- * on the server from the menu's own results, priced by Sklad), pickup or delivery, the payment on receipt, then this
- * page's own form — name, phone, the delivery address, a note for the courier, the consent — and the SMS code. The
- * AI never sees any of it. Every price, zone, minimum and time is decided again on the server (food_quote); the order
- * is placed the moment the right code is typed (food_order_create; a retry is the same order).
+ * on the server from the menu's own results, priced by Sklad), "Osobný odber" / "Donáška" as two big radio buttons
+ * (Donáška only while the shop uses it; the address field with it) and the time from the database, then this page's
+ * own form — name, phone, a note for the courier, the consent — and the SMS code. The AI never sees any of it. The
+ * customer chooses no payment method (update 85: the shop marks how it was paid at the handover); the "Objednané" box
+ * carries the shop's payment note. Every price, zone, minimum and time is decided again on the server (food_quote);
+ * the order is placed the moment the right code is typed (food_order_create; a retry is the same order).
  */
 export default function OrderPanel({
   base,
@@ -51,11 +56,13 @@ export default function OrderPanel({
   const [cart, setCart] = useState<CartLine[]>(() =>
     order.quote.lines.map((l) => ({ item_id: l.item_id, qty: l.qty, extras: l.extras.map((x) => x.item_id) })),
   );
-  const [kind, setKind] = useState<"pickup" | "delivery">(order.kind);
-  // update 81: without "Platby v Cacaduu" no method is chosen ("Platíte až pri prevzatí")
-  const payments = state.payments !== false;
-  const firstPay: PayMethod = state.pay?.qr ? "qr" : state.pay?.cash ? "cash" : "card";
-  const [pay, setPay] = useState<PayMethod>(firstPay);
+  // update 85: Donáška only while the shop uses it; one way = already chosen
+  const kinds = orderKinds(state);
+  const [kind, setKind] = useState<OrderKind>(() => firstKind(order.kind, kinds));
+  // native radios: ← → move between them (and wrap), the checked one is announced
+  const kindGroup = useId();
+  // the moment the time line is counted from (again with every new quote)
+  const [now, setNow] = useState(clockNow);
   // update 81: the same times the assistant and the owner's feed show (food_times: + today's delay)
   const pickupMin = state.ready_pickup_min ?? state.prep_minutes ?? 20;
   const deliveryMin = state.ready_delivery_min ?? state.delivery_minutes ?? 45;
@@ -94,6 +101,7 @@ export default function OrderPanel({
       if (ok && data.quote) {
         const q = data.quote as Quote;
         setQuote(q);
+        setNow(clockNow());
         setError(q.problem && !(q.problem === "no_address" && !(next.address ?? address)) ? errorText(q.problem, null, q.minimum_cents) : null);
       } else {
         setError(errorText(String(data.error ?? "failed")));
@@ -112,7 +120,8 @@ export default function OrderPanel({
     else setQuote({ ...quote, lines: [], subtotal_cents: 0, total_cents: 0, delivery_cents: 0 });
   }
 
-  function chooseKind(k: "pickup" | "delivery") {
+  function chooseKind(k: OrderKind) {
+    if (k === kind) return;
     setKind(k);
     void requote({ kind: k });
   }
@@ -131,8 +140,11 @@ export default function OrderPanel({
     setError(null);
     try {
       if (kind === "delivery") {
-        const typed = String(form.get("address") ?? "").trim();
-        setAddress(typed);
+        const typed = address.trim();
+        if (!typed) {
+          setError(errorText("no_address"));
+          return;
+        }
         const { ok, data } = await post({ action: "quote", lines: cart, kind, address: typed });
         const q = data.quote as Quote | undefined;
         if (!ok || !q) {
@@ -187,15 +199,14 @@ export default function OrderPanel({
         order_id: order.order_id,
         lines: cart,
         kind,
-        pay_method: payments ? pay : null,
-        address: kind === "delivery" ? address : null,
+        address: kind === "delivery" ? address.trim() : null,
         note: noteRef.current,
         conversation: conv,
         lang,
       });
       if (ok && data.order) {
-        const o = data.order as { number: number; ready_by: string; timezone: string; total_cents: number; pay_method: PayMethod | null; address: string | null };
-        setStep({ kind: "done", number: o.number, readyBy: o.ready_by, timezone: o.timezone, total: o.total_cents, pay: o.pay_method, address: o.address });
+        const o = data.order as { number: number; ready_by: string; timezone: string; total_cents: number; address: string | null };
+        setStep({ kind: "done", number: o.number, readyBy: o.ready_by, timezone: o.timezone, total: o.total_cents, address: o.address });
         return;
       }
       setError(errorText(String(data.error ?? "failed"), typeof data.attempts_left === "number" ? data.attempts_left : null,
@@ -209,12 +220,15 @@ export default function OrderPanel({
     }
   }
 
-  const payLabel = (m: PayMethod) => ({ qr: labels.order_pay_qr, cash: labels.order_pay_cash, card: labels.order_pay_card })[m];
-  const methods = (["qr", "cash", "card"] as PayMethod[]).filter((m) => state.pay?.[m]);
-  const seg = (on: boolean) =>
-    `flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-white px-2 text-sm font-semibold ${
-      on ? "border-2 border-foreground" : "border border-[#D6D6D6]"
+  // update 85: the kind buttons — the chosen one black with white bold text, the other white with a 1.5 px line
+  const kindButton = (on: boolean) =>
+    `flex min-h-[52px] cursor-pointer items-center justify-center gap-1.5 rounded-xl px-2 text-center text-[15px] leading-tight min-[360px]:whitespace-nowrap has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#2563EB] ${
+      on ? "bg-foreground font-bold text-white" : "border-[1.5px] border-[#E2E2E2] bg-white font-semibold"
     }`;
+  // the time from the database (food_quote's ready_minutes for this kind, else food_state's), as a clock time
+  const minutes = quote.kind === kind && quote.ready_minutes ? quote.ready_minutes : kind === "delivery" ? deliveryMin : pickupMin;
+  const clock = readyClock(now, minutes, lang, quote.state?.timezone ?? state.timezone);
+  const payNote = payNoteLine(state.pay_note, order.pay_note_translated, labels.order_pay_note_default);
   const primary = "inline-flex min-h-12 w-full items-center justify-center rounded-[10px] border border-foreground bg-foreground px-4 font-semibold text-white disabled:opacity-60";
   const field = "min-h-12 w-full rounded-[10px] border border-[#D6D6D6] px-3 text-base";
 
@@ -232,14 +246,19 @@ export default function OrderPanel({
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[15px]">
           <dt className="text-muted">{kind === "delivery" ? labels.order_done_delivery : labels.order_done_pickup}</dt>
           <dd className="font-bold">{fill(labels.order_done_by, { time })}</dd>
+          {payNote && (
+            <dd className="col-span-2 text-[15px]" data-order-pay-note>
+              {payNote}
+            </dd>
+          )}
           {step.address && (
             <>
               <dt className="text-muted">{labels.order_done_address}</dt>
               <dd>{step.address}</dd>
             </>
           )}
-          <dt className="text-muted">{labels.order_done_pay}</dt>
-          <dd>{step.pay ? fill(labels.order_done_pay_line, { method: payLabel(step.pay), total: money(step.total) }) : `${money(step.total)} · ${labels.order_pay_on_receipt}`}</dd>
+          <dt className="text-muted">{labels.order_total}</dt>
+          <dd>{money(step.total)}</dd>
         </dl>
         <p className="text-[13px] text-muted">{labels.order_done_note}</p>
       </section>
@@ -300,11 +319,11 @@ export default function OrderPanel({
       {quote.refused.length > 0 && (
         <p className="text-sm" role="status">{fill(labels.order_refused, { names: quote.refused.map((r) => r.name ?? "–").join(", ") })}</p>
       )}
-      <p className="text-[13px] text-muted">
-        {kind === "delivery"
-          ? fill(labels.order_times, { prep: pickupMin, delivery: deliveryMin })
-          : fill(labels.order_times_pickup, { prep: pickupMin })}
-      </p>
+      {step.kind !== "cart" && (
+        <p className="text-[13px] text-muted" data-order-time>
+          {fill(kind === "delivery" ? labels.order_delivery_by : labels.order_ready_at, { time: clock })}
+        </p>
+      )}
       {state.long_delay && (
         <p className="text-[13px] font-semibold" role="status" data-order-long-wait>
           {fill(kind === "delivery" ? labels.order_long_wait_delivery : labels.order_long_wait, { n: kind === "delivery" ? deliveryMin : pickupMin })}
@@ -313,40 +332,44 @@ export default function OrderPanel({
 
       {step.kind === "cart" && (
         <>
-          {state.pickup && state.delivery && (
-            <div role="group" aria-label={labels.order_kind_label} className="flex gap-2">
-              <button type="button" aria-pressed={kind === "pickup"} onClick={() => chooseKind("pickup")} className={seg(kind === "pickup")}>
-                {labels.order_pickup}
-              </button>
-              <button type="button" aria-pressed={kind === "delivery"} onClick={() => chooseKind("delivery")} className={seg(kind === "delivery")}>
-                {labels.order_delivery}
-              </button>
+          <fieldset className="flex flex-col gap-2" data-order-kinds>
+            <legend className="sr-only">{labels.order_kind_label}</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {kinds.map((k) => (
+                <label key={k} className={kindButton(kind === k)} data-order-kind={k}>
+                  <input
+                    type="radio"
+                    name={kindGroup}
+                    value={k}
+                    checked={kind === k}
+                    onChange={() => chooseKind(k)}
+                    className="sr-only"
+                  />
+                  {k === "pickup" ? <BagIcon /> : <ScooterIcon />}
+                  <span>{k === "pickup" ? labels.order_pickup : labels.order_delivery}</span>
+                </label>
+              ))}
             </div>
-          )}
-          {payments ? (
-          <>
-          <span className="text-sm font-bold">{labels.order_pay_label}</span>
-          <div role="group" aria-label={labels.order_pay_label} className="flex gap-2">
-            {methods.map((m) => (
-              <button key={m} type="button" aria-pressed={pay === m} onClick={() => setPay(m)} className={seg(pay === m)}>
-                {m === "qr" && (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <rect x="3" y="3" width="7" height="7" />
-                    <rect x="14" y="3" width="7" height="7" />
-                    <rect x="3" y="14" width="7" height="7" />
-                    <path d="M14 14h3v3h-3zM20 14v.01M20 20h-6" />
-                  </svg>
-                )}
-                {payLabel(m)}
-              </button>
-            ))}
-          </div>
-          <p className="text-[13px] text-muted">
-            {pay === "qr" ? labels.order_pay_hint_qr : pay === "cash" ? labels.order_pay_hint_cash : labels.order_pay_hint_card}
-          </p>
-          </>
-          ) : (
-            <p className="text-sm font-semibold" data-order-pay-on-receipt>{labels.order_pay_on_receipt}</p>
+            <p className="text-[14px] font-semibold" data-order-time>
+              {fill(kind === "delivery" ? labels.order_delivery_by : labels.order_ready_at, { time: clock })}
+            </p>
+          </fieldset>
+          {kind === "delivery" && (
+            <label className="flex flex-col gap-1 text-[13px] font-semibold">
+              {labels.order_address}
+              <input
+                name="address"
+                maxLength={300}
+                autoComplete="street-address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                onBlur={() => {
+                  if (address.trim()) void requote({ address: address.trim() });
+                }}
+                className={field}
+                data-order-address
+              />
+            </label>
           )}
           {error && <p role="alert" className="text-sm font-semibold">{error}</p>}
           <button type="button" className={primary} disabled={busy || !quote.lines.length}
@@ -379,12 +402,6 @@ export default function OrderPanel({
             <input name="phone" type="tel" required maxLength={40} autoComplete="tel" className={field} />
             <span className="font-normal text-muted">{labels.order_phone_hint}</span>
           </label>
-          {kind === "delivery" && (
-            <label className="flex flex-col gap-1 text-[13px] font-semibold">
-              {labels.order_address}
-              <input name="address" required maxLength={300} autoComplete="street-address" defaultValue={address} className={field} />
-            </label>
-          )}
           <label className="flex flex-col gap-1 text-[13px] font-semibold">
             <span>
               {labels.order_note} <span className="font-medium text-muted">{labels.order_optional}</span>
@@ -436,5 +453,26 @@ export default function OrderPanel({
         </form>
       )}
     </section>
+  );
+}
+
+function BagIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none">
+      <path d="M5 8h14l-1 12H6L5 8z" />
+      <path d="M9 8V6a3 3 0 0 1 6 0v2" />
+    </svg>
+  );
+}
+
+function ScooterIcon() {
+  return (
+    <svg width="20" height="18" viewBox="0 0 26 24" className="flex-none" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="6" cy="17" r="3" />
+      <circle cx="20" cy="17" r="3" />
+      <path d="M9 17h8l-2-8h-3" />
+      <path d="M15 9l2-4h3" />
+      <path d="M3 12h7" />
+    </svg>
   );
 }

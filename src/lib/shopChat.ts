@@ -13,7 +13,7 @@ import { productPhotoUrl } from "./productPhotos";
 import { SERVICE_TOOLS, serviceIndex, slotWindow, toolDays, toolPeople, wantsContact } from "./bookingTools";
 import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
-import { type FoodState, foodMenu, foodQuote, foodState, type MenuItem, type Quote } from "./food";
+import { type FoodState, foodMenu, foodPayNote, foodQuote, foodState, type MenuItem, type Quote } from "./food";
 import { formatPrice } from "./format";
 import { missingColumn } from "./missingColumn";
 import { translatedName } from "./names";
@@ -185,6 +185,8 @@ export interface ChatOrder {
   kind: "pickup" | "delivery";
   quote: Quote;
   state: FoodState;
+  /** update 85: the owner's payment note in the page language (null = none translated yet: the panel shows it as written). */
+  pay_note_translated?: string | null;
 }
 
 export type ChatVerdict = "ok" | "no_plan" | "caller_limit" | "shop_limit";
@@ -486,20 +488,18 @@ function systemPrompt(
 /** Update 73: the rules of food orders in the assistant (prices only from the shop's stock system, never personal data). */
 function foodPrompt(food: FoodState): string[] {
   const ways = [food.pickup ? "pickup" : null, food.delivery ? "delivery" : null].filter(Boolean).join(" and ");
-  const pay = [food.pay?.qr ? "a QR payment (PAY by square)" : null, food.pay?.cash ? "cash" : null, food.pay?.card ? "card on the shop's own terminal" : null]
-    .filter(Boolean).join(", ");
-  const payments = food.payments !== false;
   const lines = [
-    `- Food orders: this shop takes food orders here (${ways || "pickup"}), paid only on receipt` +
-      (payments ? ` (${pay || "cash"})` : "") + "; never " +
-      "in advance. The menu and EVERY price come only from food_menu (the shop's stock system: sizes are separate " +
+    `- Food orders: this shop takes food orders here (${ways || "pickup"}), paid only on receipt, never in advance.` +
+      " Never ask how the shopper will pay and never offer or name a payment method: the shop settles it at the " +
+      "handover." +
+      " The menu and EVERY price come only from food_menu (the shop's stock system: sizes are separate " +
       "dishes, a sold-out dish is marked): never take a dish, a size or a price from a document, a picture, the " +
       "history or your own knowledge. A dish food_menu does not list cannot be ordered: say so. Use search_shop_docs " +
       "(or food_menu's excerpts) only for descriptions, ingredients and allergens. When the shopper says what they " +
       "want, call food_menu, ask about the size when several fit, and put every chosen dish — extras such as more " +
       "cheese are menu dishes too — in order_lines with its ref, its quantity and the refs of its extras; set " +
       "order_kind to pickup or delivery when the shopper said it, else none. food_quote tells you the total. The page " +
-      "then shows the cart card where the shopper picks pickup or delivery and the payment and confirms with their " +
+      "then shows the cart card where the shopper picks pickup or delivery and confirms with their " +
       "details and an SMS code. Never ask for, repeat or use a name, phone number, address or code from the chat, " +
       "and never say the order is placed: the page confirms it.",
     "- A message may start with <menu_order>: the shopper pressed \"Objednať\" on the shop's Menu for those dishes " +
@@ -521,12 +521,6 @@ function foodPrompt(food: FoodState): string[] {
     lines.push(
       `- The kitchen is busy right now (about ${food.delay_minutes ?? 30} minutes longer than usual): tell the shopper ` +
         "about the longer wait kindly BEFORE they order — in your first answer about ordering, before order_lines.",
-    );
-  }
-  if (!payments) {
-    lines.push(
-      "- This shop takes no payment through Cacaduu: never ask about or offer a payment method (no QR, cash or card " +
-        "choice); say only that they pay on receipt (\"Platíte pri prevzatí\" in Slovak, in the shopper's language).",
     );
   }
   if (!food.delivery) lines.push("- Only pickup: never offer delivery.");
@@ -1116,7 +1110,7 @@ export async function runShopChat(
             ...(food?.delivery ? { delivery_minutes: food?.ready_delivery_min ?? food?.delivery_minutes ?? null } : {}),
             ...(food?.long_delay ? { longer_wait_now: true } : {}),
           },
-          ...(food?.payments === false ? { payment: "on receipt only; no payment method to choose" } : {}),
+          payment: "on receipt; the shopper chooses no payment method",
           items: list,
           ...(excerptsOut.length ? { excerpts: excerptsOut } : {}),
         }),
@@ -1272,7 +1266,10 @@ export async function runShopChat(
     if (cart.length) {
       const kind = parsed.order_kind === "delivery" && food?.delivery ? "delivery" : food?.pickup === false ? "delivery" : "pickup";
       const { quote } = await foodQuote(shop.slug, cart, kind, null).catch(() => ({ quote: null }));
-      if (quote && quote.lines.length) result.reply.order = { order_id: crypto.randomUUID(), kind, quote, state: food! };
+      if (quote && quote.lines.length) {
+        const translated = await foodPayNote(shop.slug, lang, food?.pay_note).catch(() => null);
+        result.reply.order = { order_id: crypto.randomUUID(), kind, quote, state: food!, pay_note_translated: translated };
+      }
     }
     // Folders opened with an access key were in this exchange (the owner sees "Prístupový kľúč").
     result.archive.accessKey = docs.some((d) => !d.is_public);

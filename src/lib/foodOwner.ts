@@ -135,6 +135,8 @@ export interface MenuCheck {
 
 export interface FoodSettings {
   enabled: boolean;
+  /** update 85: the payment note after ordering (null = the default line, "-" = none) */
+  pay_note?: string | null;
   paused: boolean;
   pickup_on: boolean;
   prep_minutes: number;

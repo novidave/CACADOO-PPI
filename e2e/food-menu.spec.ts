@@ -81,9 +81,8 @@ test("a restaurant: import a menu, edit a price, the Jedlá box shows it, the di
     const panel = pg.locator("[data-order-panel]");
     await expect(panel, "the cart card with the dish").toBeVisible({ timeout: 90_000 });
     await expect(panel.locator("li").first()).toContainText(dish);
-    const pickup = panel.getByRole("button", { name: c.order_pickup, exact: true });
-    if (await pickup.count()) await pickup.click();
-    await panel.getByRole("button", { name: c.order_pay_cash }).click();
+    await panel.locator('[data-order-kind="pickup"]').click();
+    await expect(panel.getByRole("button", { name: /hotovos|QR platba|kartou/i })).toHaveCount(0);
     await panel.locator("[data-order-continue]").click();
     await panel.locator('input[name="name"]').fill("E2E zákazník");
     await panel.locator('input[name="phone"]').fill(PHONE);
