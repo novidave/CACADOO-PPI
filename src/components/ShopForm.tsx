@@ -22,6 +22,7 @@ export function ShopForm({
   action,
   submitLabel,
   companyElsewhere,
+  first,
 }: {
   dict: Dictionary;
   lang: Locale;
@@ -32,6 +33,8 @@ export function ShopForm({
   /** Back-end layout L2: an existing shop's company name, IČO and DIČ are edited on Právne informácie (this link); the
    * form carries their current values unchanged, so saving the details never clears them. */
   companyElsewhere?: { href: string; label: string; hint: string };
+  /** A new shop's first question (update 79: "Aký je to obchod?"), inside the form before the details. */
+  first?: React.ReactNode;
 }) {
   const o = dict.owner;
   const zones = europeanTimeZones();
@@ -44,6 +47,7 @@ export function ShopForm({
       <input type="hidden" name="lang" value={lang} />
       <input type="hidden" name="shop_id" value={shop?.id ?? ""} />
       <input type="hidden" name="shop_slug" value={shop?.slug ?? ""} />
+      {first}
       {/* artboard 9: the details on the left, the hours and the switches on the right (one column on a phone) */}
       <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
       <div className="flex min-w-0 flex-col gap-3" data-shop-form-details>
@@ -175,7 +179,7 @@ export function ShopForm({
       </fieldset>
       </div>
 
-      <div className="flex min-w-0 flex-col gap-3" data-shop-form-hours>
+      <div id="hours" className="flex min-w-0 scroll-mt-4 flex-col gap-3" data-shop-form-hours>
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-semibold">{dict.dashboard.hours}</span>
         <HoursEditor

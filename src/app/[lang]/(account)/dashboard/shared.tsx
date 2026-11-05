@@ -46,6 +46,8 @@ const ERRORS = [
 
 export function errorText(dict: Dictionary, err: string): string {
   if (err === "logo") return dict.dashboard.logo_bad;
+  // the kind of shop (update 79)
+  if (err === "kind") return dict.setup.err_kind;
   // "Konverzácie" (update 55): the bulk actions.
   if (err === "conversations_none") return dict.conversations.bulk_none;
   if (err === "conversations_confirm") return dict.conversations.bulk_confirm_needed;
@@ -117,6 +119,11 @@ export function okTexts(
     cloud_folder: dict.cloud.ok_folder,
     cloud_backfill: t(dict.cloud.ok_backfill, { n: extra.backfilled ?? 0 }),
     cloud_retry: dict.cloud.ok_retry,
+    // the kind of shop and "Nastavenie obchodu" (update 79)
+    kind: dict.setup.kind_saved,
+    setup_skip: dict.setup.skipped_ok,
+    setup_unskip: dict.setup.unskipped_ok,
+    launched: dict.setup.launched,
     holidays_auto: dict.holidays.saved,
     special_saved: dict.holidays.special_saved,
     special_deleted: dict.holidays.special_deleted,

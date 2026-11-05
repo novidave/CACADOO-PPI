@@ -45,6 +45,8 @@ export interface MyShop {
   zip?: string | null;
   /** The contact buttons' short / long choices (update 51; missing before it = the defaults). */
   contact_buttons?: Record<string, string> | null;
+  /** The kind of shop (update 79; missing before it = goods): a shop with stock or a restaurant. */
+  kind?: "goods" | "food" | "services";
 }
 
 export const MAPPING_FIELDS = ["source_code", "name", "ean", "brand", "quantity", "price", "currency", "description", "category"] as const;

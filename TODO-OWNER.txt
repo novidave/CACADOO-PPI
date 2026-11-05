@@ -213,6 +213,14 @@ OPEN
    d) In the shop assistant (Pro) ask "ukáž mi fotku <product>": it shows the photo with a link to the product.
    e) Tell Claude what happened (a screenshot is enough if something fails).
 
+31. Typ obchodu and "Nastavenie obchodu": look once (nothing to set up)
+   a) Môj obchod: at the top there is the card "Nastavenie obchodu" with the steps of your shop and why a step is still
+      missing ("Chýba – …"). It disappears when every step is done (an optional step can be skipped).
+   b) Môj obchod → Údaje obchodu → "Typ obchodu" says "Predajňa s tovarom" for Davide paint shop. Do not change it unless
+      you want to try it: a change deletes nothing, only the menu and the steps change, and you can change it back.
+   c) Optional: "+ Pridať obchod" now asks "Aký je to obchod?" first. A test restaurant shows Menu and Objednávky jedla
+      first in the menu and its own steps; delete it afterwards (Môj obchod → Odstrániť obchod).
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)

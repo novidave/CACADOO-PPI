@@ -52,7 +52,13 @@ export default async function AccountLayout({ children, params }: LayoutProps<"/
     label: n[m.key],
     ...(m.badge ? { badges: Object.fromEntries(counts.map((c) => [c.slug, c[m.badge!]])), badgeLabel: m.badge === "food" ? n.badge_food : n.badge_crm } : {}),
   }));
-  const navShops: NavShop[] = shops.map((s) => ({ slug: s.slug, name: s.name, page: s.is_active ? shopHref(sites, lang, s.slug, s.country) : null }));
+  // the kind of each shop (update 79; a shop without it = goods): the menu of a restaurant differs
+  const navShops: NavShop[] = shops.map((s) => ({
+    slug: s.slug,
+    name: s.name,
+    page: s.is_active ? shopHref(sites, lang, s.slug, s.country) : null,
+    kind: s.kind === "food" ? "food" : "goods",
+  }));
 
   return (
     <div className="flex min-h-svh flex-col lg:flex-row" data-owner-shell>

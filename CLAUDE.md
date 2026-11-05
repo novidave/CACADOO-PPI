@@ -18,7 +18,10 @@ Setup steps for humans are in `SETUP.md`.
 - **One display rule, no settings.** Every shop shows the quantity exactly as in its file ("12 ks na sklade",
   "Vypredané" at 0 or less; nothing for stale shops). PPI never edits, corrects or completes shop data, and "My shop"
   has no setting that changes the uploaded data or how stock is shown (display modes and hidden items were removed by
-  migration 21 — never bring them back). Translations are not shop data.
+  migration 21 — never bring them back). Translations are not shop data. **The one exception: a restaurant** (the
+  owner's OK, 2026-11-05): a shop of kind `food` (`shops.kind`, update 79) sells from a **menu**, and its menu items
+  (update 80) are not "stock" — no 24 h stock-file freshness, no freshness label; a dish is available unless "Vypredané
+  dnes" (or, with "Sledovať zásobu", by its Sklad quantity). Every other shop and every other rule stay as above.
 - **Private columns** = every stock-file column not in the approved mapping: only in the private `raw-files` bucket;
   never in `sample_rows`, `stock_imports`, pages, the API/MCP or the shop assistant. The AI column proposal gets names
   plus ≤ 3 values per column, and names only for `isPrivateColumn()` / `is_private_column()` columns.
@@ -129,7 +132,12 @@ the AI pomocník 2026-11-04, update 76):** every owner page sits in ONE
 shell — canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 1–21. The map is only `@/lib/dashboardPages`
 `OWNER_MENU` (route → item, group main | page | account, `menuItemFor()`, `menuHref()` keeps `?shop=`,
 `isBareScreen()`; tests `dashboardPages_test.ts` in `npm run test:content`: every owner page belongs to exactly one
-item, old addresses forward with their query, only the QR terminal has no menu). `(account)/layout.tsx` (server)
+item, old addresses forward with their query, only the QR terminal has no menu). **The menu reads the kind of shop
+(update 79):** `menuFor(kind)` — goods = as before; food = **Menu** (`food_menu`, the Menu tab of Objednávky jedla) and
+**Objednávky jedla** first in Hlavné, no Priečinok s exportom (`kinds: ["goods"]`), "Jazyky a inventár" opens at Texty
+stránky (`itemQueryFor`); `menuItemFor(path, at, kind)` picks the item that kind's menu shows; `NavShop.kind` from
+`my_shops().kind`. The stock-file pages stay reachable by address with `@/components/owner/NotForFood` ("Pre
+reštauráciu sa nepoužíva": /sync, the Tovar list only with `?at=items`). `(account)/layout.tsx` (server)
 prepares the labels (`nav.*`), the shops (`my_shops`, "Zobraziť moju stránku" = `shopHref`, own domain when live) and
 the badges per shop (CRM = `owner_conversations_new` + waiting callbacks, Objednávky jedla = `owner_food_tab().new`);
 `@/components/owner/OwnerNav` (client: a layout is not drawn again on navigation, so the current item and `?shop=` come
@@ -202,6 +210,28 @@ black 52 px, `ghostClass`, `cardClass` 1 px #E4E4E4 / radius 16 / padding 18, `T
 px; `saveLabels()`), never its own copies (`inputClass`, `SubmitButton`, `PendingButton`, `DashboardSection`, the Sklad and
 food `btn`/`card` are these parts); `PageTitle` 28 px on every page and `PageHead` (28 px title, 56 px tabs) on every page with
 tabs — one look, no compact head. Môj obchod: two columns from 1024 px + the save bar; its plan box lives on Predplatné a doména.
+
+## The kind of shop and "Nastavenie obchodu" (update 79, 2026-11-05, the owner's OK for the shop type rule)
+
+`supabase/sql/79_shop_kind.sql` + `@/components/owner/KindChoice` + `@/lib/setupSteps` (no imports; `setupSteps_test.ts`
+in `npm run test:content`) + `dashboard/SetupCard.tsx` + `@/components/owner/NotForFood` + actions `setShopKind`,
+`skipSetupStep`, `launchFoodOrders`. **`shops.kind`** = `goods` (every shop before update 79; the default) | `food` (a
+restaurant, a bistro, food) — `services` is allowed by the check but **not offered yet**. "Nový obchod" asks it FIRST
+("Aký je to obchod?": two big radio cards, ≥ 76 px, icon + one line; `owner_save_shop` sets it on insert only); a later
+change only through `owner_set_shop_kind()` (members; goods / food; activity `shop_kind_changed` {from, to}) on Môj obchod
+→ Údaje obchodu → "Typ obchodu" after a ticked confirmation that explains what changes. **NOTHING is deleted by a change**
+(products, files, orders, settings stay): only the menu (Back-end layout above) and the setup steps change.
+**"Nastavenie obchodu"**: a checklist card at the top of Môj obchod until finished; only SQL decides
+(`owner_setup_steps(shop)`: members; `{kind, steps: [{key, done, optional, skipped, missing: [codes]}], done, total,
+finished}`): goods = details · hours · stock (a program, the POS agent, Sklad, or a file with approved columns) ·
+languages (saved once) · page (logo) · assistant (optional; the plan + the welcome); food = details · hours · menu
+(Sklad products with a price; update 80: menu items) · orders (pickup or delivery, zones for delivery, the IBAN for QR,
+the plan) · couriers (optional; an active courier) · assistant (the plan, the welcome, the menu PDF in the Public
+folder) · launch (`food_settings.enabled`; the card's "Prijímať objednávky" = `owner_food_save_settings` {enabled}).
+"Preskočiť" only for an optional step (`owner_skip_setup_step`, `shop_setup.skipped`, no grants; activity
+`setup_step_skipped`). Each step links to its screen (`setupStepHref`); the missing codes are `setup.miss_*`. Texts
+`setup`, `nav.food_menu`. Tests: DB block "update 79", `dashboardPages_test.ts` (menu per kind), `setupSteps_test.ts`,
+e2e `e2e/shop-kind.spec.ts` (owner login: a new restaurant → its steps, Menu first, no Priečinok s exportom; deleted after).
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 
@@ -978,6 +1008,8 @@ lists dish names only → `owner_food_menu_pair` (trigram ≥ 0.45 against Sklad
 `set_food_order_status` (shop.write, confirm) in the update-74 door (`owner_mcp_call_64` keeps every other tool); the
 AI's tool data never carry a phone, address, note or place. Admin "SMS" sets the `order` quota. Texts `food`,
 `telegram.n_food_order`, `admin_sms.order`. Tests: DB block "update 74", `test:functions` (crm-messages, telegram).
+**Menu tab (update 79):** its own address `/dashboard/assistant/orders/menu` (`ITEM_TABS.food`; the old
+`settings?view=menu` forwards there with its query; the actions' `back=menu` lands there).
 **F4 — couriers (update 75, 2026-11-03, the owner's OK for the SMS-code login; boards 15–19, "Môj obchod" artboards 6,
 20):** `supabase/sql/75_food_couriers.sql` + `@/lib/courier` + `src/app/[lang]/kurier/*` + `/api/kurier/step|logout` +
 `@/components/CourierStep` / `CourierCash` + Objednávky jedla → **Kuriéri** (`dashboard/assistant/orders/couriers`).

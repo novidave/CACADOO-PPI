@@ -32,6 +32,7 @@ import { hiddenFields, messages, recentlyText, ShopSwitcher } from "../dashboard
 import { languageList } from "../dashboard/translationShared";
 import { deleteStockFiles, resetInventory, restoreInventory } from "./inventoryActions";
 import { PageTitle } from "@/components/owner/PageHead";
+import { NotForFood } from "@/components/owner/NotForFood";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/sync">): Promise<Metadata> {
   const { lang } = await params;
@@ -218,6 +219,8 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
         <ShopSwitcher shops={shops} current={shop} label={d.shop} href={(slug) => `/${lang}/sync?${new URLSearchParams({ shop: slug })}`} />
         <p className="text-muted">{shop.name}</p>
         <p className="text-sm">{dict.sync.intro}</p>
+        {/* update 79: a restaurant does not use the stock file (the page stays reachable, it is only out of the menu) */}
+        {shop.kind === "food" && <NotForFood lang={lang} shop={shop.slug} labels={dict.setup} />}
         {m.top}
         {state?.needs_file && (
           <div className="flex flex-col gap-1 border border-foreground p-3" data-needs-file>

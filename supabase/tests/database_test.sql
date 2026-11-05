@@ -14648,4 +14648,139 @@ end $$;
 reset role;
 drop table t78;
 
+\echo '--- update 79: the kind of shop — goods by default, chosen first for a new shop, changed only by members (logged, nothing deleted), the setup steps per kind (food: menu, orders, couriers optional, launch), only optional steps can be skipped'
+create temporary table t79 (k text primary key, v text);
+grant all on t79 to public;
+
+-- every shop so far sells goods
+do $$
+begin
+  assert not exists (select 1 from public.shops where kind <> 'goods'), 'an existing shop is not goods';
+end $$;
+-- a new owner without shops (owner A has the five shops an account may have by now)
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000079', 'owner-79@example.invalid');
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-000000000079';
+do $$
+declare
+  v_new uuid;
+  v_r jsonb;
+begin
+  -- a new shop: the kind chosen first; nothing else than goods / food
+  v_new := public.owner_save_shop(jsonb_build_object('name', 'Bistro 79 test', 'city', 'Michalovce', 'country', 'SK',
+                                                     'timezone', 'Europe/Bratislava', 'kind', 'food'));
+  insert into t79 values ('new', v_new::text);
+  assert (select kind from public.shops where id = v_new) = 'food', 'the new shop is food';
+  assert (select kind from public.my_shops() where id = v_new) = 'food', 'my_shops returns the kind';
+  begin
+    perform public.owner_save_shop(jsonb_build_object('name', 'Služby 79', 'kind', 'services'));
+    raise exception 'services offered';
+  exception when invalid_parameter_value then assert sqlerrm = 'kind'; end;
+  -- saving the details never changes the kind (only owner_set_shop_kind does)
+  perform public.owner_save_shop(jsonb_build_object('id', v_new, 'name', 'Bistro 79 test', 'city', 'Michalovce', 'country', 'SK', 'kind', 'goods'));
+  assert (select kind from public.shops where id = v_new) = 'food', 'owner_save_shop changed the kind';
+  -- the food steps decided in SQL: no address, contact or hours yet, then saved
+  v_r := public.owner_setup_steps(v_new);
+  assert (select e -> 'missing' from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'details') = '["address", "contact"]'::jsonb, v_r::text;
+  assert (select e -> 'missing' from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'hours') = '["hours"]'::jsonb, v_r::text;
+  assert (select e -> 'missing' from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'menu') = '["menu"]'::jsonb, v_r::text;
+  assert (select e -> 'missing' from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'orders') = '["plan", "iban"]'::jsonb, v_r::text;
+  assert (select e -> 'missing' from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'assistant') = '["plan", "welcome", "menu_pdf"]'::jsonb, v_r::text;
+  perform public.owner_save_shop(jsonb_build_object('id', v_new, 'name', 'Bistro 79 test', 'address', 'Hlavná 1', 'city', 'Michalovce',
+                                                    'country', 'SK', 'phone', '+421 900 000 079',
+                                                    'opening_hours', '{"mon":[["11:00","15:00"]],"tue":[],"wed":[],"thu":[],"fri":[],"sat":[],"sun":[]}'::jsonb));
+  v_r := public.owner_setup_steps(v_new);
+  assert (select (e ->> 'done')::boolean from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'details'), v_r::text;
+  assert (select (e ->> 'done')::boolean from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'hours'), v_r::text;
+  assert (v_r ->> 'done')::int = 2 and (v_r ->> 'total')::int = 7, v_r::text;
+  -- without a kind: goods
+  v_new := public.owner_save_shop(jsonb_build_object('name', 'Predajňa 79 test'));
+  assert (select kind from public.shops where id = v_new) = 'goods', 'a shop without a kind is goods';
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_r jsonb;
+  v_keys text;
+begin
+  insert into t79 values ('shop', v_a::text);
+
+  -- goods: the steps of a shop with stock
+  v_r := public.owner_setup_steps(v_a);
+  select string_agg(e ->> 'key', ',' order by n) into v_keys from jsonb_array_elements(v_r -> 'steps') with ordinality x(e, n);
+  assert v_r ->> 'kind' = 'goods' and v_keys = 'details,hours,stock,languages,page,assistant', v_keys;
+  assert (select (e ->> 'optional')::boolean from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'assistant'), 'the goods assistant step is optional';
+  assert (v_r ->> 'total')::int = 6, v_r::text;
+
+  -- the change of kind: members, goods / food only, logged once, nothing deleted
+  begin
+    perform public.owner_set_shop_kind(v_a, 'services');
+    raise exception 'services accepted';
+  exception when invalid_parameter_value then assert sqlerrm = 'kind'; end;
+  insert into t79 values ('items', (select count(*) from public.shop_items where shop_id = v_a)::text);
+  assert public.owner_set_shop_kind(v_a, 'food') = 'food';
+  assert public.owner_set_shop_kind(v_a, 'food') = 'food';
+  assert (select count(*) from public.shop_activity where shop_id = v_a and action = 'shop_kind_changed') = 1, 'logged once';
+  assert (select details from public.shop_activity where shop_id = v_a and action = 'shop_kind_changed') = '{"from": "goods", "to": "food"}'::jsonb;
+  assert (select count(*) from public.shop_items where shop_id = v_a)::text = (select v from t79 where k = 'items'), 'a product was deleted';
+
+  -- food: the steps of a restaurant; only the couriers can be skipped
+  v_r := public.owner_setup_steps(v_a);
+  select string_agg(e ->> 'key', ',' order by n) into v_keys from jsonb_array_elements(v_r -> 'steps') with ordinality x(e, n);
+  assert v_r ->> 'kind' = 'food' and v_keys = 'details,hours,menu,orders,couriers,assistant,launch', v_keys;
+  assert (select e -> 'missing' from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'launch') = '["enabled"]'::jsonb, v_r::text;
+  assert (select e -> 'missing' from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'couriers') = '["couriers"]'::jsonb, v_r::text;
+  assert not (v_r ->> 'finished')::boolean;
+  begin
+    perform public.owner_skip_setup_step(v_a, 'menu', true);
+    raise exception 'a required step skipped';
+  exception when invalid_parameter_value then assert sqlerrm = 'not_optional'; end;
+  assert public.owner_skip_setup_step(v_a, 'couriers', true) = array['couriers'];
+  assert public.owner_skip_setup_step(v_a, 'couriers', true) = array['couriers'], 'skipped once';
+  v_r := public.owner_setup_steps(v_a);
+  assert (select (e ->> 'skipped')::boolean from jsonb_array_elements(v_r -> 'steps') e where e ->> 'key' = 'couriers'), v_r::text;
+  assert public.owner_skip_setup_step(v_a, 'couriers', false) = '{}'::text[], 'shown again';
+  -- back to goods (the change is logged again)
+  assert public.owner_set_shop_kind(v_a, 'goods') = 'goods';
+  assert (select count(*) from public.shop_activity where shop_id = v_a and action = 'shop_kind_changed') = 2;
+end $$;
+reset role;
+
+-- another owner: no change, no steps
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select v::uuid from t79 where k = 'shop');
+begin
+  begin perform public.owner_set_shop_kind(v_a, 'food'); raise exception 'another owner changed the kind';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_setup_steps(v_a); raise exception 'another owner read the steps';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_skip_setup_step(v_a, 'assistant', true); raise exception 'another owner skipped a step';
+  exception when insufficient_privilege then null; end;
+  begin perform 1 from public.shop_setup; raise exception 'owners read shop_setup';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- visitors: no change of kind
+set role anon;
+do $$
+begin
+  begin perform public.owner_set_shop_kind((select v::uuid from t79 where k = 'shop'), 'food'); raise exception 'anon changed the kind';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- tidy: the test shops and their owner
+delete from public.shops where id in (select shop_id from public.shop_members where user_id = '00000000-0000-0000-0000-000000000079');
+delete from auth.users where id = '00000000-0000-0000-0000-000000000079';
+drop table t79;
+
 \echo 'ALL DATABASE CHECKS PASSED'
