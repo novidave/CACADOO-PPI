@@ -15220,4 +15220,586 @@ reset role;
 delete from public.owner_ai_usage where kind = 'menu';
 drop table t80;
 
+\echo '--- update 81: the order feed — the parts a shop uses (switched off = not used, nothing deleted), the times with the delay for the assistant, finish in one step (payment first, stock once), reopen the same day (stock back once, payment kept, stock again once), the delay reset job, the owner MCP and Telegram tools, owners only'
+create temporary table t81 (k text primary key, v text);
+grant all on t81 to public;
+
+-- an order placed as the shop assistant places it (the SMS code + food_order_create)
+create function pg_temp.t81_order(p_kind text, p_pay text, p_n integer, p_qty integer default 1)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_code jsonb;
+  vj jsonb;
+begin
+  v_code := public.sms_code_start('potraviny-centrum', 'order', '0907 811 ' || lpad(p_n::text, 3, '0'), 'Zákazník ' || p_n,
+                                  md5('t81-' || p_n), (select v::uuid from t81 where k = 'conv'), (select v from t81 where k = 'token'));
+  vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', gen_random_uuid(),
+          jsonb_build_array(jsonb_build_object('item_id', (select v from t81 where k = 'pizza'), 'qty', p_qty)),
+          p_kind, p_pay, case when p_kind = 'delivery' then 'Hlavná 8, Michalovce' end, null, null, null,
+          (select v::uuid from t81 where k = 'conv'), (select v from t81 where k = 'token'), 'sk');
+  if not (vj ->> 'ok')::boolean then raise exception 'order %: %', p_n, vj; end if;
+  return (vj -> 'order' ->> 'id')::uuid;
+end;
+$$;
+grant execute on function pg_temp.t81_order(text, text, integer, integer) to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+  v_open jsonb;
+  v_pizza uuid;
+  s public.food_settings;
+begin
+  insert into t81 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(x) from public.subscriptions x where x.shop_id = v_a)::text),
+    ('day', ((now() at time zone v_tz)::date)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_81')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, (now() at time zone v_tz)::date, false, '[["00:00","23:59"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+  v_open := public.assistant_open(v_a, 'sk', repeat('3', 32));
+  v_pizza := (select si.id from public.sklad_items i join public.shop_items si on si.id = i.shop_item_id
+              where i.shop_id = v_a and si.name = 'Margherita 32 cm');
+  assert v_pizza is not null, 'update 73''s Sklad product is there';
+  assert public.stock_source_of(v_a) = 'sklad', 'the test shop sells from Sklad';
+  -- enough pizzas for this block
+  insert into public.sklad_movements (id, shop_id, shop_item_id, location_id, kind, qty, ref, client_at)
+  values (gen_random_uuid(), v_a, v_pizza, public.sklad_default_location(v_a, false), 'receipt', 40, 'Test 81', now());
+  perform public.sklad_apply(v_a, array[v_pizza]);
+  insert into t81 values ('conv', v_open ->> 'id'), ('token', v_open ->> 'token'), ('pizza', v_pizza::text);
+  -- the new settings and their defaults (the courier app not chosen yet: on while the shop has an active courier)
+  s := public.food_setup(v_a);
+  assert s.delay_minutes = 0 and s.delay_reset = 'close' and s.warn_long_delay and s.payments_on and s.qr_terminal
+     and s.feed_order = 'newest' and s.courier_app is null, to_jsonb(s)::text;
+  assert not exists (select 1 from public.food_couriers where shop_id = v_a and active)
+     and not (public.food_parts(v_a) ->> 'courier_app')::boolean, 'no courier → no courier app';
+  assert (select is_nullable = 'YES' from information_schema.columns
+          where table_schema = 'public' and table_name = 'food_orders' and column_name = 'pay_method'), 'an order may have no pay method';
+  -- the reset job and the rules are not for visitors or owners to call
+  assert not has_function_privilege('anon', 'public.food_delay_tick()', 'execute')
+     and not has_function_privilege('authenticated', 'public.food_delay_tick()', 'execute')
+     and not has_function_privilege('authenticated', 'public.food_order_finish(uuid, uuid, text, uuid, text, integer)', 'execute')
+     and not has_function_privilege('authenticated', 'public.food_order_reopen(uuid, uuid, text, uuid)', 'execute')
+     and not has_function_privilege('anon', 'public.owner_food_order_finish(uuid, uuid, uuid, text, integer)', 'execute')
+     and not has_function_privilege('anon', 'public.owner_food_feed(uuid, boolean)', 'execute'), 'only the owner_* wrappers';
+end $$;
+reset role;
+
+do $$
+begin
+  assert exists (select 1 from cron.job where jobname = 'ppi-food-delay-reset' and schedule = '*/5 * * * *'
+                 and command = 'select public.food_delay_tick()'), 'the delay reset job, SQL only, every 5 minutes';
+end $$;
+
+-- the owner: the settings (only the fields given change), the parts, the times with the delay
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+  st jsonb;
+begin
+  vj := public.owner_food_save_settings(v_a, '{"enabled": true, "pickup_on": true, "delivery_on": true, "pay_cash": true, "pay_qr": true, "pay_card": true, "prep_minutes": 20, "delivery_minutes": 45, "assign_mode": "manual", "deduct_on_delivery": true}');
+  if not exists (select 1 from public.owner_food_settings(v_a) x, jsonb_array_elements(x -> 'zones') z where z ->> 'kind' = 'town' and z ->> 'value' = 'Michalovce') then
+    insert into t81 values ('zone', public.owner_food_save_zone(v_a, null, 'Michalovce 81', 'town', 'Michalovce', 150, 1200)::text);
+  end if;
+  assert vj -> 'parts' = '{"delivery": true, "courier_app": false, "payments": true, "register": true, "qr_terminal": true, "on": 4}'::jsonb, vj::text;
+  -- only the fields given change
+  vj := public.owner_food_save_settings(v_a, '{"feed_order": "oldest", "warn_long_delay": false}');
+  assert vj ->> 'feed_order' = 'oldest' and not (vj ->> 'warn_long_delay')::boolean and (vj ->> 'prep_minutes')::int = 20
+     and (vj ->> 'delivery_on')::boolean and (vj ->> 'payments_on')::boolean and vj ->> 'delay_reset' = 'close', vj::text;
+  vj := public.owner_food_save_settings(v_a, '{"feed_order": "newest", "warn_long_delay": true}');
+  begin perform public.owner_food_save_settings(v_a, '{"delay_reset": "sometimes"}'); raise exception 'any reset';
+  exception when invalid_parameter_value then assert sqlerrm = 'delay_reset'; end;
+  begin perform public.owner_food_save_settings(v_a, '{"feed_order": "random"}'); raise exception 'any order';
+  exception when invalid_parameter_value then assert sqlerrm = 'feed_order'; end;
+  begin perform public.owner_food_save_settings(v_a, '{"delay_minutes": 121}'); raise exception 'a delay over two hours';
+  exception when invalid_parameter_value then assert sqlerrm = 'settings'; end;
+  begin perform public.owner_food_save_settings(v_a, '{"payments_on": "yes"}'); raise exception 'a switch that is not one';
+  exception when invalid_parameter_value then assert sqlerrm = 'payments_on'; end;
+  -- the times: pickup prep + delay, delivery the estimate + delay, the same in food_state and food_quote
+  st := public.food_state('potraviny-centrum');
+  assert (st ->> 'ready_pickup_min')::int = 20 and (st ->> 'ready_delivery_min')::int = 45 and not (st ->> 'long_delay')::boolean
+     and (st ->> 'payments')::boolean and (st -> 'pay' ->> 'cash')::boolean, st::text;
+  vj := public.owner_food_set_delay(v_a, 30);
+  assert (vj ->> 'delay_minutes')::int = 30 and (vj ->> 'ready_pickup_min')::int = 50 and (vj ->> 'ready_delivery_min')::int = 75
+     and (vj ->> 'long_delay')::boolean, vj::text;
+  st := public.food_state('potraviny-centrum');
+  assert (st ->> 'ready_pickup_min')::int = 50 and (st ->> 'ready_delivery_min')::int = 75 and (st ->> 'long_delay')::boolean
+     and (st ->> 'delay_minutes')::int = 30, st::text;
+  assert (public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', (select v from t81 where k = 'pizza'))), 'pickup')
+          ->> 'ready_minutes')::int = 50, 'the quote has the same time';
+  set local role service_role;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'food_delay'
+                 and details = '{"from": 0, "to": 30}'::jsonb and actor = '00000000-0000-0000-0000-00000000000a'), 'food_delay logged';
+  set local role authenticated;
+  -- the long-delay warning only with its switch, only from 30 minutes
+  perform public.owner_food_save_settings(v_a, '{"warn_long_delay": false}');
+  assert not (public.food_state('potraviny-centrum') ->> 'long_delay')::boolean;
+  perform public.owner_food_save_settings(v_a, '{"warn_long_delay": true}');
+  vj := public.owner_food_set_delay(v_a, 20);
+  assert not (vj ->> 'long_delay')::boolean and (vj ->> 'ready_pickup_min')::int = 40, vj::text;
+  begin perform public.owner_food_set_delay(v_a, 121); raise exception 'a delay over two hours';
+  exception when invalid_parameter_value then assert sqlerrm = 'delay'; end;
+  begin perform public.owner_food_set_delay(v_a, -5); raise exception 'a negative delay';
+  exception when invalid_parameter_value then assert sqlerrm = 'delay'; end;
+  -- the parts: the courier app needs delivery, the QR terminal needs payments; "Len feed" = 0 of 5, everything = 5
+  vj := public.owner_food_save_settings(v_a, '{"delivery_on": false, "courier_app": false, "payments_on": false, "deduct_on_delivery": false, "qr_terminal": false}');
+  assert (vj -> 'parts' ->> 'on')::int = 0, vj::text;
+  vj := public.owner_food_save_settings(v_a, '{"courier_app": true, "qr_terminal": true}');
+  assert not (vj -> 'parts' ->> 'courier_app')::boolean and not (vj -> 'parts' ->> 'qr_terminal')::boolean
+     and (vj ->> 'courier_app')::boolean and (vj ->> 'qr_terminal')::boolean, 'switched on but not used without delivery / payments';
+  vj := public.owner_food_save_settings(v_a, '{"delivery_on": true, "payments_on": true, "deduct_on_delivery": true}');
+  assert (vj -> 'parts' ->> 'on')::int = 5, vj::text;
+  assert (public.owner_food_tab(v_a) -> 'parts' ->> 'courier_app')::boolean, 'the Kuriéri tab reads the parts';
+  vj := public.owner_food_save_settings(v_a, '{"courier_app": false}');
+  assert not (public.owner_food_tab(v_a) -> 'parts' ->> 'courier_app')::boolean;
+end $$;
+reset role;
+
+-- a visitor reads the same times; another owner cannot touch A's feed
+set role anon;
+do $$
+declare
+  st jsonb := public.food_state('potraviny-centrum');
+begin
+  assert (st ->> 'ready_pickup_min')::int = 40 and (st ->> 'ready_delivery_min')::int = 65 and st ? 'long_delay', st::text;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  begin perform public.owner_food_set_delay(v_a, 10); raise exception 'owner B set A''s delay';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_food_feed(v_a); raise exception 'owner B read A''s feed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_food_order_finish(v_a, gen_random_uuid(), gen_random_uuid()); raise exception 'owner B finished an order';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_food_order_reopen(v_a, gen_random_uuid(), gen_random_uuid()); raise exception 'owner B reopened an order';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- orders: ready_by with the delay of that moment
+set role service_role;
+do $$
+declare
+  v_p1 uuid;
+  v_d1 uuid;
+  v_p2 uuid;
+begin
+  v_p1 := pg_temp.t81_order('pickup', 'cash', 1);
+  v_d1 := pg_temp.t81_order('delivery', 'card', 2, 2);
+  v_p2 := pg_temp.t81_order('pickup', 'cash', 3);
+  insert into t81 values ('p1', v_p1::text), ('d1', v_d1::text), ('p2', v_p2::text);
+  assert (select ready_by - created_at = interval '40 minutes' from public.food_orders where id = v_p1), 'pickup: prep 20 + delay 20';
+  assert (select ready_by - created_at = interval '65 minutes' from public.food_orders where id = v_d1), 'delivery: 45 + delay 20';
+  assert (select pay_method = 'cash' and paid_at is null from public.food_orders where id = v_p1);
+end $$;
+reset role;
+
+-- the feed; "Vybavené" in one step (payment first), the stock once; "Vrátiť" the same day, the stock back once
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pizza uuid := (select v::uuid from t81 where k = 'pizza');
+  v_p1 uuid := (select v::uuid from t81 where k = 'p1');
+  v_d1 uuid := (select v::uuid from t81 where k = 'd1');
+  v_p2 uuid := (select v::uuid from t81 where k = 'p2');
+  v_step uuid := gen_random_uuid();
+  v_back uuid := gen_random_uuid();
+  v_stock numeric;
+  vj jsonb;
+  ids uuid[];
+begin
+  vj := public.owner_food_feed(v_a);
+  select array_agg((r ->> 'id')::uuid order by ord) into ids
+  from jsonb_array_elements(vj -> 'active') with ordinality x(r, ord) where (r ->> 'id')::uuid in (v_p1, v_d1, v_p2);
+  assert ids = array[v_p2, v_d1, v_p1], 'newest on top: ' || vj::text;
+  assert not exists (select 1 from jsonb_array_elements(vj -> 'done') r where (r ->> 'id')::uuid in (v_p1, v_d1, v_p2));
+  assert (vj -> 'times' ->> 'ready_pickup_min')::int = 40 and vj -> 'parts' ? 'payments' and vj ? 'older_count', vj::text;
+  perform public.owner_food_save_settings(v_a, '{"feed_order": "oldest"}');
+  select array_agg((r ->> 'id')::uuid order by ord) into ids
+  from jsonb_array_elements(public.owner_food_feed(v_a) -> 'active') with ordinality x(r, ord) where (r ->> 'id')::uuid in (v_p1, v_d1, v_p2);
+  assert ids = array[v_p1, v_d1, v_p2], 'oldest on top';
+  perform public.owner_food_save_settings(v_a, '{"feed_order": "newest"}');
+
+  v_stock := (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric;
+  -- with payments: a payment mark first
+  begin perform public.owner_food_order_finish(v_a, v_p1, gen_random_uuid()); raise exception 'finished unpaid';
+  exception when raise_exception then assert sqlerrm = 'not_paid'; end;
+  begin perform public.owner_food_order_finish(v_a, v_p1, gen_random_uuid(), 'cash', 100); raise exception 'less cash than the total';
+  exception when invalid_parameter_value then assert sqlerrm = 'cash'; end;
+  begin perform public.owner_food_order_finish(v_a, v_p1, null); raise exception 'no step id';
+  exception when invalid_parameter_value then assert sqlerrm = 'step'; end;
+  -- new → picked up at once (the steps in between skipped), paid in cash, the stock taken once
+  vj := public.owner_food_order_finish(v_a, v_p1, v_step, 'cash', 2000);
+  assert vj ->> 'status' = 'picked_up' and vj ->> 'finished' = 'picked_up' and vj ->> 'paid_at' is not null
+     and (vj ->> 'stock_taken')::boolean and (vj ->> 'change_cents')::int = 2000 - (vj ->> 'total_cents')::int, vj::text;
+  assert (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = v_stock - 1, 'one pizza off';
+  set local role service_role;
+  assert (select count(*) from public.food_order_events where order_id = v_p1 and kind = 'status') = 2
+     and exists (select 1 from public.food_order_events where order_id = v_p1 and kind = 'status' and from_status = 'new'
+                 and to_status = 'picked_up' and step_id = v_step and detail = 'finish'), 'one step, new → picked up';
+  set local role authenticated;
+  -- the same step again (a retry) changes nothing
+  vj := public.owner_food_order_finish(v_a, v_p1, v_step, 'cash', 2000);
+  assert (vj ->> 'duplicate')::boolean and (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = v_stock - 1, vj::text;
+  begin perform public.owner_food_order_finish(v_a, v_p1, gen_random_uuid()); raise exception 'finished twice';
+  exception when raise_exception then assert sqlerrm = 'step'; end;
+  begin perform public.owner_food_order_finish(v_a, v_d1, v_step); raise exception 'one step id for two orders';
+  exception when unique_violation then null; end;
+  set local role service_role;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'food_order_finished'
+                 and details ->> 'order' = v_p1::text and details ->> 'to' = 'picked_up');
+  set local role authenticated;
+  -- the feed: grey at the bottom (finished today)
+  vj := public.owner_food_feed(v_a);
+  assert exists (select 1 from jsonb_array_elements(vj -> 'done') r where (r ->> 'id')::uuid = v_p1 and r ->> 'done_at' is not null)
+     and not exists (select 1 from jsonb_array_elements(vj -> 'active') r where (r ->> 'id')::uuid = v_p1), vj::text;
+
+  -- "Vrátiť": back to the state before, the stock back once (an Oprava), the payment mark kept
+  vj := public.owner_food_order_reopen(v_a, v_p1, v_back);
+  assert vj ->> 'status' = 'new' and vj ->> 'reopened' = 'new' and (vj ->> 'stock_returned')::boolean
+     and vj ->> 'paid_at' is not null and vj ->> 'pay_method' = 'cash' and not (vj ->> 'stock_taken')::boolean, vj::text;
+  assert (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = v_stock, 'the pizza back';
+  vj := public.owner_food_order_reopen(v_a, v_p1, v_back);
+  assert (vj ->> 'duplicate')::boolean and (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = v_stock, 'once';
+  begin perform public.owner_food_order_reopen(v_a, v_p1, gen_random_uuid()); raise exception 'reopened an open order';
+  exception when raise_exception then assert sqlerrm = 'step'; end;
+  set local role service_role;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'food_order_reopened'
+                 and details ->> 'order' = v_p1::text and (details ->> 'stock_returned')::boolean);
+  set local role authenticated;
+  -- finished again (already paid: no mark needed): the stock taken again, once
+  vj := public.owner_food_order_finish(v_a, v_p1, gen_random_uuid());
+  assert vj ->> 'status' = 'picked_up' and (vj ->> 'stock_taken')::boolean, vj::text;
+  assert (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = v_stock - 1, 'taken again, once';
+
+  -- a delivery without the courier app: → delivered, paid by card
+  vj := public.owner_food_order_finish(v_a, v_d1, gen_random_uuid(), 'card');
+  assert vj ->> 'status' = 'delivered' and vj ->> 'pay_method' = 'card', vj::text;
+  assert (public.owner_sklad_product(v_a, v_pizza) ->> 'total')::numeric = v_stock - 3, 'two more pizzas off';
+  -- a method that is off is refused
+  perform public.owner_food_save_settings(v_a, '{"pay_card": false}');
+  begin perform public.owner_food_order_finish(v_a, v_p2, gen_random_uuid(), 'card'); raise exception 'a method that is off';
+  exception when invalid_parameter_value then assert sqlerrm = 'pay_method'; end;
+  perform public.owner_food_save_settings(v_a, '{"pay_card": true}');
+end $$;
+reset role;
+
+-- the movements: one sale per round, one opposite Oprava "Vrátené – objednávka č. n" — each once
+set role service_role;
+do $$
+declare
+  v_p1 uuid := (select v::uuid from t81 where k = 'p1');
+  o public.food_orders;
+  v_line uuid;
+begin
+  select * into o from public.food_orders where id = v_p1;
+  select id into v_line from public.food_order_lines where order_id = v_p1;
+  assert o.reopens = 1, 'one reopen';
+  assert (select count(*) from public.sklad_movements where id in (md5(v_p1::text || ':' || v_line::text)::uuid,
+                                                                      md5(v_p1::text || ':' || v_line::text || ':r1')::uuid)
+          and kind = 'sale' and qty = -1) = 2, 'one sale per round';
+  assert (select count(*) from public.sklad_movements where id = md5('back:' || md5(v_p1::text || ':' || v_line::text)::uuid::text)::uuid
+          and kind = 'correction' and qty = 1 and reason = 'Vrátené – objednávka č. ' || o.number) = 1, 'one Oprava back';
+  assert (select count(*) from public.sklad_movements m where m.kind = 'correction' and m.reason like 'Vrátené – objednávka č. %'
+          and m.id in (select md5('back:' || x.id::text)::uuid from public.sklad_movements x
+                       where x.id in (md5(v_p1::text || ':' || v_line::text)::uuid, md5(v_p1::text || ':' || v_line::text || ':r1')::uuid))) = 1,
+    'the second round is not returned';
+end $$;
+-- a reopen only on the shop's same day: the finish moved to yesterday (the audit log is append-only; the test bypasses it)
+reset role;
+set session_replication_role = replica;
+update public.food_order_events set created_at = created_at - interval '1 day'
+where order_id = (select v::uuid from t81 where k = 'd1') and kind = 'status' and to_status = 'delivered';
+set session_replication_role = default;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  begin perform public.owner_food_order_reopen((select id from public.shops where slug = 'potraviny-centrum'), (select v::uuid from t81 where k = 'd1'), gen_random_uuid());
+    raise exception 'reopened a day later';
+  exception when raise_exception then assert sqlerrm = 'too_late'; end;
+end $$;
+reset role;
+
+-- the courier app: a delivery goes "on the way" (a courier first) and counts as finished in the feed; without the app
+-- no new assignment (the automatic one too); taking one away still works
+update public.food_settings set courier_app = null where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+begin
+  -- not chosen yet: the first courier switches the app on (as the Kuriéri tab worked before this update)
+  vj := public.owner_food_courier_save(v_a, null, 'Kuriér 81', '+421944000081', null);
+  insert into t81 values ('courier', vj ->> 'id');
+  assert (public.owner_food_tab(v_a) -> 'parts' ->> 'courier_app')::boolean, 'a courier → the app on';
+  perform public.owner_food_save_settings(v_a, '{"courier_app": true}');
+end $$;
+reset role;
+set role service_role;
+do $$
+begin
+  insert into t81 values ('d2', pg_temp.t81_order('delivery', 'cash', 4, 2)::text);
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_d2 uuid := (select v::uuid from t81 where k = 'd2');
+  v_c uuid := (select v::uuid from t81 where k = 'courier');
+  vj jsonb;
+begin
+  begin perform public.owner_food_order_finish(v_a, v_d2, gen_random_uuid()); raise exception 'on the way without a courier';
+  exception when raise_exception then assert sqlerrm = 'courier'; end;
+  perform public.owner_food_assign(v_a, v_d2, v_c, gen_random_uuid());
+  -- unpaid is fine: the courier takes the payment
+  vj := public.owner_food_order_finish(v_a, v_d2, gen_random_uuid());
+  assert vj ->> 'status' = 'on_the_way' and vj ->> 'finished' = 'on_the_way' and not (vj ->> 'stock_taken')::boolean, vj::text;
+  vj := public.owner_food_feed(v_a);
+  assert exists (select 1 from jsonb_array_elements(vj -> 'done') r where (r ->> 'id')::uuid = v_d2 and r ->> 'done_at' is not null), vj::text;
+  begin perform public.owner_food_order_finish(v_a, v_d2, gen_random_uuid()); raise exception 'handed over twice';
+  exception when raise_exception then assert sqlerrm = 'step'; end;
+  -- back from on the way to new (the state before)
+  vj := public.owner_food_order_reopen(v_a, v_d2, gen_random_uuid());
+  assert vj ->> 'status' = 'new' and not (vj ->> 'stock_returned')::boolean, vj::text;
+  assert exists (select 1 from jsonb_array_elements(public.owner_food_feed(v_a) -> 'active') r where (r ->> 'id')::uuid = v_d2);
+  -- the courier app off: no new assignment; the courier stays
+  perform public.owner_food_assign(v_a, v_d2, null, gen_random_uuid());
+  perform public.owner_food_save_settings(v_a, '{"courier_app": false, "assign_mode": "auto"}');
+  begin perform public.owner_food_assign(v_a, v_d2, v_c, gen_random_uuid()); raise exception 'assigned without the courier app';
+  exception when raise_exception then assert sqlerrm = 'courier_app'; end;
+  set local role service_role;
+  assert exists (select 1 from public.food_couriers where id = v_c and active), 'the courier is kept';
+  set local role authenticated;
+  -- without the courier app a delivery is finished as delivered (paid)
+  vj := public.owner_food_order_finish(v_a, v_d2, gen_random_uuid(), 'cash');
+  assert vj ->> 'status' = 'delivered', vj::text;
+end $$;
+reset role;
+-- the automatic assignment: a signed-in courier, the courier app off → none; on → assigned
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_c uuid := (select v::uuid from t81 where k = 'courier');
+begin
+  insert into public.food_courier_sessions (courier_id, shop_id, token_hash, expires_at, last_seen_at)
+  values (v_c, v_a, md5('t81-session'), now() + interval '1 day', now());
+  insert into t81 values ('d3', pg_temp.t81_order('delivery', 'cash', 5, 2)::text);
+end $$;
+reset role;
+do $$
+begin
+  assert (select courier_id is null from public.food_orders where id = (select v::uuid from t81 where k = 'd3')), 'no automatic assignment without the app';
+end $$;
+set role service_role;
+do $$
+begin
+  update public.food_settings set courier_app = true where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+  insert into t81 values ('d4', pg_temp.t81_order('delivery', 'cash', 6, 2)::text);
+end $$;
+reset role;
+do $$
+begin
+  assert (select courier_id = (select v::uuid from t81 where k = 'courier') from public.food_orders where id = (select v::uuid from t81 where k = 'd4')),
+    'assigned automatically with the app';
+  update public.food_settings set courier_app = false, assign_mode = 'manual' where shop_id = (select id from public.shops where slug = 'potraviny-centrum');
+end $$;
+
+-- without "Platby v Cacaduu": no payment methods, no pay method on the order, no payment marks, finished unpaid
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  st jsonb;
+begin
+  perform public.owner_food_save_settings(v_a, '{"payments_on": false}');
+  st := public.food_state('potraviny-centrum');
+  assert not (st ->> 'payments')::boolean and st -> 'pay' = '{"qr": false, "cash": false, "card": false}'::jsonb, st::text;
+  set local role service_role;
+  assert (select pay_qr and pay_cash from public.food_settings where shop_id = v_a), 'the pay switches are kept';
+  set local role authenticated;
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.food_courier_perms(v_a) = '{"qr": false, "cash": false, "card": false}'::jsonb, 'couriers mark no payment';
+  insert into t81 values ('p3', pg_temp.t81_order('pickup', 'cash', 7)::text), ('p4', pg_temp.t81_order('pickup', null, 8)::text);
+  assert (select pay_method is null from public.food_orders where id = (select v::uuid from t81 where k = 'p3')), 'no pay method, whatever was sent';
+  assert (select pay_method is null from public.food_orders where id = (select v::uuid from t81 where k = 'p4'));
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p3 uuid := (select v::uuid from t81 where k = 'p3');
+  v_p4 uuid := (select v::uuid from t81 where k = 'p4');
+  vj jsonb;
+begin
+  begin perform public.owner_food_order_finish(v_a, v_p3, gen_random_uuid(), 'cash'); raise exception 'a payment mark without payments';
+  exception when invalid_parameter_value then assert sqlerrm = 'pay_method'; end;
+  begin perform public.owner_food_order_status(v_a, v_p3, null, gen_random_uuid(), 'cash'); raise exception 'a payment step without payments';
+  exception when invalid_parameter_value then assert sqlerrm = 'pay_method'; end;
+  vj := public.owner_food_order_finish(v_a, v_p3, gen_random_uuid());
+  assert vj ->> 'status' = 'picked_up' and vj ->> 'paid_at' is null and vj ->> 'pay_method' is null, vj::text;
+  -- the board's own steps too: ready → picked up without a mark
+  perform public.owner_food_order_status(v_a, v_p4, 'ready', gen_random_uuid());
+  vj := public.owner_food_order_status(v_a, v_p4, 'picked_up', gen_random_uuid());
+  assert vj ->> 'status' = 'picked_up' and vj ->> 'paid_at' is null, vj::text;
+  -- payments back on: an unpaid order needs its mark again
+  perform public.owner_food_save_settings(v_a, '{"payments_on": true}');
+  vj := public.owner_food_order_reopen(v_a, v_p4, gen_random_uuid());
+  assert vj ->> 'status' = 'ready', 'back to the state before (ready): ' || vj::text;
+  begin perform public.owner_food_order_finish(v_a, v_p4, gen_random_uuid()); raise exception 'finished unpaid with payments on';
+  exception when raise_exception then assert sqlerrm = 'not_paid'; end;
+  vj := public.owner_food_order_finish(v_a, v_p4, gen_random_uuid(), 'cash');
+  assert vj ->> 'status' = 'picked_up' and vj ->> 'pay_method' = 'cash', vj::text;
+end $$;
+reset role;
+
+-- the delay goes back to 0 by itself: midnight (the day after it was set), close (the end of its open range), never
+reset role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+  n integer;
+begin
+  update public.food_settings set delay_minutes = 20, delay_reset = 'never', delay_set_at = now() - interval '3 days' where shop_id = v_a;
+  assert public.food_delay_due(v_a) is null;
+  perform public.food_delay_tick();
+  assert (select delay_minutes from public.food_settings where shop_id = v_a) = 20, 'never = kept';
+  update public.food_settings set delay_reset = 'midnight', delay_set_at = now() where shop_id = v_a;
+  assert public.food_delay_due(v_a) = (((now() at time zone v_tz)::date + 1)::timestamp at time zone v_tz), 'the shop''s next midnight';
+  perform public.food_delay_tick();
+  assert (select delay_minutes from public.food_settings where shop_id = v_a) = 20, 'not yet';
+  -- today's range ends at 23:59 in the shop's time
+  update public.food_settings set delay_reset = 'close' where shop_id = v_a;
+  assert public.food_delay_due(v_a) = (((now() at time zone v_tz)::date + time '23:59')::timestamp at time zone v_tz), 'the end of today''s range';
+  update public.food_settings set delay_reset = 'midnight', delay_set_at = now() - interval '1 day' where shop_id = v_a;
+  n := public.food_delay_tick();
+  assert n >= 1 and (select delay_minutes from public.food_settings where shop_id = v_a) = 0, 'reset at midnight';
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'food_delay' and details ->> 'by' = 'reset');
+  update public.food_settings set delay_minutes = 45, delay_reset = 'close', delay_set_at = now() - interval '2 days' where shop_id = v_a;
+  perform public.food_delay_tick();
+  assert (select delay_minutes from public.food_settings where shop_id = v_a) = 0, 'reset at closing';
+  update public.food_settings set delay_reset = 'close' where shop_id = v_a;
+end $$;
+
+-- the owner's AI tools (a Telegram link = an owner-MCP grant): set_food_delay, finish_food_order and reopen_food_order
+-- only after Potvrdiť + confirm; without confirm only before → after
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  insert into t81 values ('tg_code', public.owner_telegram_link_start() ->> 'code');
+end $$;
+reset role;
+set role service_role;
+do $$
+begin
+  assert (public.telegram_claim((select v from t81 where k = 'tg_code'), 9081, 9081, 'private', 'bistro', 'sk') ->> 'ok')::boolean;
+  insert into t81 values ('p5', pg_temp.t81_order('pickup', 'cash', 9)::text);
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_telegram_consent(array[(select id from public.shops where slug = 'potraviny-centrum')], array['shop.read', 'shop.write']);
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_p5 uuid := (select v::uuid from t81 where k = 'p5');
+  v_pending uuid;
+  vj jsonb;
+begin
+  assert public.mcp_tool_scope('set_food_delay') = 'shop.write' and public.mcp_tool_scope('finish_food_order') = 'shop.write'
+     and public.mcp_tool_scope('reopen_food_order') = 'shop.write';
+  begin perform public.telegram_call(9081, 'set_food_delay', '{"minutes": 10, "confirm": true}'); raise exception 'a write without Potvrdiť';
+  exception when insufficient_privilege then assert sqlerrm = 'needs_confirmation'; end;
+  -- without confirm: before → after, nothing changed
+  v_pending := public.telegram_pending_new(9081, 'set_food_delay', '{"minutes": 30}', '{}');
+  vj := public.telegram_confirm(9081, v_pending);
+  assert not (vj -> 'out' -> 'result' ->> 'changed')::boolean and (vj -> 'out' -> 'result' -> 'after' ->> 'delay_minutes')::int = 30
+     and (vj -> 'out' -> 'result' -> 'after' ->> 'pickup_in_min')::int = 50, vj::text;
+  assert (select delay_minutes from public.food_settings where shop_id = v_a) = 0;
+  v_pending := public.telegram_pending_new(9081, 'set_food_delay', '{"minutes": 10, "confirm": true}', '{}');
+  vj := public.telegram_confirm(9081, v_pending);
+  assert (vj -> 'out' -> 'result' ->> 'changed')::boolean and (vj -> 'out' -> 'result' -> 'times' ->> 'ready_pickup_min')::int = 30, vj::text;
+  assert (select delay_minutes from public.food_settings where shop_id = v_a) = 10;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'food_delay' and details ->> 'source' = 'telegram');
+  v_pending := public.telegram_pending_new(9081, 'set_food_delay', '{"minutes": 200, "confirm": true}', '{}');
+  begin perform public.telegram_confirm(9081, v_pending); raise exception 'a delay of 200 minutes';
+  exception when invalid_parameter_value then null; end;
+  -- finish (paid in cash) and reopen
+  v_pending := public.telegram_pending_new(9081, 'finish_food_order', jsonb_build_object('order_id', v_p5), '{}');
+  vj := public.telegram_confirm(9081, v_pending);
+  assert not (vj -> 'out' -> 'result' ->> 'changed')::boolean and (vj -> 'out' -> 'result' ->> 'needs_payment_first')::boolean
+     and vj -> 'out' -> 'result' -> 'after' ->> 'status' = 'picked_up', vj::text;
+  v_pending := public.telegram_pending_new(9081, 'finish_food_order', jsonb_build_object('order_id', v_p5, 'paid_with', 'cash', 'confirm', true), '{}');
+  vj := public.telegram_confirm(9081, v_pending);
+  assert (vj -> 'out' -> 'result' ->> 'changed')::boolean and vj -> 'out' -> 'result' -> 'order' ->> 'status' = 'picked_up', vj::text;
+  v_pending := public.telegram_pending_new(9081, 'reopen_food_order', jsonb_build_object('order_id', v_p5, 'confirm', true), '{}');
+  vj := public.telegram_confirm(9081, v_pending);
+  assert vj -> 'out' -> 'result' -> 'order' ->> 'status' = 'new', vj::text;
+  -- every other tool still goes through the older doors
+  vj := public.telegram_call(9081, 'list_food_orders', '{"filter": "new"}');
+  assert exists (select 1 from jsonb_array_elements(vj -> 'result' -> 'orders') x where (x ->> 'id')::uuid = v_p5), vj::text;
+  vj := public.telegram_call(9081, 'list_menu', '{}');
+  assert vj -> 'result' ? 'items', vj::text;
+end $$;
+reset role;
+
+-- tidy up: ordering off, the parts and the delay as by default, the courier, the day's hours, the subscription
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.telegram_unlink_by_bot(9081);
+  update public.food_settings set enabled = false, delay_minutes = 0, delay_reset = 'close', payments_on = true, qr_terminal = true,
+    courier_app = null, feed_order = 'newest', warn_long_delay = true, assign_mode = 'manual' where shop_id = v_a;
+  delete from public.food_couriers where id = (select v::uuid from t81 where k = 'courier');
+  delete from public.food_zones where id = (select v::uuid from t81 where k = 'zone');
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t81 where k = 'day');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t81 where k = 'sub'))
+  where (select v from t81 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t81 where k = 'had_plan');
+end $$;
+reset role;
+drop function pg_temp.t81_order(text, text, integer, integer);
+drop table t81;
+
 \echo 'ALL DATABASE CHECKS PASSED'
