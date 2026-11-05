@@ -17,7 +17,7 @@ type Step =
   | { kind: "cart" }
   | { kind: "form" }
   | { kind: "code"; id: string; phone: string; testCode: string | null; sentAt: number }
-  | { kind: "done"; number: number; readyBy: string; timezone: string; total: number; pay: PayMethod; address: string | null };
+  | { kind: "done"; number: number; readyBy: string; timezone: string; total: number; pay: PayMethod | null; address: string | null };
 
 const fill = (text: string, values: Record<string, string | number>) =>
   text.replace(/\{(\w+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all));
@@ -52,8 +52,13 @@ export default function OrderPanel({
     order.quote.lines.map((l) => ({ item_id: l.item_id, qty: l.qty, extras: l.extras.map((x) => x.item_id) })),
   );
   const [kind, setKind] = useState<"pickup" | "delivery">(order.kind);
+  // update 81: without "Platby v Cacaduu" no method is chosen ("Platíte až pri prevzatí")
+  const payments = state.payments !== false;
   const firstPay: PayMethod = state.pay?.qr ? "qr" : state.pay?.cash ? "cash" : "card";
   const [pay, setPay] = useState<PayMethod>(firstPay);
+  // update 81: the same times the assistant and the owner's feed show (food_times: + today's delay)
+  const pickupMin = state.ready_pickup_min ?? state.prep_minutes ?? 20;
+  const deliveryMin = state.ready_delivery_min ?? state.delivery_minutes ?? 45;
   const [address, setAddress] = useState("");
   const [step, setStep] = useState<Step>({ kind: "cart" });
   const [editing, setEditing] = useState(false);
@@ -182,14 +187,14 @@ export default function OrderPanel({
         order_id: order.order_id,
         lines: cart,
         kind,
-        pay_method: pay,
+        pay_method: payments ? pay : null,
         address: kind === "delivery" ? address : null,
         note: noteRef.current,
         conversation: conv,
         lang,
       });
       if (ok && data.order) {
-        const o = data.order as { number: number; ready_by: string; timezone: string; total_cents: number; pay_method: PayMethod; address: string | null };
+        const o = data.order as { number: number; ready_by: string; timezone: string; total_cents: number; pay_method: PayMethod | null; address: string | null };
         setStep({ kind: "done", number: o.number, readyBy: o.ready_by, timezone: o.timezone, total: o.total_cents, pay: o.pay_method, address: o.address });
         return;
       }
@@ -234,7 +239,7 @@ export default function OrderPanel({
             </>
           )}
           <dt className="text-muted">{labels.order_done_pay}</dt>
-          <dd>{fill(labels.order_done_pay_line, { method: payLabel(step.pay), total: money(step.total) })}</dd>
+          <dd>{step.pay ? fill(labels.order_done_pay_line, { method: payLabel(step.pay), total: money(step.total) }) : `${money(step.total)} · ${labels.order_pay_on_receipt}`}</dd>
         </dl>
         <p className="text-[13px] text-muted">{labels.order_done_note}</p>
       </section>
@@ -297,9 +302,14 @@ export default function OrderPanel({
       )}
       <p className="text-[13px] text-muted">
         {kind === "delivery"
-          ? fill(labels.order_times, { prep: state.prep_minutes ?? 20, delivery: state.delivery_minutes ?? 45 })
-          : fill(labels.order_times_pickup, { prep: state.prep_minutes ?? 20 })}
+          ? fill(labels.order_times, { prep: pickupMin, delivery: deliveryMin })
+          : fill(labels.order_times_pickup, { prep: pickupMin })}
       </p>
+      {state.long_delay && (
+        <p className="text-[13px] font-semibold" role="status" data-order-long-wait>
+          {fill(kind === "delivery" ? labels.order_long_wait_delivery : labels.order_long_wait, { n: kind === "delivery" ? deliveryMin : pickupMin })}
+        </p>
+      )}
 
       {step.kind === "cart" && (
         <>
@@ -313,6 +323,8 @@ export default function OrderPanel({
               </button>
             </div>
           )}
+          {payments ? (
+          <>
           <span className="text-sm font-bold">{labels.order_pay_label}</span>
           <div role="group" aria-label={labels.order_pay_label} className="flex gap-2">
             {methods.map((m) => (
@@ -332,6 +344,10 @@ export default function OrderPanel({
           <p className="text-[13px] text-muted">
             {pay === "qr" ? labels.order_pay_hint_qr : pay === "cash" ? labels.order_pay_hint_cash : labels.order_pay_hint_card}
           </p>
+          </>
+          ) : (
+            <p className="text-sm font-semibold" data-order-pay-on-receipt>{labels.order_pay_on_receipt}</p>
+          )}
           {error && <p role="alert" className="text-sm font-semibold">{error}</p>}
           <button type="button" className={primary} disabled={busy || !quote.lines.length}
             onClick={() => {

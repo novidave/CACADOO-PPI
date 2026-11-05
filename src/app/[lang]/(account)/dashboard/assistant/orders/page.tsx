@@ -73,7 +73,7 @@ export default async function OrdersPage({ params, searchParams }: PageProps<"/[
     { key: "on_the_way", title: f.col_on_the_way, rows: byStatus(["on_the_way", "ready"]) },
   ];
   const card = (o: FoodOrder, compact = false) => (
-    <OrderCard key={o.id} f={f} o={o} lang={lang} detailHref={detail(o)} hidden={hidden} stepId={crypto.randomUUID()} canWrite={hasPlan} compact={compact} />
+    <OrderCard key={o.id} f={f} o={o} lang={lang} detailHref={detail(o)} hidden={hidden} stepId={crypto.randomUUID()} canWrite={hasPlan} compact={compact} payments={tab?.parts?.payments ?? true} />
   );
   const totals = done?.totals ?? open.totals;
 
@@ -86,6 +86,7 @@ export default async function OrdersPage({ params, searchParams }: PageProps<"/[
         shop={shop}
         current="orders"
         newOrders={tab?.new ?? 0}
+        couriers={tab?.parts?.courier_app ?? true}
         switchHref={(slug) => `/${lang}/dashboard/assistant/orders?shop=${slug}`}
       />
       {/* the device's "Feed | Stĺpce" before the first paint (globals.css shows one view) */}

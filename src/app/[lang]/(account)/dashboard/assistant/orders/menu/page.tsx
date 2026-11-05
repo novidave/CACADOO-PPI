@@ -138,6 +138,7 @@ export default async function FoodMenuPage({ params, searchParams }: PageProps<"
         shop={shop}
         current="menu"
         newOrders={foodTabRes?.new ?? 0}
+        couriers={foodTabRes?.parts?.courier_app ?? true}
         switchHref={(slug) => `/${lang}/dashboard/assistant/orders/menu?${new URLSearchParams({ shop: slug })}`}
       />
       <div className="flex w-full max-w-3xl flex-col gap-5" data-menu-editor>

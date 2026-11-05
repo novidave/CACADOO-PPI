@@ -341,6 +341,24 @@ n": grey rows (time, number + name, pickup / address, "vybavené HH:MM" / "u kur
 slide in (`ppi-feed-in`); `prefers-reduced-motion`: no fly-out or slide-in. `FoodOrdersLive` draws the page again on a
 new order (with the sound) and on any change (`owner_food_tab().changed`). e2e `e2e/food-feed.spec.ts` (1180×820,
 390×844; a test restaurant: a short drag springs back, a swipe → the payment → grey, Späť → back, the delay → the box).
+**Nastavenia + the assistant's times (F5c):** Objednávky jedla → Nastavenia starts with "Čo používate"
+(`@/components/owner/FoodSettingsParts` `FoodPartsCard`: Donáška · Aplikácia kuriéra · Platby v Cacaduu · Pokladňa · QR
+terminál, each with its line; "Len feed" / "Zapnúť všetko"; Aplikácia kuriéra greyed without Donáška, QR terminál
+without Platby — `saveFoodSettings` sends a greyed switch not at all, so its own choice stays; the status line "Len feed
+objednávok" / "… · s donáškou" / "Zapnuté n z 5" = `partsSummary`), "Časy pre asistenta" (`FoodTimesCard`: Príprava jedla
+5–120, Čas donášky 10–180 only with Donáška, − / + steps of 5 as real number fields, "Vynulovať meškanie" close /
+midnight / never, the long-delay switch, the assistant's sentence as a live preview) and "Feed" (Najnovšie / Najstaršie
+hore); the cards below as before — Donáška and the zones only with Donáška, the payment methods only with Platby (live:
+`[data-needs-delivery]` / `[data-needs-payments]` hidden by CSS `:has()`) — and the SaveBar (texts `food.mod_*`).
+Switched off = hidden: without the courier app no Kuriéri tab (`FoodHead couriers`, from `owner_food_tab().parts`);
+without Platby no pay chip on the board, no payment section, step or QR on an order's page (finishing needs no mark),
+no method in the order panel ("Platíte až pri prevzatí", `pay_method` null — the bookings function lets SQL decide)
+and in the owner's e-mail (crm-messages); without the QR terminal no "Ukázať QR". **The assistant** (`foodPrompt`, the
+`food_menu` / `food_quote` results): the times from `food_state` (`ready_pickup_min` / `ready_delivery_min`, never its own
+estimate), a long delay said BEFORE the order, without Platby no payment choice, without Donáška only pickup; the order
+panel shows the same minutes and, with a long delay, "Teraz čakáme dlhšie …" (`chat.order_long_wait*`). e2e
+`food-feed.spec.ts` "Len feed" (both sizes): the Kuriéri tab and the pay tags go, finished without a payment step; the
+shop's own switches restored after.
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 

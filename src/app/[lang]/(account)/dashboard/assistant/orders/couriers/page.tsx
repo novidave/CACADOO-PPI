@@ -86,6 +86,7 @@ export default async function CouriersPage({ params, searchParams }: PageProps<"
         shop={shop}
         current="couriers"
         newOrders={foodTabRes?.new ?? 0}
+        couriers={foodTabRes?.parts?.courier_app ?? true}
         switchHref={(slug) => `/${lang}/dashboard/assistant/orders/couriers?shop=${slug}`}
       />
       <div className="flex w-full max-w-5xl flex-col gap-5" data-food-couriers>

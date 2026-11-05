@@ -61,6 +61,9 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
   }
   const o = orderRes.data as FoodOrder;
   const s = (settingsRes.data ?? null) as FoodSettings | null;
+  // update 81: without "Platby v Cacaduu" no payment section and no payment step; without the QR terminal no QR
+  const payments = s?.parts?.payments ?? true;
+  const qrTerminal = s?.parts?.qr_terminal ?? true;
   const sms = (smsRes.error ? null : smsRes.data) as { sent: boolean; quota: { used: number; limit: number } | null } | null;
   const canWrite = !plan.error && plan.data === true;
   const couriers = couriersRes.error
@@ -79,7 +82,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
   const listHref = `/${lang}/dashboard/assistant/orders?shop=${shop.slug}`;
   const here = (q: Record<string, string>) => `/${lang}/dashboard/assistant/orders/${o.id}?${new URLSearchParams({ shop: shop.slug, ...q })}`;
   const finished = ["delivered", "picked_up", "cancelled"].includes(o.status);
-  const showQr = first(sp.qr) === "1" && !o.paid_at && Boolean(o.iban);
+  const showQr = first(sp.qr) === "1" && !o.paid_at && Boolean(o.iban) && payments && qrTerminal;
   const showCash = first(sp.cash) === "1" && !o.paid_at;
   const svg = showQr
     ? await payBySquareSvg({ iban: o.iban!, bic: o.bic ?? null, payee: o.payee ?? shop.name, amount: o.total_cents / 100, vs: o.vs, message: t(f.qr_message, { n: o.number }) }).catch(() => null)
@@ -100,6 +103,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
         shop={shop}
         current="orders"
         newOrders={foodTabRes?.new ?? 0}
+        couriers={foodTabRes?.parts?.courier_app ?? true}
         switchHref={(slug) => `/${lang}/dashboard/assistant/orders?shop=${slug}`}
       />
     <div className="flex w-full max-w-xl flex-col gap-4" data-food-detail={o.status}>
@@ -235,6 +239,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
         </section>
       )}
 
+      {payments && (
       <section className="flex flex-col gap-3 rounded-xl border border-line p-4" aria-label={f.payment}>
         <p className="flex flex-wrap items-baseline justify-between gap-2">
           <strong>{t(f.pay_title, { method: payText(f, o.pay_method) })}</strong>
@@ -251,7 +256,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
         )}
         {!o.paid_at && !finished && canWrite && (
           <>
-            {s?.pay_qr && (
+            {s?.pay_qr && qrTerminal && (
               o.iban ? (
                 <Link href={showQr ? here({}) : here({ qr: "1" })} className={btnGhost} data-food-qr>
                   {showQr ? f.hide_qr : t(f.show_qr, { total })}
@@ -318,6 +323,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
           </>
         )}
       </section>
+      )}
 
       {!finished && canWrite && (
         <section className="flex flex-col gap-3" aria-label={f.next}>
@@ -359,10 +365,10 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/[l
           {finishing && (
             <form action={orderStep}>
               {formHidden({ to: finishing, step_id: stepId() })}
-              <button type="submit" disabled={!o.paid_at} className={`${btn} w-full`} data-food-step={finishing}>
+              <button type="submit" disabled={payments && !o.paid_at} className={`${btn} w-full`} data-food-step={finishing}>
                 {(f as Record<string, string>)[`to_${finishing}`]}
               </button>
-              {!o.paid_at && <p className="mt-1 text-sm text-muted">{f.pay_first}</p>}
+              {payments && !o.paid_at && <p className="mt-1 text-sm text-muted">{f.pay_first}</p>}
             </form>
           )}
           {o.status === "on_the_way" && o.phone && !sms?.sent && (

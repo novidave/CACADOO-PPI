@@ -103,6 +103,7 @@ export function OrderCard({
   stepId,
   canWrite,
   compact = false,
+  payments = true,
 }: {
   f: Dictionary["food"];
   o: FoodOrder;
@@ -112,6 +113,8 @@ export function OrderCard({
   stepId: string;
   canWrite: boolean;
   compact?: boolean;
+  /** update 81: "Platby v Cacaduu" — off = no pay chip */
+  payments?: boolean;
 }) {
   const tz = o.timezone;
   const items = o.lines
@@ -145,7 +148,7 @@ export function OrderCard({
         <li className="rounded-full bg-[#EEF1F5] px-2.5 py-1">
           {o.kind === "delivery" ? `${f.kind_delivery}${o.address && !compact ? ` · ${o.address.split(",")[0]}` : ""}` : f.kind_pickup}
         </li>
-        {o.pay_method && (
+        {payments && o.pay_method && (
           <li className="rounded-full bg-[#EEF1F5] px-2.5 py-1">
             {o.paid_at ? t(f.paid_short, { method: payText(f, o.pay_method) }) : o.cash_given_cents && o.pay_method === "cash"
               ? t(f.cash_from, { amount: money(o.cash_given_cents, lang) })
@@ -244,6 +247,7 @@ export function FoodHead({
   current,
   newOrders,
   switchHref,
+  couriers = true,
 }: {
   dict: Dictionary;
   lang: string;
@@ -252,10 +256,12 @@ export function FoodHead({
   current: "orders" | "couriers" | "menu" | "settings";
   newOrders: number;
   switchHref: (slug: string) => string;
+  /** update 81: the Kuriéri tab only with the courier app (owner_food_tab().parts) */
+  couriers?: boolean;
 }) {
-  const tabs = itemTabs(dict, lang, "food", shop.slug, { orders: newOrders }).map((x) =>
-    x.key === "orders" && newOrders > 0 ? { ...x, badgeLabel: t(dict.food.tab_badge, { n: newOrders }) } : x,
-  );
+  const tabs = itemTabs(dict, lang, "food", shop.slug, { orders: newOrders })
+    .filter((x) => couriers || x.key !== "couriers")
+    .map((x) => (x.key === "orders" && newOrders > 0 ? { ...x, badgeLabel: t(dict.food.tab_badge, { n: newOrders }) } : x));
   return (
     <PageHead title={dict.nav.food} item="food" tabs={tabs} current={current} tabsLabel={dict.nav.tabs_label}>
       <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={switchHref} />

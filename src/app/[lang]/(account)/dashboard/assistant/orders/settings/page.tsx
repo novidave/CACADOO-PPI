@@ -6,12 +6,15 @@ import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { foodTab, type FoodSettings, type FoodZone } from "@/lib/foodOwner";
 import { money } from "@/lib/foodRules";
+import { drawnAt } from "@/lib/foodFeed";
 import { DbError } from "@/components/DbError";
-import { cardClass, Toggle } from "@/components/owner/ui";
+import { FoodPartsCard, FoodTimesCard } from "@/components/owner/FoodSettingsParts";
+import { SaveBar } from "@/components/owner/SaveBar";
+import { cardClass, Segmented, Toggle } from "@/components/owner/ui";
 import { chooseShop } from "../../../contacts/parts";
-import { hiddenFields, inputClass, ProOnly } from "../../../shared";
+import { hiddenFields, inputClass, ProOnly, saveLabels } from "../../../shared";
 import { deleteZone, saveFoodSettings, saveZone } from "../actions";
-import { btn, btnGhost, FoodHead, FoodNotice } from "../parts";
+import { btnGhost, FoodHead, FoodNotice } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders/settings">): Promise<Metadata> {
   const { lang } = await params;
@@ -23,6 +26,12 @@ const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v
 const euros = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
 
 /**
+ * Update 81 (artboard 5b): first "Čo používate" (Donáška · Aplikácia kuriéra · Platby v Cacaduu · Pokladňa · QR
+ * terminál, "Len feed" / "Zapnúť všetko", the status line), "Časy pre asistenta" (preparation, delivery, when the
+ * delay goes back to 0, the long-delay warning, a preview of the assistant's sentence) and "Feed" (newest / oldest on
+ * top); the cards below as before — the zones only with Donáška, the payment methods only with Platby — and one
+ * SaveBar ("Neuložené zmeny: n · Zrušiť · Uložiť").
+ *
  * Nastavenia objednávok (board 14, database updates 73–74): the switch "Objednávky jedla v asistentovi" (the
  * Objednávky tab and the assistant's tools exist only while it is on), the menu's sources (Sklad's products with a
  * price; the menu in the Public folder for descriptions and allergens, "… nie sú v Sklade" from the menu check),
@@ -57,7 +66,9 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
   const kinds: FoodZone["kind"][] = ["town", "postcode", "radius_km"];
   const kindText = (k: FoodZone["kind"]) => (f as Record<string, string>)[`s_zone_kind_${k}`];
 
-  const minutes = (n: number) => t(f.s_min, { n });
+  const labels = Object.fromEntries(
+    Object.entries(f).filter(([k]) => k.startsWith("mod_") || k === "feed_less" || k === "feed_more"),
+  ) as Record<string, string>;
   // update 79: the Menu tab has its own address (an old ?view=menu link goes there with its query)
   const view = "settings" as const;
   const withCurrent = (list: number[], v: number) => (list.includes(v) ? list : [...list, v].sort((a, b) => a - b));
@@ -71,6 +82,7 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
         shop={shop}
         current={view}
         newOrders={foodTabRes?.new ?? 0}
+        couriers={foodTabRes?.parts?.courier_app ?? true}
         switchHref={(slug) => `/${lang}/dashboard/assistant/orders/settings?${new URLSearchParams({ shop: slug })}`}
       />
       <div className="flex w-full max-w-xl flex-col gap-5" data-food-settings={view}>
@@ -80,25 +92,57 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
       {view === "settings" && (
       <form action={saveFoodSettings} className="flex flex-col gap-5">
         {hidden()}
+        <section className={cardClass}>
+          <FoodPartsCard
+            initial={{
+              delivery_on: s.delivery_on,
+              courier_app: s.courier_app ?? (s.couriers ?? 0) > 0,
+              payments_on: s.payments_on ?? true,
+              deduct_on_delivery: s.deduct_on_delivery,
+              qr_terminal: s.qr_terminal ?? true,
+            }}
+            labels={labels}
+            disabled={!canWrite}
+          />
+        </section>
+        <section className={cardClass}>
+          <FoodTimesCard
+            prep={s.prep_minutes}
+            delivery={s.delivery_minutes}
+            delay={s.delay_minutes ?? 0}
+            reset={s.delay_reset ?? "close"}
+            warn={s.warn_long_delay ?? true}
+            timezone={shop.timezone ?? "UTC"}
+            serverNow={drawnAt()}
+            labels={labels}
+            disabled={!canWrite}
+          />
+        </section>
+        <section className={cardClass} data-food-feed-card>
+          <h2 className="text-[19px] font-bold">{f.mod_feed}</h2>
+          <Segmented
+            name="feed_order"
+            label={f.mod_feed_order}
+            value={s.feed_order ?? "newest"}
+            options={[
+              { value: "newest", label: f.mod_feed_newest },
+              { value: "oldest", label: f.mod_feed_oldest },
+            ]}
+          />
+          <p className="text-sm text-muted">{f.mod_feed_hint}</p>
+        </section>
+
         <section className={`${cardClass} gap-0 py-2`}>
           <Toggle name="enabled" label={f.s_enabled} hint={f.s_enabled_hint} defaultChecked={s.enabled} />
-        </section>
-        <section className={`${cardClass} gap-0 py-2`}>
-          <Toggle name="deduct_on_delivery" label={f.s_deduct} defaultChecked={s.deduct_on_delivery} />
         </section>
 
         <section className={cardClass}>
           <h2 className="text-[19px] font-bold">{f.s_pickup}</h2>
           <Toggle name="pickup_on" label={f.s_pickup_on} defaultChecked={s.pickup_on} />
-          <span className="text-sm font-semibold">{f.s_prep}</span>
-          <Choice name="prep_minutes" value={s.prep_minutes} options={withCurrent([20, 30, 45], s.prep_minutes)} unit={minutes} />
         </section>
 
-        <section className={cardClass}>
+        <section className={cardClass} data-needs-delivery>
           <h2 className="text-[19px] font-bold">{f.s_delivery}</h2>
-          <Toggle name="delivery_on" label={f.s_delivery_on} defaultChecked={s.delivery_on} />
-          <span className="text-sm font-semibold">{f.s_eta}</span>
-          <Choice name="delivery_minutes" value={s.delivery_minutes} options={withCurrent([45, 60, 90], s.delivery_minutes)} unit={minutes} />
           <p className="text-sm text-muted">{f.s_zone_hint}</p>
           <p className="text-sm">
             <a href="#zones" className="font-semibold underline underline-offset-4">
@@ -107,7 +151,7 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           </p>
         </section>
 
-        <section className={cardClass}>
+        <section className={cardClass} data-needs-payments>
           <h2 className="text-[19px] font-bold">{f.s_pay}</h2>
           <Toggle name="pay_qr" label={f.s_pay_qr} hint={`${f.s_iban}: ${s.iban_set ? f.s_iban_set : f.s_iban_missing}`} defaultChecked={s.pay_qr} />
           <Toggle name="pay_cash" label={f.s_pay_cash} defaultChecked={s.pay_cash} />
@@ -144,16 +188,12 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           </p>
         </section>
 
-        {canWrite && (
-          <button type="submit" className={`${btn} w-full`} data-food-save>
-            {f.s_save}
-          </button>
-        )}
+        {canWrite && <SaveBar labels={saveLabels(dict, f.s_save)} />}
       </form>
       )}
 
       {view === "settings" && (
-      <section id="zones" className={`${cardClass} scroll-mt-4`}>
+      <section id="zones" className={`${cardClass} scroll-mt-4`} data-needs-delivery>
         <h2 className="text-[19px] font-bold">{f.s_zones}</h2>
         {s.zones.length === 0 && <p className="text-sm text-muted">{f.s_zones_none}</p>}
         {s.zones.map((z) => (
