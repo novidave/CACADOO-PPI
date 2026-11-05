@@ -3691,7 +3691,15 @@
     "soldout_none": "A menüben nincs készletkövetés nélküli étel (vagy a menü üres).",
     "sum_menu": "{name}: {before} → {after}",
     "menu_on": "kínálatban",
-    "menu_sold": "ma elfogyott"
+    "menu_sold": "ma elfogyott",
+    "b_delay": "Késés",
+    "delay_title": "A konyha késése most: {n} perc. Az asszisztens ezt mondja a vásárlóknak: {times}. Válasszon új késést:",
+    "delay_times": "átvétel {pickup} perc múlva · kiszállítás {delivery} perc múlva",
+    "delay_times_pickup": "átvétel {pickup} perc múlva",
+    "delay_none": "Ez az üzlet nem fogad ételrendelést.",
+    "sum_delay": "Késés: {before} → {after} perc",
+    "sum_delay_times": "Az asszisztens ezt mondja: átvétel {pickup} perc múlva · kiszállítás {delivery} perc múlva",
+    "sum_delay_pickup": "Az asszisztens ezt mondja: átvétel {pickup} perc múlva"
   },
   "owner_tg": {
     "title": "Telegram",

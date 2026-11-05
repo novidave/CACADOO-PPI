@@ -3691,7 +3691,15 @@
     "soldout_none": "V menu nie sú jedlá bez sledovania zásoby (alebo je menu prázdne).",
     "sum_menu": "{name}: {before} → {after}",
     "menu_on": "v ponuke",
-    "menu_sold": "vypredané dnes"
+    "menu_sold": "vypredané dnes",
+    "b_delay": "Meškanie",
+    "delay_title": "Meškanie kuchyne teraz: {n} min. Asistent zákazníkom hovorí: {times}. Vyberte nové meškanie:",
+    "delay_times": "odber o {pickup} min · donáška o {delivery} min",
+    "delay_times_pickup": "odber o {pickup} min",
+    "delay_none": "Tento obchod neprijíma objednávky jedla.",
+    "sum_delay": "Meškanie: {before} → {after} min",
+    "sum_delay_times": "Asistent povie: odber o {pickup} min · donáška o {delivery} min",
+    "sum_delay_pickup": "Asistent povie: odber o {pickup} min"
   },
   "owner_tg": {
     "title": "Telegram",

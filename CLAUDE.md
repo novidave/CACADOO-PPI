@@ -319,6 +319,16 @@ an order on the way counts as done), `older_count` / `older` (7 days), `times`, 
 as `owner_mcp_call_80`): `set_food_delay` {shop?, minutes}, `finish_food_order` {order_id, paid_with?, cash_given?},
 `reopen_food_order` {order_id} — shop.write, before → after until `confirm: true`; Telegram uses them through its
 "Potvrdiť". Tests: DB block "update 81".
+**F5d — the owner's AI tools (update 82, `supabase/sql/82_food_delay_read.sql`):** the three tools are listed by
+`/mcp/owner` (`src/app/mcp/owner/route.ts`, the instructions name them among the confirm-first tools);
+`list_food_orders` also answers `times` (`food_times()`) and `parts` (`food_parts()`) for the shop the door named
+(update 81's door kept as `owner_mcp_call_81`, which decides every call). The shared core (`@/lib/ownerAssistantCore`:
+`foodTimes`, `FOOD_DELAYS` 0 · 10 · 20 · 30 · 45, `proposeFoodDelay`, AI tool `propose_food_delay`) = the AI pomocník
+and the Telegram bot: before → after ("Meškanie: 10 → 30 min" + what the assistant will say; pickup only without
+Donáška), then "Potvrdiť". Telegram (live with TODO 23's deploy): a restaurant's menu has "Meškanie" next to
+"Vypredané dnes" (`m:delay` → the delay now and the assistant's times, buttons `dl:<n>` with the current one marked;
+only the five values), texts `telegram.b_delay` / `delay_*` / `sum_delay*`; an order notice without a pay method reads
+as before. Tests: DB block "update 82", `test:functions` (telegram "Meškanie"), `test:telegram`.
 **The feed screen (F5b)** = Objednávky by default: `@/components/owner/FoodFeed` (client) + `@/lib/foodFeed` (pure
 rules, no imports; `foodFeed_test.ts` in `npm run test:food`: order and grouping, the labels "o n min" / "teraz" /
 "pred n min", the tags per part, the 30 % swipe, what a finish opens first, the steppers, `FEED_KEYS` in sk/hu/en) +

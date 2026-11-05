@@ -129,6 +129,10 @@ OPEN
    Note (2026-11-04): it also moves the bot's free-text AI onto the same engine as the website's "AI pomocník" (it
    then also answers "how do I …" questions with a link to the screen). Until then the live bot answers as before;
    the daily AI limit is already shared between the bot and the website.
+   Note (2026-11-05): it also brings a restaurant's "Meškanie" button (0 · +10 · +20 · +30 · +45 minutes, with
+   "Potvrdiť"; the bot shows the delay now and what the shop assistant then tells customers) and understands a typed
+   "meškáme 20 minút". Until then set the delay in Objednávky jedla (the bar above the feed) or with an AI assistant
+   connected to your owner MCP (set_food_delay).
 
 24. Privacy page: food orders (waits for your OK)
    Why: a shopper who orders food in the shop assistant gives the shop a name, a mobile number and, for delivery,

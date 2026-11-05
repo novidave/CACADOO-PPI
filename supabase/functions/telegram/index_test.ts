@@ -457,3 +457,71 @@ Deno.test("confirmed opening hours also go to Google Maps (when the profile is c
   await onUpdate(stock.deps, press(`ok:${PENDING}`));
   ok(!calledForStock, "other changes never push");
 });
+
+// ---------------------------------------------------------------- update 81: "Meškanie" (the kitchen's delay)
+
+const FOOD_SHOP = { ...LINKED, shops: [{ slug: "davide-paint", name: "Bistro", timezone: "Europe/Bratislava", usable: true, kind: "food" }] };
+const FOOD_TIMES = {
+  orders: [],
+  times: { prep_minutes: 20, delivery_minutes: 45, delay_minutes: 10, delay_reset: "close", ready_pickup_min: 30, ready_delivery_min: 55 },
+  parts: { delivery: true, payments: true },
+};
+
+Deno.test("Meškanie: a restaurant's menu has the button, a shop of goods does not", async () => {
+  const food = setup({ who: FOOD_SHOP });
+  await onUpdate(food.deps, message("/menu"));
+  const keyboard = JSON.stringify(food.sent.find((m) => m.method === "sendMessage")?.body.reply_markup ?? {});
+  ok(keyboard.includes("m:delay") && keyboard.includes(tr("sk", "b_delay")), "the button for a restaurant");
+  const goods = setup();
+  await onUpdate(goods.deps, message("/menu"));
+  ok(!JSON.stringify(goods.sent).includes("m:delay"), "no button for a shop of goods");
+});
+
+Deno.test("Meškanie: the delay now and the assistant's times, then 0 · +10 · +20 · +30 · +45 — reads only", async () => {
+  const { deps, sent, texts, tools } = setup({ who: FOOD_SHOP, tools: { list_food_orders: FOOD_TIMES } });
+  await onUpdate(deps, press("m:delay"));
+  eq(tools(), [{ tool: "list_food_orders", args: { shop: "davide-paint", limit: 1 } }], "one read through the door");
+  const shown = texts().at(-1) ?? "";
+  ok(shown.includes(tr("sk", "delay_times", { pickup: 30, delivery: 55 })), shown);
+  ok(shown.includes("10 min"), "the delay now");
+  const buttons = (sent.at(-1)?.body.reply_markup as { inline_keyboard: { text: string; callback_data: string }[][] }).inline_keyboard[0];
+  eq(buttons.map((b) => b.callback_data), ["dl:0", "dl:10", "dl:20", "dl:30", "dl:45"], "five buttons");
+  ok(buttons[1].text.startsWith("•"), "the current delay is marked");
+});
+
+Deno.test("Meškanie: a tap proposes set_food_delay with before → after and waits for Potvrdiť", async () => {
+  const { deps, calls, texts, tools } = setup({ who: FOOD_SHOP, tools: { list_food_orders: FOOD_TIMES } });
+  await onUpdate(deps, press("dl:30"));
+  const pending = calls.find((c) => c.name === "telegram_pending_new");
+  eq(pending?.args.p_tool, "set_food_delay", "a pending write");
+  eq(pending?.args.p_args, { shop: "davide-paint", minutes: 30, confirm: true }, "the minutes, confirmed only through Potvrdiť");
+  const shown = texts().at(-1) ?? "";
+  ok(shown.includes(tr("sk", "sum_delay", { before: 10, after: 30 })), shown);
+  ok(shown.includes(tr("sk", "sum_delay_times", { pickup: 50, delivery: 75 })), shown);
+  ok(!calls.some((c) => c.name === "telegram_confirm"), "nothing confirmed yet");
+  ok(!tools().some((t) => t.tool === "set_food_delay"), "never written through telegram_call");
+});
+
+Deno.test("Meškanie: without delivery only the pickup time; other values and shops without food orders refused", async () => {
+  const pickupOnly = { ...FOOD_TIMES, parts: { delivery: false } };
+  const a = setup({ who: FOOD_SHOP, tools: { list_food_orders: pickupOnly } });
+  await onUpdate(a.deps, press("dl:20"));
+  ok((a.texts().at(-1) ?? "").includes(tr("sk", "sum_delay_pickup", { pickup: 40 })), "pickup only");
+  const b = setup({ who: FOOD_SHOP, tools: { list_food_orders: FOOD_TIMES } });
+  await onUpdate(b.deps, press("dl:25"));
+  ok(!b.calls.some((c) => c.name === "telegram_pending_new"), "only the five values");
+  const c = setup({ who: FOOD_SHOP, tools: { list_food_orders: {} } });
+  await onUpdate(c.deps, press("dl:20"));
+  eq(c.texts().at(-1), tr("sk", "delay_none"), "no food orders");
+  ok(!c.calls.some((x) => x.name === "telegram_pending_new"), "nothing waits");
+});
+
+Deno.test("notifications: a food order without a payment method (update 81) still reads", () => {
+  const n = {
+    id: 1, chat_id: 5, lang: "sk", kind: "food_order" as const, shop: "Bistro", slug: "bistro", timezone: "Europe/Bratislava",
+    ref_id: ITEM, booking: null, question: null,
+    order: { number: 7, kind: "pickup" as const, total_cents: 1290, pay_method: null, created_at: "2026-11-05T10:00:00Z", ready_by: "2026-11-05T10:30:00Z", items: "1× Polievka" },
+  };
+  const out = noteMessage(n, "https://cacaduu.com");
+  ok(out.text.includes("12,90") && out.text.includes("Polievka"), out.text);
+});

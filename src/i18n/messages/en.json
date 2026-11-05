@@ -3691,7 +3691,15 @@
     "soldout_none": "The menu has no dishes without stock tracking (or the menu is empty).",
     "sum_menu": "{name}: {before} → {after}",
     "menu_on": "available",
-    "menu_sold": "sold out today"
+    "menu_sold": "sold out today",
+    "b_delay": "Delay",
+    "delay_title": "Kitchen delay now: {n} min. The assistant tells customers: {times}. Choose a new delay:",
+    "delay_times": "pickup in {pickup} min · delivery in {delivery} min",
+    "delay_times_pickup": "pickup in {pickup} min",
+    "delay_none": "This shop does not take food orders.",
+    "sum_delay": "Delay: {before} → {after} min",
+    "sum_delay_times": "The assistant will say: pickup in {pickup} min · delivery in {delivery} min",
+    "sum_delay_pickup": "The assistant will say: pickup in {pickup} min"
   },
   "owner_tg": {
     "title": "Telegram",
