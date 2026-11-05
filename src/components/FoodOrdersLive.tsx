@@ -14,16 +14,20 @@ import { chime } from "@/lib/chime";
 export function FoodOrdersLive({
   shopId,
   latest,
+  changed = null,
   soundDefault,
   labels,
 }: {
   shopId: string;
   latest: string | null;
+  /** update 81: the last change of any order (a courier's step, a finish elsewhere) — the page is drawn again, no sound */
+  changed?: string | null;
   soundDefault: boolean;
   labels: { on: string; off: string; arrived: string };
 }) {
   const router = useRouter();
   const seen = useRef(latest);
+  const seenChange = useRef(changed);
   const audio = useRef<AudioContext | null>(null);
   const key = `ppi.food.sound.${shopId}`;
   // the browser's own choice (localStorage; blocked storage → only for this visit)
@@ -39,6 +43,9 @@ export function FoodOrdersLive({
   useEffect(() => {
     seen.current = latest;
   }, [latest]);
+  useEffect(() => {
+    seenChange.current = changed;
+  }, [changed]);
 
   useEffect(() => {
     const unlock = () => {
@@ -62,15 +69,20 @@ export function FoodOrdersLive({
       try {
         const res = await fetch(`/api/owner/food/tab?shop=${encodeURIComponent(shopId)}`, { cache: "no-store" });
         if (!res.ok || stopped) return;
-        const data = (await res.json()) as { latest?: string | null };
+        const data = (await res.json()) as { latest?: string | null; changed?: string | null };
         const now = data.latest ?? null;
+        const change = data.changed ?? null;
         if (now && now !== seen.current) {
           const fresh = seen.current === null || Date.parse(now) > Date.parse(seen.current);
           seen.current = now;
+          seenChange.current = change;
           if (fresh) {
             setSaid(labels.arrived);
             if (soundRef.current) chime(audio.current);
           }
+          router.refresh();
+        } else if (change && change !== seenChange.current) {
+          seenChange.current = change;
           router.refresh();
         }
       } catch {

@@ -27,8 +27,8 @@ export function ago(f: Dictionary["food"], iso: string): string {
 
 /** The status in words (st_*). */
 export const statusText = (f: Dictionary["food"], s: OrderStatus) => (f as Record<string, string>)[`st_${s}`] ?? s;
-/** The payment method in words. */
-export const payText = (f: Dictionary["food"], m: string) => (f as Record<string, string>)[`pay_${m}`] ?? m;
+/** The payment method in words (update 81: none when the shop takes no payments in Cacaduu). */
+export const payText = (f: Dictionary["food"], m: string | null) => (m ? ((f as Record<string, string>)[`pay_${m}`] ?? m) : "");
 
 /** The main next step of an order (the first allowed step that is not a cancel), with its button text. */
 export function mainStep(f: Dictionary["food"], o: Pick<FoodOrder, "kind" | "status">): { to: OrderStatus; label: string } | null {
@@ -145,11 +145,13 @@ export function OrderCard({
         <li className="rounded-full bg-[#EEF1F5] px-2.5 py-1">
           {o.kind === "delivery" ? `${f.kind_delivery}${o.address && !compact ? ` · ${o.address.split(",")[0]}` : ""}` : f.kind_pickup}
         </li>
-        <li className="rounded-full bg-[#EEF1F5] px-2.5 py-1">
-          {o.paid_at ? t(f.paid_short, { method: payText(f, o.pay_method) }) : o.cash_given_cents && o.pay_method === "cash"
-            ? t(f.cash_from, { amount: money(o.cash_given_cents, lang) })
-            : payText(f, o.pay_method)}
-        </li>
+        {o.pay_method && (
+          <li className="rounded-full bg-[#EEF1F5] px-2.5 py-1">
+            {o.paid_at ? t(f.paid_short, { method: payText(f, o.pay_method) }) : o.cash_given_cents && o.pay_method === "cash"
+              ? t(f.cash_from, { amount: money(o.cash_given_cents, lang) })
+              : payText(f, o.pay_method)}
+          </li>
+        )}
         {o.verified && <li className="rounded-full bg-[#DCF5E5] px-2.5 py-1 text-[#146C37]">{f.verified}</li>}
         {/* update 75: the courier, and a problem the courier reported */}
         {o.courier_name && <li className="rounded-full border border-[#D6D6D6] px-2.5 py-1" data-order-courier-chip>{t(f.cr_by, { name: o.courier_name })}</li>}

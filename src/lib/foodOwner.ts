@@ -1,4 +1,5 @@
 import "server-only";
+import type { FeedParts, FeedTimes } from "@/lib/foodFeed";
 import type { OrderKind, OrderStatus, PayMethod } from "@/lib/foodRules";
 
 /**
@@ -10,6 +11,9 @@ export interface FoodTab {
   enabled: boolean;
   new: number;
   latest: string | null;
+  /** update 81: the last change of any order (the feed draws itself again) and the parts the shop uses */
+  changed: string | null;
+  parts: FeedParts | null;
 }
 
 type Rpc = { rpc: (name: string, args?: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }> };
@@ -19,7 +23,7 @@ export async function foodTab(supabase: Rpc, shopId: string): Promise<FoodTab | 
   const { data, error } = await supabase.rpc("owner_food_tab", { p_shop_id: shopId });
   if (error || !data) return null;
   const d = data as Partial<FoodTab>;
-  return { enabled: Boolean(d.enabled), new: Number(d.new) || 0, latest: d.latest ?? null };
+  return { enabled: Boolean(d.enabled), new: Number(d.new) || 0, latest: d.latest ?? null, changed: d.changed ?? null, parts: d.parts ?? null };
 }
 
 export interface FoodLine {
@@ -47,7 +51,8 @@ export interface FoodOrder {
   number: number;
   kind: OrderKind;
   status: OrderStatus;
-  pay_method: PayMethod;
+  /** update 81: null when the shop takes no payments in Cacaduu */
+  pay_method: PayMethod | null;
   paid_at: string | null;
   cash_given_cents: number | null;
   change_cents: number | null;
@@ -153,4 +158,45 @@ export interface FoodSettings {
   menu_categories: string[];
   iban_set: boolean;
   sms: { order?: { used: number; limit: number } };
+}
+
+/** update 81: one card of the feed — an order as the owner's screens read it, and when it left the active cards. */
+export interface FeedCard extends FoodOrder {
+  order_day: string;
+  done_at: string | null;
+  reopens: number;
+  finish_to: OrderStatus;
+}
+
+/** update 81: owner_food_feed — the active cards, today's finished ones, the older ones on request, the bar's data. */
+export interface FoodFeed {
+  active: FeedCard[];
+  done: FeedCard[];
+  older: FeedCard[] | null;
+  older_count: number;
+  today: string;
+  timezone: string;
+  times: FeedTimes;
+  parts: FeedParts;
+  state: OpenState;
+  settings: {
+    enabled: boolean;
+    paused: boolean;
+    pickup_on: boolean;
+    delivery_on: boolean;
+    feed_order: "newest" | "oldest";
+    alert_sound: boolean;
+    pay_qr: boolean;
+    pay_cash: boolean;
+    pay_card: boolean;
+    iban_set: boolean;
+  };
+  couriers: { id: string; name: string }[];
+}
+
+/** The feed (null before update 81 or for a stranger). */
+export async function foodFeed(supabase: Rpc, shopId: string, older = false): Promise<FoodFeed | null> {
+  const { data, error } = await supabase.rpc("owner_food_feed", { p_shop_id: shopId, p_older: older });
+  if (error || !data) return null;
+  return data as FoodFeed;
 }
