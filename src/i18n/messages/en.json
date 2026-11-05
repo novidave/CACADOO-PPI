@@ -870,7 +870,7 @@
     "order_err_failed": "The order did not go through. Please try again.",
     "list_mine": "My shopping list",
     "list_attach": "Put the shopping list into the chat",
-    "list_attach_n": "Put the shopping list into the chat – {n} pcs",
+    "list_attach_n": "Put the shopping list into the chat ({n} pcs)",
     "list_pieces": "{n} pcs",
     "list_remove_attached": "Remove the shopping list from the message",
     "list_empty_hint": "Your list is empty. Add products by tapping the dot before the price in Products.",

@@ -77,16 +77,16 @@ Deno.test("the assistant gets the list as data: refs of the shop's items, the sh
   assertEquals(listForAi([], new Map()), "");
 });
 
-Deno.test("the bubble: hidden at 0 in the chat bar, 0 in the welcome text, 9+ above nine, live from the list's store", () => {
-  assertEquals(bubbleText(0, "bar"), "");
+Deno.test("the bubble: hidden at 0 on the header button, 0 in the welcome text, 9+ above nine, live from the list's store", () => {
+  assertEquals(bubbleText(0, "head"), "");
   assertEquals(bubbleText(0, "welcome"), "0");
-  assertEquals(bubbleText(2, "bar"), "2");
+  assertEquals(bubbleText(2, "head"), "2");
   assertEquals(bubbleText(9, "welcome"), "9");
-  assertEquals(bubbleText(10, "bar"), "9+");
+  assertEquals(bubbleText(10, "head"), "9+");
   // the same store as the page's "Zoznam": every change reaches the chat's subscriber at once
   const store = listStore("shop-chat-list");
   const seen: string[] = [];
-  const off = store.subscribe(() => seen.push(bubbleText(pieces(store.get()), "bar")));
+  const off = store.subscribe(() => seen.push(bubbleText(pieces(store.get()), "head")));
   store.set(addOne(store.get(), paint));
   store.set(addOne(store.get(), paint));
   store.set(addOne(store.get(), brush));

@@ -346,6 +346,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           welcome={assistantWelcome}
           archive={archiveEnabled()}
           shopperPdf={shopperPdf}
+          // the header's list button only where the page has the shopper's Zoznam for goods (not a restaurant's Menu)
+          listButton={!menu}
         />
       )}
 

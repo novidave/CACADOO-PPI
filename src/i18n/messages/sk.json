@@ -870,7 +870,7 @@
     "order_err_failed": "Objednávka sa nepodarila. Skúste to znova.",
     "list_mine": "Môj nákupný zoznam",
     "list_attach": "Vložiť nákupný zoznam do chatu",
-    "list_attach_n": "Vložiť nákupný zoznam do chatu – {n} ks",
+    "list_attach_n": "Vložiť nákupný zoznam do chatu ({n} ks)",
     "list_pieces": "{n} ks",
     "list_remove_attached": "Odstrániť nákupný zoznam zo správy",
     "list_empty_hint": "Váš zoznam je prázdny. Pridajte produkty ťuknutím na bodku pred cenou v časti Produkty.",
