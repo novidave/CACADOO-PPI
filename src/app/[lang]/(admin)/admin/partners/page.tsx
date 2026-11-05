@@ -42,6 +42,9 @@ export default async function AdminPartnersPage({ params, searchParams }: PagePr
         settings={partnerSettings.error ? null : (partnerSettings.data as PartnerSettings)}
         env={partnerEnv}
         adding={first(sp.add) === "1"}
+        panel={
+          first(sp.imports) ? { kind: "imports", id: String(first(sp.imports)) } : first(sp.stores) ? { kind: "stores", id: String(first(sp.stores)) } : null
+        }
         lang={lang}
         dict={dict}
         hidden={hidden}

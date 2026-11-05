@@ -10,8 +10,9 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 import { PartnerFileUpload } from "@/components/PartnerFileUpload";
 import { PendingButton } from "@/components/PendingButton";
 import { HEALTH_COLORS, type Health } from "@/lib/adminOverview";
+import { adminHref } from "@/lib/adminPages";
 import { buttonClass, cardClass, fieldClass, ghostClass } from "@/components/owner/ui";
-import { DotText } from "./common";
+import { DotText, tableBox, tdClass, thClass } from "./common";
 import {
   deletePartner,
   importPartnerNow,
@@ -83,8 +84,9 @@ const SCHEDULES = ["hourly", "6h", "daily", "weekly"];
 /**
  * "Partnerské feedy" (database update 35; artboard 10 since 2026-11-05): the partner-feeds function's state (a dot +
  * words), then one card per partner — its letter or logo, name, format · schedule · time zone, on / off, the newest
- * import as a dot + words (and its error), the counts, "Údaje z … · Ďalší import …", the last imports,
- * "Importovať teraz" and "Upraviť" (the same forms as before: feed address or file, format, local inventory feed,
+ * import as a dot + words (and its error), the counts, "Údaje z … · Ďalší import …", the links "Posledné importy (n)"
+ * and "Predajne (n)" (each opens its own panel above the cards for that partner: ?imports=<id> / ?stores=<id>,
+ * #partner-panel, "Zavrieť" goes back), "Importovať teraz" and "Upraviť" (the same forms as before: feed address or file, format, local inventory feed,
  * schedule, affiliate switch, logo, store list, delete). "+ Pridať partnera" in the page's head opens the form
  * (?add=1#partner-new). Reads and writes only through admin_* functions (is_admin() in SQL); feed files go from the
  * browser straight to the private bucket.
@@ -96,9 +98,12 @@ export function PartnerFeedsAdmin({
   dict,
   hidden,
   adding = false,
+  panel = null,
 }: {
   settings: PartnerSettings | null;
   env: PartnerEnv | null;
+  /** "Posledné importy" / "Predajne (n)" of one partner (?imports=<id> / ?stores=<id>, 2026-11-05): its own panel. */
+  panel?: { kind: "imports" | "stores"; id: string } | null;
   /** "+ Pridať partnera" was pressed (?add=1): the form opens. */
   adding?: boolean;
   lang: Locale;
@@ -121,6 +126,9 @@ export function PartnerFeedsAdmin({
     errors: Object.fromEntries(Object.entries(x).filter(([k]) => k.startsWith("err_")).map(([k, v]) => [`partner_${k.slice(4)}`, v])),
   };
   const when = (iso: string | null, tz: string) => (iso ? formatDateTime(iso, lang, tz) : "–");
+  const importStatus = (i: AdminPartner["imports"][number]) =>
+    i.status === "parse" ? t(x.status_parse, { part: Math.min(i.part_index + 1, Math.max(i.parts, 1)), parts: Math.max(i.parts, 1) }) : x[`status_${i.status}`];
+  const chosen = panel ? (settings.partners.find((p) => p.id === panel.id) ?? null) : null;
 
   const fields = (p: AdminPartner | null) => (
     <>
@@ -214,12 +222,73 @@ export function PartnerFeedsAdmin({
       </p>
       {settings.partners.length === 0 && <p className={`${cardClass} text-[15px] text-[#5C5C5C]`}>{x.none}</p>}
 
+      {chosen && panel && (
+        <section id="partner-panel" className={`${cardClass} min-w-0 scroll-mt-4`} aria-labelledby="partner-panel-heading" data-partner-panel={panel.kind}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="partner-panel-heading" className="text-[19px] font-bold">
+              {t(panel.kind === "imports" ? x.imports_title : x.stores_panel_title, { name: chosen.name, n: panel.kind === "imports" ? chosen.imports.length : chosen.stores.length })}
+            </h2>
+            <a href={adminHref(lang, "partners", undefined, `partner-${chosen.id}`)} className={`${ghostClass} !min-h-11 !px-4 !text-[15px] no-underline`} data-partner-panel-close>
+              {x.panel_close}
+            </a>
+          </div>
+          {panel.kind === "imports" ? (
+            chosen.imports.length === 0 ? (
+              <p className="text-sm text-[#5C5C5C]">{x.imports_none}</p>
+            ) : (
+              <ul className="flex flex-col">
+                {chosen.imports.map((i) => (
+                  <li key={i.id} className="flex flex-col gap-0.5 border-t border-[#E4E4E4] py-2.5 text-[15px]" data-import-status={i.status} data-import-kind={i.kind}>
+                    <DotText color={HEALTH_COLORS[IMPORT_HEALTH[i.status] ?? "off"]}>
+                      <span className="font-semibold">{t(x.import_row, { when: when(i.started_at, chosen.timezone), kind: x[`kind_${i.kind}`], status: importStatus(i) })}</span>
+                    </DotText>
+                    {(i.status === "done" || i.rows_read > 0) && (
+                      <span className="text-[13px] text-[#5C5C5C]">{t(x.import_rows, { read: i.rows_read, bad: i.rows_bad, kept: i.rows_kept ?? "–" })}</span>
+                    )}
+                    {i.error && (
+                      <span className="text-[13px]" data-import-error={i.error}>
+                        <span className="font-semibold">{x[`err_import_${i.error}`] ?? i.error}</span>
+                        {i.error_detail && <span className="text-[#5C5C5C]"> ({i.error_detail})</span>}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : chosen.stores.length === 0 ? (
+            <p className="text-sm text-[#5C5C5C]">{x.stores_none}</p>
+          ) : (
+            <div className={tableBox}>
+              <table className="w-full min-w-[34rem] border-collapse text-[15px]">
+                <thead>
+                  <tr>
+                    <th className={`${thClass} w-28`}>{x.store_code}</th>
+                    <th className={thClass}>{x.store_name}</th>
+                    <th className={thClass}>{x.store_address}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {chosen.stores.map((st) => (
+                    <tr key={st.code} data-partner-store={st.code}>
+                      <td className={`${tdClass} font-mono text-[13px]`}>{st.code}</td>
+                      <td className={tdClass}>
+                        <strong>{st.name}</strong>
+                      </td>
+                      <td className={`${tdClass} text-sm`}>{[st.address, [st.postal_code, st.city].filter(Boolean).join(" "), st.country].filter(Boolean).join(", ") || "–"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         {settings.partners.map((p) => {
           const logo = partnerLogoUrl(base, p.logo_path);
           const latest = p.imports[0];
-          const statusOf = (i: AdminPartner["imports"][number]) =>
-            i.status === "parse" ? t(x.status_parse, { part: Math.min(i.part_index + 1, Math.max(i.parts, 1)), parts: Math.max(i.parts, 1) }) : x[`status_${i.status}`];
+          const statusOf = importStatus;
           return (
             <section key={p.id} id={`partner-${p.id}`} className={`${cardClass} min-w-0 scroll-mt-4`} aria-label={p.name} data-partner={p.name}>
               <div className="flex items-start gap-3">
@@ -265,27 +334,26 @@ export function PartnerFeedsAdmin({
               </p>
               {!p.feed_url && !p.feed_file_path && <p className="text-sm font-semibold">{x.no_source}</p>}
 
-              {p.imports.length > 0 && (
-                <details className="group border-t border-[#E4E4E4] pt-2" data-partner-imports>
-                  <summary className="flex min-h-11 cursor-pointer items-center text-[15px] font-bold">{x.imports}</summary>
-                  <ul className="flex flex-col">
-                    {p.imports.map((i) => (
-                      <li key={i.id} className="flex flex-col gap-0.5 border-t border-[#E4E4E4] py-2 text-sm" data-import-status={i.status} data-import-kind={i.kind}>
-                        <span>{t(x.import_row, { when: when(i.started_at, p.timezone), kind: x[`kind_${i.kind}`], status: statusOf(i) })}</span>
-                        {(i.status === "done" || i.rows_read > 0) && (
-                          <span className="text-[13px] text-[#5C5C5C]">{t(x.import_rows, { read: i.rows_read, bad: i.rows_bad, kept: i.rows_kept ?? "–" })}</span>
-                        )}
-                        {i.error && (
-                          <span className="text-[13px]" data-import-error={i.error}>
-                            <span className="font-semibold">{x[`err_import_${i.error}`] ?? i.error}</span>
-                            {i.error_detail && <span className="text-[#5C5C5C]"> ({i.error_detail})</span>}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
+              <div className="flex flex-wrap gap-2" data-partner-links>
+                {p.imports.length > 0 && (
+                  <a
+                    href={`?${new URLSearchParams({ imports: p.id })}#partner-panel`}
+                    className={`${ghostClass} !min-h-11 !px-4 !text-[15px] no-underline aria-[current=true]:!border-[#111] aria-[current=true]:!bg-[#111] aria-[current=true]:!text-white`}
+                    aria-current={panel?.kind === "imports" && panel.id === p.id ? "true" : undefined}
+                    data-partner-imports-open
+                  >
+                    {t(x.imports_open, { n: p.imports.length })}
+                  </a>
+                )}
+                <a
+                  href={`?${new URLSearchParams({ stores: p.id })}#partner-panel`}
+                  className={`${ghostClass} !min-h-11 !px-4 !text-[15px] no-underline aria-[current=true]:!border-[#111] aria-[current=true]:!bg-[#111] aria-[current=true]:!text-white`}
+                  aria-current={panel?.kind === "stores" && panel.id === p.id ? "true" : undefined}
+                  data-partner-stores-open
+                >
+                  {t(x.stores_open, { n: p.stores.length })}
+                </a>
+              </div>
 
               <div className="flex flex-wrap items-start gap-2.5 border-t border-[#E4E4E4] pt-3">
                 <form action={importPartnerNow}>

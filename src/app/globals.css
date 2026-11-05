@@ -574,6 +574,11 @@ body:has([data-admin-shell]) > [data-site-footer] {
   }
 }
 
+/* Admin → Limity plánov (2026-11-05): the Free interval greyed while Free may not connect an inventory program. */
+[data-inventory-settings]:has(input[name="inv:free_allowed"]:not(:checked)) [data-free-interval] {
+  opacity: 0.4;
+}
+
 /* The owner pages' switch (back-end layout L3, @/components/owner/ui Toggle): a real checkbox drawn 56×32. */
 .ppi-toggle {
   appearance: none;

@@ -188,7 +188,19 @@ export default async function AdminLimitsPage({ params, searchParams }: PageProp
                     label={n.limits_inv_interval}
                     hint={n.limits_inv_interval_hint}
                     data-limit="inventory-interval"
-                    free={<input name="inv:free_interval" type="number" min={5} max={10080} required aria-label={dict.admin_inventory.free_interval} defaultValue={invPlan("free")?.interval_minutes ?? 1440} className={numClass} />}
+                    free={
+                      <input
+                        name="inv:free_interval"
+                        type="number"
+                        min={5}
+                        max={10080}
+                        required
+                        aria-label={dict.admin_inventory.free_interval}
+                        defaultValue={invPlan("free")?.interval_minutes ?? 1440}
+                        className={numClass}
+                        data-free-interval
+                      />
+                    }
                     pro={<input name="inv:pro_interval" type="number" min={5} max={10080} required aria-label={dict.admin_inventory.pro_interval} defaultValue={invPlan("pro")?.interval_minutes ?? 15} className={numClass} />}
                   />
                 </>

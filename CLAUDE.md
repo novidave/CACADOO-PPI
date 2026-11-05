@@ -1940,6 +1940,20 @@ the country as a segmented row (SK · HU · CZ, `Intl.DisplayNames`), the year w
 Zatvorené od, "Uložiť sviatok", "Odstrániť dátum" (a library row) / "Zrušiť úpravu" (the admin's own). e2e adds
 read-only checks (Limity plánov one form + Zrušiť, SMS bars, Sviatky segments / year / panel); no sideways scroll at
 1180, 820 and 390 px. DB block "update 83".
+**The remaining items (2026-11-05):** `supabase/functions/admin-status` (one file, Verify JWT off; the caller's login +
+`is_admin()`; reads NOTHING but the secrets' names: Stripe's mode from `STRIPE_SECRET_KEY`'s prefix sk_/rk_ test | live
+— never the key, nothing calls Stripe —, `REGISTRAR_MODE` + whether the Websupport keys exist, and
+`TRANSLATION_MONTHLY_BUDGET_EUR`) → `services({status})` in `@/lib/adminOverview` (Platby: "testovací / ostrý režim · n
+predpl.", Websupport from REGISTRAR_MODE; silent = the old guesses from the orders) and Preklady's "Tento mesiac x z y (n %
+rozpočtu)" + bar (≥ 80 % warn, ≥ 100 % bad). Chyby: `errorPlace(route, kind)` (no imports, `adminOverview_test.ts`) =
+a friendly place ("Stránka obchodu", "Asistent obchodu", "Sklad" …, texts `admin_errors.place_*`) with the path under it.
+Preklady → Jazyky: `@/components/admin/ListFilter` (client; rows with `data-filter-text` hidden, never removed, so the
+form still sends them; native / English / Slovak / Hungarian names; nothing without JavaScript); `SaveBar` never counts a
+field without a name. Partnerské feedy: "Posledné importy (n)" / "Predajne (n)" on each card open ONE panel above the
+cards (`?imports=<id>` / `?stores=<id>#partner-panel`, "Zavrieť"). Prehľad on a phone: short tile labels
+(`tile_*_short`) and "Služby" = the counts + "Zobraziť všetky služby" (`#services-list`, CSS `:target`). Skladové programy:
+a switch (`role="switch"`, one tap sends the opposite state). Limity plánov: the Free interval greyed while Free may not
+connect (globals.css `:has()`).
 
 ## Auth
 

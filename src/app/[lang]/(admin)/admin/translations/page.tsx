@@ -14,7 +14,9 @@ import { SelectSubmit } from "@/components/SelectSubmit";
 import { SaveBar } from "@/components/owner/SaveBar";
 import { cardClass, fieldClass, ghostClass } from "@/components/owner/ui";
 import { forwardScript } from "@/lib/adminPages";
-import { AdminHead } from "../_parts/common";
+import { type AdminStatus, HEALTH_COLORS } from "@/lib/adminOverview";
+import { ListFilter } from "@/components/admin/ListFilter";
+import { AdminHead, DotText } from "../_parts/common";
 import { saveLanguages, saveUiText } from "./actions";
 import { UiTranslateButton } from "./UiTranslateButton";
 
@@ -62,9 +64,14 @@ export default async function AdminTranslationsPage({ params, searchParams }: Pa
   const filter = first(sp.filter) ?? "";
   const page = Math.max(1, Number(first(sp.page)) || 1);
 
-  const [rowsResult, usageResult] = await Promise.all([
+  const [rowsResult, usageResult, status] = await Promise.all([
     supabase.rpc("admin_ui_translations", { p_lang: target }),
     supabase.rpc("admin_translation_usage"),
+    // the monthly budget (TRANSLATION_MONTHLY_BUDGET_EUR) from admin-status; silent = no "% of the budget" line
+    supabase.functions
+      .invoke<AdminStatus>("admin-status", { body: {} })
+      .then(({ data, error }) => (error ? null : (data ?? null)))
+      .catch(() => null),
   ]);
   if (rowsResult.error) return <DbError message={rowsResult.error.message} dict={dict} />;
   const stored = new Map(((rowsResult.data ?? []) as UiRow[]).map((r) => [r.key, r]));
@@ -100,6 +107,10 @@ export default async function AdminTranslationsPage({ params, searchParams }: Pa
   const enabledCount = languages.filter((l) => l.enabled).length;
   const indexedCount = languages.filter((l) => l.indexed).length;
   const money = (n: number) => new Intl.NumberFormat(lang, { style: "currency", currency: "EUR" }).format(n);
+  const budget = status?.translation_budget_eur ?? null;
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const spent = Number(usage.find((u) => String(u.month).startsWith(monthKey))?.cost_eur ?? 0);
+  const share = budget ? Math.round((spent / budget) * 100) : 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -132,12 +143,18 @@ export default async function AdminTranslationsPage({ params, searchParams }: Pa
                 <span className="text-center">{a.enabled}</span>
                 <span className="text-center">{a.indexed}</span>
               </div>
-              <ul className="flex flex-col">
+              <ListFilter target="languages-list" label={a.language_search} placeholder={a.language_search} none={a.language_search_none} />
+              <ul id="languages-list" className="flex flex-col">
                 {languages.map((l) => {
                   const info = languageOf(l.code);
                   const name = info?.native ?? l.code;
                   return (
-                    <li key={l.code} className="grid min-h-14 grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-x-3 border-t border-[#E4E4E4] py-1.5 text-[15px]" data-admin-language={l.code}>
+                    <li
+                      key={l.code}
+                      className="grid min-h-14 grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-x-3 border-t border-[#E4E4E4] py-1.5 text-[15px]"
+                      data-admin-language={l.code}
+                      data-filter-text={[l.code, name, info?.english ?? "", info?.slovak ?? "", info?.hungarian ?? ""].join(" ")}
+                    >
                       <input type="hidden" name="codes" value={l.code} />
                       <input type="hidden" name={`was:${l.code}`} value={`${l.enabled ? 1 : 0}${l.indexed ? 1 : 0}`} />
                       <span className="min-w-0" lang={l.code}>
@@ -161,6 +178,17 @@ export default async function AdminTranslationsPage({ params, searchParams }: Pa
             <h2 id="usage-heading" className="text-[19px] font-bold">
               {a.usage_title}
             </h2>
+            {budget !== null && (
+              <div className="flex flex-col gap-1.5 pb-2" data-budget-share={share}>
+                <DotText color={share >= 100 ? HEALTH_COLORS.bad : share >= 80 ? HEALTH_COLORS.warn : HEALTH_COLORS.ok}>
+                  {t(a.budget_share, { spent: money(spent), budget: money(budget), share })}
+                </DotText>
+                <span aria-hidden="true" className="block h-2 overflow-hidden rounded-full bg-[#EDEDED]">
+                  <span className="block h-full rounded-full bg-[#111]" style={{ width: `${Math.min(100, share)}%` }} />
+                </span>
+              </div>
+            )}
+            {status && budget === null && <p className="text-sm text-[#5C5C5C]">{a.budget_none}</p>}
             {usage.length === 0 ? (
               <p className="text-sm text-[#5C5C5C]">{a.usage_none}</p>
             ) : (
