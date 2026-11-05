@@ -106,8 +106,8 @@ export function welcomePieces(text: string): ({ kind: "text"; text: string } | {
   return out;
 }
 
-/** The bubble's number: hidden (empty) at 0 in the chat bar, "0" in the welcome text, "9+" above nine. */
-export function bubbleText(pieces: number, where: "bar" | "welcome"): string {
+/** The bubble's number: hidden (empty) at 0 on the header's list button, "0" in the welcome text, "9+" above nine. */
+export function bubbleText(pieces: number, where: "head" | "welcome"): string {
   if (pieces <= 0) return where === "welcome" ? "0" : "";
   return pieces > 9 ? "9+" : String(pieces);
 }

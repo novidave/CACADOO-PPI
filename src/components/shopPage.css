@@ -1200,7 +1200,8 @@
   min-height: 58px;
   align-items: center;
   gap: 10px;
-  padding: 12px 104px 12px 13px;
+  /* the GDPR pill's place (80 px + 13 px) and the 8 px gap to the list button (2026-11-05) */
+  padding: 12px 101px 12px 13px;
   border-bottom: 1px solid #fde3cc;
   background: #fff6ee;
 }
@@ -1321,8 +1322,13 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
 }
 .ppi-ai-attach {
   display: inline-flex;
+  /* the bar (2026-11-05): "Pridať fotku alebo súbor" takes the free width, "Poslať" next to it on one row */
+  min-width: 0;
+  flex: 1 1 auto;
   height: 44px;
   align-items: center;
+  justify-content: center;
+  white-space: nowrap;
   gap: 7px;
   padding: 0 13px;
   border: 1.5px solid #e2e2e2;
@@ -1349,6 +1355,7 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
 }
 .ppi-ai-send {
   display: inline-flex;
+  flex-shrink: 0;
   height: 44px;
   align-items: center;
   gap: 7px;
@@ -1432,7 +1439,60 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
   font-weight: 800;
   line-height: 1;
 }
-/* in the chat bar: the Zoznam tab's list icon in a box like "Pridať fotku", the bubble on its corner */
+/*
+ * In the header (2026-11-05, at the owner's request): left of the GDPR pill (its place is the header's right padding,
+ * so the gap is 8 px), 34 × 34 like the pill, the Zoznam tab's list icon; a 44 px touch area that takes no room; the
+ * bubble on the top-right corner, never over the pill; empty (the server's first view, an empty list) = no bubble.
+ */
+.ppi-ai-head > h2 {
+  flex: 0 1 auto;
+}
+.ppi-ai-listhead {
+  position: relative;
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0;
+  border: 1.5px solid #bfd5fb;
+  border-radius: 10px;
+  background: #eff5ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ppi-ai-listhead::before {
+  content: "";
+  position: absolute;
+  inset: -5.5px;
+}
+.ppi-ai-listhead > svg {
+  pointer-events: none;
+}
+.ppi-ai-listhead > .ppi-ai-bubble {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: 11px;
+  pointer-events: none;
+}
+.ppi-ai-listhead > .ppi-ai-bubble:empty {
+  display: none;
+}
+.ppi-ai-listhead:active > .ppi-ai-bubble {
+  transform: scale(0.92);
+}
+.ppi-ai-listhead:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+/* the owner's {zoznam} in the welcome text: the bubble as a button (the base of .ppi-ai-listbtn-inline) */
 .ppi-ai-listbtn {
   position: relative;
   display: inline-flex;

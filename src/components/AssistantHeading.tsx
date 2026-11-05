@@ -1,10 +1,13 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 /**
  * The shop assistant's heading (Screen 11): the orange sparkle, the title, and the blue "GDPR" pill in its right corner
  * (at the owner's request, 2026-10-27; a light shine sweeps across it, solid blue while open): the small print — what is
  * stored for the shop, the file limits, "Answers are written by AI" — opens under the heading only when tapped. Plain `<details>`, so it works without JavaScript and in both the first view
- * (`ShopAssistant`) and the chat (`ShopChat`). The section around it must be `relative`.
+ * (`ShopAssistant`) and the chat (`ShopChat`). The section around it must be `relative`. `list` (2026-11-05, at the
+ * owner's request): the shopping-list button, the header's last item, right before the GDPR pill (8 px between them);
+ * the title shortens with an ellipsis, so the header never overflows.
  */
 export function AssistantHeading({
   title,
@@ -12,7 +15,9 @@ export function AssistantHeading({
   shopName,
   archive,
   labels,
+  list,
 }: {
+  list?: ReactNode;
   title: string;
   lang: string;
   shopName: string;
@@ -28,9 +33,10 @@ export function AssistantHeading({
             <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" />
           </svg>
         </span>
-        <h2 id="assistant-heading" className="text-base leading-tight font-bold">
+        <h2 id="assistant-heading" className="min-w-0 truncate text-base leading-tight font-bold" data-chat-title>
           {title}
         </h2>
+        {list}
       </div>
       <details data-chat-gdpr>
         <summary className="ppi-gdpr-btn" aria-label={labels.gdpr_label}>

@@ -878,7 +878,7 @@
     "order_err_failed": "A rendelés nem sikerült. Próbálja újra.",
     "list_mine": "Saját bevásárlólistám",
     "list_attach": "Bevásárlólista beillesztése a csevegésbe",
-    "list_attach_n": "Bevásárlólista beillesztése a csevegésbe – {n} db",
+    "list_attach_n": "Bevásárlólista beillesztése a csevegésbe ({n} db)",
     "list_pieces": "{n} db",
     "list_remove_attached": "Bevásárlólista eltávolítása az üzenetből",
     "list_empty_hint": "A listája üres. Termékeket a Termékek részben az ár előtti pöttyre koppintva adhat hozzá.",

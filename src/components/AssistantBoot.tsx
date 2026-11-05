@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from
 import { MENU_ORDER_EVENT, type MenuOrderEvent } from "@/lib/menuOrder";
 import type { ShopChat as Chat } from "./ShopChat";
 
-export type AssistantProps = Omit<ComponentProps<typeof Chat>, "initialText" | "focusInput" | "keysOpen" | "sendNow" | "orderNow">;
+export type AssistantProps = Omit<ComponentProps<typeof Chat>, "initialText" | "focusInput" | "keysOpen" | "sendNow" | "orderNow" | "listNow">;
 
 /**
  * The assistant's loader (performance pass, Screen 11): the first view is plain HTML written on the server
@@ -12,12 +12,13 @@ export type AssistantProps = Omit<ComponentProps<typeof Chat>, "initialText" | "
  * comes near the screen (after the page has loaded, when the browser is idle) or at the first touch, focus or key.
  * What the shopper did meanwhile goes along: the typed text, the cursor, an opened key row, a tapped "Poslať" (an empty
  * question says "Napíšte otázku alebo pridajte fotku" here already). "Objednať" on a dish's page (update 84, the
- * shop page's ?order=) loads it at once and the chat sends that dish with its question.
+ * shop page's ?order=) loads it at once and the chat sends that dish with its question. The header's list button
+ * (2026-11-05) pressed meanwhile: the chat attaches the list as it arrives.
  */
 export function AssistantBoot({ props, order = null, children }: { props: AssistantProps; order?: MenuOrderEvent | null; children: ReactNode }) {
-  type Seen = { text: string; focused: boolean; keysOpen: boolean; sendNow: boolean; order: MenuOrderEvent | null };
+  type Seen = { text: string; focused: boolean; keysOpen: boolean; sendNow: boolean; order: MenuOrderEvent | null; listNow: boolean };
   const [live, setLive] = useState<{ Chat: typeof Chat; seen: Seen } | null>(null);
-  const seen = useRef<Seen>({ text: "", focused: false, keysOpen: false, sendNow: false, order: null });
+  const seen = useRef<Seen>({ text: "", focused: false, keysOpen: false, sendNow: false, order: null, listNow: false });
   const box = useRef<HTMLDivElement>(null);
   const loading = useRef(false);
 
@@ -103,6 +104,7 @@ export function AssistantBoot({ props, order = null, children }: { props: Assist
         keysOpen={s.keysOpen}
         sendNow={s.sendNow && !s.order}
         orderNow={s.order}
+        listNow={s.listNow && !s.order}
       />
     );
   }
@@ -137,6 +139,11 @@ export function AssistantBoot({ props, order = null, children }: { props: Assist
         load();
       }}
       onClick={(e) => {
+        if ((e.target as HTMLElement).closest("[data-chat-list-button]")) {
+          seen.current.listNow = true;
+          load();
+          return;
+        }
         const toggle = (e.target as HTMLElement).closest("[data-key-toggle]");
         if (!toggle) return;
         const open = !seen.current.keysOpen;

@@ -433,8 +433,9 @@ scrolls the slider's top back to the top of the screen (smooth, instant with `pr
 via `:has()`, white header), behind the cards (`isolate` + z-index −1), drifting with `animation-timeline: scroll()`
 (still without it), floating / swinging; nothing moves with `prefers-reduced-motion`. **Assistant**: first view = server HTML (`ShopAssistant`) + the small loader `AssistantBoot` (carries text, cursor,
 key row, a tapped "Poslať"); `ShopChat` the same look (`.ppi-ai*`): GDPR pill (`<details>`), "Pridať fotku alebo súbor",
-orange "Poslať" (plane, "Odoslané"), "Napíšte otázku alebo pridajte fotku", the shopping list's bubble (below, "Shop
-assistant"; the server's first view draws the owner's {zoznam} as an empty bubble — never a number). **Key row**: `@/components/KeyRow` (row) +
+orange "Poslať" (plane, "Odoslané"), "Napíšte otázku alebo pridajte fotku", the shopping list's button in the header left
+of the GDPR pill (below, "Shop assistant"; the server's first view draws it and the owner's {zoznam} with an empty
+bubble — never a number). **Key row**: `@/components/KeyRow` (row) +
 `@/components/KeyForm` (150 px "Otvoriť", `KeyVortex`: rings while checking, head + crest + badge on success; part of
 the assistant's code). **Styles**: every shop-page style (contact buttons, Produkty / Zoznam, the Screen 11 parts) lives in
 `@/components/shopPage.css`, imported by `ShopView`, `ContentSlider` and (since 2026-11-04, for its hold-to-open buttons)
@@ -675,13 +676,22 @@ text of their first 5 pages (read in the browser), once; the files themselves ar
 `answer_sk` for the archive. Access keys pasted into the chat become "[•••]" (`hideAccessKeys`). History: last 8
 messages, text only.
 **The shopping list in the assistant (2026-11-04, at the owner's request):** `@/lib/chatList` (no imports;
-`chatList_test.ts` in `npm run test:list`) + `ListBubble` / `SentList` in `ShopChat` + `@/lib/listDrop` + `.ppi-ai-bubble`,
-`.ppi-ai-listbtn`, `.ppi-ai-listchip` in `shopPage.css`. The round #2563EB bubble (white bold number, 1.5 px white ring,
-"9+" above nine) counts the pieces of the page's Zoznam from the same store (`listStore(shopId)` through
-`useSyncExternalStore`: live with every stock-dot tap, also from another tab); in the chat bar it sits on the Zoznam
-tab's list icon (a 44 px button "Vložiť nákupný zoznam do chatu", hidden at 0). Pressing it attaches the list to the
-next message as a chip ("Môj nákupný zoznam · 3 ks", × removes it; pressed again = the newest list) while a copy of the
-bubble arcs and falls onto the chip with one bounce (nothing moves with `prefers-reduced-motion`). The request carries
+`chatList_test.ts` in `npm run test:list`) + `@/components/ListHeadButton` + `ListBubble` / `SentList` in `ShopChat` +
+`@/lib/listDrop` + `.ppi-ai-bubble`, `.ppi-ai-listhead`, `.ppi-ai-listbtn`, `.ppi-ai-listchip` in `shopPage.css`. The round
+#2563EB bubble (white bold number, 1.5 px white ring, "9+" above nine) counts the pieces of the page's Zoznam from the
+same store (`listStore(shopId)` through `useSyncExternalStore`: live with every stock-dot tap, also from another tab).
+**Since 2026-11-05 (at the owner's request) the list button is in the assistant's HEADER**, directly left of the GDPR
+pill (`.ppi-ai-head`: spark · title (ellipsis, never overflows) · list button · GDPR; 8 px gap = the header's right
+padding 101 px): 34 × 34, radius 10, #EFF5FF / 1.5 px #BFD5FB, the list icon #1D4ED8 18 px, a 44 px touch area
+(`::before`, takes no room), `aria-label` "Vložiť nákupný zoznam do chatu (n ks)" (`chat.list_attach_n`), the bubble
+on its top-right corner (never over the pill; hidden at 0 — `:empty`). Always there on a page whose Zoznam is for
+goods (`ShopView` `listButton={!menu}`), at 0 too (pressed at 0 = "Váš zoznam je prázdny…"); a restaurant's page
+(the Menu) has none. The server's first view (`ShopAssistant`) draws the same box with an empty bubble (never a
+number), `ShopChat` takes it over without the header moving; a press before the chat's code is here is carried by
+`AssistantBoot` (`listNow`). The chat bar has only "Pridať fotku alebo súbor" (flex 1) + "Poslať" on one row
+(`data-chat-bar`). Pressing the button attaches the list to the next message as a chip ("Môj nákupný zoznam · 3 ks", ×
+removes it; pressed again = the newest list) while a copy of the bubble arcs from the header button down onto the chip
+with one bounce (nothing moves with `prefers-reduced-motion`). The request carries
 `list: [{id, name, original, qty}]` only — never a price, a total or the address; `cleanChatList()` on the server reads
 nothing else (≤ 100 lines, UUID ids, 1–999 pieces, the same item added up). `runShopChat(…, list)` reads the shop's own
 items by id from `public_stock` (this shop only) and gives the AI `<shopping_list>` as data (`listForAi`: the
@@ -692,7 +702,10 @@ text (Asistent → Texty, `@/components/owner/WelcomeField`: a click puts the ta
 the token `LIST_TOKEN`; `plain_text()` and every translation keep it (translate's `samePlaceholders`, DB check);
 `welcomePieces()` renders the live bubble there ("0" at an empty list; pressed at 0 → "Váš zoznam je prázdny…"); without
 the token the welcome text has no bubble and the default text is unchanged. Texts `chat.list_*`,
-`dashboard.welcome_list_*`. e2e `e2e/assistant-list.spec.ts` (two pieces → "2" → the chip → sent with a test stub).
+`dashboard.welcome_list_*`. e2e `e2e/assistant-list.spec.ts` (Pixel 7 + the iPhone-sized project: the header button left of GDPR, 8 px, 34 px,
+44 px touch area, the title's box the same before and after the chat loads (±0.5 px), no header overflow, the bar has
+only its two buttons on one row; at 0 the hint; two pieces → "2" → the chip → sent with a test stub; a restaurant's
+page (E2E_FOOD_SHOP) has no list button).
 
 ## Documents for the assistant (paid)
 

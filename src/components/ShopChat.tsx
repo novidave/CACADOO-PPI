@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { AssistantHeading } from "./AssistantHeading";
+import { ListHeadButton } from "./ListHeadButton";
 import { BookingPanel } from "./BookingPanel";
 import { CallbackPanel } from "./CallbackPanel";
 import { ContactCodePanel } from "./ContactCodePanel";
@@ -198,34 +199,23 @@ function toHistory(entries: Entry[]): ChatTurn[] {
 const NO_LIST: ListStore = { subscribe: () => () => {}, get: serverList, set: () => {} };
 
 /**
- * The visitor's shopping list in the assistant (2026-11-04): the round blue bubble with the pieces of the page's
- * "Zoznam" (the same store, so it changes live with every tap on a stock dot, also from another tab). A button: pressing
- * it drops the bubble into the input bar and the list goes with the next message (`onPress`). In the chat bar it is
- * hidden at 0; in the welcome text (the owner's {zoznam}) it shows "0" and pressing it explains how to add products.
+ * The visitor's shopping list in the owner's welcome text ({zoznam}, 2026-11-04): the round blue bubble with the pieces
+ * of the page's "Zoznam" (the same store, so it changes live with every tap on a stock dot, also from another tab), "0"
+ * when empty. It does what the header's list button does (`ListHeadButton`, 2026-11-05): pressing it drops the bubble
+ * onto the list chip and the list goes with the next message (`onPress`); at 0 it explains how to add products.
  */
-function ListBubble({ count, where, labels, onPress }: { count: number; where: "bar" | "welcome"; labels: Labels; onPress: (bubble: Element | null) => void }) {
-  const text = bubbleText(count, where);
+function ListBubble({ count, labels, onPress }: { count: number; labels: Labels; onPress: (bubble: Element | null) => void }) {
+  const text = bubbleText(count, "welcome");
   const dot = useRef<HTMLSpanElement>(null);
-  if (!text) return null;
-  const label = count > 0 ? labels.list_attach_n.replace("{n}", String(count)) : labels.list_attach;
   return (
     <button
       type="button"
       onClick={() => onPress(dot.current)}
-      aria-label={label}
+      aria-label={labels.list_attach_n.replace("{n}", String(count))}
       title={labels.list_attach}
-      className={where === "bar" ? "ppi-ai-listbtn" : "ppi-ai-listbtn ppi-ai-listbtn-inline"}
-      data-chat-list-button={where}
+      className="ppi-ai-listbtn ppi-ai-listbtn-inline"
+      data-chat-list-button="welcome"
     >
-      {where === "bar" && (
-        // the Zoznam tab's own list icon, the bubble on its corner (as the tab's counter)
-        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" focusable="false">
-          <path d="M9 6h11M9 12h11M9 18h11" />
-          <circle cx="4.5" cy="6" r="1" fill="currentColor" />
-          <circle cx="4.5" cy="12" r="1" fill="currentColor" />
-          <circle cx="4.5" cy="18" r="1" fill="currentColor" />
-        </svg>
-      )}
       <span ref={dot} className="ppi-ai-bubble" data-list-bubble>
         {text}
       </span>
@@ -259,6 +249,8 @@ export function ShopChat({
   keysOpen = false,
   sendNow = false,
   orderNow = null,
+  listButton = false,
+  listNow = false,
 }: {
   slug: string;
   /** The shop's id: its page's shopping list ("Zoznam", `ppi.list.<id>`) can go into a message. */
@@ -285,6 +277,10 @@ export function ShopChat({
   sendNow?: boolean;
   /** "Objednať" on a restaurant's Menu (update 80) loaded the assistant: that dish goes out with its question. */
   orderNow?: MenuOrderEvent | null;
+  /** The header's list button (2026-11-05): a page with the Zoznam (a shop with goods); a restaurant has none. */
+  listButton?: boolean;
+  /** The header's list button was pressed before the chat's code was here: the list is attached at once. */
+  listNow?: boolean;
 }) {
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
@@ -297,6 +293,7 @@ export function ShopChat({
   const [listNote, setListNote] = useState<"" | "empty" | "attached">("");
   const [dropping, setDropping] = useState(false);
   const listChip = useRef<HTMLLIElement>(null);
+  const headBubble = useRef<HTMLSpanElement>(null);
   const dropFrom = useRef<{ el: Element | null; text: string } | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [text, setText] = useState(initialText);
@@ -350,12 +347,20 @@ export function ShopChat({
       return;
     }
     const moving = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    dropFrom.current = moving ? { el: bubble, text: bubbleText(count, "bar") } : null;
+    dropFrom.current = moving ? { el: bubble, text: bubbleText(count, "head") } : null;
     setDropping(moving);
     setListSent(toChatList(myList));
     setListNote("attached");
     setEmptyAsk(false);
   };
+  // Pressed in the first view (before this code was here): the same as pressing it now.
+  const pressedFirst = useRef(listNow);
+  useEffect(() => {
+    if (!pressedFirst.current) return;
+    pressedFirst.current = false;
+    attachList(headBubble.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, with the list as it is when the chat arrives
+  }, []);
   // The chip is drawn: the bubble flies onto it (decoration only; the chip shows as it lands).
   useEffect(() => {
     const from = dropFrom.current;
@@ -871,14 +876,31 @@ export function ShopChat({
         />
       )}
     <section id="assistant" className="ppi-ai scroll-mt-4" aria-labelledby="assistant-heading" data-assistant>
-      <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
+      <AssistantHeading
+        title={title}
+        lang={lang}
+        shopName={shopName}
+        archive={archive}
+        labels={labels}
+        list={
+          listButton && shopId ? (
+            <ListHeadButton
+              label={labels.list_attach_n.replace("{n}", String(count))}
+              title={labels.list_attach}
+              bubble={bubbleText(count, "head")}
+              bubbleRef={headBubble}
+              onPress={() => attachList(headBubble.current)}
+            />
+          ) : undefined
+        }
+      />
         <div className="flex flex-col px-[13px] py-[14px]">
           <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
             {welcomePieces(intro).map((piece, i) =>
               piece.kind === "text" ? (
                 <span key={i}>{piece.text}</span>
               ) : (
-                <ListBubble key={i} count={count} where="welcome" labels={labels} onPress={attachList} />
+                <ListBubble key={i} count={count} labels={labels} onPress={attachList} />
               ),
             )}
           </p>
@@ -975,7 +997,7 @@ export function ShopChat({
                 {listSent && (
                   <li ref={listChip} className="ppi-ai-chip ppi-ai-listchip" data-list-chip data-drop={dropping || undefined}>
                     <span className="ppi-ai-bubble" aria-hidden="true">
-                      {bubbleText(listPieces(listSent), "bar")}
+                      {bubbleText(listPieces(listSent), "head")}
                     </span>
                     <span className="truncate" title={listSent.map(listLine).join("\n")}>
                       {labels.list_mine} · {labels.list_pieces.replace("{n}", String(listPieces(listSent)))}
@@ -1019,7 +1041,7 @@ export function ShopChat({
                 ))}
               </ul>
             )}
-            <div className="mt-2.5 flex flex-wrap items-center gap-[9px]">
+            <div className="mt-2.5 flex items-center gap-[9px]" data-chat-bar>
               <input
                 ref={fileInput}
                 type="file"
@@ -1030,7 +1052,6 @@ export function ShopChat({
                 tabIndex={-1}
                 data-chat-input
               />
-              <ListBubble count={count} where="bar" labels={labels} onPress={attachList} />
               <button type="button" onClick={() => fileInput.current?.click()} className="ppi-ai-attach" data-chat-attach>
                 <AttachIcon />
                 {labels.photo}

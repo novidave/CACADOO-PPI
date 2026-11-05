@@ -21,6 +21,6 @@ export default defineConfig({
   },
   projects: [
     { name: "phone", use: { ...devices["Pixel 7"] } },
-    { name: "iphone", testMatch: /(shop-list|contacts)\.spec\.ts/, use: { ...devices["iPhone 14"], browserName: "chromium", defaultBrowserType: "chromium" } },
+    { name: "iphone", testMatch: /(shop-list|contacts|assistant-list)\.spec\.ts/, use: { ...devices["iPhone 14"], browserName: "chromium", defaultBrowserType: "chromium" } },
   ],
 });

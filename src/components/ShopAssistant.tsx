@@ -1,5 +1,6 @@
 import { AssistantBoot, type AssistantProps } from "./AssistantBoot";
 import { AssistantHeading } from "./AssistantHeading";
+import { ListHeadButton } from "./ListHeadButton";
 import { welcomePieces } from "@/lib/chatList";
 import type { MenuOrderEvent } from "@/lib/menuOrder";
 
@@ -10,13 +11,21 @@ import type { MenuOrderEvent } from "@/lib/menuOrder";
  * what was typed, the cursor, an opened key row and a tapped "Poslať".
  */
 export function ShopAssistant({ question = "", order = null, ...props }: AssistantProps & { question?: string; order?: MenuOrderEvent | null }) {
-  const { lang, shopName, keys, labels, buttonLabel, welcome, archive = false } = props;
+  const { lang, shopName, shopId, keys, labels, buttonLabel, welcome, archive = false, listButton = false } = props;
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
   return (
     <AssistantBoot props={props} order={order}>
       <section id="assistant" className="ppi-ai scroll-mt-4" data-pop aria-labelledby="assistant-heading" data-assistant>
-        <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
+        <AssistantHeading
+          title={title}
+          lang={lang}
+          shopName={shopName}
+          archive={archive}
+          labels={labels}
+          // the header's list button: the same box as the chat's, an empty bubble (the number comes with the chat)
+          list={listButton && shopId ? <ListHeadButton label={labels.list_attach} title={labels.list_attach} /> : undefined}
+        />
         <div className="flex flex-col px-[13px] py-[14px]">
           <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
             {/* the owner's {zoznam}: the bubble's place, without a number (the list lives in the browser; ShopChat counts) */}
@@ -48,7 +57,7 @@ export function ShopAssistant({ question = "", order = null, ...props }: Assista
             <p id="assistant-empty" role="alert" hidden className="mt-1.5 text-[13px] font-semibold text-[#DC2626]" data-chat-empty>
               {labels.empty_question}
             </p>
-            <div className="mt-2.5 flex flex-wrap items-center gap-[9px]">
+            <div className="mt-2.5 flex items-center gap-[9px]" data-chat-bar>
               <button type="button" className="ppi-ai-attach" data-chat-attach>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F57C20" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
                   <path d="M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5" />
