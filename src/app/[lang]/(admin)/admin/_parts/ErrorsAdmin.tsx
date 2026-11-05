@@ -1,6 +1,7 @@
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import type { Locale } from "@/i18n/config";
 import { formatDateTime } from "@/lib/format";
+import { errorPlace } from "@/lib/adminOverview";
 import { cardClass } from "@/components/owner/ui";
 import { tableBox, tdClass, thClass } from "./common";
 
@@ -16,13 +17,15 @@ export interface ServerErrorRow {
 
 /**
  * "Chyby za posledných 7 dní" (database update 42; artboard 3 since 2026-11-05): the website's server errors, grouped —
- * Kde (the route's file path and its kind), Čo (a cleaned message and its code), Počet, Naposledy (and the first time).
+ * Kde (a friendly name of the place — errorPlace() in @/lib/adminOverview, e.g. "Stránka obchodu" — with the route's
+ * file path and its kind under it), Čo (a cleaned message and its code), Počet, Naposledy (and the first time).
  * No visitor data is stored (src/lib/errorLog.ts); only the admin reads them (admin_server_errors() checks
  * is_admin()). null = update 42 not run yet. The table scrolls inside its own box on a narrow screen.
  */
 export function ErrorsAdmin({ rows, lang, dict }: { rows: ServerErrorRow[] | null; lang: string; dict: Dictionary }) {
   const a = dict.admin_errors;
   const when = (iso: string) => formatDateTime(iso, lang as Locale, "UTC");
+  const places = Object.fromEntries(Object.entries(a).filter(([k]) => k.startsWith("place_")).map(([k, v]) => [k.slice(6), v])) as Record<string, string>;
   return (
     <section id="errors" className={`${cardClass} min-w-0`} aria-label={a.title} data-admin-errors>
       {rows === null ? (
@@ -46,9 +49,11 @@ export function ErrorsAdmin({ rows, lang, dict }: { rows: ServerErrorRow[] | nul
               {rows.map((r, i) => (
                 <tr key={i} data-error-row>
                   <td className={tdClass}>
-                    <span className="flex flex-col gap-0.5">
-                      <strong className="text-sm">{r.kind}</strong>
-                      <span className="break-all font-mono text-[13px] text-[#5C5C5C]">{r.route}</span>
+                    <span className="flex flex-col gap-0.5" data-error-place={errorPlace(r.route, r.kind)}>
+                      <strong className="text-[15px]">{places[errorPlace(r.route, r.kind)] ?? a.place_other}</strong>
+                      <span className="break-all font-mono text-[13px] text-[#5C5C5C]">
+                        {r.route} · {r.kind}
+                      </span>
                     </span>
                   </td>
                   <td className={tdClass}>

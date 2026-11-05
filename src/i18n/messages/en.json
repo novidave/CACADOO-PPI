@@ -1860,6 +1860,16 @@
     "domain_example": "shop.com"
   },
   "admin_partners": {
+    "imports_open": "Latest imports ({n})",
+    "stores_open": "Stores ({n})",
+    "imports_title": "Latest imports · {name}",
+    "stores_panel_title": "Stores · {name} ({n})",
+    "panel_close": "Close",
+    "imports_none": "No import yet.",
+    "stores_none": "This partner has no stores listed.",
+    "store_code": "Code",
+    "store_name": "Name",
+    "store_address": "Address",
     "title": "Partner feeds",
     "unavailable": "Partner feeds need database update 35 (supabase/sql/35_partner_feeds.sql).",
     "env": "partner-feeds function: feed size limit {max} MB (PARTNER_FEED_MAX_MB, at most {ceiling} MB), read in parts of {part} MB.",
@@ -2569,6 +2579,10 @@
     "moved_to_sync_link": "Open After a file is uploaded"
   },
   "admin_tr": {
+    "language_search": "Search languages",
+    "language_search_none": "No language found.",
+    "budget_share": "This month {spent} of {budget} ({share} % of the budget)",
+    "budget_none": "No monthly budget is set (TRANSLATION_MONTHLY_BUDGET_EUR) – translations have no limit.",
     "nav": "Translations",
     "title": "Translations (admin)",
     "intro": "The website's languages, the interface texts in further languages and the translation limits. Slovak is the source; the Slovak, Hungarian and English texts are in the repository.",
@@ -2606,6 +2620,28 @@
     "translation_placeholder": "translation"
   },
   "admin_errors": {
+    "place_home": "Main page (search)",
+    "place_shop": "Shop page",
+    "place_item": "Product page",
+    "place_blog": "Shop blog",
+    "place_shop_chat": "Shop assistant",
+    "place_shop_orders": "Orders and bookings in the assistant",
+    "place_shop_data": "Shop page (data)",
+    "place_own_domain": "Shop's own domain",
+    "place_ai_search": "AI search",
+    "place_public_api": "API and MCP",
+    "place_owner_mcp": "Owner MCP and connections",
+    "place_owner_data": "My shop (data)",
+    "place_sklad": "Stock",
+    "place_food": "Food orders",
+    "place_dashboard": "My shop",
+    "place_courier": "Courier app",
+    "place_device": "Stock devices",
+    "place_admin": "Admin",
+    "place_login": "Sign-in",
+    "place_legal": "Legal pages",
+    "place_proxy": "Domain routing",
+    "place_other": "Other place",
     "title": "Errors in the last 7 days",
     "intro": "The website's server errors (pages, API, forms) grouped by place. Only the place, a cleaned message and the time are stored – no visitor data. Entries older than 30 days are deleted.",
     "none": "No errors in the last 7 days.",
@@ -2939,6 +2975,7 @@
     "error_agent": "While the POS agent sends the stock, inventory software cannot be connected."
   },
   "admin_inventory": {
+    "provider_switch": "Offer to shops",
     "title": "Inventory software (API)",
     "pro_interval": "Pro: interval (minutes, 5–10080)",
     "free_allowed": "Allow without Pro too",
@@ -5637,6 +5674,13 @@
     "limits_saved": "The limits are saved."
   },
   "admin_home": {
+    "tile_shops_short": "Shops",
+    "tile_domains_short": "Domains",
+    "tile_errors_short": "Errors (7 days)",
+    "tile_sms_short": "SMS month",
+    "services_open": "Show all services",
+    "svc_stripe_test": "test mode · {n} subs",
+    "svc_stripe_live": "live mode · {n} subs",
     "state_line": "Platform state · {date}",
     "tile_shops": "Shops",
     "tile_shops_sub": "{pro} with Pro · {free} free",

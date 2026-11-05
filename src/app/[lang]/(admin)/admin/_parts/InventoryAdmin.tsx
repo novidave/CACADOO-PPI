@@ -2,7 +2,7 @@ import type { Locale } from "@/i18n/config";
 import { formatDateTime } from "@/lib/format";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { HEALTH_COLORS, type Health } from "@/lib/adminOverview";
-import { cardClass, ghostClass } from "@/components/owner/ui";
+import { cardClass } from "@/components/owner/ui";
 import { setInventoryProvider } from "./actions";
 import { DotText, tableBox, tdClass, thClass } from "./common";
 
@@ -56,8 +56,19 @@ export function InventoryAdmin({ overview, lang, dict, hidden, limitsNote }: { o
                       {hidden}
                       <input type="hidden" name="code" value={p.code} />
                       <input type="hidden" name="enabled" value={p.enabled ? "0" : "1"} />
-                      <button type="submit" className={`${ghostClass} !min-h-11 w-full !px-4 !text-[15px]`} aria-pressed={p.enabled} data-provider-toggle={p.code}>
-                        {p.enabled ? a.provider_turn_off : a.provider_turn_on}
+                      {/* a switch (2026-11-05): one tap sends the opposite state; the server answers with the page again */}
+                      <button
+                        type="submit"
+                        role="switch"
+                        aria-checked={p.enabled}
+                        aria-label={`${ia[`name_${p.code}`] ?? p.code}: ${p.enabled ? a.provider_turn_off : a.provider_turn_on}`}
+                        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-1 text-left text-[15px] font-semibold"
+                        data-provider-toggle={p.code}
+                      >
+                        <span>{a.provider_switch}</span>
+                        <span aria-hidden="true" className={`relative h-8 w-14 flex-none rounded-full transition-colors motion-reduce:transition-none ${p.enabled ? "bg-[#111]" : "bg-[#D6D6D6]"}`}>
+                          <span className={`absolute top-1 size-6 rounded-full bg-white transition-[left] motion-reduce:transition-none ${p.enabled ? "left-7" : "left-1"}`} />
+                        </span>
                       </button>
                     </form>
                   )}

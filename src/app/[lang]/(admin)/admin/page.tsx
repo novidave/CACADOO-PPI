@@ -4,6 +4,7 @@ import { t } from "@/i18n/dictionaries";
 import { formatDateTime } from "@/lib/format";
 import { adminHref } from "@/lib/adminPages";
 import {
+  type AdminStatus,
   HEALTH_COLORS,
   type InventoryConnection,
   type OverviewShop,
@@ -30,8 +31,9 @@ export async function generateMetadata({ params }: PageProps<"/[lang]/admin">): 
  * Admin → Prehľad (2026-11-05, canvas "Cacaduu – Admin", artboard 1): the platform at a glance, built only from the
  * existing admin reads, all at once — four tiles (Obchody, Vlastné domény, Chyby za 7 dní, SMS tento mesiac; each opens
  * its page), "Treba riešiť" (one row per real problem with a dot, one line and "Otvoriť"; "Všetko beží." when none) and
- * "Služby" (a dot + words each). A function that does not answer is grey "neodpovedá", never an error page. The rules
- * are @/lib/adminOverview's.
+ * "Služby" (a dot + words each; Stripe's and Websupport's real modes from the admin-status function). A function that
+ * does not answer is grey "neodpovedá", never an error page. On a phone the tiles carry short labels and "Služby" is one
+ * line of counts with a link that opens the list (#services-list, CSS :target). The rules are @/lib/adminOverview's.
  */
 export default async function AdminHomePage({ params, searchParams }: PageProps<"/[lang]/admin">) {
   const { lang, dict, session } = await adminStart(params);
@@ -44,7 +46,7 @@ export default async function AdminHomePage({ params, searchParams }: PageProps<
       .catch(() => null);
   const rows = <T,>(r: { data: unknown; error: unknown }): T[] | null => (r.error ? null : ((r.data ?? []) as T[]));
 
-  const [overview, stats, errors, sms, telegram, partners, usage, inventory, search, sourcesEnv, crm, facebook] = await Promise.all([
+  const [overview, stats, errors, sms, telegram, partners, usage, inventory, search, sourcesEnv, crm, facebook, status] = await Promise.all([
     sb.rpc("admin_domain_overview", { p_q: null, p_status: null, p_kind: null }),
     sb.rpc("admin_domain_stats"),
     sb.rpc("admin_server_errors", { p_days: 7 }),
@@ -57,6 +59,7 @@ export default async function AdminHomePage({ params, searchParams }: PageProps<
     sourcesStatus(sb).catch(() => null),
     fn<{ email?: boolean; sms?: string; sms_live?: boolean }>("crm-messages", { action: "config" }),
     fn<BlogAdminInfo>("shop-blog", { action: "admin_info" }),
+    fn<AdminStatus>("admin-status", {}),
   ]);
 
   const shops = rows<OverviewShop>(overview) ?? [];
@@ -84,6 +87,7 @@ export default async function AdminHomePage({ params, searchParams }: PageProps<
   const svc = services({
     shops,
     domainTestMode: withDomain.length ? !withDomain.some((r) => !r.test_mode) : null,
+    status,
     crm,
     aiKey: ownerAiReady(),
     telegram,
@@ -129,22 +133,34 @@ export default async function AdminHomePage({ params, searchParams }: PageProps<
 
       <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" data-admin-tiles>
         <Link href={adminHref(lang, "shops")} className={tileClass} data-tile="shops">
-          <span className="text-[13px] font-bold text-[#5C5C5C]">{h.tile_shops}</span>
+          <span className="text-[13px] font-bold text-[#5C5C5C]">
+            <span className="md:hidden">{h.tile_shops_short}</span>
+            <span className="hidden md:inline">{h.tile_shops}</span>
+          </span>
           <strong className="text-[26px] leading-tight">{tile.shops.count}</strong>
           <span className="text-[13px] text-[#5C5C5C]">{t(h.tile_shops_sub, { pro: tile.shops.pro, free: tile.shops.free })}</span>
         </Link>
         <Link href={adminHref(lang, "shops")} className={tileClass} data-tile="domains">
-          <span className="text-[13px] font-bold text-[#5C5C5C]">{h.tile_domains}</span>
+          <span className="text-[13px] font-bold text-[#5C5C5C]">
+            <span className="md:hidden">{h.tile_domains_short}</span>
+            <span className="hidden md:inline">{h.tile_domains}</span>
+          </span>
           <strong className="text-[26px] leading-tight">{tile.domains.count}</strong>
           <span className="text-[13px] text-[#5C5C5C]">{t(h.tile_domains_sub, { live: tile.domains.live, problem: tile.domains.problem })}</span>
         </Link>
         <Link href={adminHref(lang, "errors")} className={tileClass} data-tile="errors">
-          <span className="text-[13px] font-bold text-[#5C5C5C]">{h.tile_errors}</span>
+          <span className="text-[13px] font-bold text-[#5C5C5C]">
+            <span className="md:hidden">{h.tile_errors_short}</span>
+            <span className="hidden md:inline">{h.tile_errors}</span>
+          </span>
           <strong className="text-[26px] leading-tight">{counted("places", tile.errors.places)}</strong>
           <span className="text-[13px] text-[#5C5C5C]">{counted("hits", tile.errors.hits)}</span>
         </Link>
         <Link href={adminHref(lang, "sms")} className={tileClass} data-tile="sms">
-          <span className="text-[13px] font-bold text-[#5C5C5C]">{h.tile_sms}</span>
+          <span className="text-[13px] font-bold text-[#5C5C5C]">
+            <span className="md:hidden">{h.tile_sms_short}</span>
+            <span className="hidden md:inline">{h.tile_sms}</span>
+          </span>
           <strong className="text-[26px] leading-tight">{tile.sms.used}</strong>
           <span className="text-[13px] text-[#5C5C5C]">{counted("at_limit", tile.sms.atLimit)}</span>
         </Link>
@@ -193,7 +209,13 @@ export default async function AdminHomePage({ params, searchParams }: PageProps<
               {summary}
             </span>
           </div>
-          <ul className="flex flex-col">
+          <a href="#services-list" className="flex min-h-12 items-center justify-between gap-3 border-t border-[#E4E4E4] text-[15px] font-semibold text-[#111] no-underline md:hidden" data-services-open>
+            {h.services_open}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2" aria-hidden="true" className="flex-none">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </a>
+          <ul id="services-list" className="flex scroll-mt-4 flex-col max-md:hidden max-md:target:flex">
             {svc.map((v) => (
               <li key={v.name} className="flex min-h-[46px] items-center justify-between gap-3 border-t border-[#E4E4E4] text-[15px]" data-service={v.name} data-health={v.health}>
                 <span className="min-w-0">{h[v.name]}</span>

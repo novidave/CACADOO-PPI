@@ -1860,6 +1860,16 @@
     "domain_example": "bolt.hu"
   },
   "admin_partners": {
+    "imports_open": "Legutóbbi importok ({n})",
+    "stores_open": "Üzletek ({n})",
+    "imports_title": "Legutóbbi importok · {name}",
+    "stores_panel_title": "Üzletek · {name} ({n})",
+    "panel_close": "Bezárás",
+    "imports_none": "Még nem volt import.",
+    "stores_none": "Ennek a partnernek nincsenek megadott üzletei.",
+    "store_code": "Kód",
+    "store_name": "Név",
+    "store_address": "Cím",
     "title": "Partnerfeedek",
     "unavailable": "A partnerfeedekhez a 35. adatbázis-frissítés kell (supabase/sql/35_partner_feeds.sql).",
     "env": "partner-feeds függvény: feed méretkorlát {max} MB (PARTNER_FEED_MAX_MB, legfeljebb {ceiling} MB), {part} MB-os részekben olvasva.",
@@ -2569,6 +2579,10 @@
     "moved_to_sync_link": "Fájlfeltöltés után megnyitása"
   },
   "admin_tr": {
+    "language_search": "Nyelv keresése",
+    "language_search_none": "Nincs ilyen nyelv.",
+    "budget_share": "Ebben a hónapban {spent} / {budget} (a keret {share} %-a)",
+    "budget_none": "Nincs havi keret beállítva (TRANSLATION_MONTHLY_BUDGET_EUR) – a fordításoknak nincs korlátja.",
     "nav": "Fordítások",
     "title": "Fordítások (admin)",
     "intro": "A weboldal nyelvei, a felület szövegei további nyelveken és a fordítási korlátok. A szlovák a forrás; a szlovák, magyar és angol szövegek a tárolóban vannak.",
@@ -2606,6 +2620,28 @@
     "translation_placeholder": "fordítás"
   },
   "admin_errors": {
+    "place_home": "Főoldal (keresés)",
+    "place_shop": "Üzlet oldala",
+    "place_item": "Termékoldal",
+    "place_blog": "Üzlet blogja",
+    "place_shop_chat": "Üzlet asszisztense",
+    "place_shop_orders": "Rendelések és foglalások az asszisztensben",
+    "place_shop_data": "Üzlet oldala (adatok)",
+    "place_own_domain": "Üzlet saját domainje",
+    "place_ai_search": "AI keresés",
+    "place_public_api": "API és MCP",
+    "place_owner_mcp": "Tulajdonosi MCP és kapcsolatok",
+    "place_owner_data": "Saját üzlet (adatok)",
+    "place_sklad": "Raktár",
+    "place_food": "Ételrendelések",
+    "place_dashboard": "Saját üzlet",
+    "place_courier": "Futár alkalmazás",
+    "place_device": "Raktár eszközei",
+    "place_admin": "Admin",
+    "place_login": "Bejelentkezés",
+    "place_legal": "Jogi oldalak",
+    "place_proxy": "Domain átirányítás",
+    "place_other": "Más hely",
     "title": "Hibák az elmúlt 7 napban",
     "intro": "A weboldal szerverhibái (oldalak, API, űrlapok) hely szerint csoportosítva. Csak a helyet, a megtisztított üzenetet és az időt tároljuk – látogatói adatokat nem. A 30 napnál régebbiek törlődnek.",
     "none": "Nincs hiba az elmúlt 7 napban.",
@@ -2939,6 +2975,7 @@
     "error_agent": "Amíg a készletet a POS ügynök küldi, készletkezelő programot nem lehet csatlakoztatni."
   },
   "admin_inventory": {
+    "provider_switch": "Felkínálni az üzleteknek",
     "title": "Készletkezelő programok (API)",
     "pro_interval": "Pro: időköz (perc, 5–10080)",
     "free_allowed": "Pro nélkül is engedélyezve",
@@ -5637,6 +5674,13 @@
     "limits_saved": "A korlátok mentve."
   },
   "admin_home": {
+    "tile_shops_short": "Üzletek",
+    "tile_domains_short": "Domainek",
+    "tile_errors_short": "Hibák (7 nap)",
+    "tile_sms_short": "SMS hónap",
+    "services_open": "Összes szolgáltatás",
+    "svc_stripe_test": "teszt mód · {n} előfiz.",
+    "svc_stripe_live": "éles mód · {n} előfiz.",
     "state_line": "A platform állapota · {date}",
     "tile_shops": "Üzletek",
     "tile_shops_sub": "{pro} Pro · {free} ingyenes",

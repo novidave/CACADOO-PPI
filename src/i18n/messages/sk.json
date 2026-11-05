@@ -1860,6 +1860,16 @@
     "domain_example": "obchod.sk"
   },
   "admin_partners": {
+    "imports_open": "Posledné importy ({n})",
+    "stores_open": "Predajne ({n})",
+    "imports_title": "Posledné importy · {name}",
+    "stores_panel_title": "Predajne · {name} ({n})",
+    "panel_close": "Zavrieť",
+    "imports_none": "Zatiaľ žiadny import.",
+    "stores_none": "Tento partner nemá zadané žiadne predajne.",
+    "store_code": "Kód",
+    "store_name": "Názov",
+    "store_address": "Adresa",
     "title": "Partnerské feedy",
     "unavailable": "Partnerské feedy potrebujú aktualizáciu databázy 35 (supabase/sql/35_partner_feeds.sql).",
     "env": "Funkcia partner-feeds: limit veľkosti feedu {max} MB (PARTNER_FEED_MAX_MB, najviac {ceiling} MB), číta sa po častiach {part} MB.",
@@ -2569,6 +2579,10 @@
     "moved_to_sync_link": "Otvoriť Po nahratí súboru"
   },
   "admin_tr": {
+    "language_search": "Hľadať jazyk",
+    "language_search_none": "Žiadny jazyk sa nenašiel.",
+    "budget_share": "Tento mesiac {spent} z {budget} ({share} % rozpočtu)",
+    "budget_none": "Mesačný rozpočet nie je nastavený (TRANSLATION_MONTHLY_BUDGET_EUR) – preklady nemajú limit.",
     "nav": "Preklady",
     "title": "Preklady (admin)",
     "intro": "Jazyky webu, texty rozhrania v ďalších jazykoch a limity prekladov. Slovenčina je zdroj; slovenské, maďarské a anglické texty sú v repozitári.",
@@ -2606,6 +2620,28 @@
     "translation_placeholder": "preklad"
   },
   "admin_errors": {
+    "place_home": "Hlavná stránka (vyhľadávanie)",
+    "place_shop": "Stránka obchodu",
+    "place_item": "Stránka produktu",
+    "place_blog": "Blog obchodu",
+    "place_shop_chat": "Asistent obchodu",
+    "place_shop_orders": "Objednávky a rezervácie v asistentovi",
+    "place_shop_data": "Stránka obchodu (dáta)",
+    "place_own_domain": "Vlastná doména obchodu",
+    "place_ai_search": "AI vyhľadávanie",
+    "place_public_api": "API a MCP",
+    "place_owner_mcp": "MCP a prepojenia majiteľov",
+    "place_owner_data": "Môj obchod (dáta)",
+    "place_sklad": "Sklad",
+    "place_food": "Objednávky jedla",
+    "place_dashboard": "Môj obchod",
+    "place_courier": "Aplikácia kuriéra",
+    "place_device": "Zariadenia Skladu",
+    "place_admin": "Admin",
+    "place_login": "Prihlásenie",
+    "place_legal": "Právne stránky",
+    "place_proxy": "Presmerovanie domén",
+    "place_other": "Iné miesto",
     "title": "Chyby za posledných 7 dní",
     "intro": "Chyby servera webu (stránky, API, formuláre) zoskupené podľa miesta. Ukladáme len miesto, upravenú správu a čas – žiadne údaje návštevníkov. Staršie ako 30 dní sa mažú.",
     "none": "Žiadne chyby za posledných 7 dní.",
@@ -2939,6 +2975,7 @@
     "error_agent": "Kým sklad posiela POS agent, skladový program sa nedá pripojiť."
   },
   "admin_inventory": {
+    "provider_switch": "Ponúkať obchodom",
     "title": "Skladové programy (API)",
     "pro_interval": "Pro: interval (minúty, 5–10080)",
     "free_allowed": "Povoliť aj bez Pro",
@@ -5637,6 +5674,13 @@
     "limits_saved": "Limity sú uložené."
   },
   "admin_home": {
+    "tile_shops_short": "Obchody",
+    "tile_domains_short": "Domény",
+    "tile_errors_short": "Chyby (7 dní)",
+    "tile_sms_short": "SMS mesiac",
+    "services_open": "Zobraziť všetky služby",
+    "svc_stripe_test": "testovací režim · {n} predpl.",
+    "svc_stripe_live": "ostrý režim · {n} predpl.",
     "state_line": "Stav platformy · {date}",
     "tile_shops": "Obchody",
     "tile_shops_sub": "{pro} s Pro · {free} zadarmo",

@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { buttonClass, ghostClass } from "./ui";
 
-/** Whether one form field differs from what the page drew. */
+/** Whether one form field differs from what the page drew. A field without a name is never sent (e.g. a list's search
+ * box, 2026-11-05), so it never counts. */
 function changed(el: Element): boolean {
+  if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) && !el.name) return false;
   if (el instanceof HTMLInputElement) {
     if (el.type === "hidden" || el.type === "submit" || el.type === "button") return false;
     if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
