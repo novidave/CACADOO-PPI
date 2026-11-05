@@ -1,21 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { MENU_ORDER_EVENT, type MenuOrderEvent } from "@/lib/menuOrder";
 import type { ShopChat as Chat } from "./ShopChat";
 
-export type AssistantProps = Omit<ComponentProps<typeof Chat>, "initialText" | "focusInput" | "keysOpen" | "sendNow">;
+export type AssistantProps = Omit<ComponentProps<typeof Chat>, "initialText" | "focusInput" | "keysOpen" | "sendNow" | "orderNow">;
 
 /**
  * The assistant's loader (performance pass, Screen 11): the first view is plain HTML written on the server
  * (`ShopAssistant`), this small part only listens to it — and loads the assistant's own code (`ShopChat`) when the box
  * comes near the screen (after the page has loaded, when the browser is idle) or at the first touch, focus or key.
  * What the shopper did meanwhile goes along: the typed text, the cursor, an opened key row, a tapped "Poslať" (an empty
- * question says "Napíšte otázku alebo pridajte fotku" here already).
+ * question says "Napíšte otázku alebo pridajte fotku" here already). A restaurant's "Objednať" (update 80) loads it
+ * at once and the chat sends that dish with its question.
  */
 export function AssistantBoot({ props, children }: { props: AssistantProps; children: ReactNode }) {
-  type Seen = { text: string; focused: boolean; keysOpen: boolean; sendNow: boolean };
+  type Seen = { text: string; focused: boolean; keysOpen: boolean; sendNow: boolean; order: MenuOrderEvent | null };
   const [live, setLive] = useState<{ Chat: typeof Chat; seen: Seen } | null>(null);
-  const seen = useRef<Seen>({ text: "", focused: false, keysOpen: false, sendNow: false });
+  const seen = useRef<Seen>({ text: "", focused: false, keysOpen: false, sendNow: false, order: null });
   const box = useRef<HTMLDivElement>(null);
   const loading = useRef(false);
 
@@ -25,7 +27,12 @@ export function AssistantBoot({ props, children }: { props: AssistantProps; chil
     import("./ShopChat")
       // what the shopper did up to the swap goes along
       // (the field's own value: typing may have started before this part was ready)
-      .then((m) => setLive({ Chat: m.ShopChat, seen: { ...seen.current, text: box.current?.querySelector("textarea")?.value ?? seen.current.text } }))
+      .then((m) =>
+        setLive({
+          Chat: m.ShopChat,
+          seen: { ...seen.current, text: seen.current.order ? "" : (box.current?.querySelector("textarea")?.value ?? seen.current.text) },
+        }),
+      )
       .catch(() => {
         loading.current = false;
       });
@@ -59,9 +66,33 @@ export function AssistantBoot({ props, children }: { props: AssistantProps; chil
     };
   }, []);
 
+  // "Objednať" on the Menu before the chat is here: it loads now and sends that dish (the live chat listens itself).
+  useEffect(() => {
+    if (live) return;
+    const onOrder = (e: Event) => {
+      const detail = (e as CustomEvent<MenuOrderEvent>).detail;
+      if (!detail?.id || !detail.text) return;
+      seen.current = { ...seen.current, order: detail, sendNow: false, focused: false };
+      const field = box.current?.querySelector("textarea");
+      if (field) field.value = "";
+      load();
+    };
+    window.addEventListener(MENU_ORDER_EVENT, onOrder);
+    return () => window.removeEventListener(MENU_ORDER_EVENT, onOrder);
+  }, [live]);
+
   if (live) {
     const s = live.seen;
-    return <live.Chat {...props} initialText={s.text} focusInput={s.focused && !s.sendNow} keysOpen={s.keysOpen} sendNow={s.sendNow} />;
+    return (
+      <live.Chat
+        {...props}
+        initialText={s.order ? "" : s.text}
+        focusInput={s.focused && !s.sendNow && !s.order}
+        keysOpen={s.keysOpen}
+        sendNow={s.sendNow && !s.order}
+        orderNow={s.order}
+      />
+    );
   }
 
   const empty = (on: boolean) => {

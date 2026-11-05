@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { cleanChatList, type ChatListLine, LIST_QUESTION, listAttachmentText } from "@/lib/chatList";
 import { getDictionary } from "@/i18n/dictionaries";
 import { docsToken } from "@/lib/docsAccess";
+import { cleanOrderItems } from "@/lib/menuRules";
 import {
   type ChatAttachment,
   chatAllowed,
@@ -20,7 +21,8 @@ import {
 
 /**
  * POST {lang, history: [{role, text}], message, attachments?: [{id, name, kind, image?, text?}],
- * list?: [{id, name, original, qty}], conversation?: {id, token}} from the AI assistant on a shop page. `list` = the
+ * list?: [{id, name, original, qty}], order?: [menu line id], conversation?: {id, token}} from the AI assistant on a
+ * shop page. `order` = "Objednať" on a restaurant's Menu (update 80; the ids only — the server prices them). `list` = the
  * shopper's own shopping list from the page (2026-11-04; pieces and names only — `cleanChatList` reads nothing else). Answers {answer, cards,
  * list, photo, sources, pictures, docPrices, callShop, conversation} or {error}: unavailable,
  * not_found, no_plan, caller_limit, shop_limit, bad_request, bad_photo, failed. The shop
@@ -44,7 +46,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
   const { slug } = await ctx.params;
   if (!shopChatEnabled()) return failed("unavailable", 503);
 
-  let body: { lang?: unknown; history?: unknown; message?: unknown; attachments?: unknown; list?: unknown; conversation?: unknown };
+  let body: { lang?: unknown; history?: unknown; message?: unknown; attachments?: unknown; list?: unknown; order?: unknown; conversation?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -56,6 +58,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
   if (attachments === null) return failed("bad_photo", 400);
   const list = cleanChatList(body?.list);
   if (list === null) return failed("bad_request", 400);
+  const order = cleanOrderItems(body?.order);
+  if (order === null) return failed("bad_request", 400);
   const message = hideAccessKeys((typeof body?.message === "string" ? body.message.trim() : "").slice(0, MAX_TEXT));
   if (!message && attachments.length === 0 && list.length === 0) return failed("bad_request", 400);
 
@@ -80,7 +84,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
     const opened = archiveEnabled() && !given ? await openConversation(shop.id, lang, callerHash(request)) : null;
     const conversation = given ?? opened?.data ?? null;
     const result = await runShopChat(shop, lang, cleanHistory(body?.history), question, attachments, token,
-      conversation ? { id: conversation.id, token: conversation.token } : null, list);
+      conversation ? { id: conversation.id, token: conversation.token } : null, list, order);
     const kept = conversation
       ? await archive(request, shop.id, lang, conversation, result, { message, receivedAt, attachments, list })
       : null;

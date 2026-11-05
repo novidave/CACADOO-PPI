@@ -14783,4 +14783,441 @@ delete from public.shops where id in (select shop_id from public.shop_members wh
 delete from auth.users where id = '00000000-0000-0000-0000-000000000079';
 drop table t79;
 
+\echo '--- update 80: a restaurant''s menu — dishes with sizes, untracked = available until "Vypredané dnes" (ends at the shop''s midnight), not stock, food_quote with sizes and extras, hidden, categories, the import all or nothing, 10 imports a day, the public Menu only for restaurants, search, the owner MCP tools, owners only'
+create temporary table t80 (k text primary key, v text);
+grant all on t80 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+begin
+  insert into t80 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(s) from public.subscriptions s where s.shop_id = v_a)::text),
+    ('day', ((now() at time zone v_tz)::date)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_80')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, (now() at time zone v_tz)::date, false, '[["00:00","23:59"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+end $$;
+reset role;
+
+-- the owner: a restaurant with categories, a dish with two sizes, an untracked soup, a tracked drink, an extra
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pizza_cat uuid; v_soup_cat uuid; v_drink_cat uuid;
+  v_pizza uuid; v_soup uuid; v_drink uuid; v_cheese uuid;
+  vj jsonb;
+begin
+  perform public.owner_set_shop_kind(v_a, 'food');
+  perform public.owner_food_save_settings(v_a, '{"enabled": true, "pickup_on": true}');
+  v_pizza_cat := public.owner_menu_save_category(v_a, null, 'Pizza 80');
+  v_soup_cat := public.owner_menu_save_category(v_a, null, 'Polievky 80');
+  v_drink_cat := public.owner_menu_save_category(v_a, null, 'Nápoje 80');
+  begin perform public.owner_menu_save_category(v_a, null, ' pizza 80 '); raise exception 'the same name twice';
+  exception when unique_violation then if sqlerrm <> 'name_taken' then raise; end if; end;
+  begin perform public.owner_menu_save_category(v_a, null, ''); raise exception 'an empty name';
+  exception when invalid_parameter_value then if sqlerrm <> 'name' then raise; end if; end;
+
+  -- a dish with sizes: each size its own Sklad product with its own price; the dish itself has no price
+  v_pizza := public.owner_menu_save_item(v_a, null, jsonb_build_object(
+    'name', 'Pizza Diavola 80', 'description', 'Paradajkový základ, saláma, feferóny', 'category_id', v_pizza_cat,
+    'price', '9,99', 'allergens', '[1, 7, "1"]'::jsonb, 'tags', '["spicy"]'::jsonb,
+    'variants', '[{"label": "32 cm", "price": "7,50"}, {"label": "45 cm", "price": "11.90"}]'::jsonb));
+  set local role service_role;
+  assert (select sale_price from public.sklad_items where shop_item_id = v_pizza) is null, 'a dish with sizes has a price';
+  assert (select array_agg(si.name || '=' || i.sale_price order by i.menu_position)
+          from public.sklad_items i join public.shop_items si on si.id = i.shop_item_id where i.menu_parent = v_pizza)
+         = array['Pizza Diavola 80 32 cm=7.50', 'Pizza Diavola 80 45 cm=11.90'], 'the sizes';
+  assert (select allergens = '{1,7}' and menu_tags = '{spicy}' and not track_stock from public.sklad_items where shop_item_id = v_pizza);
+  assert (select category from public.shop_items where id = v_pizza) = 'Pizza 80', 'the category name on the product';
+  set local role authenticated;
+  begin perform public.owner_menu_save_item(v_a, null, '{"name": "Zlé", "allergens": [15]}'); raise exception 'allergen 15';
+  exception when invalid_parameter_value then if sqlerrm <> 'allergens' then raise; end if; end;
+  begin perform public.owner_menu_save_item(v_a, null, '{"name": "Zlé", "tags": ["vegan"]}'); raise exception 'an unknown tag';
+  exception when invalid_parameter_value then if sqlerrm <> 'tags' then raise; end if; end;
+  begin perform public.owner_menu_save_item(v_a, null, '{"name": "Zlé", "price": "osem"}'); raise exception 'a bad price';
+  exception when invalid_parameter_value then if sqlerrm <> 'price' then raise; end if; end;
+  begin perform public.owner_menu_save_item(v_a, null, jsonb_build_object('name', 'Zlé', 'category_id', gen_random_uuid())); raise exception 'another category';
+  exception when invalid_parameter_value then if sqlerrm <> 'category' then raise; end if; end;
+
+  v_soup := public.owner_menu_save_item(v_a, null, jsonb_build_object('name', 'Kapustnica 80', 'category_id', v_soup_cat,
+                                                                       'price', '3.20', 'allergens', '[9]'::jsonb, 'tags', '[]'::jsonb));
+  v_drink := public.owner_menu_save_item(v_a, null, jsonb_build_object('name', 'Kofola 80 0,33 l', 'category_id', v_drink_cat,
+                                                                        'price', '1.50', 'track_stock', true));
+  v_cheese := public.owner_sklad_save_product(v_a, null, '{"name": "Syr navyše 80", "sale_price": "0.90"}');
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_cheese, 'receipt', 5);
+  set local role service_role;
+  insert into t80 values ('pizza', v_pizza::text), ('soup', v_soup::text), ('drink', v_drink::text), ('cheese', v_cheese::text),
+    ('pizza_cat', v_pizza_cat::text), ('soup_cat', v_soup_cat::text), ('drink_cat', v_drink_cat::text),
+    ('p32', (select shop_item_id::text from public.sklad_items where menu_parent = v_pizza and variant_label = '32 cm')),
+    ('p45', (select shop_item_id::text from public.sklad_items where menu_parent = v_pizza and variant_label = '45 cm'));
+  set local role authenticated;
+
+  -- the editor's read: the categories in order, the dish with its sizes, no stock needed
+  vj := public.owner_menu(v_a);
+  assert vj ->> 'kind' = 'food' and vj ->> 'today' = (select v from t80 where k = 'day'), vj::text;
+  assert (select string_agg(c ->> 'name', ',' order by n) from jsonb_array_elements(vj -> 'categories') with ordinality x(c, n))
+         like 'Pizza 80,Polievky 80,Nápoje 80%', vj::text;
+  assert (select jsonb_array_length(i -> 'variants') from jsonb_array_elements(vj -> 'items') i where (i ->> 'id')::uuid = v_pizza) = 2;
+  -- the order of the categories (drag / arrows)
+  perform public.owner_menu_order_categories(v_a, array[v_drink_cat, v_pizza_cat, v_soup_cat]);
+  set local role service_role;
+  assert (select position from public.menu_categories where id = v_drink_cat) = 0
+     and (select position from public.menu_categories where id = v_soup_cat) = 2;
+  set local role authenticated;
+  -- a renamed category: its dishes (and their sizes) follow
+  perform public.owner_menu_save_category(v_a, v_pizza_cat, 'Pizze 80');
+  set local role service_role;
+  assert (select category from public.shop_items where id = v_pizza) = 'Pizze 80'
+     and (select category from public.shop_items where id = (select v::uuid from t80 where k = 'p32')) = 'Pizze 80';
+  set local role authenticated;
+  begin perform public.owner_menu_delete_category(v_a, v_soup_cat); raise exception 'a category with dishes deleted';
+  exception when raise_exception then if sqlerrm <> 'not_empty' then raise; end if; end;
+  -- the setup step: the restaurant has a menu now
+  assert (select (e ->> 'done')::boolean from jsonb_array_elements(public.owner_setup_steps(v_a) -> 'steps') e where e ->> 'key' = 'menu');
+  set local role service_role;
+  assert (select count(*) from public.shop_activity where shop_id = v_a and action = 'menu_item_saved') >= 3
+     and (select count(*) from public.shop_activity where shop_id = v_a and action = 'menu_category_saved') >= 4;
+end $$;
+reset role;
+
+-- not stock: an untracked dish is never in the shop's inventory (no freshness, no "Vypredané"); a tracked drink is
+do $$
+begin
+  assert not exists (select 1 from public.inventory where shop_item_id = (select v::uuid from t80 where k = 'soup')), 'the soup is stock';
+  assert not exists (select 1 from public.inventory where shop_item_id = (select v::uuid from t80 where k = 'p32')), 'a size is stock';
+  assert exists (select 1 from public.inventory where shop_item_id = (select v::uuid from t80 where k = 'drink') and quantity = 0),
+         'the tracked drink is not stock';
+end $$;
+
+-- the price rule (anon, as the assistant): sizes and extras from Sklad; untracked = available without stock
+set role anon;
+do $$
+declare
+  v_p32 text := (select v from t80 where k = 'p32');
+  v_p45 text := (select v from t80 where k = 'p45');
+  v_pizza text := (select v from t80 where k = 'pizza');
+  v_soup text := (select v from t80 where k = 'soup');
+  v_drink text := (select v from t80 where k = 'drink');
+  v_cheese text := (select v from t80 where k = 'cheese');
+  vj jsonb;
+begin
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(
+          jsonb_build_object('item_id', v_p32, 'qty', 1, 'extras', jsonb_build_array(v_cheese), 'price', 0.01),
+          jsonb_build_object('item_id', v_p45, 'qty', 2),
+          jsonb_build_object('item_id', v_soup, 'qty', 1)), 'pickup');
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'subtotal_cents')::int = 750 + 90 + 2 * 1190 + 320, vj::text;
+  assert vj -> 'lines' -> 0 ->> 'name' = 'Pizza Diavola 80 32 cm' and (vj -> 'lines' -> 0 ->> 'unit_cents')::int = 840, vj::text;
+  -- the dish itself has no price (its sizes are ordered); the tracked drink has no stock
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_pizza, 'qty', 1)), 'pickup');
+  assert vj -> 'refused' -> 0 ->> 'reason' = 'not_found', vj::text;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_drink, 'qty', 1)), 'pickup');
+  assert vj -> 'refused' -> 0 ->> 'reason' = 'sold_out', vj::text;
+  -- the assistant's menu: sizes named "<dish> <size>", in the owner's category order (drinks first now)
+  vj := public.food_menu('potraviny-centrum', 'diavola');
+  assert (select array_agg(i ->> 'name' order by n) from jsonb_array_elements(vj -> 'items') with ordinality x(i, n))
+         = array['Pizza Diavola 80 32 cm', 'Pizza Diavola 80 45 cm'], vj::text;
+  assert (select (i -> 'allergens') = '[1, 7]'::jsonb from jsonb_array_elements(vj -> 'items') i limit 1), vj::text;
+
+  -- the public Menu: the categories with dishes, sizes and prices, allergens, tags; untracked without a stock state
+  vj := public.shop_menu('potraviny-centrum');
+  assert (select string_agg(c ->> 'name', ',' order by n) from jsonb_array_elements(vj -> 'categories') with ordinality x(c, n))
+         = 'Nápoje 80,Pizze 80,Polievky 80', vj::text;
+  assert (select (i ->> 'price_cents') is null and (i -> 'variants' -> 1 ->> 'price_cents')::int = 1190
+                 and i -> 'variants' -> 0 ->> 'label' = '32 cm' and i -> 'tags' = '["spicy"]'::jsonb
+                 and not (i ->> 'sold_out')::boolean and not (i ->> 'tracked')::boolean
+          from jsonb_array_elements(vj -> 'items') i where i ->> 'id' = v_pizza), vj::text;
+  assert (select (i ->> 'price_cents')::int = 150 and (i ->> 'tracked')::boolean and (i ->> 'sold_out')::boolean
+          from jsonb_array_elements(vj -> 'items') i where i ->> 'id' = v_drink), vj::text;
+  assert not exists (select 1 from jsonb_array_elements(vj -> 'items') i where i ->> 'id' = v_cheese), 'a Sklad product that is not on the menu';
+  -- only a restaurant has a Menu
+  assert public.shop_menu('drogeria-kostolne') is null, 'a shop with goods has a menu';
+  -- the forgiving search: a typo finds the dish (a size counts for its dish), words of the category too
+  assert (select item_id::text from public.shop_menu_search('potraviny-centrum', 'diavla') limit 1) = v_pizza, 'typo';
+  assert (select item_id::text from public.shop_menu_search('potraviny-centrum', 'kapustnica') limit 1) = v_soup;
+  assert not exists (select 1 from public.shop_menu_search('drogeria-kostolne', 'diavola'));
+  -- visitors never write
+  begin perform public.owner_menu_set_sold_out((select id from public.shops where slug = 'potraviny-centrum'), v_soup::uuid, true);
+    raise exception 'anon set sold out';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_menu((select id from public.shops where slug = 'potraviny-centrum')); raise exception 'anon read the editor';
+  exception when insufficient_privilege then null; end;
+  begin perform 1 from public.menu_categories; raise exception 'anon read menu_categories';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- "Vypredané dnes": one tap, the dish and all its sizes (or one size), until the shop's midnight
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pizza uuid := (select v::uuid from t80 where k = 'pizza');
+  v_soup uuid := (select v::uuid from t80 where k = 'soup');
+  v_p32 uuid := (select v::uuid from t80 where k = 'p32');
+  v_p45 uuid := (select v::uuid from t80 where k = 'p45');
+  vj jsonb;
+begin
+  vj := public.owner_menu_set_sold_out(v_a, v_soup, true);
+  assert (vj ->> 'sold_out_today')::boolean and vj ->> 'name' = 'Kapustnica 80', vj::text;
+  set local role service_role;
+  assert (select sold_out_on from public.sklad_items where shop_item_id = v_soup) = (select v::date from t80 where k = 'day');
+  set local role authenticated;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_soup, 'qty', 1)), 'pickup');
+  assert vj -> 'refused' -> 0 ->> 'reason' = 'sold_out', vj::text;
+  -- the whole dish: both sizes
+  perform public.owner_menu_set_sold_out(v_a, v_pizza, true);
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_p45, 'qty', 1)), 'pickup');
+  assert vj -> 'refused' -> 0 ->> 'reason' = 'sold_out', vj::text;
+  assert (select (i ->> 'sold_out')::boolean from jsonb_array_elements(public.shop_menu('potraviny-centrum') -> 'items') i
+          where (i ->> 'id')::uuid = v_pizza);
+  perform public.owner_menu_set_sold_out(v_a, v_pizza, false);
+  -- one size only: the dish stays (one size is left)
+  perform public.owner_menu_set_sold_out(v_a, v_p32, true);
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_p45, 'qty', 1)), 'pickup');
+  assert (vj ->> 'orderable')::boolean, vj::text;
+  assert (select not (i ->> 'sold_out')::boolean and (i -> 'variants' -> 0 ->> 'sold_out')::boolean
+          from jsonb_array_elements(public.shop_menu('potraviny-centrum') -> 'items') i where (i ->> 'id')::uuid = v_pizza);
+  perform public.owner_menu_set_sold_out(v_a, v_p32, false);
+  set local role service_role;
+  assert (select count(*) from public.shop_activity where shop_id = v_a and action = 'menu_sold_out') = 5;
+end $$;
+reset role;
+
+-- the shop's midnight: yesterday's "Vypredané dnes" no longer counts (nothing has to reset it)
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_soup uuid := (select v::uuid from t80 where k = 'soup');
+  vj jsonb;
+begin
+  update public.sklad_items set sold_out_on = (select v::date from t80 where k = 'day') - 1 where shop_item_id = v_soup;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_soup, 'qty', 1)), 'pickup');
+  assert (vj ->> 'orderable')::boolean, vj::text;
+  assert (select not (i ->> 'sold_out')::boolean from jsonb_array_elements(public.shop_menu('potraviny-centrum') -> 'items') i
+          where (i ->> 'id')::uuid = v_soup);
+end $$;
+reset role;
+
+-- editing: an inline price, hidden, a size removed (hidden, never deleted), duplicated right after the original
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_pizza uuid := (select v::uuid from t80 where k = 'pizza');
+  v_soup uuid := (select v::uuid from t80 where k = 'soup');
+  v_p32 uuid := (select v::uuid from t80 where k = 'p32');
+  v_p45 uuid := (select v::uuid from t80 where k = 'p45');
+  v_copy uuid;
+  vj jsonb;
+begin
+  -- only the given fields change
+  perform public.owner_menu_save_item(v_a, v_soup, '{"price": "3,50"}');
+  set local role service_role;
+  assert (select sale_price = 3.50 and allergens = '{9}' from public.sklad_items where shop_item_id = v_soup);
+  assert (select category = 'Polievky 80' from public.shop_items where id = v_soup);
+  set local role authenticated;
+  -- hidden: not on the Menu and not orderable; shown again
+  perform public.owner_menu_save_item(v_a, v_soup, '{"hidden": true}');
+  assert not exists (select 1 from jsonb_array_elements(public.shop_menu('potraviny-centrum') -> 'items') i where (i ->> 'id')::uuid = v_soup);
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_soup, 'qty', 1)), 'pickup');
+  assert vj -> 'refused' -> 0 ->> 'reason' = 'not_found', vj::text;
+  perform public.owner_menu_save_item(v_a, v_soup, '{"hidden": false}');
+  -- a renamed dish: its sizes follow; a size left out is hidden (its Sklad product stays)
+  perform public.owner_menu_save_item(v_a, v_pizza, jsonb_build_object('name', 'Pizza Diavola 80',
+    'variants', jsonb_build_array(jsonb_build_object('id', v_p45, 'label', '45 cm', 'price', '12.40'))));
+  set local role service_role;
+  assert (select menu_hidden from public.sklad_items where shop_item_id = v_p32) and exists (select 1 from public.shop_items where id = v_p32);
+  assert (select sale_price from public.sklad_items where shop_item_id = v_p45) = 12.40;
+  set local role authenticated;
+  assert (select jsonb_array_length(i -> 'variants') from jsonb_array_elements(public.shop_menu('potraviny-centrum') -> 'items') i
+          where (i ->> 'id')::uuid = v_pizza) = 1;
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_p32, 'qty', 1)), 'pickup');
+  assert vj -> 'refused' -> 0 ->> 'reason' = 'not_found', 'a hidden size is orderable';
+  -- another shop's size is refused
+  begin perform public.owner_menu_save_item(v_a, v_soup, jsonb_build_object('variants', jsonb_build_array(
+          jsonb_build_object('id', v_p45, 'label', 'x', 'price', '1')))); raise exception 'a size of another dish';
+  exception when invalid_parameter_value then if sqlerrm <> 'variants' then raise; end if; end;
+  -- duplicated: the same sizes and allergens, right after the original
+  v_copy := public.owner_menu_duplicate_item(v_a, v_pizza);
+  set local role service_role;
+  assert (select name from public.shop_items where id = v_copy) = 'Pizza Diavola 80 (2)';
+  assert (select count(*) from public.sklad_items where menu_parent = v_copy and not menu_hidden) = 1;
+  assert (select allergens = '{1,7}' and menu_position = (select menu_position + 1 from public.sklad_items where shop_item_id = v_pizza)
+          from public.sklad_items where shop_item_id = v_copy);
+  set local role authenticated;
+  perform public.owner_menu_save_item(v_a, v_copy, '{"hidden": true}');
+end $$;
+reset role;
+
+-- the import from a PDF or a photo: 10 a day per shop; "Uložiť do menu" all or nothing (nothing stored before it)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_items integer;
+  v_cats integer;
+  vj jsonb;
+  n integer;
+begin
+  for n in 1..10 loop
+    assert public.owner_menu_import_hit(v_a) = 10 - n;
+  end loop;
+  begin perform public.owner_menu_import_hit(v_a); raise exception 'an 11th import';
+  exception when program_limit_exceeded then if sqlerrm <> 'import_limit' then raise; end if; end;
+  perform public.owner_ai_spend(v_a, 'menu', 1200, 300);
+  set local role service_role;
+  assert (select input_tokens = 1200 and output_tokens = 300 and calls = 10 from public.owner_ai_usage
+          where shop_id = v_a and kind = 'menu' and day = (select v::date from t80 where k = 'day'));
+
+  select count(*) into v_items from public.sklad_items where shop_id = v_a;
+  select count(*) into v_cats from public.menu_categories where shop_id = v_a;
+  set local role authenticated;
+  -- a wrong row (a price that is not a price): nothing of the file is stored
+  begin
+    perform public.owner_menu_import_save(v_a, '[
+      {"category": "Hlavné jedlá 80", "name": "Vyprážaný syr 80", "price": "8.90", "allergens": [1, 3, 7]},
+      {"category": "Hlavné jedlá 80", "name": "Rezeň 80", "price": "deväť"}]');
+    raise exception 'a bad row saved';
+  exception when invalid_parameter_value then if sqlerrm <> 'price' then raise; end if; end;
+  set local role service_role;
+  assert (select count(*) from public.sklad_items where shop_id = v_a) = v_items, 'a product of a refused import';
+  assert (select count(*) from public.menu_categories where shop_id = v_a) = v_cats, 'a category of a refused import';
+  set local role authenticated;
+  -- the owner's confirmed rows: a category found by its name (any case) or made once; sizes
+  vj := public.owner_menu_import_save(v_a, '[
+    {"category": "Hlavné jedlá 80", "name": "Vyprážaný syr 80", "description": "s hranolkami", "price": "8.90", "allergens": [1, 3, 7], "tags": ["veg"]},
+    {"category": "hlavné jedlá 80", "name": "Rezeň 80", "price": "9.40"},
+    {"category": "Polievky 80", "name": "Gulášová 80", "variants": [{"label": "0,33 l", "price": "3.10"}, {"label": "0,5 l", "price": "4.20"}]}]');
+  assert (vj ->> 'dishes')::int = 3 and (vj ->> 'categories')::int = 1, vj::text;
+  set local role service_role;
+  assert (select count(*) from public.menu_categories where shop_id = v_a) = v_cats + 1;
+  assert (select i.menu_tags = '{veg}' and i.allergens = '{1,3,7}' and i.sale_price = 8.90 and si.description = 's hranolkami'
+          from public.sklad_items i join public.shop_items si on si.id = i.shop_item_id where si.shop_id = v_a and si.name = 'Vyprážaný syr 80');
+  assert (select count(*) from public.sklad_items i join public.shop_items si on si.id = i.menu_parent
+          where si.name = 'Gulášová 80' and si.shop_id = v_a) = 2;
+  assert (select details from public.shop_activity where shop_id = v_a and action = 'menu_imported') = '{"dishes": 3, "categories": 1}'::jsonb;
+  set local role authenticated;
+  begin perform public.owner_menu_import_save(v_a, '[]'); raise exception 'an empty import';
+  exception when invalid_parameter_value then if sqlerrm <> 'rows' then raise; end if; end;
+end $$;
+reset role;
+
+-- another owner: nothing of A's menu
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_soup uuid := (select v::uuid from t80 where k = 'soup');
+begin
+  begin perform public.owner_menu(v_a); raise exception 'owner B read A''s menu';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_menu_save_item(v_a, v_soup, '{"price": "0.10"}'); raise exception 'owner B changed a price';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_menu_set_sold_out(v_a, v_soup, true); raise exception 'owner B set sold out';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_menu_save_category(v_a, null, 'B'); raise exception 'owner B made a category';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_menu_import_hit(v_a); raise exception 'owner B imported';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_menu_import_save(v_a, '[{"name": "B"}]'); raise exception 'owner B saved an import';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_menu_duplicate_item(v_a, v_soup); raise exception 'owner B duplicated';
+  exception when insufficient_privilege then null; end;
+  begin perform 1 from public.menu_categories; raise exception 'owners read menu_categories';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the owner's AI tools (a Telegram link = an owner-MCP grant, update 66): list_menu freely; set_menu_sold_out only after
+-- Potvrdiť + confirm
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  insert into t80 values ('tg_code', public.owner_telegram_link_start() ->> 'code');
+end $$;
+reset role;
+set role service_role;
+do $$
+begin
+  assert (public.telegram_claim((select v from t80 where k = 'tg_code'), 9080, 9080, 'private', 'bistro', 'sk') ->> 'ok')::boolean;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_telegram_consent(array[(select id from public.shops where slug = 'potraviny-centrum')], array['shop.read', 'shop.write']);
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_soup uuid := (select v::uuid from t80 where k = 'soup');
+  v_pending uuid;
+  vj jsonb;
+begin
+  vj := public.telegram_call(9080, 'list_menu', '{}');
+  assert exists (select 1 from jsonb_array_elements(vj -> 'result' -> 'items') i
+                 where (i ->> 'item_id')::uuid = v_soup and (i ->> 'price')::numeric = 3.50 and not (i ->> 'sold_out_today')::boolean), vj::text;
+  assert position('cost' in vj::text) = 0 and position('supplier' in vj::text) = 0, 'no costs or suppliers';
+  begin perform public.telegram_call(9080, 'set_menu_sold_out', jsonb_build_object('item_id', v_soup, 'sold_out', true));
+    raise exception 'a change without Potvrdiť';
+  exception when insufficient_privilege then if sqlerrm <> 'needs_confirmation' then raise; end if; end;
+  v_pending := public.telegram_pending_new(9080, 'set_menu_sold_out', jsonb_build_object('item_id', v_soup, 'sold_out', true), '{}');
+  vj := public.telegram_confirm(9080, v_pending);
+  assert not (vj -> 'out' -> 'result' ->> 'changed')::boolean and not (vj -> 'out' -> 'result' -> 'before' ->> 'sold_out_today')::boolean, vj::text;
+  assert (select sold_out_on from public.sklad_items where shop_item_id = v_soup) is distinct from (select v::date from t80 where k = 'day');
+  v_pending := public.telegram_pending_new(9080, 'set_menu_sold_out',
+                 jsonb_build_object('item_id', v_soup, 'sold_out', true, 'confirm', true), '{}');
+  vj := public.telegram_confirm(9080, v_pending);
+  assert (vj -> 'out' -> 'result' ->> 'changed')::boolean and (vj -> 'out' -> 'result' -> 'item' ->> 'sold_out_today')::boolean, vj::text;
+  begin perform public.telegram_call(9080, 'set_menu_sold_out', jsonb_build_object('item_id', gen_random_uuid(), 'confirm', true));
+    raise exception 'an unknown dish';
+  exception when insufficient_privilege then null; when no_data_found then null; end;
+  -- every other tool still goes through update 74's door
+  vj := public.telegram_call(9080, 'list_food_orders', '{"filter": "new"}');
+  assert jsonb_typeof(vj -> 'result' -> 'orders') = 'array', vj::text;
+end $$;
+reset role;
+
+-- tidy up: back to goods, ordering off, the day's hours, the subscription and the import counter as before
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_set_shop_kind((select id from public.shops where slug = 'potraviny-centrum'), 'goods');
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  assert public.telegram_unlink_by_bot(9080);
+  update public.food_settings set enabled = false where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t80 where k = 'day');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t80 where k = 'sub'))
+  where (select v from t80 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t80 where k = 'had_plan');
+end $$;
+reset role;
+delete from public.owner_ai_usage where kind = 'menu';
+drop table t80;
+
 \echo 'ALL DATABASE CHECKS PASSED'

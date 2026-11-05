@@ -31,7 +31,7 @@
     "test:booking": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/bookingTools_test.ts",
     "test:e2e": "playwright test",
     "test:telegram": "node scripts/telegram-texts.mjs --check && node scripts/assistant-core.mjs --check",
-    "test:food": "deno test --no-check --no-lock --unstable-sloppy-imports --allow-read src/lib/food_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports --allow-read src/lib/food_test.ts",
+    "test:food": "deno test --no-check --no-lock --unstable-sloppy-imports --allow-read src/lib/food_test.ts src/lib/menuRules_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports --allow-read src/lib/food_test.ts src/lib/menuRules_test.ts",
     "test:photos": "deno test --no-check --no-lock --unstable-sloppy-imports --allow-read src/lib/productPhotos_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports --allow-read src/lib/productPhotos_test.ts",
     "test:sklad": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/sklad_test.ts src/lib/ekasa_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/sklad_test.ts src/lib/ekasa_test.ts"
   },

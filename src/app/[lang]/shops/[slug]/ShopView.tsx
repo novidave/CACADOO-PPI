@@ -49,6 +49,11 @@ import { ShopAssistant } from "@/components/ShopAssistant";
 import { ShopMap } from "@/components/ShopMap";
 import { ShopStatusLine } from "@/components/ShopStatusLine";
 import { ShopProducts, type ShopProductsLabels } from "@/components/ShopProducts";
+import { categoryName, ShopMenu } from "@/components/ShopMenu";
+import { foodState } from "@/lib/food";
+import { getShopMenu, searchShopMenu } from "@/lib/menu";
+import { menuJsonLd } from "@/lib/menuRules";
+import { itemNames } from "@/lib/names";
 
 const PAGE_SIZE = 50;
 
@@ -106,7 +111,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // Everything that needs only the shop, at once (no waterfall). The AI assistant is a paid feature: shown only when
   // the database says the shop has the plan.
-  const [host, langs, { items, total, kind }, assistant, shopperPdf, calendars, content, posts, company, widths] = await Promise.all([
+  const [host, langs, { items, total, kind }, assistant, shopperPdf, calendars, content, posts, company, widths, menu] = await Promise.all([
     shopSiteHost(shop.slug).catch(() => null),
     getShopLanguages(shop.slug, shop.country),
     // With words the forgiving search (update 54): exact hits first, then close ones, else the most similar names.
@@ -126,7 +131,17 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     shopCompany(shop.slug).catch(() => null),
     // Short / long contact buttons (database update 51; the defaults before it).
     shopContactButtons(shop.slug).catch(() => ({})),
+    // A restaurant's Menu (database update 80): null for every other shop (and before update 80).
+    getShopMenu(shop.slug).catch(() => null),
   ]);
+  // A restaurant: "Hľadať v menu" without JavaScript (?mq=) and "Objednať" while ordering in the assistant is on.
+  const mq = menu ? (first(sp.mq) ?? "").trim().slice(0, 200) : "";
+  const [menuMatched, food] = menu
+    ? await Promise.all([
+        mq.length >= 2 ? searchShopMenu(shop.slug, mq).catch(() => []) : Promise.resolve(null),
+        assistant ? foodState(shop.slug).catch(() => null) : Promise.resolve(null),
+      ])
+    : [null, null];
   if (onSite && !host) notFound();
   // No products at all after "Vymazať celý sklad" (update 43): "Sortiment sa práve aktualizuje" until the next file.
   const resetting = items.length === 0 && !q ? await shopStockResetting(shop.slug).catch(() => false) : false;
@@ -141,6 +156,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     getShopTexts(shop.slug, lang, langs, original, [
       { kinds: ["assistant_label", "assistant_welcome", "special_note", "content_title", "section_title", "section_alt"] },
       { kinds: ["blog_title", "blog_body"], refs: postIds },
+      // a restaurant's dishes: their descriptions and categories (the names come with the menu, name_i18n)
+      { kinds: ["item_description", "item_category"], refs: menu?.items.map((d) => d.id) ?? [] },
     ]),
     Promise.all(postSlugs.map((p) => getBlogPost(shop.slug, p).catch(() => null))),
   ]);
@@ -209,12 +226,26 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const newsHref = blogPath(lang, place, onSite);
   // "Všetky novinky" under the slider when the shop has posts; else the "Novinky" link in the details (never both).
   const sliderNews = slides.length > 0 && Boolean(content?.has_posts);
+  // JSON-LD: the shop; a restaurant (update 80) is a Restaurant with its Menu, in the page language's words.
+  const store = storeJsonLd({ ...shop, ...company }, lang, host, input, siteUrl());
+  const storeLd = menu
+    ? {
+        ...store,
+        "@type": "Restaurant",
+        hasMenu: menuJsonLd(menu, store.url, {
+          name: (d) => itemNames(d.name, d.name_i18n, lang).primary,
+          description: (d) => texts.text("item_description", d.id, d.description),
+          section: (c) => categoryName(c, menu.items.filter((d) => d.category_id === c?.id), texts, dict.menu.other),
+          image: (p) => p.large,
+        }),
+      }
+    : store;
 
   return (
     <div className="relative isolate mx-auto flex w-full max-w-[760px] flex-col gap-6" data-shop-page>
       {/* Artboard 12's background (pale animals drifting with the scroll), behind every card; decoration only. */}
       <ShopBackdrop />
-      <JsonLd data={{ "@context": "https://schema.org", ...storeJsonLd({ ...shop, ...company }, lang, host, input, siteUrl()) }} />
+      <JsonLd data={{ "@context": "https://schema.org", ...storeLd }} />
 
       {/* 1. The shop's name and logo, its details under them (on its own domain too). Screen 11 (2026-10-31). */}
       <header className="flex flex-col" data-shop-details>
@@ -308,7 +339,21 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         />
       )}
 
-      {/* 6. The items: "Produkty" and the visitor's "Zoznam" (2026-10-29). */}
+      {/* 6. A restaurant (update 80): its Menu instead of the items — no stock line, no freshness (dishes are not stock). */}
+      {menu ? (
+        <ShopMenu
+          menu={menu}
+          lang={lang}
+          dict={dict}
+          texts={texts}
+          slug={shop.slug}
+          path={shopPath}
+          ordering={Boolean(assistant && food?.enabled)}
+          q={mq}
+          matched={menuMatched}
+        />
+      ) : (
+      /* 6. The items: "Produkty" and the visitor's "Zoznam" (2026-10-29). */
       <section id="items" className="flex scroll-mt-4 flex-col gap-3" aria-labelledby="items-heading">
         <h2 id="items-heading" className="sr-only">
           {dict.shop.items}
@@ -332,6 +377,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           labels={productLabels(dict)}
         />
       </section>
+      )}
 
       {/* The shop's own "Právne informácie" (update 65); on its own domain the layout's footer has the link. */}
       {!onSite && (

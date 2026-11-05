@@ -18,6 +18,7 @@ import type { ChatCard, ChatDocPrice, ChatListItem, ChatReply, ChatSource, ChatT
 import { FolderAccess, FolderViewer, type ViewTarget } from "./FolderAccess";
 import { KeyRow } from "./KeyRow";
 import { StockDot } from "./StockDot";
+import { MENU_ORDER_EVENT, type MenuOrderEvent } from "@/lib/menuOrder";
 
 /** The food order form (database update 73): loaded only when an answer brings its first cart card. */
 const OrderPanel = dynamic(() => import("./OrderPanel"), { ssr: false });
@@ -257,6 +258,7 @@ export function ShopChat({
   focusInput = false,
   keysOpen = false,
   sendNow = false,
+  orderNow = null,
 }: {
   slug: string;
   /** The shop's id: its page's shopping list ("Zoznam", `ppi.list.<id>`) can go into a message. */
@@ -281,6 +283,8 @@ export function ShopChat({
   keysOpen?: boolean;
   /** "Poslať" was tapped in the first view: the typed question goes out at once. */
   sendNow?: boolean;
+  /** "Objednať" on a restaurant's Menu (update 80) loaded the assistant: that dish goes out with its question. */
+  orderNow?: MenuOrderEvent | null;
 }) {
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
@@ -730,7 +734,7 @@ export function ShopChat({
     }
   }
 
-  async function send(event: React.FormEvent | null, override?: string) {
+  async function send(event: React.FormEvent | null, override?: string, order: string[] = []) {
     event?.preventDefault();
     const message = (override ?? text).trim();
     const ready = filesRef.current.filter((f) => f.ready);
@@ -783,6 +787,8 @@ export function ShopChat({
           attachments: ready.map((f) => ({ id: f.id, name: f.name, kind: f.kind, image: f.image, text: f.text })),
           // pieces and names only: never a price, a total or the shop's address
           ...(list.length ? { list: list.map((l) => ({ id: l.id, name: l.name, original: l.original, qty: l.qty })) } : {}),
+          // "Objednať" on the Menu: the menu line's id only (the server prices it with food_quote)
+          ...(order.length ? { order } : {}),
         }),
       });
       const data = await response.json().catch(() => ({ error: "failed" }));
@@ -799,6 +805,22 @@ export function ShopChat({
       setBusy(false);
     }
   }
+
+  // "Objednať" on the Menu (update 80): the dish (its id) goes with its question — the server puts it in the cart card.
+  const sendOrder = useRef<(order: MenuOrderEvent) => void>(() => {});
+  useEffect(() => {
+    sendOrder.current = (order) => void send(null, order.text, [order.id]);
+  });
+  useEffect(() => {
+    if (orderNow) sendOrder.current(orderNow);
+    const onOrder = (e: Event) => {
+      const detail = (e as CustomEvent<MenuOrderEvent>).detail;
+      if (detail?.id && detail.text) sendOrder.current(detail);
+    };
+    window.addEventListener(MENU_ORDER_EVENT, onOrder);
+    return () => window.removeEventListener(MENU_ORDER_EVENT, onOrder);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once; the latest send is read through the ref
+  }, []);
 
   /** "Vymazať moje údaje" (update 63): the dialog offers this conversation or everything about the shopper. */
   const [forgetOpen, setForgetOpen] = useState(false);
