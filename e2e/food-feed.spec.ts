@@ -122,3 +122,67 @@ for (const size of [{ width: 1180, height: 820 }, { width: 390, height: 844 }]) 
     });
   });
 }
+
+const PARTS = ["delivery_on", "courier_app", "payments_on", "deduct_on_delivery", "qr_terminal"] as const;
+
+/** Nastavenia → "Uložiť" in the save bar, and back on the page. */
+async function saveSettings(page: Page) {
+  await page.locator("[data-save-bar] button[type=submit]").click();
+  await expect(page.locator('[role="status"]')).toBeVisible({ timeout: 15_000 });
+}
+
+for (const size of [{ width: 1180, height: 820 }, { width: 390, height: 844 }]) {
+  test.describe(`"Len feed" at ${size.width}×${size.height}`, () => {
+    test.use({ viewport: size });
+
+    test("Len feed hides the Kuriéri tab and the pay tags; Zapnúť všetko / the shop's own switches come back", async ({ page, browser }) => {
+      test.skip(!SHOP || !ITEM || !PHONE, "needs E2E_FOOD_SHOP, E2E_FOOD_ITEM and E2E_FOOD_PHONE (a test restaurant)");
+      test.skip(!(await loginOwner(page)), "needs an owner login");
+      const settings = `/sk/dashboard/assistant/orders/settings?shop=${SHOP}`;
+      await page.goto(settings);
+      const parts = page.locator("[data-food-parts]");
+      await expect(parts).toBeVisible();
+      const before = Object.fromEntries(await Promise.all(PARTS.map(async (p) => [p, await parts.locator(`input[name="${p}"]`).isChecked()])));
+      try {
+        // everything on first: the Kuriéri tab and the pay tags are there
+        await parts.locator("[data-food-all-on]").click();
+        await expect(parts.locator("[data-food-parts-status]")).toHaveAttribute("data-food-parts-status", "5");
+        await saveSettings(page);
+        const number = await pickupOrder(browser);
+        await page.goto(`/sk/dashboard/assistant/orders?shop=${SHOP}&view=feed`);
+        await expect(page.locator('[data-item-tabs] [data-tab="couriers"]')).toHaveCount(1);
+        await expect(page.locator(`[data-feed-active] [data-feed-number="${number}"] [data-feed-pay-tag]`)).toHaveCount(1);
+
+        // "Len feed": the status says so, the delivery and payment cards go away at once
+        await page.goto(settings);
+        await page.locator("[data-food-feed-only]").click();
+        await expect(page.locator("[data-food-parts-status]")).toHaveAttribute("data-food-parts-status", "feed_only");
+        await expect(page.locator("[data-food-parts-status]")).toContainText(f.mod_status_feed_only);
+        await expect(page.locator("[data-needs-payments]").first()).toBeHidden();
+        await expect(page.locator("[data-save-bar] [data-unsaved]")).not.toHaveAttribute("data-unsaved", "0");
+        await saveSettings(page);
+        await expect(page.locator('[data-item-tabs] [data-tab="couriers"]'), "no Kuriéri tab").toHaveCount(0);
+
+        await page.goto(`/sk/dashboard/assistant/orders?shop=${SHOP}&view=feed`);
+        await expect(page.locator('[data-item-tabs] [data-tab="couriers"]')).toHaveCount(0);
+        const card = page.locator(`[data-feed-active] [data-feed-number="${number}"]`);
+        await expect(card).toBeVisible();
+        await expect(card.locator("[data-feed-pay-tag]"), "no pay tag").toHaveCount(0);
+        // finished without a payment step
+        await card.locator("[data-feed-finish]").click();
+        await expect(page.locator("dialog[open]")).toHaveCount(0);
+        await expect(page.locator(`[data-feed-done] [data-feed-number="${number}"]`)).toBeVisible({ timeout: 15_000 });
+      } finally {
+        // the shop's own switches as they were
+        await page.goto(settings);
+        const box = page.locator("[data-food-parts]");
+        await box.locator("[data-food-all-on]").click();
+        for (const p of ["delivery_on", "payments_on", "deduct_on_delivery", "courier_app", "qr_terminal"] as const) {
+          const input = box.locator(`input[name="${p}"]`);
+          if ((await input.isChecked()) !== before[p] && (await input.isEnabled())) await input.setChecked(before[p], { force: true });
+        }
+        await saveSettings(page);
+      }
+    });
+  });
+}

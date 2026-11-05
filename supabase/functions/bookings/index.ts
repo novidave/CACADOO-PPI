@@ -954,8 +954,10 @@ async function orderPlace(body: Record<string, unknown>, deps: Deps) {
   const orderId = String(body.order_id ?? "");
   const lines = cleanOrderLines(body.lines);
   const kind = body.kind === "delivery" ? "delivery" : body.kind === "pickup" ? "pickup" : null;
+  // update 81: no method when the shop takes no payment in Cacaduu — food_order_create decides (a method is still
+  // required while "Platby v Cacaduu" is on: pay_method)
   const pay = body.pay_method === "qr" || body.pay_method === "cash" || body.pay_method === "card" ? body.pay_method : null;
-  if (!UUID.test(codeId) || !UUID.test(orderId) || !lines || !kind || !pay) return reply(400, { error: "bad_request" });
+  if (!UUID.test(codeId) || !UUID.test(orderId) || !lines || !kind) return reply(400, { error: "bad_request" });
   const num = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
   const { data, error } = await deps.db.rpc("food_order_create", {
     p_code_id: codeId,

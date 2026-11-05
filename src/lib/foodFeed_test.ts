@@ -182,3 +182,20 @@ Deno.test("the feed screen stays out of the shop page and keeps the swipe off bu
   const shop = await Deno.readTextFile(new URL("src/app/[lang]/shops/[slug]/ShopView.tsx", root));
   assert(!shop.includes("FoodFeed"));
 });
+
+Deno.test("Nastavenia and the assistant follow the parts: greyed switches keep their choice, no method without Platby", async () => {
+  const root = new URL("../../", import.meta.url);
+  const read = (p: string) => Deno.readTextFile(new URL(p, root));
+  const actions = await read("src/app/[lang]/(account)/dashboard/assistant/orders/actions.ts");
+  assert(actions.includes('if (p.delivery_on) p.courier_app = formData.get("courier_app") === "on";'), "the courier app only with Donáška");
+  assert(actions.includes('if (p.payments_on) p.qr_terminal = formData.get("qr_terminal") === "on";'), "the QR terminal only with Platby");
+  const panel = await read("src/components/OrderPanel.tsx");
+  assert(panel.includes("pay_method: payments ? pay : null"), "no method sent without Platby");
+  assert(panel.includes("state.ready_pickup_min") && panel.includes("state.ready_delivery_min"), "the panel shows food_times");
+  const chat = await read("src/lib/shopChat.ts");
+  assert(chat.includes("never ask about or offer a payment method"), "the assistant offers no method without Platby");
+  assert(chat.includes("BEFORE they order"), "a long delay is said before the order");
+  assert(chat.includes("Only pickup: never offer delivery."), "without Donáška only pickup");
+  const head = await read("src/app/[lang]/(account)/dashboard/assistant/orders/parts.tsx");
+  assert(head.includes('.filter((x) => couriers || x.key !== "couriers")'), "the Kuriéri tab only with the courier app");
+});

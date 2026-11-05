@@ -20,6 +20,13 @@ export interface FoodState {
   prep_minutes?: number;
   delivery?: boolean;
   delivery_minutes?: number;
+  /** update 81: the one time rule (food_times): pickup = prep + delay, delivery = the estimate + delay */
+  delay_minutes?: number;
+  ready_pickup_min?: number;
+  ready_delivery_min?: number;
+  long_delay?: boolean;
+  /** update 81: false = the shop takes no payment in Cacaduu ("Platíte pri prevzatí", no method) */
+  payments?: boolean;
   pay?: { qr: boolean; cash: boolean; card: boolean };
   zones?: { name: string; fee_cents: number; minimum_cents: number }[];
   phone?: string | null;

@@ -158,6 +158,17 @@ export interface FoodSettings {
   menu_categories: string[];
   iban_set: boolean;
   sms: { order?: { used: number; limit: number } };
+  /** update 81: the parts a shop uses (null courier_app = not chosen yet), the times, the feed */
+  courier_app?: boolean | null;
+  payments_on?: boolean;
+  qr_terminal?: boolean;
+  warn_long_delay?: boolean;
+  delay_minutes?: number;
+  delay_reset?: "close" | "midnight" | "never";
+  feed_order?: "newest" | "oldest";
+  parts?: FeedParts;
+  times?: FeedTimes;
+  couriers?: number;
 }
 
 /** update 81: one card of the feed — an order as the owner's screens read it, and when it left the active cards. */

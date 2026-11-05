@@ -295,6 +295,9 @@ Deno.test("a new food order: the owner e-mail has the number, the time, the item
   eq(/\+?\d{9,}|@/.test(sk.text.replace(/https:\S+/g, "")), false, "no phone number or e-mail address");
   const en = foodAlertMail({ ...row, kind: "pickup" }, "de", null);
   eq(en.subject.startsWith("New order no. 1047") && en.text.includes("Pickup at 19:20"), true, "English otherwise, pickup");
+  // update 81: a shop without payments in Cacaduu — no method, no empty brackets
+  const none = foodAlertMail({ ...row, pay_method: null }, "sk", null);
+  eq(none.text.includes("Spolu: 35,60") && none.text.includes("platba pri prevzatí") && !none.text.includes("()") && !none.text.includes("null"), true, "no method");
 });
 
 Deno.test("food_sms: written down as the owner first (owner_food_sms_queue), then sent; refusals passed on", async () => {

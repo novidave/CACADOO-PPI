@@ -501,6 +501,11 @@ body:has([data-courier-app]) > [data-site-header] {
     display: block;
   }
 }
+/* Nastavenia: the delivery parts only with Donáška, the payment methods only with Platby (live, before "Uložiť") */
+[data-food-settings]:has(input[name="delivery_on"]:not(:checked)) [data-needs-delivery],
+[data-food-settings]:has(input[name="payments_on"]:not(:checked)) [data-needs-payments] {
+  display: none;
+}
 /* a card follows the finger sideways; the page still scrolls up and down */
 .ppi-feed-card {
   touch-action: pan-y;

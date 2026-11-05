@@ -387,7 +387,8 @@ export interface FoodAlertRow {
   order_id: string;
   number: number;
   kind: "pickup" | "delivery";
-  pay_method: "qr" | "cash" | "card";
+  /** update 81: null when the shop takes no payment in Cacaduu */
+  pay_method: "qr" | "cash" | "card" | null;
   total_cents: number;
   created_at: string;
   ready_by: string;
@@ -449,7 +450,10 @@ export function foodAlertMail(row: FoodAlertRow, lang: string, siteUrl: string |
     fillText(row.kind === "delivery" ? t.delivery : t.pickup, { time }),
     ...(row.items ? ["", t.items, row.items.slice(0, 600)] : []),
     "",
-    fillText(t.total, { total, pay: t.pay[row.pay_method] ?? row.pay_method }),
+    // update 81: without a method (no payment in Cacaduu) only the total and "on receipt"
+    row.pay_method
+      ? fillText(t.total, { total, pay: t.pay[row.pay_method] ?? row.pay_method })
+      : fillText(t.total, { total, pay: "" }).replace(/\s*\(\)\s*$/, ""),
     "",
     ...(link ? [t.open, link, ""] : []),
     fillText(t.footer, { shop }),

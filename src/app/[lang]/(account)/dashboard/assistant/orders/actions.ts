@@ -20,6 +20,8 @@ const REASONS = [
   "no_recipient", "settings", "name", "kind", "value", "amount", "too_many", "bad_request", "conflict",
   // update 75 (couriers)
   "phone", "phone_taken", "limit", "inactive", "courier", "site", "sms_failed",
+  // update 81 (the feed)
+  "courier_app", "too_late", "delay",
 ] as const;
 const reason = (message: string | undefined) => (REASONS.find((r) => r === message) ? `err_${message}` : "err_failed");
 
@@ -133,15 +135,26 @@ export async function pauseOrders(formData: FormData) {
 
 const BOOLEANS = [
   "enabled", "pickup_on", "delivery_on", "pay_qr", "pay_cash", "pay_card", "deduct_on_delivery", "alert_sound",
-  "alert_email", "alert_telegram", "sms_on_the_way",
+  "alert_email", "alert_telegram", "sms_on_the_way", "payments_on", "warn_long_delay",
 ] as const;
 const NUMBERS = { prep_minutes: [5, 240], delivery_minutes: [10, 300], last_order_minutes: [0, 240] } as const;
+const CHOICES = { delay_reset: ["close", "midnight", "never"], feed_order: ["newest", "oldest"] } as const;
 
-/** "Uložiť" on Nastavenia objednávok: every switch on the form (an unticked box = off), the three times. */
+/**
+ * "Uložiť" on Nastavenia objednávok: every switch on the form (an unticked box = off), the times and the two choices.
+ * Update 81: Aplikácia kuriéra is sent only while Donáška is on and QR terminál only while Platby are on — a greyed
+ * switch keeps its own choice for later (switched off = not used, nothing changed).
+ */
 export async function saveFoodSettings(formData: FormData) {
   const { session, shopId, slug, page } = await start(formData);
-  const p: Record<string, boolean | number> = {};
+  const p: Record<string, boolean | number | string> = {};
   for (const b of BOOLEANS) p[b] = formData.get(b) === "on";
+  if (p.delivery_on) p.courier_app = formData.get("courier_app") === "on";
+  if (p.payments_on) p.qr_terminal = formData.get("qr_terminal") === "on";
+  for (const [k, allowed] of Object.entries(CHOICES)) {
+    const v = String(formData.get(k) ?? "");
+    if ((allowed as readonly string[]).includes(v)) p[k] = v;
+  }
   for (const [k, [lo, hi]] of Object.entries(NUMBERS)) {
     const n = Math.floor(Number(formData.get(k)));
     if (Number.isFinite(n) && n >= lo && n <= hi) p[k] = n;
