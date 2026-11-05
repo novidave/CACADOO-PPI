@@ -288,6 +288,38 @@ before → after from `list_menu`, "Potvrdiť"); the Telegram bot's "Vypredané 
 test:food` (`menuRules_test.ts`), `test:photos`, `test:telegram`, e2e `e2e/food-menu.spec.ts` (a test restaurant:
 import with the AI stubbed → a price edited → the public Menu → Objednať → the SMS test code).
 
+## Objednávky jedla: the order feed (update 81, 2026-11-05)
+
+`supabase/sql/81_food_feed.sql` (design: canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 5a tablet, 5b
+Nastavenia, 5c phone, 5 = the kitchen board as the "Stĺpce" view). Every F1–F4 rule stays. **The parts a shop uses**
+(`food_parts()`; switched off = not used, nothing deleted): Donáška = `delivery_on`, Aplikácia kuriéra = `courier_app`
+(needs Donáška; null = not chosen yet = on while the shop has an active courier), Platby v Cacaduu = `payments_on`,
+Pokladňa = `deduct_on_delivery`, QR terminál = `qr_terminal` (needs Platby); `on` = how many of the five. Without
+Platby: `food_state` offers no method, an order has **no pay method** (`pay_method` null, whatever was sent), payment
+marks are refused (`pay_method`) and picked up / delivered need none (the old table check is gone; `food_order_step` /
+`food_order_finish` decide), couriers mark nothing. Without the courier app: no new assignment (`owner_food_assign`
+→ `courier_app`, the automatic one skips); couriers and their logins stay. **ONE time rule** `food_times()`: pickup in
+`prep_minutes` + `delay_minutes`, delivery in `delivery_minutes` + delay, `long_delay` = delay ≥ 30 and
+`warn_long_delay`; `food_state` carries `ready_pickup_min` / `ready_delivery_min` / `long_delay` / `payments`,
+`food_quote`'s `ready_minutes` includes the delay, so `food_order_create` sets `ready_by` with the delay of that moment.
+The delay: `owner_food_set_delay` (0–120, activity `food_delay`) or `owner_food_save_settings` {delay_minutes}; it
+goes back to 0 by itself (`food_delay_tick`, pg_cron `ppi-food-delay-reset` every 5 min, SQL only; `food_delay_due`:
+`close` = the end of the open range it was set in, else the next one; `midnight` = the shop's next midnight; `never`).
+**The feed's two actions:** `food_order_finish` (ONE transaction, the steps in between skipped: pickup → picked_up,
+delivery → delivered, or → on_the_way with the courier app and a courier assigned — `courier`; with Platby a payment
+mark first, given or already there — `not_paid`; the stock as every finish, once) and `food_order_reopen` (back to
+the last status step's own "from", only on the shop's same day — `too_late`; stock taken comes back as one Oprava per
+line "Vrátené – objednávka č. n", id md5('back:' sale id), once; `food_orders.reopens` moves on and is part of the next
+round's movement ids, so a later finish takes the stock again, once; the payment mark stays); each step's UUID once;
+activity `food_order_finished` / `food_order_reopened`; owners through `owner_food_order_finish` /
+`owner_food_order_reopen` (members + the plan). **The feed's read** `owner_food_feed(shop, older)`: `active` (newest or
+oldest first by `feed_order`, then the day's number), `done` (today, latest first; cancelled too; with the courier app
+an order on the way counts as done), `older_count` / `older` (7 days), `times`, `parts`, `state`, `settings`,
+`couriers`; `owner_food_tab` also carries `parts` (the Kuriéri tab) and `changed`. **Owner MCP** (update 80's door kept
+as `owner_mcp_call_80`): `set_food_delay` {shop?, minutes}, `finish_food_order` {order_id, paid_with?, cash_given?},
+`reopen_food_order` {order_id} — shop.write, before → after until `confirm: true`; Telegram uses them through its
+"Potvrdiť". Tests: DB block "update 81".
+
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 
 Claude Design canvas "Davide shop page – iPhone 14 Plus", artboard 11; `ShopView.tsx` (Cacaduu address and own domain),
