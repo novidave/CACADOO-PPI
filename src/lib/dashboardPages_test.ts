@@ -75,7 +75,7 @@ Deno.test("addresses to items (Hlavné, Stránka obchodu, Účet a nastavenia)",
     ["/dashboard/legal", "", "legal"],
     ["/password", "", "password"],
     ["/dashboard/ai", "", "ai"],
-    ["/admin/domains", "", "admin_domains"],
+    ["/admin/domains", "", "admin"],
   ];
   for (const [path, at, key] of cases) assertEquals(menuItemFor(path, at)?.key, key, `${path}?at=${at}`);
   assertEquals(menuItemFor("/shops/x0"), null);

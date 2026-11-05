@@ -2,6 +2,7 @@
 
 import sharp from "sharp";
 import { redirect } from "next/navigation";
+import { adminBack } from "@/lib/adminPages";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 
@@ -26,9 +27,8 @@ async function start(formData: FormData) {
   const keep = String(formData.get("keep") ?? "");
   const id = String(formData.get("partner_id") ?? "");
   const back = (query: Record<string, string>, at = UUID.test(id) ? `partner-${id}` : "partner-feeds"): never => {
-    const params = new URLSearchParams(keep.startsWith("?") ? keep.slice(1) : keep);
-    for (const [k, v] of Object.entries(query)) params.set(k, v);
-    redirect(`/${lang}/admin/domains?${params}#${at}`);
+    // back to Partnerské feedy (@/lib/adminPages), at the partner's own card
+    redirect(adminBack(lang, at, keep, query));
   };
   return { session, back, id: UUID.test(id) ? id : null };
 }

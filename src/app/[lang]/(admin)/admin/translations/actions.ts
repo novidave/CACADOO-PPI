@@ -9,10 +9,12 @@ import { flatten } from "@/i18n/messages";
 import en from "@/i18n/messages/en.json";
 import sk from "@/i18n/messages/sk.json";
 import { getSession } from "@/lib/auth";
+import { adminBack } from "@/lib/adminPages";
 import { refreshAll } from "@/lib/publicCache";
 
 /**
- * "Admin → Preklady" (database update 40): the languages, the interface texts and the limits. The page is shown only
+ * "Admin → Preklady" (database update 40): the languages, the interface texts and the limits (on Limity plánov since
+ * 2026-11-05). The page is shown only
  * to is_admin; every action is checked again where it runs (the admin_* SQL functions and the translate function
  * ask is_admin() with the caller's own login).
  */
@@ -32,11 +34,10 @@ async function start(formData: FormData) {
   if (!session) redirect(`/${lang}/login`);
   const keep = String(formData.get("keep") ?? "");
   const back = (query: Record<string, string>, at: string): never => {
-    const params = new URLSearchParams(keep.startsWith("?") ? keep.slice(1) : keep);
-    for (const [k, v] of Object.entries(query)) params.set(k, v);
     // A saved setting can change every shop's page (holidays, limits, languages): read again at once.
     if (query.ok) refreshAll();
-    redirect(`/${lang}/admin/translations?${params}#${at}`);
+    // back to its own page (@/lib/adminPages): Preklady, or Limity plánov for the plans' languages
+    redirect(adminBack(lang, at, keep, query));
   };
   return { session, back };
 }
@@ -59,8 +60,8 @@ export async function saveLimits(formData: FormData) {
     p_free: Number(formData.get("free")),
     p_pro: Number(formData.get("pro")),
   });
-  if (error) back({ err: error.message }, "limits");
-  back({ ok: "limits" }, "limits");
+  if (error) back({ err: error.message }, "translation-limits");
+  back({ ok: "tr_limits" }, "translation-limits");
 }
 
 /** "Uložiť" of one text (the admin's own: never replaced by Claude) and "Skontrolované". */

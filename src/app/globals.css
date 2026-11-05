@@ -478,6 +478,42 @@ body:has([data-courier-app]) > [data-site-header] {
 }
 
 /*
+ * The admin area's shell (2026-11-05, src/app/[lang]/(admin)/layout.tsx, @/components/admin/AdminNav): like the owner
+ * shell it fills the whole width, so the site's own header is not shown and its <main> loses its column. Below 768 px
+ * the menu is a bottom sheet (a modal <dialog> at the bottom, sliding up; nothing moves with prefers-reduced-motion).
+ */
+body:has([data-admin-shell]) > [data-site-header] {
+  display: none;
+}
+body:has([data-admin-shell]) > [data-site-main] {
+  max-width: none;
+  padding: 0;
+}
+body:has([data-admin-shell]) > [data-site-footer] {
+  margin-top: 0;
+}
+.ppi-admin-sheet {
+  inset: auto 0 0 0;
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+}
+.ppi-admin-sheet[open] {
+  animation: ppi-admin-sheet-in 0.2s ease-out;
+}
+@keyframes ppi-admin-sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-admin-sheet[open] {
+    animation: none;
+  }
+}
+
+/*
  * Objednávky jedla → the feed (database update 81, @/components/owner/FoodFeed). "Feed | Stĺpce": the feed by
  * default; the kitchen board only from 1024 px when the device chose it (<html data-food-view>, set before the first
  * paint from localStorage `ppi.food.view` or ?view=) — a phone shows only the feed.

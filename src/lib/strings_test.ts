@@ -6,6 +6,8 @@ const ROOT = new URL("../", import.meta.url).pathname;
 /** Texts that may stay: the last-resort error screen (it cannot load the dictionaries, so it is in sk · hu · en). */
 const ALLOWED: { file: string; text: RegExp }[] = [
   { file: "app/[lang]/(account)/error.tsx", text: /Stránku sa nepodarilo načítať|Skúsiť znova|^Ref:/ },
+  // the admin area's own last-resort screen (2026-11-05): the same three-language words, no dictionary there either
+  { file: "app/[lang]/(admin)/error.tsx", text: /Stránku sa nepodarilo načítať|Skúsiť znova|^Ref:/ },
 ];
 
 /** A piece of JSX text that is a word (not code, a type, a URL or a symbol). */
