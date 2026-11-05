@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ComponentProps } from "react";
 import "@/components/shopPage.css";
 import "@/components/unified.css";
 import Link from "next/link";
@@ -267,51 +268,20 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
       )}
 
       {/* 6. Kde kúpiť: the shop, its status, Navigovať and its phone (hold to open), the map. */}
-      <section aria-labelledby="shop-heading" className="overflow-hidden rounded-[20px] border border-[#ECE7DE] bg-white" data-item-shop>
-        <header className="flex items-center gap-3 bg-[#FFF6EE] px-4 py-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#ECE7DE] bg-white text-base font-bold text-[#C2410C]" aria-hidden="true">
-            {shop?.logo_url ? (
-              // eslint-disable-next-line @next/next/no-img-element -- logos come from Supabase Storage
-              <img src={shop.logo_url} alt="" width={28} height={28} loading="lazy" className="h-7 w-7 object-contain" />
-            ) : (
-              [...item.shop_name][0]?.toUpperCase()
-            )}
-          </span>
-          <div className="flex min-w-0 flex-col">
-            <h2 id="shop-heading" className="text-xs font-bold tracking-wider text-[#9A3A0A] uppercase">
-              {it.where}
-            </h2>
-            <Link href={shopHref} className="truncate text-[17px] font-bold hover:underline">
-              {item.shop_name}
-            </Link>
-          </div>
-        </header>
-        <div className="flex flex-col gap-3 p-4">
-          {addressLine(item.shop_address, item.shop_city) && (
-            <p className="flex items-center gap-2.5 text-[15px]">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FFF1E6]" aria-hidden="true">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C2410C" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" focusable="false">
-                  <path d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.8 12 21 12 21z" />
-                  <circle cx="12" cy="9.5" r="2.5" />
-                </svg>
-              </span>
-              {addressLine(item.shop_address, item.shop_city)}
-            </p>
-          )}
-          {shop && (
-            <span className="self-start" data-status-line>
-              <ShopStatusLine input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={renderedAt} pill />
-            </span>
-          )}
-          {contacts.length > 0 && (
-            <div className="flex flex-col gap-2" data-shop-contacts>
-              <ContactButtons buttons={contacts} labels={contactLabels} />
-              <p className="text-[13px] text-[#5B6670]">{it.hold_help}</p>
-            </div>
-          )}
-          {hasLocation && (
-            <ShopMap
-              shops={[
+      <WhereToBuy
+        lang={lang}
+        dict={dict}
+        shopName={item.shop_name}
+        shopHref={shopHref}
+        logoUrl={shop?.logo_url ?? null}
+        address={addressLine(item.shop_address, item.shop_city)}
+        status={shop ? statusInput(shop, calendars) : null}
+        renderedAt={renderedAt}
+        contacts={contacts}
+        contactLabels={contactLabels}
+        pins={
+          hasLocation
+            ? [
                 {
                   slug: item.shop_slug,
                   name: item.shop_name,
@@ -333,15 +303,10 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
                       ...(other ? { status: statusInput(other, calendars) } : {}),
                     };
                   }),
-              ]}
-              label={dict.shop.map}
-              statusLabels={dict.status}
-              renderedAt={renderedAt}
-              className="h-56 overflow-hidden rounded-[10px] md:h-72"
-            />
-          )}
-        </div>
-      </section>
+              ]
+            : null
+        }
+      />
 
       {/* 7. Dostupné aj v: the same rule as before (only when the shop does not stand alone); no photos. */}
       {item.ean && !alone && (
@@ -385,8 +350,89 @@ export async function ItemView({ lang, id, siteSlug, original = false }: { lang:
   );
 }
 
+/**
+ * "Kde kúpiť" (the unified design): the shop with its logo, address and status pill, Navigovať and its phone (hold to
+ * open), the map — on a product's page and a dish's (update 84) alike.
+ */
+export function WhereToBuy({
+  lang,
+  dict,
+  shopName,
+  shopHref,
+  logoUrl,
+  address,
+  status,
+  renderedAt,
+  contacts,
+  contactLabels,
+  pins,
+}: {
+  lang: Locale;
+  dict: Dictionary;
+  shopName: string;
+  shopHref: string;
+  logoUrl: string | null;
+  address: string;
+  status: ComponentProps<typeof ShopStatusLine>["input"] | null;
+  renderedAt: number;
+  contacts: ComponentProps<typeof ContactButtons>["buttons"];
+  contactLabels: ComponentProps<typeof ContactButtons>["labels"];
+  pins: ComponentProps<typeof ShopMap>["shops"] | null;
+}) {
+  const it = dict.item;
+  return (
+    <section aria-labelledby="shop-heading" className="overflow-hidden rounded-[20px] border border-[#ECE7DE] bg-white" data-item-shop>
+      <header className="flex items-center gap-3 bg-[#FFF6EE] px-4 py-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#ECE7DE] bg-white text-base font-bold text-[#C2410C]" aria-hidden="true">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- logos come from Supabase Storage
+            <img src={logoUrl} alt="" width={28} height={28} loading="lazy" className="h-7 w-7 object-contain" />
+          ) : (
+            [...shopName][0]?.toUpperCase()
+          )}
+        </span>
+        <div className="flex min-w-0 flex-col">
+          <h2 id="shop-heading" className="text-xs font-bold tracking-wider text-[#9A3A0A] uppercase">
+            {it.where}
+          </h2>
+          <Link href={shopHref} className="truncate text-[17px] font-bold hover:underline">
+            {shopName}
+          </Link>
+        </div>
+      </header>
+      <div className="flex flex-col gap-3 p-4">
+        {address && (
+          <p className="flex items-center gap-2.5 text-[15px]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FFF1E6]" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C2410C" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+                <path d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.8 12 21 12 21z" />
+                <circle cx="12" cy="9.5" r="2.5" />
+              </svg>
+            </span>
+            {address}
+          </p>
+        )}
+        {status && (
+          <span className="self-start" data-status-line>
+            <ShopStatusLine input={status} labels={dict.status} lang={lang} renderedAt={renderedAt} pill />
+          </span>
+        )}
+        {contacts.length > 0 && (
+          <div className="flex flex-col gap-2" data-shop-contacts>
+            <ContactButtons buttons={contacts} labels={contactLabels} />
+            <p className="text-[13px] text-[#5B6670]">{it.hold_help}</p>
+          </div>
+        )}
+        {pins && pins.length > 0 && (
+          <ShopMap shops={pins} label={dict.shop.map} statusLabels={dict.status} renderedAt={renderedAt} className="h-56 overflow-hidden rounded-[10px] md:h-72" />
+        )}
+      </div>
+    </section>
+  );
+}
+
 /** The product's photo: 800 / 1600 px from the bucket (never image optimisation), a tap opens the zoom; copy icon. */
-function PhotoBox({ photo, name, dict }: { photo: ItemPhoto; name: string; dict: Dictionary }) {
+export function PhotoBox({ photo, name, dict }: { photo: ItemPhoto; name: string; dict: Dictionary }) {
   const it = dict.item;
   const shown = Math.min(800, photo.width);
   const height = Math.max(1, Math.round((photo.height * shown) / photo.width));

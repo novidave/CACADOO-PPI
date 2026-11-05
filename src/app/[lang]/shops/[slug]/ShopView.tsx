@@ -15,7 +15,7 @@ import { blogPath } from "@/lib/blogFormat";
 import { docsKeysEnabled } from "@/lib/docsAccess";
 import { addressLine } from "@/lib/format";
 import { contactButtons, contactWidths, CONTACT_KEYS, isAndroid } from "@/lib/contactButtons";
-import { productRow } from "@/lib/shopRows";
+import { dishRows, productRow } from "@/lib/shopRows";
 import {
   dayName,
   displayTime,
@@ -48,11 +48,11 @@ import { SectionZoom } from "@/components/SectionZoom";
 import { ShopAssistant } from "@/components/ShopAssistant";
 import { ShopMap } from "@/components/ShopMap";
 import { ShopStatusLine } from "@/components/ShopStatusLine";
-import { ShopProducts, type ShopProductsLabels } from "@/components/ShopProducts";
-import { categoryName, ShopMenu } from "@/components/ShopMenu";
+import { ShopProducts } from "@/components/ShopProducts";
+import { productLabels } from "@/lib/productLabels";
 import { foodState } from "@/lib/food";
-import { getShopMenu, searchShopMenu } from "@/lib/menu";
-import { menuJsonLd } from "@/lib/menuRules";
+import { categoryName, getShopMenu, searchShopMenu } from "@/lib/menu";
+import { menuJsonLd, orderLines } from "@/lib/menuRules";
 import { itemNames } from "@/lib/names";
 
 const PAGE_SIZE = 50;
@@ -134,18 +134,26 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     // A restaurant's Menu (database update 80): null for every other shop (and before update 80).
     getShopMenu(shop.slug).catch(() => null),
   ]);
-  // A restaurant: "Hľadať v menu" without JavaScript (?mq=) and "Objednať" while ordering in the assistant is on.
-  const mq = menu ? (first(sp.mq) ?? "").trim().slice(0, 200) : "";
-  const [menuMatched, food] = menu
+  // A restaurant (update 84): its dishes in the same box — the search's dishes (?q= without JavaScript), and
+  // "Objednať" from a dish's page (?order=<menu item>) while ordering in the assistant is on.
+  const orderId = menu && assistant ? (first(sp.order) ?? "").toLowerCase() : "";
+  const orderDish = orderId ? menu?.items.find((d) => orderLines(d).some((l) => l.id === orderId)) : undefined;
+  const [menuFound, food] = menu
     ? await Promise.all([
-        mq.length >= 2 ? searchShopMenu(shop.slug, mq).catch(() => []) : Promise.resolve(null),
-        assistant ? foodState(shop.slug).catch(() => null) : Promise.resolve(null),
+        q.length >= 2 ? searchShopMenu(shop.slug, q).catch(() => []) : Promise.resolve(null),
+        orderDish ? foodState(shop.slug).catch(() => null) : Promise.resolve(null),
       ])
     : [null, null];
   if (onSite && !host) notFound();
+  const orderLine = orderDish && food?.enabled ? orderLines(orderDish).find((l) => l.id === orderId && !l.sold_out) : undefined;
+  const order = orderDish && orderLine
+    ? { id: orderLine.id, text: t(dict.menu.order_message, { name: orderLine.label ? `${orderDish.name} ${orderLine.label}` : orderDish.name }) }
+    : null;
+  const dishes = menu ? dishRows(menu, lang, q.length >= 2 ? q : "", menuFound) : null;
+  const listed = dishes ? dishes.length : total;
   // No products at all after "Vymazať celý sklad" (update 43): "Sortiment sa práve aktualizuje" until the next file.
-  const resetting = items.length === 0 && !q ? await shopStockResetting(shop.slug).catch(() => false) : false;
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const resetting = !menu && items.length === 0 && !q ? await shopStockResetting(shop.slug).catch(() => false) : false;
+  const pages = Math.max(1, Math.ceil(listed / PAGE_SIZE));
   const page = Math.min(requestedPage, pages);
   // The shop's texts in the visitor's language (update 40): the original stays; "Zobraziť originál" = ?original=1.
   const original = first(sp.original) === "1";
@@ -325,6 +333,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         <ShopAssistant
           // "Opýtať sa asistenta" from a product page or a post: the question written for the shopper (≤ 300)
           question={(first(sp.ask) ?? "").slice(0, 300)}
+          // "Objednať" on a dish's page (update 84): that dish goes to the assistant with its question at once
+          order={order}
           slug={shop.slug}
           shopId={shop.id}
           lang={lang}
@@ -339,29 +349,19 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
         />
       )}
 
-      {/* 6. A restaurant (update 80): its Menu instead of the items — no stock line, no freshness (dishes are not stock). */}
-      {menu ? (
-        <ShopMenu
-          menu={menu}
-          lang={lang}
-          dict={dict}
-          texts={texts}
-          slug={shop.slug}
-          path={shopPath}
-          ordering={Boolean(assistant && food?.enabled)}
-          q={mq}
-          matched={menuMatched}
-        />
-      ) : (
-      /* 6. The items: "Produkty" and the visitor's "Zoznam" (2026-10-29). */
+      {/* 6. The items: "Produkty" and the visitor's "Zoznam" (2026-10-29). A restaurant (update 84, at the owner's request):
+          the same box, the first tab "Jedlá" — its dishes (a dish or each size) with the dot and the price; no stock line
+          (dishes are not stock: no file, no freshness). */}
       <section id="items" className="flex scroll-mt-4 flex-col gap-3" aria-labelledby="items-heading">
         <h2 id="items-heading" className="sr-only">
-          {dict.shop.items}
+          {menu ? dict.shop.tab_dishes : dict.shop.items}
         </h2>
-        <p className="text-sm">
-          <span className="text-muted">{dict.shop.stock}: </span>
-          {freshnessText(dict, shop.freshness_state, shop.freshness_age_minutes, shop.latest_file_time, shop.timezone)}
-        </p>
+        {!menu && (
+          <p className="text-sm" data-shop-stock-line>
+            <span className="text-muted">{dict.shop.stock}: </span>
+            {freshnessText(dict, shop.freshness_state, shop.freshness_age_minutes, shop.latest_file_time, shop.timezone)}
+          </p>
+        )}
         <ShopProducts
           shopId={shop.id}
           slug={shop.slug}
@@ -370,14 +370,28 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           itemBase={`/${lang}/items/`}
           shopName={shop.name}
           address={address || null}
-          initial={{ q, kind, total, rows: items.map((item) => productRow(item, lang)) }}
+          initial={
+            dishes
+              ? {
+                  q: q.length >= 2 ? q : "",
+                  kind: q.length >= 2 ? (dishes.length ? "match" : null) : null,
+                  total: dishes.length,
+                  rows: dishes.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+                }
+              : { q, kind, total, rows: items.map((item) => productRow(item, lang)) }
+          }
           page={page}
           pageSize={PAGE_SIZE}
-          emptyNote={resetting ? { text: dict.shop.stock_updating, kind: "updating" } : { text: dict.shop.no_items, kind: "none" }}
-          labels={productLabels(dict)}
+          emptyNote={
+            menu
+              ? { text: dict.menu.empty, kind: "menu" }
+              : resetting
+                ? { text: dict.shop.stock_updating, kind: "updating" }
+                : { text: dict.shop.no_items, kind: "none" }
+          }
+          labels={productLabels(dict, Boolean(menu))}
         />
       </section>
-      )}
 
       {/* The shop's own "Právne informácie" (update 65); on its own domain the layout's footer has the link. */}
       {!onSite && (
@@ -391,42 +405,6 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   );
 }
 
-/** The texts of the products tabs (ShopProducts / ShopList), in the page language. */
-function productLabels(dict: Dictionary): ShopProductsLabels {
-  const s = dict.shop;
-  return {
-    tabs: s.tabs_label,
-    products: s.tab_products,
-    list: s.tab_list,
-    listCount: s.tab_list_count,
-    placeholder: s.search_items,
-    clear: s.search_clear,
-    button: dict.search.button,
-    found: { one: s.found_one, few: s.found_few, other: s.found_other },
-    none: s.search_none,
-    similar: s.search_similar,
-    add: s.list_add,
-    addMore: s.list_add_more,
-    status: { dot_available: dict.stock.dot_available, dot_sold_out: dict.stock.dot_sold_out, dot_no_info: dict.stock.dot_no_info },
-    prev: s.prev,
-    next: s.next,
-    pageOf: s.page_of,
-    said: { added: s.said_added, less: s.said_less, removed: s.said_removed, copied: s.said_copied, copyFailed: s.said_copy_failed },
-    shopList: {
-      title: s.list_title,
-      empty: s.list_empty,
-      total: s.list_total,
-      minus: s.list_minus,
-      plus: s.list_plus,
-      remove: s.list_remove,
-      qty: s.list_qty,
-      swipe: s.list_swipe,
-      copy: s.list_copy,
-      copied: s.list_copied,
-      copyManual: s.list_copy_manual,
-    },
-  };
-}
 
 /** "8:00–12:00, 12:30–17:00" (a range past midnight: "22:00–2:00"). */
 const rangeText = (ranges: [string, string][]) => ranges.map(([a, b]) => `${displayTime(a)}–${displayTime(b)}`).join(", ");

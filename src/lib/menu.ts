@@ -1,7 +1,8 @@
 import "server-only";
 import { cache } from "react";
 import { productPhotoUrl } from "./productPhotos";
-import { readMenu, type ShopMenu } from "./menuRules";
+import type { ShopTexts } from "./contentTranslations";
+import { readMenu, type MenuCategory, type MenuDish, type ShopMenu } from "./menuRules";
 import { supabaseEnv } from "./supabase/env";
 import { createCachedPublicClient } from "./supabase/public";
 
@@ -45,4 +46,27 @@ export async function searchShopMenu(slug: string, q: string): Promise<string[]>
   const { data, error } = await db.rpc("shop_menu_search", { p_slug: slug, p_q: query });
   if (error || !Array.isArray(data)) return [];
   return (data as { item_id?: unknown }[]).flatMap((r) => (typeof r.item_id === "string" ? [r.item_id] : []));
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The restaurant and the dish of a menu item (update 84): `{slug, dish}` for a dish or one of its sizes (a size gives
+ * its dish) while the Menu shows it, else null — the item page then shows the dish (the product page's design).
+ */
+export const menuDishOf = cache(async (id: string): Promise<{ slug: string; dish: string } | null> => {
+  if (!UUID.test(id)) return null;
+  const db = createCachedPublicClient();
+  if (!db) return null;
+  const { data, error } = await db.rpc("shop_menu_dish_of", { p_item: id });
+  if (error || !data || typeof data !== "object") return null;
+  const r = data as { slug?: unknown; dish?: unknown };
+  return typeof r.slug === "string" && typeof r.dish === "string" ? { slug: r.slug, dish: r.dish } : null;
+});
+
+/** A category's name in the page language: the translation of its dishes' category (update 40's item_category). */
+export function categoryName(category: MenuCategory | null, dishes: MenuDish[], texts: ShopTexts | null, other: string) {
+  if (!category) return other;
+  const first = dishes[0];
+  return texts && first ? texts.text("item_category", first.id, category.name) : category.name;
 }

@@ -15883,4 +15883,76 @@ delete from public.shop_outgoing_messages where body = 't83' and recipient = '+4
 reset role;
 drop table t83;
 
+\echo '--- update 84: the restaurant and the dish of a menu item (a size gives its dish), only while the Menu shows it'
+create temporary table t84 (k text primary key, v uuid);
+grant all on t84 to public;
+set role service_role;
+insert into t84
+select 'pizza', id from public.shop_items where name = 'Pizza Diavola 80'
+union all select 'p32', id from public.shop_items where name = 'Pizza Diavola 80 32 cm'
+union all select 'p45', id from public.shop_items where name = 'Pizza Diavola 80 45 cm'
+union all select 'cheese', id from public.shop_items where name = 'Syr navyše 80'
+union all select 'goods', (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'drogeria-kostolne') limit 1)
+union all select 'shop', id from public.shops where slug = 'potraviny-centrum';
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_set_shop_kind((select v from t84 where k = 'shop'), 'food');
+end $$;
+reset role;
+set role anon;
+do $$
+declare
+  v_pizza uuid := (select v from t84 where k = 'pizza');
+  vj jsonb;
+begin
+  assert (select count(*) from t84 where v is not null) = 6, 'the menu of update 80''s block';
+  vj := public.shop_menu_dish_of(v_pizza);
+  assert vj ->> 'slug' = 'potraviny-centrum' and (vj ->> 'dish')::uuid = v_pizza, vj::text;
+  vj := public.shop_menu_dish_of((select v from t84 where k = 'p45'));
+  assert vj ->> 'slug' = 'potraviny-centrum' and (vj ->> 'dish')::uuid = v_pizza, 'a size gives its dish: ' || coalesce(vj::text, 'null');
+  -- update 80's block hid the 32 cm size (the dish was saved with 45 cm only): not on the Menu, no dish
+  assert public.shop_menu_dish_of((select v from t84 where k = 'p32')) is null, 'a hidden size';
+  -- the dish is one shop_menu() shows
+  assert exists (select 1 from jsonb_array_elements(public.shop_menu('potraviny-centrum') -> 'items') i where (i ->> 'id')::uuid = v_pizza);
+  assert public.shop_menu_dish_of((select v from t84 where k = 'cheese')) is null, 'an extra that is not on the menu';
+  assert public.shop_menu_dish_of(gen_random_uuid()) is null, 'an unknown id';
+  assert public.shop_menu_dish_of((select v from t84 where k = 'goods')) is null, 'a product of a shop with goods';
+end $$;
+reset role;
+-- hidden: the dish (and so its sizes) is gone
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_menu_save_item((select v from t84 where k = 'shop'), (select v from t84 where k = 'pizza'), '{"hidden": true}');
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  assert public.shop_menu_dish_of((select v from t84 where k = 'pizza')) is null, 'a hidden dish';
+  assert public.shop_menu_dish_of((select v from t84 where k = 'p45')) is null, 'a size of a hidden dish';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_menu_save_item((select v from t84 where k = 'shop'), (select v from t84 where k = 'pizza'), '{"hidden": false}');
+  -- back to goods: no restaurant, no dish
+  perform public.owner_set_shop_kind((select v from t84 where k = 'shop'), 'goods');
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  assert public.shop_menu_dish_of((select v from t84 where k = 'pizza')) is null, 'a shop with goods has no dishes';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+drop table t84;
+
 \echo 'ALL DATABASE CHECKS PASSED'

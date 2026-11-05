@@ -3322,3 +3322,15 @@ behaves like that.
   month's calls and tokens; the pomocník's switch and limit stay on the "Telegram bot" card.
 - Tests: DB block "update 76"; `npm run test:crm` (`messageTags_test.ts`), `test:telegram` (the core and the help topics);
   e2e `crm-messages.spec.ts`, `owner-shell.spec.ts`.
+
+## Update 84 — a restaurant's dishes in the "Produkty / Zoznam" box (5 November 2026, at the owner's request)
+
+A restaurant's page uses the same box as every shop (`ShopProducts`), its first tab named "Jedlá". The rows are the
+menu's orderable lines (`menuRowLines` in `@/lib/menuRules`, `dishRows` in `@/lib/shopRows`: a dish, or each size), with
+Sklad's price and a green dot (red when sold out today or a tracked line has no stock). The live search stays
+`/api/shops/<slug>/search`, which answers a restaurant from `shop_menu_search` + `shop_menu`. Each row links to the
+product page's address; `shop_menu_dish_of(id)` (SQL update 84, a visitors' read, cached) tells the item route that the
+id is a dish (or a size) of an active restaurant, and `DishView` draws it in the product page's design (photo, sizes and
+price, allergens, description, the same shopping list, "Objednať" → the restaurant page's assistant with `?order=`).
+The old Menu section (`ShopMenu`, `MenuTools`, `/api/shops/<slug>/menu-search`, `.ppi-menu*`) is gone; the owner's
+editor previews the new box.

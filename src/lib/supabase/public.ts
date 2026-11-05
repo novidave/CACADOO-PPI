@@ -52,6 +52,7 @@ const CACHED_RPCS = new Set([
   "item_photo",
   "shop_menu",
   "shop_menu_search",
+  "shop_menu_dish_of",
   "shop_languages",
   "site_verification_meta",
   "shop_for_host",

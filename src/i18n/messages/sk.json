@@ -170,6 +170,11 @@
     "search_similar": "Nenašli sme presnú zhodu – podobné produkty:",
     "tabs_label": "Produkty a nákupný zoznam",
     "tab_products": "Produkty",
+    "tab_dishes": "Jedlá",
+    "tabs_label_dishes": "Jedlá a nákupný zoznam",
+    "found_dish_one": "Nájdené: {n} jedlo",
+    "found_dish_few": "Nájdené: {n} jedlá",
+    "found_dish_other": "Nájdené: {n} jedál",
     "tab_list": "Zoznam",
     "tab_list_count": "{n} ks",
     "found_one": "Nájdené: {n} produkt",
@@ -5611,7 +5616,12 @@
     "err_import_failed": "Jedálny lístok sa nepodarilo prečítať. Skúste inú fotku alebo PDF.",
     "err_rows": "Vyberte aspoň jedno jedlo.",
     "err_file": "Vyberte PDF alebo fotku (JPG, PNG, WebP, HEIC).",
-    "err_no_text": "V PDF nie je text – nahrajte radšej fotku jedálneho lístka."
+    "err_no_text": "V PDF nie je text – nahrajte radšej fotku jedálneho lístka.",
+    "dish_available": "Dostupné",
+    "sizes": "Veľkosť",
+    "dish_meta": "{name} – {shop}, {city}: cena, alergény a objednanie.",
+    "ask": "Opýtať sa asistenta na jedlo",
+    "ask_prefill": "Mám otázku k jedlu „{name}“: "
   },
   "admin_nav": {
     "label": "Menu adminu",

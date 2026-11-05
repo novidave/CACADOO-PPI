@@ -170,6 +170,11 @@
     "search_similar": "No exact match – similar products:",
     "tabs_label": "Products and shopping list",
     "tab_products": "Products",
+    "tab_dishes": "Dishes",
+    "tabs_label_dishes": "Dishes and shopping list",
+    "found_dish_one": "Found: {n} dish",
+    "found_dish_few": "Found: {n} dishes",
+    "found_dish_other": "Found: {n} dishes",
     "tab_list": "List",
     "tab_list_count": "{n} pcs",
     "found_one": "Found: {n} product",
@@ -5611,7 +5616,12 @@
     "err_import_failed": "The menu could not be read. Try another photo or PDF.",
     "err_rows": "Choose at least one dish.",
     "err_file": "Choose a PDF or a photo (JPG, PNG, WebP, HEIC).",
-    "err_no_text": "The PDF has no text – upload a photo of the menu instead."
+    "err_no_text": "The PDF has no text – upload a photo of the menu instead.",
+    "dish_available": "Available",
+    "sizes": "Size",
+    "dish_meta": "{name} – {shop}, {city}: price, allergens and ordering.",
+    "ask": "Ask the assistant about this dish",
+    "ask_prefill": "I have a question about the dish “{name}”: "
   },
   "admin_nav": {
     "label": "Admin menu",

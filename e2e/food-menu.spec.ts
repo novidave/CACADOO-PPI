@@ -3,8 +3,9 @@ import { expect, loginOwner, sk, test, watchConsole } from "./helpers";
 /**
  * A restaurant's Menu end to end (update 80): the owner uploads a menu (a small PDF; the AI's reading is stubbed in the
  * browser, so the test never spends an AI call), edits a price in the review table and saves it to the menu (one
- * transaction); the public Menu shows the dish with that price; "Objednať" opens the assistant with the dish in the
- * cart card (priced by food_quote) and the order is placed with the SMS test code.
+ * transaction); the restaurant page's "Jedlá" box shows the dish with that price, its row opens the dish's page, whose
+ * "Objednať" opens the assistant with the dish in the cart card (priced by food_quote) and the order is placed with the
+ * SMS test code.
  *
  * Runs only against a test restaurant made for it (it adds dishes and places an order):
  *   E2E_FOOD_SHOP     the shop's slug: kind food, Pro plan, Sklad as the stock source, "Objednávky jedla" on with
@@ -29,7 +30,7 @@ const PDF = Buffer.from(
 
 test.setTimeout(240_000);
 
-test("a restaurant: import a menu, edit a price, the public Menu shows it, Objednať → the order with the SMS test code", async ({ page, browser }) => {
+test("a restaurant: import a menu, edit a price, the Jedlá box shows it, the dish page's Objednať → the order with the SMS test code", async ({ page, browser }) => {
   test.skip(!SHOP || !PHONE, "needs E2E_FOOD_SHOP and E2E_FOOD_PHONE (a test restaurant)");
   test.skip(!(await loginOwner(page)), "needs an owner login");
   const dish = `Kapustnica E2E ${Date.now() % 100000}`;
@@ -54,24 +55,29 @@ test("a restaurant: import a menu, edit a price, the public Menu shows it, Objed
   const dishId = (await row.getAttribute("data-dish")) ?? "";
 
   try {
-    // 2. the public Menu: the dish with the confirmed price, no stock dot (not tracked), "Objednať"
+    // 2. the restaurant page (update 84): the dish is a row of the "Jedlá / Zoznam" box with the confirmed price and a
+    //    green dot (available, not tracked); its link opens the dish's page with "Objednať"
     const shopper = await browser.newContext({ ...test.info().project.use });
     const pg = await shopper.newPage();
     const console = watchConsole(pg);
-    let menuSeen = false;
-    for (let i = 0; i < 8 && !menuSeen; i++) {
-      await pg.goto(`/sk/shops/${SHOP}#menu`);
-      menuSeen = (await pg.locator(`[data-menu-dish="${dishId}"]`).count()) > 0;
-      if (!menuSeen) await pg.waitForTimeout(10_000); // the public cache is refreshed by the save; a minute at most
+    let rowSeen = false;
+    for (let i = 0; i < 8 && !rowSeen; i++) {
+      await pg.goto(`/sk/shops/${SHOP}#items`);
+      rowSeen = (await pg.locator(`[data-product="${dishId}"]`).count()) > 0;
+      if (!rowSeen) await pg.waitForTimeout(10_000); // the public cache is refreshed by the save; a minute at most
     }
-    const shown = pg.locator(`[data-menu-dish="${dishId}"]`);
+    const shown = pg.locator(`[data-product="${dishId}"]`);
     await expect(shown).toBeVisible();
     await expect(shown).toContainText("3,40");
-    await expect(shown.locator("[data-stock-dot]")).toHaveCount(0);
-    await expect(pg.locator("#items"), "a restaurant has no Produkty / Zoznam").toHaveCount(0);
+    await expect(shown.locator("[data-stock-dot]")).toHaveAttribute("data-stock-dot", "available");
+    await expect(pg.locator(".ppi-tab").first()).toContainText(sk.shop.tab_dishes);
+    await expect(pg.locator("[data-shop-stock-line]"), "no stock line for dishes").toHaveCount(0);
+    await shown.locator(".ppi-row-name").click();
+    await expect(pg.locator("[data-dish-page] h1")).toContainText(dish);
+    await expect(pg.locator("[data-dish-page] [data-item-price]")).toContainText("3,40");
 
     // 3. Objednať → the assistant with the dish in the cart card → the page's form → the SMS test code
-    await shown.locator("[data-menu-order]").first().click();
+    await pg.locator("[data-dish-order]").first().click();
     const panel = pg.locator("[data-order-panel]");
     await expect(panel, "the cart card with the dish").toBeVisible({ timeout: 90_000 });
     await expect(panel.locator("li").first()).toContainText(dish);

@@ -11,10 +11,10 @@ export type AssistantProps = Omit<ComponentProps<typeof Chat>, "initialText" | "
  * (`ShopAssistant`), this small part only listens to it — and loads the assistant's own code (`ShopChat`) when the box
  * comes near the screen (after the page has loaded, when the browser is idle) or at the first touch, focus or key.
  * What the shopper did meanwhile goes along: the typed text, the cursor, an opened key row, a tapped "Poslať" (an empty
- * question says "Napíšte otázku alebo pridajte fotku" here already). A restaurant's "Objednať" (update 80) loads it
- * at once and the chat sends that dish with its question.
+ * question says "Napíšte otázku alebo pridajte fotku" here already). "Objednať" on a dish's page (update 84, the
+ * shop page's ?order=) loads it at once and the chat sends that dish with its question.
  */
-export function AssistantBoot({ props, children }: { props: AssistantProps; children: ReactNode }) {
+export function AssistantBoot({ props, order = null, children }: { props: AssistantProps; order?: MenuOrderEvent | null; children: ReactNode }) {
   type Seen = { text: string; focused: boolean; keysOpen: boolean; sendNow: boolean; order: MenuOrderEvent | null };
   const [live, setLive] = useState<{ Chat: typeof Chat; seen: Seen } | null>(null);
   const seen = useRef<Seen>({ text: "", focused: false, keysOpen: false, sendNow: false, order: null });
@@ -66,7 +66,19 @@ export function AssistantBoot({ props, children }: { props: AssistantProps; chil
     };
   }, []);
 
-  // "Objednať" on the Menu before the chat is here: it loads now and sends that dish (the live chat listens itself).
+  // "Objednať" on a dish's page (update 84: the shop page's ?order=): the assistant loads at once and sends that dish.
+  const ordered = useRef(order);
+  useEffect(() => {
+    const detail = ordered.current;
+    ordered.current = null;
+    if (!detail?.id || !detail.text) return;
+    seen.current = { ...seen.current, order: detail, sendNow: false, focused: false };
+    const field = box.current?.querySelector("textarea");
+    if (field) field.value = "";
+    load();
+  }, []);
+
+  // "Objednať" before the chat is here: it loads now and sends that dish (the live chat listens itself).
   useEffect(() => {
     if (live) return;
     const onOrder = (e: Event) => {
