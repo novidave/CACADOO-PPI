@@ -3,7 +3,7 @@
 // Run: npm run test:functions
 import {
   BUSINESS_SCOPE, checkParsed, cleanReturnUrl, type Deps, describeChange, encryptToken, googleRegular, googleSpecial, handle,
-  localToday, type ParsedHours, readInbound, replyLang, replyText, testSms, tokenKey, twilioSignature,
+  localToday, type ParsedHours, readInbound, readInfobip, replyLang, replyText, testSms, tokenKey, twilioSignature,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -172,6 +172,29 @@ Deno.test("generic gateway: the secret header decides; a short secret is never a
   const res = await handle(generic({ from: PHONE, text: "Po 9-17", id: "g1" }), deps);
   eq([res.status, await res.json()], [200, { outcome: "applied" }], "applied");
   eq((await handle(generic({ from: PHONE }), deps)).status, 403, "no text");
+});
+
+Deno.test("Infobip: Basic auth with the inbound secret, every result read, the number gets its +", async () => {
+  const infobip = (body: unknown, password = GENERIC, user = "cacaduu") =>
+    new Request("https://x.supabase.co/functions/v1/hours-sms/inbound/infobip", {
+      method: "POST",
+      headers: { Authorization: `Basic ${btoa(`${user}:${password}`)}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const sms = { results: [{ messageId: "ib1", from: PHONE.slice(1), to: "421900000000", text: "Po 9-17", cleanText: "Po 9-17" }], messageCount: 1 };
+  const { deps, log } = await setup();
+  const res = await handle(infobip(sms), deps);
+  eq([res.status, await res.json()], [200, { outcomes: ["applied"] }], "applied");
+  eq(calls(log, "hours_sms_receive")[0], { p_phone: PHONE, p_body: "Po 9-17", p_provider: "inbound", p_ref: "infobip:ib1" }, "+ added, ref per provider");
+  const bad = await setup();
+  eq((await handle(infobip(sms, "wrong".repeat(8)), bad.deps)).status, 403, "wrong password");
+  eq(bad.log.length, 0, "nothing read or written");
+  const plain = new Request("https://x/inbound/infobip", { method: "POST", body: JSON.stringify(sms) });
+  eq(readInfobip(plain, JSON.stringify(sms), GENERIC), null, "no auth header");
+  eq(readInfobip(infobip(sms, "short"), JSON.stringify(sms), "short"), null, "a short secret is never accepted");
+  eq(readInfobip(infobip(sms), "not json", GENERIC), null, "not JSON");
+  const odd = { results: [{ from: "abc", text: "x" }, { from: "421905111222", cleanText: "Ne zatvorene" }] };
+  eq(readInfobip(infobip(odd), JSON.stringify(odd), GENERIC), [{ from: "+421905111222", text: "Ne zatvorene", ref: null }], "no number skipped, cleanText used");
 });
 
 Deno.test("an unknown number, a repeated SMS or too many: nothing read, no reply", async () => {

@@ -1,6 +1,6 @@
 // Unit tests of crm-messages: who may send, what is written down first, what goes to Brevo, SMS in test mode.
 // Run: npm run test:functions
-import { alertMail, brevoBody, type Deps, foodAlertMail, handle, reason, smsProvider, testSms } from "./index.ts";
+import { alertMail, brevoBody, type Deps, foodAlertMail, handle, inboundWays, reason, smsProvider, testSms } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
   const a = JSON.stringify(actual);
@@ -62,6 +62,12 @@ Deno.test("only a logged-in owner, only POST", async () => {
   eq((await handle(new Request("https://x", { method: "GET" }), deps)).status, 405, "GET");
   eq((await handle(post({ action: "config" }, "nobody"), deps)).status, 401, "no login");
   eq(await (await handle(post({ action: "config" }), deps)).json(), { email: true, sms: "test", sms_live: false }, "config");
+  const withInfo = { ...deps, smsInfo: { sender: "Cacaduu", inbound: ["infobip", "generic"], number: true } };
+  eq(await (await handle(post({ action: "config" }), withInfo)).json(), {
+    email: true, sms: "test", sms_live: false, sms_sender: "Cacaduu", sms_inbound: ["infobip", "generic"], sms_number: true,
+  }, "config with the sender and the inbound ways");
+  eq([inboundWays(() => undefined), inboundWays((n) => (n === "TWILIO_AUTH_TOKEN" ? "t" : n === "INBOUND_SMS_SECRET" ? "short" : undefined)),
+    inboundWays((n) => (n === "INBOUND_SMS_SECRET" ? "s".repeat(32) : undefined))], [[], ["twilio"], ["infobip", "generic"]], "inbound ways");
 });
 
 Deno.test("an e-mail: written down first, sent through Brevo with the shop as the sender's name, result reported", async () => {

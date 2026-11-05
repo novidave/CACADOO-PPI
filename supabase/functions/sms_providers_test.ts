@@ -1,5 +1,6 @@
 // The SMS providers (database update 58, CRM phase 4): one block of code in crm-messages and bookings (each function is
-// one file pasted by hand) and hours-sms (update 60), so every copy must stay the same; Brevo and Twilio requests, missing secrets, the sender.
+// one file pasted by hand) and hours-sms (update 60), so every copy must stay the same; Brevo, Twilio and Infobip
+// (2026-11-05) requests, missing secrets, the sender.
 // Run: npm run test:functions
 import * as crm from "./crm-messages/index.ts";
 import * as bookings from "./bookings/index.ts";
@@ -81,6 +82,32 @@ for (const [label, m] of [["crm-messages", crm], ["bookings", bookings], ["hours
       fake(400, { code: 21211, message: "The 'To' number +421905111222 is not valid" }).f);
     eq(await bad.send("+421905111222", "x"), { ok: false, error: "twilio 400 21211" }, "only the code, never the number");
     eq((await m.smsProvider("twilio", env({ TWILIO_ACCOUNT_SID: "x" }), f).send("+4219", "x")).ok, false, "not set up");
+  });
+
+  Deno.test(`${label}: Infobip sends to its own base URL with the App key`, async () => {
+    const { f, calls } = fake(200, { bulkId: "b1", messages: [{ messageId: "ib-1", status: { groupName: "PENDING", name: "PENDING_ACCEPTED" } }] });
+    const p = m.smsProvider("Infobip", env({ INFOBIP_API_KEY: "ibk", INFOBIP_BASE_URL: "https://Abc12.api.infobip.com/", SMS_SENDER: "Cacaduu" }), f);
+    eq([p.name, p.live], ["infobip", true], "live");
+    eq(await p.send("+421905111222", "Kód 123456"), { ok: true, ref: "ib-1" }, "sent");
+    eq(calls[0].url, "https://abc12.api.infobip.com/sms/3/messages", "endpoint");
+    eq((calls[0].init.headers as Record<string, string>).Authorization, "App ibk", "App key header");
+    eq(JSON.parse(calls[0].init.body as string), {
+      messages: [{ sender: "Cacaduu", destinations: [{ to: "421905111222" }], content: { text: "Kód 123456" } }],
+    }, "body: the number without +");
+    eq([m.infobipBase("abc12.api.infobip.com"), m.infobipBase("https://evil.example.com"), m.infobipBase("http://x.infobip.com.evil.io"), m.infobipBase("")],
+      ["https://abc12.api.infobip.com", null, null, null], "only an infobip.com host");
+    const bad = m.smsProvider("infobip", env({ INFOBIP_API_KEY: "k", INFOBIP_BASE_URL: "x.api.infobip.com" }),
+      fake(401, { requestError: { serviceException: { messageId: "UNAUTHORIZED", text: "Invalid login details +421905111222" } } }).f);
+    eq(await bad.send("+421905111222", "x"), { ok: false, error: "infobip 401 UNAUTHORIZED" }, "only the code, never the number");
+    const rejected = m.smsProvider("infobip", env({ INFOBIP_API_KEY: "k", INFOBIP_BASE_URL: "x.api.infobip.com" }),
+      fake(200, { messages: [{ messageId: "m", status: { groupName: "REJECTED", name: "REJECTED_DESTINATION" } }] }).f);
+    eq(await rejected.send("+421905111222", "x"), { ok: false, error: "infobip rejected REJECTED_DESTINATION" }, "rejected = failed");
+    const unset: Record<string, string>[] = [{}, { INFOBIP_API_KEY: "k" }, { INFOBIP_API_KEY: "k", INFOBIP_BASE_URL: "https://example.com" }];
+    for (const missing of unset) {
+      const off = m.smsProvider("infobip", env(missing), f);
+      eq([off.live, (await off.send("+421905111222", "x")).ok], [true, false], "not set up: fails, never pretends");
+    }
+    eq(calls.length, 1, "nothing sent without the secrets");
   });
 
   Deno.test(`${label}: test mode, unknown names, senders, GSM`, async () => {

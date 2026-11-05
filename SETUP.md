@@ -1939,6 +1939,10 @@ the buttons, counter and dots never move. Môj obchod shows the computer preview
    - Another SMS gateway instead: it must POST JSON `{"from": "+421…", "text": "…", "id": "…"}` to
      `…/hours-sms/inbound/generic` with the header `x-ppi-inbound` = a secret of 32+ characters you put into
      `INBOUND_SMS_SECRET`.
+   - Infobip instead (2026-11-05, TODO-OWNER 34): a number that receives SMS → "Forward to HTTP", POST, JSON, to
+     `https://<project>.supabase.co/functions/v1/hours-sms/inbound/infobip` with HTTP **Basic** authentication: any user
+     name, password = `INBOUND_SMS_SECRET` (32+ characters). Sending through Infobip: `SMS_PROVIDER=infobip`,
+     `INFOBIP_API_KEY`, `INFOBIP_BASE_URL` (xxxxx.api.infobip.com) and a sender registered for SK / HU (TODO-OWNER 33).
 4. **Google Business Profile (optional):**
    - Google Cloud → the project with the OAuth client of the bookings (Part AX3) → APIs & Services → Library → enable
      **My Business Account Management API** and **My Business Business Information API**. Google lets a project use

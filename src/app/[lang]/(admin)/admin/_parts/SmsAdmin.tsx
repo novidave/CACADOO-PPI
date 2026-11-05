@@ -3,7 +3,7 @@ import { cardClass } from "@/components/owner/ui";
 import { SaveBar } from "@/components/owner/SaveBar";
 import { HEALTH_COLORS } from "@/lib/adminOverview";
 import { saveSmsQuotas } from "./actions";
-import { DotText, numClass, saveLabels } from "./common";
+import { DotText, numClass, saveLabels, SettingRow } from "./common";
 
 export interface SmsQuotaRow {
   quota: "booking" | "owner" | "order";
@@ -21,8 +21,21 @@ export interface SmsBusiestRow {
   used: number;
 }
 
+/** What crm-messages' "config" says about SMS (the sender and the inbound ways since 2026-11-05: names only, never a value). */
+export interface SmsProviderInfo {
+  name: string;
+  live: boolean;
+  sender?: string | null;
+  inbound?: string[] | null;
+  number?: boolean | null;
+}
+
+const brand = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
+
 /**
- * Admin → SMS (database update 58; artboard 6 since 2026-11-05): which provider the functions send with; the monthly
+ * Admin → SMS (database update 58; artboard 6 since 2026-11-05): which provider the functions send with (Brevo, Twilio,
+ * Infobip), the sender as sent, how "Hodiny cez SMS" receives SMS (Twilio / Infobip / a gateway) and whether owners have
+ * the number to text; the monthly
  * quotas every shop gets (only admin_save_sms_quotas(); the food orders' quota of update 73 through
  * admin_save_sms_quota()) — each row with this month's total of all shops, the shops at the limit and a bar for the
  * busiest shop (used / limit, update 83) —; how SMS parts are counted.
@@ -36,7 +49,7 @@ export function SmsAdmin({
 }: {
   rows: SmsQuotaRow[] | null;
   busiest: SmsBusiestRow[] | null;
-  provider: { name: string; live: boolean } | null;
+  provider: SmsProviderInfo | null;
   dict: Dictionary;
   hidden: React.ReactNode;
 }) {
@@ -50,15 +63,38 @@ export function SmsAdmin({
   const quotas = (["booking", "owner", "order"] as const).filter((q) => q !== "order" || row(q));
   return (
     <section id="sms" className="flex flex-col gap-4" aria-label={a.title} data-admin-sms>
-      <div className={`${cardClass} !flex-row flex-wrap items-center gap-x-6 gap-y-2`} data-sms-provider={provider?.name ?? "unknown"}>
-        {provider === null ? (
-          <DotText color={HEALTH_COLORS.off}>{a.provider_unknown}</DotText>
-        ) : provider.live ? (
-          <DotText color={HEALTH_COLORS.ok}>{t(a.provider_live, { name: provider.name })}</DotText>
-        ) : (
-          <DotText color={HEALTH_COLORS.warn}>{a.provider_test}</DotText>
+      <div className={`${cardClass} min-w-0 !gap-0`} data-sms-provider={provider?.name ?? "unknown"}>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pb-3">
+          {provider === null ? (
+            <DotText color={HEALTH_COLORS.off}>{a.provider_unknown}</DotText>
+          ) : provider.live ? (
+            <DotText color={HEALTH_COLORS.ok}>{t(a.provider_live, { name: brand(provider.name) })}</DotText>
+          ) : (
+            <DotText color={HEALTH_COLORS.warn}>{a.provider_test}</DotText>
+          )}
+          <span className="text-sm text-[#5C5C5C]">{a.provider_hint}</span>
+        </div>
+        {provider?.sender && (
+          <SettingRow label={a.sender_label} hint={a.sender_hint} data-sms-sender="">
+            <strong>{provider.sender}</strong>
+          </SettingRow>
         )}
-        <span className="text-sm text-[#5C5C5C]">{a.provider_hint}</span>
+        {provider && Array.isArray(provider.inbound) && (
+          <SettingRow label={a.inbound_label} hint={a.inbound_hint} data-sms-inbound={provider.inbound.join(" ")}>
+            {provider.inbound.length > 0 ? (
+              <DotText color={HEALTH_COLORS.ok}>
+                {provider.inbound.map((w) => (w === "generic" ? a.inbound_generic : brand(w))).join(" · ")}
+              </DotText>
+            ) : (
+              <DotText color={HEALTH_COLORS.off}>{a.inbound_none}</DotText>
+            )}
+          </SettingRow>
+        )}
+        {provider && typeof provider.number === "boolean" && (
+          <SettingRow label={a.number_label} hint={a.number_hint} data-sms-number={provider.number ? "set" : "none"}>
+            <DotText color={provider.number ? HEALTH_COLORS.ok : HEALTH_COLORS.off}>{provider.number ? a.number_set : a.number_none}</DotText>
+          </SettingRow>
+        )}
       </div>
 
       {!rows ? (
