@@ -15,7 +15,7 @@ export default async function AdminErrorsPage({ params, searchParams }: PageProp
   const sp = await searchParams;
   const serverErrors = await session.supabase.rpc("admin_server_errors", { p_days: 7 });
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-4">
       <div>
         <AdminHead dict={dict} page="errors" />
         <AdminNotice dict={dict} sp={sp} />

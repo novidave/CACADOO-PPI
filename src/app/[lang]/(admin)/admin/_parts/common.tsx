@@ -5,6 +5,7 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import type { AdminKey } from "@/lib/adminPages";
+import { fieldClass } from "@/components/owner/ui";
 
 /**
  * What every admin page shares (2026-11-05): the start (the language, the texts, the admin's login — notFound()
@@ -79,6 +80,7 @@ export function AdminNotice({ dict, sp }: { dict: Dictionary; sp: AdminSearch })
     language: dict.admin_tr.saved,
     ui_text: dict.admin_tr.saved,
     tr_limits: dict.admin_tr.saved,
+    limits: dict.admin_nav.limits_saved,
   };
   const errText: Record<string, string> = {
     blog_limits: dict.admin_blog.error,
@@ -102,5 +104,44 @@ export function AdminNotice({ dict, sp }: { dict: Dictionary; sp: AdminSearch })
     <p role="alert" className="mb-4 rounded-xl border border-[#D6D6D6] p-3" data-admin-err={err}>
       {errMessage}
     </p>
+  );
+}
+
+/** The save bar's words (@/components/owner/SaveBar), as on the owner pages. */
+export function saveLabels(dict: Dictionary, save: string = dict.account.save) {
+  return { unsaved: dict.owner.unsaved, cancel: dict.owner.cancel_changes, save, saving: dict.owner.saving };
+}
+
+/** A small number field (the shared 52 px field, narrow and right-aligned). */
+export const numClass = `${fieldClass} !w-24 text-right tabular-nums`;
+
+/**
+ * The admin tables (artboards 2–12): a real <table> that scrolls sideways inside its own box when the screen is
+ * narrower than `min` — never the page.
+ */
+export const tableBox = "relative -mx-[18px] overflow-x-auto px-[18px]";
+export const thClass = "pb-2 pr-4 text-left text-xs font-bold uppercase tracking-[.04em] text-[#5C5C5C]";
+export const tdClass = "border-t border-[#E4E4E4] py-3 pr-4 align-middle";
+
+/** One line of a settings card: the label (and a hint under it) on the left, the value or the control on the right. */
+export function SettingRow({ label, hint, children, ...data }: { label: ReactNode; hint?: ReactNode; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+  return (
+    <div className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-[#E4E4E4] py-2 text-[15px]" {...data}>
+      <span className="flex min-w-0 flex-1 basis-48 flex-col">
+        <span className="font-semibold">{label}</span>
+        {hint && <span className="text-[13px] text-[#5C5C5C]">{hint}</span>}
+      </span>
+      <span className="flex flex-none items-center gap-2">{children}</span>
+    </div>
+  );
+}
+
+/** A status: the dot and its words (never the colour alone). */
+export function DotText({ color, children, ...data }: { color: string; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+  return (
+    <span className="inline-flex items-center gap-[7px] font-bold" {...data}>
+      <span aria-hidden="true" className="inline-block size-2.5 flex-none rounded-full shadow-[0_0_0_1px_rgba(0,0,0,.25)]" style={{ background: color }} />
+      {children}
+    </span>
   );
 }

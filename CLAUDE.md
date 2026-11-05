@@ -1912,6 +1912,26 @@ shop below it), problems first; "Otvoriť" = `@/components/admin/ExpandRow` (cli
 `aria-expanded` / `aria-controls`, the panel drawn on the server: Platba (paid / refunded + invoice), Websupport order,
 Platí do, E-mail o spustení, the last error and the existing domain actions; `?code_for=` opens its row). The column
 is "Platba" (`admin_domains.col_stripe`). Texts `admin_home.*`.
+**The other pages (A3, artboards 3–12):** one look with `@/components/owner/ui` + `SaveBar` and the admin's own helpers in
+`_parts/common.tsx` (`saveLabels`, `numClass`, `tableBox` = a `relative` box that scrolls sideways inside itself,
+`thClass` / `tdClass`, `SettingRow`, `DotText` = a dot + words; colours only `HEALTH_COLORS`). A card with several rows
+is ONE form with the save bar and ONE action that calls the same admin_* RPCs per row: Domény a cenník
+(`saveDomainSettings`; `saveDomainPrices` = every price row + a new one, "Zmazať" = `formAction={deleteDomainPrice}`),
+Limity plánov (`saveLimits` = content / section limits per plan, blog, pre-translated languages, inventory intervals;
+the old per-card actions and parts are gone), Vyhľadávanie (`saveSearchLayers`, `saveWebDomains`, "Odstrániť" =
+`formAction={deleteWebDomain}`), Preklady → Jazyky (`saveLanguages`, only changed rows; each interface text keeps its own
+form), AI a prepojenia (Telegram and AI pre majiteľov each their form; "Nastaviť webhook" its own). Chyby: one table
+(Kde · Čo · Počet · Naposledy). SMS: provider as a dot + words, each quota row with the month's total, shops at the
+limit and a bar of the busiest shop (**update 83** `supabase/sql/83_admin_sms_busiest.sql`: `admin_sms_busiest()`,
+admins only, counted as `sms_quota_used()` counts), "Ako sa počíta". Skladové programy: program tiles (Zapnúť /
+Vypnúť), connections with a dot per state, the interval line linking to Limity plánov. Partnerské feedy: one card per
+partner (letter or logo, format · schedule · time zone, the newest import as a dot + words, counts, last imports,
+"Importovať teraz", "Upraviť" = the existing forms), "+ Pridať partnera" in the head (`?add=1#partner-new`). Sviatky:
+the country as a segmented row (SK · HU · CZ, `Intl.DisplayNames`), the year with ‹ ›, "+ Pridať dátum", the table
+(the source under the name) and the edit panel on the right for `?hdate=` (or `new`): names SK / HU / EN, Druh,
+Zatvorené od, "Uložiť sviatok", "Odstrániť dátum" (a library row) / "Zrušiť úpravu" (the admin's own). e2e adds
+read-only checks (Limity plánov one form + Zrušiť, SMS bars, Sviatky segments / year / panel); no sideways scroll at
+1180, 820 and 390 px. DB block "update 83".
 
 ## Auth
 

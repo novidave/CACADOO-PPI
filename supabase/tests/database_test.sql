@@ -15834,4 +15834,53 @@ reset role;
 drop function pg_temp.t81_order(text, text, integer, integer);
 drop table t81;
 
+\echo '--- update 83: the busiest shop of each SMS quota this month, counted as the quota counts (failed never), admins only'
+create temporary table t83 (k text primary key, v text);
+grant all on t83 to public;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+begin
+  insert into public.shop_outgoing_messages (shop_id, channel, recipient, body, status, kind, parts)
+  values (v_a, 'sms', '+421905000083', 't83', 'test', 'owner', 2),
+         (v_a, 'sms', '+421905000083', 't83', 'failed', 'owner', 7);
+  insert into t83 values
+    ('owner', (select max(public.sms_quota_used(s.id, 'owner')) from public.shops s)::text),
+    ('a_owner', public.sms_quota_used(v_a, 'owner')::text);
+end $$;
+reset role;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+set role authenticated;
+do $$
+begin
+  begin perform public.admin_sms_busiest(); raise exception 'an owner read the busiest shop';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$
+begin
+  begin perform public.admin_sms_busiest(); raise exception 'anon read the busiest shop';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000ad';
+set role authenticated;
+do $$
+begin
+  assert (select count(*) from public.admin_sms_busiest()) = (select count(*) from public.admin_sms_quotas()), 'one row per quota';
+  assert (select v::integer >= 2 from t83 where k = 'a_owner'), 'the test SMS counts, the failed one does not change the max';
+  assert (select used = (select v::integer from t83 where k = 'owner') and shop_slug is not null and monthly > 0
+          from public.admin_sms_busiest() where quota = 'owner'), 'the busiest shop of the owner quota';
+  assert (select bool_and(used >= 0 and (used = 0) = (shop_slug is null)) from public.admin_sms_busiest()), 'no shop when nothing was sent';
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role service_role;
+delete from public.shop_outgoing_messages where body = 't83' and recipient = '+421905000083';
+reset role;
+drop table t83;
+
 \echo 'ALL DATABASE CHECKS PASSED'

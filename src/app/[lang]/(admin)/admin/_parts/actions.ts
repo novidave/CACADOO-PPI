@@ -48,20 +48,32 @@ export async function saveDomainSettings(formData: FormData) {
   back(error ? { err: error.message.slice(0, 200) } : { ok: "settings" }, "settings");
 }
 
-export async function saveDomainPrice(formData: FormData) {
+/**
+ * "Cenník domén" (artboard 4): every row of the table at once (admin_save_domain_price per row, which checks is_admin()
+ * and the values itself) and, when its ending is filled in, the new row.
+ */
+export async function saveDomainPrices(formData: FormData) {
   const { session, back } = await start(formData);
-  const price = cents(formData.get("price"));
-  const renewal = cents(formData.get("renewal"));
-  if (!price || !renewal) back({ err: "price" }, "prices");
-  const { error } = await session.supabase.rpc("admin_save_domain_price", {
-    p_tld: String(formData.get("tld") ?? "").trim(),
-    p_price_cents: price,
-    p_renewal_cents: renewal,
-    p_vat_included: formData.get("vat_included") === "on",
-    p_sort: Math.floor(Number(formData.get("sort")) || 100),
-    p_active: formData.get("active") === "on",
-  });
-  back(error ? { err: error.message.slice(0, 200) } : { ok: "price" }, "prices");
+  const save = async (tld: string, prefix: string, vat: boolean, active: boolean) => {
+    const price = cents(formData.get(`${prefix}price`));
+    const renewal = cents(formData.get(`${prefix}renewal`));
+    if (!price || !renewal) back({ err: "price" }, "prices");
+    const { error } = await session.supabase.rpc("admin_save_domain_price", {
+      p_tld: tld,
+      p_price_cents: price,
+      p_renewal_cents: renewal,
+      p_vat_included: vat,
+      p_sort: Math.floor(Number(formData.get(`${prefix}sort`)) || 100),
+      p_active: active,
+    });
+    if (error) back({ err: error.message.slice(0, 200) }, "prices");
+  };
+  for (const tld of formData.getAll("tlds").map(String).slice(0, 200)) {
+    await save(tld, `${tld}:`, formData.get(`${tld}:vat_included`) === "on", formData.get(`${tld}:active`) === "on");
+  }
+  const added = String(formData.get("new:tld") ?? "").trim();
+  if (added) await save(added, "new:", true, true);
+  back({ ok: "price" }, "prices");
 }
 
 export async function deleteDomainPrice(formData: FormData) {
@@ -103,45 +115,67 @@ export async function domainAction(formData: FormData) {
 }
 
 /**
- * "Limity obsahu stránky" of one plan: slides, of which PDFs, and files in the library (database update 38:
- * admin_save_content_limits), pages and MB per file (update 30: admin_save_section_limits). Both check is_admin()
- * and the ranges themselves.
+ * Limity plánov (artboard 5): every Zadarmo / Pro limit in ONE form — page content (database update 38:
+ * admin_save_content_limits; update 30: admin_save_section_limits), blog posts (admin_save_blog_limits; empty = all),
+ * pre-translated languages (admin_save_translation_limits) and the inventory programs (admin_save_inventory_settings).
+ * Each part is saved only when the form carries it; every function checks is_admin() and its own ranges. The first
+ * refusal returns to its card.
  */
-export async function saveSectionLimits(formData: FormData) {
+export async function saveLimits(formData: FormData) {
   const { session, back } = await start(formData);
   const whole = (name: string) => {
-    const n = Number(formData.get(name));
-    return Number.isInteger(n) ? n : null;
+    const text = String(formData.get(name) ?? "").trim();
+    const n = Number(text);
+    return text !== "" && Number.isInteger(n) ? n : null;
   };
-  if (formData.has("max_slides")) {
-    const { error } = await session.supabase.rpc("admin_save_content_limits", {
-      p_plan: String(formData.get("plan") ?? ""),
-      p_max_slides: whole("max_slides"),
-      p_max_pdf_slides: whole("max_pdf_slides"),
-      p_max_items: whole("max_items"),
-    });
-    if (error) back({ err: error.message.slice(0, 200) }, "section-limits");
-  }
-  const { error } = await session.supabase.rpc("admin_save_section_limits", {
-    p_plan: String(formData.get("plan") ?? ""),
-    p_max_sections: whole("max_sections"),
-    p_max_pages: whole("max_pages"),
-    p_max_mb: whole("max_mb"),
-  });
-  back(error ? { err: error.message.slice(0, 200) } : { ok: "limits" }, "section-limits");
-}
-
-/** "Novinky / Blog": the newest N articles per plan (empty = all); admin_save_blog_limits checks is_admin() itself. */
-export async function saveBlogLimits(formData: FormData) {
-  const { session, back } = await start(formData);
   for (const plan of ["free", "pro"] as const) {
-    const text = String(formData.get(plan) ?? "").trim();
-    const n = text === "" ? null : Number(text);
-    if (n !== null && (!Number.isInteger(n) || n < 0 || n > 10_000)) back({ err: "blog_limits" }, "blog-limits");
-    const { error } = await session.supabase.rpc("admin_save_blog_limits", { p_plan: plan, p_max_posts: n });
-    if (error) back({ err: error.message.slice(0, 200) }, "blog-limits");
+    if (formData.has(`${plan}:max_slides`)) {
+      const { error } = await session.supabase.rpc("admin_save_content_limits", {
+        p_plan: plan,
+        p_max_slides: whole(`${plan}:max_slides`),
+        p_max_pdf_slides: whole(`${plan}:max_pdf_slides`),
+        p_max_items: whole(`${plan}:max_items`),
+      });
+      if (error) back({ err: error.message.slice(0, 200) }, "section-limits");
+    }
+    if (formData.has(`${plan}:max_pages`)) {
+      const { error } = await session.supabase.rpc("admin_save_section_limits", {
+        p_plan: plan,
+        p_max_sections: whole(`${plan}:max_sections`),
+        p_max_pages: whole(`${plan}:max_pages`),
+        p_max_mb: whole(`${plan}:max_mb`),
+      });
+      if (error) back({ err: error.message.slice(0, 200) }, "section-limits");
+    }
   }
-  back({ ok: "blog_limits" }, "blog-limits");
+  if (formData.has("blog:free")) {
+    for (const plan of ["free", "pro"] as const) {
+      const text = String(formData.get(`blog:${plan}`) ?? "").trim();
+      const n = text === "" ? null : Number(text);
+      if (n !== null && (!Number.isInteger(n) || n < 0 || n > 10_000)) back({ err: "blog_limits" }, "blog-limits");
+      const { error } = await session.supabase.rpc("admin_save_blog_limits", { p_plan: plan, p_max_posts: n });
+      if (error) back({ err: error.message.slice(0, 200) }, "blog-limits");
+    }
+  }
+  if (formData.has("tr:free")) {
+    const { error } = await session.supabase.rpc("admin_save_translation_limits", {
+      p_free: Number(formData.get("tr:free")),
+      p_pro: Number(formData.get("tr:pro")),
+    });
+    if (error) back({ err: error.message.slice(0, 200) }, "translation-limits");
+  }
+  if (formData.has("inv:pro_interval")) {
+    const pro = Number(formData.get("inv:pro_interval"));
+    const free = Number(formData.get("inv:free_interval"));
+    if (![pro, free].every((n) => Number.isInteger(n) && n >= 5 && n <= 10_080)) back({ err: "inventory" }, "inventory-limits");
+    const { error } = await session.supabase.rpc("admin_save_inventory_settings", {
+      p_pro_interval: pro,
+      p_free_allowed: formData.get("inv:free_allowed") === "on",
+      p_free_interval: free,
+    });
+    if (error) back({ err: "inventory" }, "inventory-limits");
+  }
+  back({ ok: "limits" }, "section-limits");
 }
 
 /** "SMS" (database update 58): the two monthly quotas of every shop; admin_save_sms_quotas checks is_admin() itself. */
@@ -160,21 +194,6 @@ export async function saveSmsQuotas(formData: FormData) {
     if (saved.error) back({ err: "sms" }, "sms");
   }
   back({ ok: "sms" }, "sms");
-}
-
-/** "Skladové programy (API)" (database update 49): the intervals per plan and whether Free may connect. */
-export async function saveInventorySettings(formData: FormData) {
-  const { session, back } = await start(formData);
-  const pro = Number(formData.get("pro_interval"));
-  const free = Number(formData.get("free_interval"));
-  if (![pro, free].every((n) => Number.isInteger(n) && n >= 5 && n <= 10_080)) back({ err: "inventory" }, "inventory-limits");
-  const { error } = await session.supabase.rpc("admin_save_inventory_settings", {
-    p_pro_interval: pro,
-    p_free_allowed: formData.get("free_allowed") === "on",
-    p_free_interval: free,
-  });
-  if (error) back({ err: "inventory" }, "inventory-limits");
-  back({ ok: "inventory" }, "inventory-limits");
 }
 
 /** A built program on or off (a program that is not built stays off; the SQL decides). */
@@ -238,32 +257,46 @@ function amount(value: FormDataEntryValue | null): number | null {
 }
 
 /**
- * "Vyhľadávanie mimo Cacaduu" (database update 34): a layer's switch and its estimated prices;
- * admin_save_search_layer checks is_admin() and the ranges itself.
+ * "Vyhľadávanie mimo Cacaduu" (database update 34; artboard 9): every layer's switch and its estimated prices at once
+ * ("<layer>:enabled", "<layer>:cost_per_call", …); admin_save_search_layer checks is_admin() and the ranges itself.
  */
-export async function saveSearchLayer(formData: FormData) {
+export async function saveSearchLayers(formData: FormData) {
   const { session, back } = await start(formData);
-  const { error } = await session.supabase.rpc("admin_save_search_layer", {
-    p_layer: String(formData.get("layer") ?? ""),
-    p_enabled: formData.get("enabled") === "on",
-    p_cost_per_call_usd: amount(formData.get("cost_per_call")) ?? -1,
-    p_input_usd_per_mtok: amount(formData.get("input_per_mtok")) ?? 0,
-    p_output_usd_per_mtok: amount(formData.get("output_per_mtok")) ?? 0,
-  });
-  back(error ? { err: searchError(error.message) } : { ok: "layer" }, "external-search");
+  for (const layer of formData.getAll("layers").map(String).slice(0, 10)) {
+    const { error } = await session.supabase.rpc("admin_save_search_layer", {
+      p_layer: layer,
+      p_enabled: formData.get(`${layer}:enabled`) === "on",
+      p_cost_per_call_usd: amount(formData.get(`${layer}:cost_per_call`)) ?? -1,
+      p_input_usd_per_mtok: amount(formData.get(`${layer}:input_per_mtok`)) ?? 0,
+      p_output_usd_per_mtok: amount(formData.get(`${layer}:output_per_mtok`)) ?? 0,
+    });
+    if (error) back({ err: searchError(error.message) }, "external-search");
+  }
+  back({ ok: "layer" }, "external-search");
 }
 
-/** One allowed web domain with its label, search address (deep link) and order. */
-export async function saveWebDomain(formData: FormData) {
+/**
+ * The allowed web domains (artboard 9): every row's label, search address (deep link), order and switch at once, and
+ * — when its domain is filled in — the new one; admin_save_web_domain checks is_admin() and every value itself.
+ */
+export async function saveWebDomains(formData: FormData) {
   const { session, back } = await start(formData);
-  const { error } = await session.supabase.rpc("admin_save_web_domain", {
-    p_domain: String(formData.get("domain") ?? "").slice(0, 300),
-    p_label: String(formData.get("label") ?? "").slice(0, 200),
-    p_search_url: String(formData.get("search_url") ?? "").slice(0, 600),
-    p_enabled: formData.get("enabled") === "on",
-    p_sort: Math.floor(Number(formData.get("sort")) || 100),
-  });
-  back(error ? { err: searchError(error.message) } : { ok: "domain" }, "web-domains");
+  const save = async (domain: string, prefix: string, enabled: boolean) => {
+    const { error } = await session.supabase.rpc("admin_save_web_domain", {
+      p_domain: domain.slice(0, 300),
+      p_label: String(formData.get(`${prefix}label`) ?? "").slice(0, 200),
+      p_search_url: String(formData.get(`${prefix}search_url`) ?? "").slice(0, 600),
+      p_enabled: enabled,
+      p_sort: Math.floor(Number(formData.get(`${prefix}sort`)) || 100),
+    });
+    if (error) back({ err: searchError(error.message) }, "web-domains");
+  };
+  for (const domain of formData.getAll("domains").map(String).slice(0, 100)) {
+    await save(domain, `${domain}:`, formData.get(`${domain}:enabled`) === "on");
+  }
+  const added = String(formData.get("new:domain") ?? "").trim();
+  if (added) await save(added, "new:", true);
+  back({ ok: "domain" }, "web-domains");
 }
 
 export async function deleteWebDomain(formData: FormData) {

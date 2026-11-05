@@ -9,6 +9,9 @@ import { europeanTimeZones } from "@/lib/timezones";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { PartnerFileUpload } from "@/components/PartnerFileUpload";
 import { PendingButton } from "@/components/PendingButton";
+import { HEALTH_COLORS, type Health } from "@/lib/adminOverview";
+import { buttonClass, cardClass, fieldClass, ghostClass } from "@/components/owner/ui";
+import { DotText } from "./common";
 import {
   deletePartner,
   importPartnerNow,
@@ -70,16 +73,21 @@ export interface PartnerEnv {
   part_mb?: number;
 }
 
-const input = "rounded border border-line px-2 py-1 outline-none focus:border-foreground";
+const input = `${fieldClass} !min-h-11 !w-auto !py-2 !text-[15px]`;
+/** The newest import's dot: done / unchanged = green, still running = yellow, an error = red. */
+const IMPORT_HEALTH: Record<string, Health> = { done: "ok", unchanged: "ok", download: "warn", parse: "warn", error: "bad" };
 const FORMATS = ["google_xml", "google_csv", "heureka_xml", "csv"];
 const LOCAL_FORMATS = ["google_local_xml", "google_local_csv"];
 const SCHEDULES = ["hourly", "6h", "daily", "weekly"];
 
 /**
- * "Partnerské feedy" on the admin page: every partner with its feed (an https address or an
- * uploaded file), format, local inventory feed, schedule, affiliate switch, logo and store list,
- * the counts and the last imports, "Importovať teraz". Reads and writes only through admin_*
- * functions (is_admin() in SQL); feed files go from the browser straight to the private bucket.
+ * "Partnerské feedy" (database update 35; artboard 10 since 2026-11-05): the partner-feeds function's state (a dot +
+ * words), then one card per partner — its letter or logo, name, format · schedule · time zone, on / off, the newest
+ * import as a dot + words (and its error), the counts, "Údaje z … · Ďalší import …", the last imports,
+ * "Importovať teraz" and "Upraviť" (the same forms as before: feed address or file, format, local inventory feed,
+ * schedule, affiliate switch, logo, store list, delete). "+ Pridať partnera" in the page's head opens the form
+ * (?add=1#partner-new). Reads and writes only through admin_* functions (is_admin() in SQL); feed files go from the
+ * browser straight to the private bucket.
  */
 export function PartnerFeedsAdmin({
   settings,
@@ -87,24 +95,21 @@ export function PartnerFeedsAdmin({
   lang,
   dict,
   hidden,
+  adding = false,
 }: {
   settings: PartnerSettings | null;
   env: PartnerEnv | null;
+  /** "+ Pridať partnera" was pressed (?add=1): the form opens. */
+  adding?: boolean;
   lang: Locale;
   dict: Dictionary;
   hidden: ReactNode;
 }) {
   const x = dict.admin_partners as Record<string, string>;
-  const heading = (
-    <h2 id="partner-feeds-heading" className="text-lg font-semibold">
-      {x.title}
-    </h2>
-  );
   if (!settings) {
     return (
-      <section id="partner-feeds" className="flex flex-col gap-2" aria-labelledby="partner-feeds-heading">
-        {heading}
-        <p className="text-sm text-muted">{x.unavailable}</p>
+      <section id="partner-feeds" className={`${cardClass} min-w-0`} aria-label={x.title}>
+        <p className="text-sm text-[#5C5C5C]">{x.unavailable}</p>
       </section>
     );
   }
@@ -119,10 +124,10 @@ export function PartnerFeedsAdmin({
 
   const fields = (p: AdminPartner | null) => (
     <>
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-wrap items-end gap-3 text-sm font-semibold">
         <label className="flex flex-col gap-1">
           <span>{x.name}</span>
-          <input name="name" required maxLength={80} defaultValue={p?.name ?? ""} className={`${input} w-56`} />
+          <input name="name" required maxLength={80} defaultValue={p?.name ?? ""} className={`${input} !w-56`} />
         </label>
         <label className="flex flex-col gap-1">
           <span>{x.format}</span>
@@ -157,19 +162,19 @@ export function PartnerFeedsAdmin({
         </label>
         <label className="flex flex-col gap-1">
           <span>{x.currency}</span>
-          <input name="currency" maxLength={3} defaultValue={p?.currency ?? ""} className={`${input} w-20 uppercase`} />
+          <input name="currency" maxLength={3} defaultValue={p?.currency ?? ""} className={`${input} !w-20 uppercase`} />
         </label>
       </div>
-      <p className="text-xs text-muted">{x.currency_hint} {x.csv_hint}</p>
-      <label className="flex flex-col gap-1">
+      <p className="text-[13px] text-[#5C5C5C]">{x.currency_hint} {x.csv_hint}</p>
+      <label className="flex flex-col gap-1 text-sm font-semibold">
         <span>{x.feed_url}</span>
-        <input name="feed_url" type="url" defaultValue={p?.feed_url ?? ""} placeholder="https://" className={`${input} w-full max-w-2xl`} />
-        <span className="text-xs text-muted">{x.feed_url_hint}</span>
+        <input name="feed_url" type="url" defaultValue={p?.feed_url ?? ""} placeholder="https://" className={`${input} !w-full max-w-2xl`} />
+        <span className="text-[13px] font-normal text-[#5C5C5C]">{x.feed_url_hint}</span>
       </label>
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-wrap items-end gap-3 text-sm font-semibold">
         <label className="flex flex-col gap-1">
           <span>{x.inventory_url}</span>
-          <input name="inventory_url" type="url" defaultValue={p?.inventory_url ?? ""} placeholder="https://" className={`${input} w-96 max-w-full`} />
+          <input name="inventory_url" type="url" defaultValue={p?.inventory_url ?? ""} placeholder="https://" className={`${input} !w-96 max-w-full`} />
         </label>
         <label className="flex flex-col gap-1">
           <span>{x.inventory_format}</span>
@@ -182,14 +187,14 @@ export function PartnerFeedsAdmin({
           </select>
         </label>
       </div>
-      <p className="text-xs text-muted">{x.inventory_hint}</p>
-      <div className="flex flex-wrap gap-4">
-        <label className="flex items-center gap-1">
-          <input type="checkbox" name="affiliate" defaultChecked={p?.affiliate ?? false} />
+      <p className="text-[13px] text-[#5C5C5C]">{x.inventory_hint}</p>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        <label className="flex min-h-11 items-center gap-3 text-[15px] font-semibold">
+          <input type="checkbox" name="affiliate" defaultChecked={p?.affiliate ?? false} className="ppi-toggle" />
           {x.affiliate}
         </label>
-        <label className="flex items-center gap-1">
-          <input type="checkbox" name="enabled" defaultChecked={p?.enabled ?? true} />
+        <label className="flex min-h-11 items-center gap-3 text-[15px] font-semibold">
+          <input type="checkbox" name="enabled" defaultChecked={p?.enabled ?? true} className="ppi-toggle" />
           {x.enabled}
         </label>
       </div>
@@ -197,152 +202,176 @@ export function PartnerFeedsAdmin({
   );
 
   return (
-    <section id="partner-feeds" className="flex flex-col gap-3" aria-labelledby="partner-feeds-heading">
-      {heading}
-      <p className="max-w-2xl text-sm text-muted">{x.intro}</p>
-      <p className="text-sm" data-partner-env>
-        {env
-          ? t(x.env, { max: env.max_mb ?? "?", ceiling: env.ceiling_mb ?? "?", part: env.part_mb ?? "?" })
-          : <span className="font-semibold">{x.env_unknown}</span>}
+    <section id="partner-feeds" className="flex scroll-mt-4 flex-col gap-4" aria-label={x.title}>
+      <p className="text-[15px]" data-partner-env>
+        {env ? (
+          <DotText color={HEALTH_COLORS.ok}>
+            <span className="font-medium">{t(x.env, { max: env.max_mb ?? "?", ceiling: env.ceiling_mb ?? "?", part: env.part_mb ?? "?" })}</span>
+          </DotText>
+        ) : (
+          <DotText color={HEALTH_COLORS.off}>{x.env_unknown}</DotText>
+        )}
       </p>
-      {settings.partners.length === 0 && <p className="text-sm text-muted">{x.none}</p>}
+      {settings.partners.length === 0 && <p className={`${cardClass} text-[15px] text-[#5C5C5C]`}>{x.none}</p>}
 
-      {settings.partners.map((p) => {
-        const logo = partnerLogoUrl(base, p.logo_path);
-        const latest = p.imports[0];
-        const statusOf = (i: AdminPartner["imports"][number]) =>
-          i.status === "parse" ? t(x.status_parse, { part: Math.min(i.part_index + 1, Math.max(i.parts, 1)), parts: Math.max(i.parts, 1) }) : x[`status_${i.status}`];
-        return (
-          <details key={p.id} id={`partner-${p.id}`} className="border-b border-line pb-3 text-sm" data-partner={p.name}>
-            <summary className="cursor-pointer py-2">
-              <span className="font-semibold">{p.name}</span>
-              <span className="text-muted">
-                {" · "}
-                {x[`format_${p.feed_format}`]}
-                {" · "}
-                {t(x.stats, { products: p.products, fresh: p.products_fresh, stores: p.stores.length, stock: p.store_stock })}
-                {latest && (
-                  <>
-                    {" · "}
-                    <span data-partner-status={latest.status}>{statusOf(latest)}</span>
-                  </>
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        {settings.partners.map((p) => {
+          const logo = partnerLogoUrl(base, p.logo_path);
+          const latest = p.imports[0];
+          const statusOf = (i: AdminPartner["imports"][number]) =>
+            i.status === "parse" ? t(x.status_parse, { part: Math.min(i.part_index + 1, Math.max(i.parts, 1)), parts: Math.max(i.parts, 1) }) : x[`status_${i.status}`];
+          return (
+            <section key={p.id} id={`partner-${p.id}`} className={`${cardClass} min-w-0 scroll-mt-4`} aria-label={p.name} data-partner={p.name}>
+              <div className="flex items-start gap-3">
+                {logo ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- the partner's logo straight from storage
+                  <img src={logo} alt="" className="size-11 flex-none rounded-xl border border-[#E4E4E4] object-contain p-1 grayscale" />
+                ) : (
+                  <span aria-hidden="true" className="flex size-11 flex-none items-center justify-center rounded-xl bg-[#111] text-lg font-bold text-white">
+                    {p.name.trim().charAt(0).toUpperCase()}
+                  </span>
                 )}
-                {!p.enabled && ` · ${x.enabled}: –`}
-              </span>
-            </summary>
-            <div className="flex flex-col gap-4 pt-2">
-              <p data-partner-summary>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <strong className="break-words text-base">{p.name}</strong>
+                  <span className="text-[13px] text-[#5C5C5C]">
+                    {x[`format_${p.feed_format}`]} · {x[`schedule_${p.schedule}`]} · {p.timezone}
+                  </span>
+                </span>
+                <DotText color={p.enabled ? HEALTH_COLORS.ok : HEALTH_COLORS.off}>
+                  <span className="text-sm">{p.enabled ? x.on : x.off}</span>
+                </DotText>
+              </div>
+              {(latest || p.affiliate) && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  {latest && (
+                    <span data-partner-status={latest.status}>
+                      <DotText color={HEALTH_COLORS[IMPORT_HEALTH[latest.status] ?? "off"]}>{statusOf(latest)}</DotText>
+                    </span>
+                  )}
+                  {p.affiliate && <span className="rounded-full border border-[#E4E4E4] px-2.5 py-0.5 text-[13px] font-semibold">{dict.search.partner_affiliate}</span>}
+                </div>
+              )}
+              {latest?.error && (
+                <p className="text-sm" data-import-error={latest.error}>
+                  <span className="font-semibold">{x[`err_import_${latest.error}`] ?? latest.error}</span>
+                  {latest.error_detail && <span className="text-[13px] text-[#5C5C5C]"> ({latest.error_detail})</span>}
+                </p>
+              )}
+              <p className="text-sm">{t(x.stats, { products: p.products, fresh: p.products_fresh, stores: p.stores.length, stock: p.store_stock })}</p>
+              <p className="text-sm text-[#5C5C5C]" data-partner-summary>
                 {t(x.data_time, { time: when(p.data_time, p.timezone) })}
                 {" · "}
                 {t(x.next_run, { time: when(p.next_run_at, p.timezone) })}
-                {p.affiliate && ` · ${dict.search.partner_affiliate}`}
               </p>
-              {!p.feed_url && !p.feed_file_path && <p className="font-semibold">{x.no_source}</p>}
-
-              <form action={savePartner} className="flex flex-col gap-3">
-                {hidden}
-                <input type="hidden" name="partner_id" value={p.id} />
-                {fields(p)}
-                <PendingButton pending={dict.admin_domains.done}>{x.save}</PendingButton>
-              </form>
-
-              <div className="flex flex-wrap gap-6">
-                <div className="flex flex-col gap-1">
-                  <PartnerFileUpload partnerId={p.id} kind="products" label={x.feed_file} labels={uploadLabels} register={registerPartnerFile} />
-                  {p.feed_file_path && <span className="text-xs text-muted">{t(x.file_now, { time: when(p.feed_file_at, p.timezone) })}</span>}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <PartnerFileUpload partnerId={p.id} kind="inventory" label={x.inventory_file} labels={uploadLabels} register={registerPartnerFile} />
-                  {p.inventory_file_path && <span className="text-xs text-muted">{t(x.file_now, { time: when(p.inventory_file_at, p.timezone) })}</span>}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-end gap-3">
-                {logo && (
-                  // eslint-disable-next-line @next/next/no-img-element -- the partner's logo straight from storage
-                  <img src={logo} alt="" className="h-8 w-auto grayscale" />
-                )}
-                <form action={uploadPartnerLogo} className="flex flex-wrap items-end gap-2">
-                  {hidden}
-                  <input type="hidden" name="partner_id" value={p.id} />
-                  <label className="flex flex-col gap-1">
-                    <span>{x.logo}</span>
-                    <input type="file" name="logo" required accept="image/png,image/jpeg,image/webp" className="text-sm" />
-                  </label>
-                  <PendingButton pending={dict.admin_domains.done}>{x.logo_save}</PendingButton>
-                </form>
-                {logo && (
-                  <form action={removePartnerLogo}>
-                    {hidden}
-                    <input type="hidden" name="partner_id" value={p.id} />
-                    <button type="submit" className="px-1 py-2 underline underline-offset-4">
-                      {x.logo_remove}
-                    </button>
-                  </form>
-                )}
-              </div>
-
-              <form action={savePartnerStores} className="flex flex-col gap-1">
-                {hidden}
-                <input type="hidden" name="partner_id" value={p.id} />
-                <label className="flex flex-col gap-1">
-                  <span className="font-medium">{x.stores_title}</span>
-                  <span className="text-xs text-muted">{x.stores_hint}</span>
-                  <textarea
-                    name="stores"
-                    rows={Math.min(Math.max(p.stores.length + 1, 3), 12)}
-                    defaultValue={p.stores
-                      .map((s) => [s.code, s.name, s.address ?? "", s.city ?? "", s.postal_code ?? "", s.country ?? "", s.lat ?? "", s.lng ?? ""].join(";").replace(/;+$/, ""))
-                      .join("\n")}
-                    className={`${input} w-full max-w-2xl font-mono text-xs`}
-                  />
-                </label>
-                <PendingButton pending={dict.admin_domains.done}>{x.stores_save}</PendingButton>
-              </form>
+              {!p.feed_url && !p.feed_file_path && <p className="text-sm font-semibold">{x.no_source}</p>}
 
               {p.imports.length > 0 && (
-                <div className="flex flex-col gap-1" data-partner-imports>
-                  <h3 className="font-medium">{x.imports}</h3>
-                  <ul className="flex flex-col gap-1">
+                <details className="group border-t border-[#E4E4E4] pt-2" data-partner-imports>
+                  <summary className="flex min-h-11 cursor-pointer items-center text-[15px] font-bold">{x.imports}</summary>
+                  <ul className="flex flex-col">
                     {p.imports.map((i) => (
-                      <li key={i.id} data-import-status={i.status} data-import-kind={i.kind}>
-                        {t(x.import_row, { when: when(i.started_at, p.timezone), kind: x[`kind_${i.kind}`], status: statusOf(i) })}
+                      <li key={i.id} className="flex flex-col gap-0.5 border-t border-[#E4E4E4] py-2 text-sm" data-import-status={i.status} data-import-kind={i.kind}>
+                        <span>{t(x.import_row, { when: when(i.started_at, p.timezone), kind: x[`kind_${i.kind}`], status: statusOf(i) })}</span>
                         {(i.status === "done" || i.rows_read > 0) && (
-                          <span className="text-muted"> · {t(x.import_rows, { read: i.rows_read, bad: i.rows_bad, kept: i.rows_kept ?? "–" })}</span>
+                          <span className="text-[13px] text-[#5C5C5C]">{t(x.import_rows, { read: i.rows_read, bad: i.rows_bad, kept: i.rows_kept ?? "–" })}</span>
                         )}
                         {i.error && (
-                          <span className="block" data-import-error={i.error}>
+                          <span className="text-[13px]" data-import-error={i.error}>
                             <span className="font-semibold">{x[`err_import_${i.error}`] ?? i.error}</span>
-                            {i.error_detail && <span className="text-xs text-muted"> ({i.error_detail})</span>}
+                            {i.error_detail && <span className="text-[#5C5C5C]"> ({i.error_detail})</span>}
                           </span>
                         )}
                       </li>
                     ))}
                   </ul>
-                </div>
+                </details>
               )}
 
-              <div className="flex flex-wrap gap-4">
+              <div className="flex flex-wrap items-start gap-2.5 border-t border-[#E4E4E4] pt-3">
                 <form action={importPartnerNow}>
                   {hidden}
                   <input type="hidden" name="partner_id" value={p.id} />
-                  <PendingButton pending={dict.admin_domains.done}>{x.import_now}</PendingButton>
+                  <button type="submit" className={`${buttonClass} !min-h-11 !px-4 !text-[15px]`} data-partner-import>
+                    {x.import_now}
+                  </button>
                 </form>
-                <form action={deletePartner}>
-                  {hidden}
-                  <input type="hidden" name="partner_id" value={p.id} />
-                  <ConfirmButton question={x.delete_confirm} className="px-1 py-2 underline underline-offset-4">
-                    {x.delete}
-                  </ConfirmButton>
-                </form>
-              </div>
-            </div>
-          </details>
-        );
-      })}
+                <details className="w-full" data-partner-edit>
+                  <summary className={`${ghostClass} !min-h-11 w-fit cursor-pointer list-none !px-4 !text-[15px] [&::-webkit-details-marker]:hidden`}>{x.edit}</summary>
+                  <div className="flex flex-col gap-4 pt-3">
+                    <form action={savePartner} className="flex flex-col gap-3">
+                      {hidden}
+                      <input type="hidden" name="partner_id" value={p.id} />
+                      {fields(p)}
+                      <PendingButton pending={dict.admin_domains.done}>{x.save}</PendingButton>
+                    </form>
 
-      <details className="text-sm" id="partner-new" open={settings.partners.length === 0}>
-        <summary className="cursor-pointer py-2 font-semibold">{x.add_title}</summary>
+                    <div className="flex flex-wrap gap-6 text-sm">
+                      <div className="flex flex-col gap-1">
+                        <PartnerFileUpload partnerId={p.id} kind="products" label={x.feed_file} labels={uploadLabels} register={registerPartnerFile} />
+                        {p.feed_file_path && <span className="text-[13px] text-[#5C5C5C]">{t(x.file_now, { time: when(p.feed_file_at, p.timezone) })}</span>}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <PartnerFileUpload partnerId={p.id} kind="inventory" label={x.inventory_file} labels={uploadLabels} register={registerPartnerFile} />
+                        {p.inventory_file_path && <span className="text-[13px] text-[#5C5C5C]">{t(x.file_now, { time: when(p.inventory_file_at, p.timezone) })}</span>}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-end gap-3 text-sm">
+                      <form action={uploadPartnerLogo} className="flex flex-wrap items-end gap-2">
+                        {hidden}
+                        <input type="hidden" name="partner_id" value={p.id} />
+                        <label className="flex flex-col gap-1 font-semibold">
+                          <span>{x.logo}</span>
+                          <input type="file" name="logo" required accept="image/png,image/jpeg,image/webp" className="text-sm font-normal" />
+                        </label>
+                        <PendingButton pending={dict.admin_domains.done}>{x.logo_save}</PendingButton>
+                      </form>
+                      {logo && (
+                        <form action={removePartnerLogo}>
+                          {hidden}
+                          <input type="hidden" name="partner_id" value={p.id} />
+                          <button type="submit" className="min-h-11 px-1 underline underline-offset-4">
+                            {x.logo_remove}
+                          </button>
+                        </form>
+                      )}
+                    </div>
+
+                    <form action={savePartnerStores} className="flex flex-col gap-1.5">
+                      {hidden}
+                      <input type="hidden" name="partner_id" value={p.id} />
+                      <label className="flex flex-col gap-1">
+                        <span className="text-sm font-semibold">{x.stores_title}</span>
+                        <span className="text-[13px] text-[#5C5C5C]">{x.stores_hint}</span>
+                        <textarea
+                          name="stores"
+                          rows={Math.min(Math.max(p.stores.length + 1, 3), 12)}
+                          defaultValue={p.stores
+                            .map((s) => [s.code, s.name, s.address ?? "", s.city ?? "", s.postal_code ?? "", s.country ?? "", s.lat ?? "", s.lng ?? ""].join(";").replace(/;+$/, ""))
+                            .join("\n")}
+                          className={`${input} !w-full font-mono !text-[13px]`}
+                        />
+                      </label>
+                      <PendingButton pending={dict.admin_domains.done}>{x.stores_save}</PendingButton>
+                    </form>
+
+                    <form action={deletePartner}>
+                      {hidden}
+                      <input type="hidden" name="partner_id" value={p.id} />
+                      <ConfirmButton question={x.delete_confirm} className="min-h-11 px-1 underline underline-offset-4">
+                        {x.delete}
+                      </ConfirmButton>
+                    </form>
+                  </div>
+                </details>
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      <details className={`${cardClass} min-w-0 scroll-mt-4`} id="partner-new" open={adding || settings.partners.length === 0}>
+        <summary className="flex min-h-11 cursor-pointer items-center text-[19px] font-bold">{x.add_title}</summary>
         <form action={savePartner} className="flex flex-col gap-3 pt-2" data-partner-new>
           {hidden}
           {fields(null)}

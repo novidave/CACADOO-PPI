@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { t } from "@/i18n/dictionaries";
 import { adminHref } from "@/lib/adminPages";
 import { InventoryAdmin, type InventoryOverview } from "../_parts/InventoryAdmin";
 import { AdminHead, AdminNotice, adminStart, adminTitle, Hidden } from "../_parts/common";
@@ -17,21 +18,32 @@ export default async function AdminInventoryPage({ params, searchParams }: PageP
   const sp = await searchParams;
   const inventory = await session.supabase.rpc("admin_inventory_overview");
   const hidden = <Hidden lang={lang} keep="" />;
+  const overview = inventory.error ? null : (inventory.data as InventoryOverview);
+  const plan = (p: "free" | "pro") => overview?.plans?.find((r) => r.plan === p);
+  const a = dict.admin_inventory;
+  const pro = plan("pro")?.interval_minutes;
+  const free = plan("free");
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-4">
       <div>
         <AdminHead dict={dict} page="inventory" />
         <AdminNotice dict={dict} sp={sp} />
       </div>
       <InventoryAdmin
-        overview={inventory.error ? null : (inventory.data as InventoryOverview)}
+        overview={overview}
         lang={lang}
         dict={dict}
         hidden={hidden}
         limitsNote={
-          <p className="text-sm">
+          <p className="text-[15px]" data-inventory-interval>
+            {pro !== undefined && (
+              <>
+                {t(a.interval_line, { pro, free: free?.allowed ? t(a.free_every, { n: free.interval_minutes }) : a.free_off })}
+                {" · "}
+              </>
+            )}
             <Link href={adminHref(lang, "limits", undefined, "inventory-limits")} className="font-semibold underline underline-offset-4" data-inventory-limits-link>
-              {dict.admin_nav.inventory_limits_link}
+              {a.limits_change}
             </Link>
           </p>
         }

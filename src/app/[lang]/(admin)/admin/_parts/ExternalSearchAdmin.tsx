@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { t } from "@/i18n/dictionaries";
-import { PendingButton } from "@/components/PendingButton";
-import { deleteWebDomain, saveSearchLayer, saveWebDomain } from "./actions";
+import { HEALTH_COLORS } from "@/lib/adminOverview";
+import { cardClass, fieldClass, ghostClass } from "@/components/owner/ui";
+import { SaveBar } from "@/components/owner/SaveBar";
+import { deleteWebDomain, saveSearchLayers, saveWebDomains } from "./actions";
+import { DotText, saveLabels, tableBox, tdClass, thClass } from "./common";
 
 /** admin_search_settings() (database update 34). */
 export interface SearchSettings {
@@ -24,13 +27,13 @@ export interface SourcesEnv {
   daily_limit?: number;
 }
 
-const input = "rounded border border-line px-2 py-1 outline-none focus:border-foreground";
-
 /**
- * "Vyhľadávanie mimo Cacaduu" on the admin page: a switch per outside layer (with the function's
- * environment switch next to it — a layer runs only when both are on), the estimated prices, the
- * allowed web domains with their search addresses (deep links), and the calls and estimated cost
- * per day and layer. Every read and write goes through the admin_* functions (is_admin() in SQL).
+ * "Vyhľadávanie mimo Cacaduu" (database update 34; artboard 9 since 2026-11-05): "Vrstvy" — a switch per outside layer
+ * with the function's environment switch next to it as a dot + words (a layer runs only when both are on) and the
+ * estimated prices, one form with the save bar —; "Použitie" — today's calls of the daily limit and the cost, the
+ * calls and estimated cost per day and layer —; the allowed web domains with their search addresses (deep links), one
+ * form with the save bar ("Odstrániť" per row, a new one in the last row). Every read and write goes through the
+ * admin_* functions (is_admin() in SQL).
  */
 export function ExternalSearchAdmin({
   settings,
@@ -49,20 +52,24 @@ export function ExternalSearchAdmin({
   const x = dict.admin_search;
   if (!settings) {
     return (
-      <section id="external-search" className="flex flex-col gap-2" aria-labelledby="external-search-heading">
-        <h2 id="external-search-heading" className="text-lg font-semibold">
-          {x.title}
+      <section id="external-search" className={`${cardClass} min-w-0`} aria-labelledby="external-search-heading">
+        <h2 id="external-search-heading" className="text-[19px] font-bold">
+          {x.layers_title}
         </h2>
-        <p className="text-sm text-muted">{x.unavailable}</p>
+        <p className="text-sm text-[#5C5C5C]">{x.unavailable}</p>
       </section>
     );
   }
-  const envLine = (on: boolean | undefined, name: string) =>
-    env === null ? null : on ? x.env_on : t(x.env_off, { name });
-  const envOf: Record<string, string | null> = {
-    osm: env === null ? null : env.contact_set ? x.env_on : x.env_contact,
-    google_places: envLine(env?.google_places_enabled && env?.google_key_set, env?.google_places_enabled ? "GOOGLE_PLACES_API_KEY" : "GOOGLE_PLACES_ENABLED"),
-    web: envLine(env?.web_search_enabled && env?.anthropic_key_set, env?.web_search_enabled ? "ANTHROPIC_API_KEY" : "WEB_SEARCH_ENABLED"),
+  /** The function's environment for a layer: [on, words]; null = the function did not answer. */
+  const envOf = (layer: string): [boolean, string] | null => {
+    if (env === null) return null;
+    if (layer === "osm") return env.contact_set ? [true, x.env_on] : [false, x.env_contact];
+    if (layer === "google_places") {
+      const on = Boolean(env.google_places_enabled && env.google_key_set);
+      return [on, on ? x.env_on : t(x.env_off, { name: env.google_places_enabled ? "GOOGLE_PLACES_API_KEY" : "GOOGLE_PLACES_ENABLED" })];
+    }
+    const on = Boolean(env.web_search_enabled && env.anthropic_key_set);
+    return [on, on ? x.env_on : t(x.env_off, { name: env.web_search_enabled ? "ANTHROPIC_API_KEY" : "WEB_SEARCH_ENABLED" })];
   };
   const layerName: Record<string, string> = {
     geocode: x.layer_geocode,
@@ -71,135 +78,154 @@ export function ExternalSearchAdmin({
     web: x.layer_web,
   };
   const usd = (n: number) => Number(n).toFixed(4);
+  const small = `${fieldClass} !min-h-11 !w-28 !py-2 text-right !text-[15px] tabular-nums`;
+  const priceField = (name: string, label: string, value: number | string) => (
+    <label className="flex flex-col gap-1 text-[13px] font-semibold text-[#5C5C5C]">
+      {label}
+      <input name={name} inputMode="decimal" defaultValue={String(value)} className={small} />
+    </label>
+  );
 
   return (
-    <>
-      <section id="external-search" className="flex flex-col gap-3" aria-labelledby="external-search-heading">
-        <h2 id="external-search-heading" className="text-lg font-semibold">
-          {x.title}
-        </h2>
-        <p className="max-w-2xl text-sm text-muted">{x.intro}</p>
-        {env === null && <p className="text-sm font-semibold">{x.env_unknown}</p>}
-        {(!websiteSecret || (env && !env.secret_set)) && <p className="text-sm font-semibold" data-search-secret>{x.env_secret}</p>}
-        <div className="flex flex-col gap-2 text-sm" data-search-layers>
-          {settings.layers.map((layer) => (
-            <form key={layer.layer} action={saveSearchLayer} className="flex flex-wrap items-end gap-3 border-b border-line pb-2" data-layer={layer.layer}>
-              {hidden}
-              <input type="hidden" name="layer" value={layer.layer} />
-              <div className="flex w-64 flex-col gap-1">
-                <span className="font-medium">{layerName[layer.layer]}</span>
-                {envOf[layer.layer] && (
-                  <span className="text-xs text-muted" data-env>
-                    {envOf[layer.layer]}
-                  </span>
-                )}
-              </div>
-              <label className="flex items-center gap-1 pb-1">
-                <input type="checkbox" name="enabled" defaultChecked={layer.enabled} />
-                {x.enabled}
-              </label>
-              <label className="flex flex-col gap-1">
-                <span>{x.cost_per_call}</span>
-                <input name="cost_per_call" inputMode="decimal" required defaultValue={String(layer.cost_per_call_usd)} className={`${input} w-24`} />
-              </label>
-              {layer.layer === "web" && (
-                <>
-                  <label className="flex flex-col gap-1">
-                    <span>{x.input_per_mtok}</span>
-                    <input name="input_per_mtok" inputMode="decimal" defaultValue={String(layer.input_usd_per_mtok)} className={`${input} w-24`} />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span>{x.output_per_mtok}</span>
-                    <input name="output_per_mtok" inputMode="decimal" defaultValue={String(layer.output_usd_per_mtok)} className={`${input} w-24`} />
-                  </label>
-                </>
-              )}
-              <PendingButton pending={dict.admin_domains.done}>{x.save}</PendingButton>
-            </form>
-          ))}
-        </div>
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-4">
+        <form action={saveSearchLayers} className={`${cardClass} min-w-0 !gap-0`}>
+          {hidden}
+          <section id="external-search" className="flex min-w-0 scroll-mt-4 flex-col" aria-labelledby="external-search-heading" data-search-layers>
+            <h2 id="external-search-heading" className="pb-2 text-[19px] font-bold">
+              {x.layers_title}
+            </h2>
+            {env === null && <p className="pb-2 text-sm font-semibold">{x.env_unknown}</p>}
+            {(!websiteSecret || (env && !env.secret_set)) && (
+              <p className="pb-2 text-sm font-semibold" data-search-secret>
+                {x.env_secret}
+              </p>
+            )}
+            {settings.layers.map((layer) => {
+              const e = envOf(layer.layer);
+              return (
+                <div key={layer.layer} className="flex flex-col gap-2.5 border-t border-[#E4E4E4] py-3" data-layer={layer.layer}>
+                  <input type="hidden" name="layers" value={layer.layer} />
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="flex min-w-0 flex-col gap-1">
+                      <strong className="text-[15px]">{layerName[layer.layer]}</strong>
+                      <span className="text-[13px]" data-env>
+                        <DotText color={e === null ? HEALTH_COLORS.off : e[0] ? HEALTH_COLORS.ok : HEALTH_COLORS.warn}>
+                          <span className="font-medium">{e === null ? dict.admin_home.svc_silent : e[1]}</span>
+                        </DotText>
+                      </span>
+                    </span>
+                    <input type="checkbox" name={`${layer.layer}:enabled`} aria-label={`${x.enabled}: ${layerName[layer.layer]}`} defaultChecked={layer.enabled} className="ppi-toggle" />
+                  </div>
+                  <div className="flex flex-wrap gap-2.5">
+                    {priceField(`${layer.layer}:cost_per_call`, x.cost_per_call, layer.cost_per_call_usd)}
+                    {layer.layer === "web" && (
+                      <>
+                        {priceField("web:input_per_mtok", x.input_per_mtok, layer.input_usd_per_mtok)}
+                        {priceField("web:output_per_mtok", x.output_per_mtok, layer.output_usd_per_mtok)}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+          <SaveBar labels={saveLabels(dict, x.save)} />
+        </form>
 
-        <h3 className="pt-2 font-semibold">{x.usage_title}</h3>
-        <p className="text-sm" data-usage-today>
-          {t(x.usage_today, { calls: Number(settings.today_calls), limit: env?.daily_limit ?? "?", cost: usd(settings.today_cost_usd) })}
-        </p>
-        {settings.usage.length === 0 ? (
-          <p className="text-sm text-muted">{x.usage_none}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[32rem] text-sm" data-search-usage>
-              <thead>
-                <tr className="border-b border-line text-left text-muted">
-                  {[x.col_day, x.col_layer, x.col_service, x.col_calls, x.col_cost].map((h) => (
-                    <th key={h} className="py-2 pr-3 font-normal">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {settings.usage.map((u) => (
-                  <tr key={`${u.day}-${u.layer}-${u.service}`} className="border-b border-line" data-usage-row={`${u.layer}/${u.service}`}>
-                    <td className="py-1 pr-3">{u.day}</td>
-                    <td className="py-1 pr-3">{layerName[u.layer] ?? u.layer}</td>
-                    <td className="py-1 pr-3 font-mono text-xs">{u.service}</td>
-                    <td className="py-1 pr-3">{u.calls}</td>
-                    <td className="py-1 pr-3">{usd(u.cost_usd)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className={`${cardClass} min-w-0`} data-search-usage-card>
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-[19px] font-bold">{x.usage_title}</h2>
+            <strong className="text-[15px]" data-usage-today>
+              {t(x.usage_today, { calls: Number(settings.today_calls), limit: env?.daily_limit ?? "?", cost: usd(settings.today_cost_usd) })}
+            </strong>
           </div>
-        )}
-      </section>
+          {settings.usage.length === 0 ? (
+            <p className="text-sm text-[#5C5C5C]">{x.usage_none}</p>
+          ) : (
+            <div className={tableBox}>
+              <table className="w-full min-w-[30rem] border-collapse text-[15px]" data-search-usage>
+                <thead>
+                  <tr>
+                    {[x.col_day, x.col_layer, x.col_service, x.col_calls, x.col_cost].map((h) => (
+                      <th key={h} className={thClass}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {settings.usage.map((u) => (
+                    <tr key={`${u.day}-${u.layer}-${u.service}`} data-usage-row={`${u.layer}/${u.service}`}>
+                      <td className={`${tdClass} whitespace-nowrap`}>{u.day}</td>
+                      <td className={tdClass}>{layerName[u.layer] ?? u.layer}</td>
+                      <td className={`${tdClass} font-mono text-[13px]`}>{u.service}</td>
+                      <td className={`${tdClass} tabular-nums`}>{u.calls}</td>
+                      <td className={`${tdClass} tabular-nums`}>{usd(u.cost_usd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
 
-      <section id="web-domains" className="flex flex-col gap-3" aria-labelledby="web-domains-heading">
-        <h2 id="web-domains-heading" className="text-lg font-semibold">
-          {x.domains_title}
-        </h2>
-        <p className="max-w-2xl text-sm text-muted">{x.domains_hint}</p>
-        <div className="flex flex-col gap-2 text-sm" data-web-domains>
-          {[...settings.domains, null].map((d) => (
-            <div key={d?.domain ?? "new"} className="flex flex-wrap items-end gap-2 border-b border-line pb-2" data-web-domain={d?.domain ?? "new"}>
-              <form action={saveWebDomain} className="flex flex-wrap items-end gap-2">
-                {hidden}
-                <label className="flex flex-col gap-1">
-                  <span>{x.domain}</span>
-                  <input name="domain" required defaultValue={d?.domain ?? ""} readOnly={Boolean(d)} placeholder={d ? undefined : "obchod.sk"} className={`${input} w-40`} />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span>{x.label}</span>
-                  <input name="label" required defaultValue={d?.label ?? ""} className={`${input} w-36`} />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span>{x.search_url}</span>
-                  <input name="search_url" type="url" defaultValue={d?.search_url ?? ""} placeholder="https://www.obchod.sk/hladat?q={query}" className={`${input} w-80`} />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span>{x.sort}</span>
-                  <input name="sort" inputMode="numeric" defaultValue={String(d?.sort_order ?? 100)} className={`${input} w-16`} />
-                </label>
-                <label className="flex items-center gap-1 pb-1">
-                  <input type="checkbox" name="enabled" defaultChecked={d ? d.enabled : true} />
-                  {x.domain_enabled}
-                </label>
-                <button type="submit" className="rounded border border-foreground px-3 py-1 font-medium">
-                  {d ? x.save : x.add_domain}
-                </button>
-              </form>
-              {d && (
-                <form action={deleteWebDomain}>
-                  {hidden}
-                  <input type="hidden" name="domain" value={d.domain} />
-                  <button type="submit" className="px-1 py-1 underline underline-offset-4">
+      <form action={saveWebDomains} className={`${cardClass} min-w-0 !gap-0`}>
+        {hidden}
+        <section id="web-domains" className="flex min-w-0 scroll-mt-4 flex-col" aria-labelledby="web-domains-heading" data-web-domains>
+          <h2 id="web-domains-heading" className="text-[19px] font-bold">
+            {x.domains_title}
+          </h2>
+          <p className="pb-3 pt-1 text-sm text-[#5C5C5C]">{x.domains_hint}</p>
+          {settings.domains.map((d) => (
+            <div key={d.domain} className="flex flex-col gap-2.5 border-t border-[#E4E4E4] py-3" data-web-domain={d.domain}>
+              <input type="hidden" name="domains" value={d.domain} />
+              <div className="flex items-center justify-between gap-3">
+                <strong className="min-w-0 break-all text-[15px]">{d.domain}</strong>
+                <span className="flex flex-none items-center gap-2.5">
+                  <input type="checkbox" name={`${d.domain}:enabled`} aria-label={`${x.domain_enabled}: ${d.domain}`} defaultChecked={d.enabled} className="ppi-toggle" />
+                  <button type="submit" formAction={deleteWebDomain} formNoValidate name="domain" value={d.domain} className={`${ghostClass} !min-h-11 !px-4 !text-[15px]`} data-delete-domain={d.domain}>
                     {x.delete_domain}
                   </button>
-                </form>
-              )}
+                </span>
+              </div>
+              <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_6rem]">
+                <label className="flex flex-col gap-1 text-[13px] font-semibold text-[#5C5C5C]">
+                  {x.label}
+                  <input name={`${d.domain}:label`} required defaultValue={d.label} className={`${fieldClass} !min-h-11 !py-2 !text-[15px]`} />
+                </label>
+                <label className="flex flex-col gap-1 text-[13px] font-semibold text-[#5C5C5C]">
+                  {x.sort}
+                  <input name={`${d.domain}:sort`} inputMode="numeric" defaultValue={String(d.sort_order)} className={`${fieldClass} !min-h-11 !py-2 text-right !text-[15px]`} />
+                </label>
+              </div>
+              <label className="flex flex-col gap-1 text-[13px] font-semibold text-[#5C5C5C]">
+                {x.search_url}
+                <input name={`${d.domain}:search_url`} type="url" defaultValue={d.search_url ?? ""} placeholder="https://www.obchod.sk/hladat?q={query}" className={`${fieldClass} !min-h-11 !py-2 font-mono !text-[13px]`} />
+              </label>
             </div>
           ))}
-        </div>
-      </section>
-    </>
+          <div className="flex flex-col gap-2.5 border-t border-[#E4E4E4] py-3" data-web-domain="new">
+            <strong className="text-[15px]">{x.add_domain}</strong>
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-[13px] font-semibold text-[#5C5C5C]">
+                {x.domain}
+                <input name="new:domain" placeholder={x.domain_example} className={`${fieldClass} !min-h-11 !py-2 !text-[15px]`} />
+              </label>
+              <label className="flex flex-col gap-1 text-[13px] font-semibold text-[#5C5C5C]">
+                {x.label}
+                <input name="new:label" className={`${fieldClass} !min-h-11 !py-2 !text-[15px]`} />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1 text-[13px] font-semibold text-[#5C5C5C]">
+              {x.search_url}
+              <input name="new:search_url" type="url" placeholder="https://www.obchod.sk/hladat?q={query}" className={`${fieldClass} !min-h-11 !py-2 font-mono !text-[13px]`} />
+            </label>
+          </div>
+        </section>
+        <SaveBar labels={saveLabels(dict, x.save)} />
+      </form>
+    </div>
   );
 }

@@ -1,7 +1,11 @@
 import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { formatDateTime } from "@/lib/format";
+import { HEALTH_COLORS } from "@/lib/adminOverview";
+import { cardClass, ghostClass } from "@/components/owner/ui";
+import { SaveBar } from "@/components/owner/SaveBar";
 import { saveTelegramSettings, setTelegramWebhook } from "./actions";
+import { DotText, numClass, saveLabels, SettingRow } from "./common";
 
 export interface TelegramWebhookInfo {
   configured: boolean;
@@ -21,9 +25,10 @@ export interface TelegramSettings {
 }
 
 /**
- * "Telegram bot" on the admin page (database update 66): whether the telegram function has its secrets, the webhook's
- * state at Telegram ("Nastaviť webhook" sends the secret header's value from the function, never through the website),
- * how many owners linked it, and the limits for the later phases (AI answers, notifications).
+ * "Telegram bot" (database update 66; artboard 7 since 2026-11-05): whether the telegram function has its secrets, the
+ * webhook's state at Telegram ("Nastaviť webhook" sends the secret header's value from the function, never through the
+ * website), the waiting messages and the last error, how many owners linked it, and the limits (AI answers — also the
+ * AI pomocník's on the website —, notifications) with the save bar.
  */
 export function TelegramAdmin({
   info,
@@ -39,53 +44,68 @@ export function TelegramAdmin({
   hidden: React.ReactNode;
 }) {
   const a = dict.admin_telegram;
-  const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
   return (
-    <section id="telegram" className="flex flex-col gap-3" aria-labelledby="telegram-heading" data-admin-telegram>
-      <h2 id="telegram-heading" className="text-lg font-semibold">
+    <section id="telegram" className={`${cardClass} min-w-0 !gap-0`} aria-labelledby="telegram-heading" data-admin-telegram>
+      <h2 id="telegram-heading" className="text-[19px] font-bold">
         {a.title}
       </h2>
-      <p className="text-sm text-muted">{a.intro}</p>
+      <p className="pb-3 pt-1 text-sm text-[#5C5C5C]">{a.intro}</p>
       {info === null ? (
-        <p className="text-sm text-muted">{a.unavailable}</p>
+        <SettingRow label={a.webhook_label}>
+          <DotText color={HEALTH_COLORS.off}>{dict.admin_home.svc_silent}</DotText>
+        </SettingRow>
       ) : !info.configured ? (
-        <p className="text-sm" data-telegram-off>{a.not_configured}</p>
+        <SettingRow label={a.webhook_label} hint={a.not_configured} data-telegram-off="">
+          <DotText color={HEALTH_COLORS.off}>{dict.admin_home.svc_not_set}</DotText>
+        </SettingRow>
       ) : (
-        <div className="flex flex-col gap-1 text-sm">
-          {info.username && <span>{t(a.bot, { name: info.username })}</span>}
-          <span className="font-semibold">{info.url_ok ? a.webhook_ok : a.webhook_off}</span>
-          <span>{t(a.pending, { n: info.pending ?? 0 })}</span>
-          {info.last_error && info.last_error_at && (
-            <span className="text-muted">{t(a.last_error, { date: formatDateTime(info.last_error_at, lang, "UTC"), text: info.last_error })}</span>
+        <>
+          {info.username && (
+            <SettingRow label={a.bot_label}>
+              <strong>@{info.username}</strong>
+            </SettingRow>
           )}
-          <form action={setTelegramWebhook}>
-            {hidden}
-            <button type="submit" className="mt-2 min-h-11 rounded border border-foreground px-3 font-medium" data-telegram-webhook>
-              {a.set_webhook}
-            </button>
-          </form>
-        </div>
+          <SettingRow label={a.webhook_label}>
+            <DotText color={info.url_ok ? HEALTH_COLORS.ok : HEALTH_COLORS.bad}>{info.url_ok ? a.webhook_on : a.webhook_none}</DotText>
+            <form action={setTelegramWebhook}>
+              {hidden}
+              <button type="submit" className={`${ghostClass} !min-h-11 !px-4 !text-[15px]`} data-telegram-webhook>
+                {a.set_webhook}
+              </button>
+            </form>
+          </SettingRow>
+          <SettingRow label={a.pending_label}>
+            <strong>{info.pending ?? 0}</strong>
+          </SettingRow>
+          <SettingRow label={a.last_error_label}>
+            {info.last_error && info.last_error_at ? (
+              <span className="max-w-xs break-words text-right text-sm">
+                {info.last_error}
+                <span className="block text-[13px] text-[#5C5C5C]">{formatDateTime(info.last_error_at, lang, "UTC")}</span>
+              </span>
+            ) : (
+              <span className="text-[#5C5C5C]">{a.no_error}</span>
+            )}
+          </SettingRow>
+        </>
       )}
       {settings && (
         <>
-          <p className="text-sm">{t(a.links, { n: settings.links, g: settings.granted })}</p>
-          <form action={saveTelegramSettings} className="flex flex-wrap items-end gap-3 text-sm" data-telegram-settings>
+          <SettingRow label={a.links_label}>
+            <strong>{t(a.links_value, { n: settings.links, g: settings.granted })}</strong>
+          </SettingRow>
+          <form action={saveTelegramSettings} className="flex flex-col" data-telegram-settings>
             {hidden}
-            <label className="flex min-h-11 items-center gap-2">
-              <input type="checkbox" name="ai_enabled" defaultChecked={settings.ai_enabled} className="h-4 w-4 accent-foreground" />
-              {a.ai_enabled}
-            </label>
-            <label className="flex flex-col gap-1">
-              <span>{a.ai_daily_limit}</span>
-              <input name="ai_daily_limit" type="number" min={0} max={1000} required defaultValue={settings.ai_daily_limit} className={`${input} w-28`} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span>{a.notify_daily_cap}</span>
-              <input name="notify_daily_cap" type="number" min={0} max={200} required defaultValue={settings.notify_daily_cap} className={`${input} w-28`} />
-            </label>
-            <button type="submit" className="rounded border border-foreground px-3 py-2 font-medium">
-              {a.save}
-            </button>
+            <SettingRow label={a.ai_enabled_label} hint={a.ai_enabled_hint}>
+              <input type="checkbox" name="ai_enabled" aria-label={a.ai_enabled_label} defaultChecked={settings.ai_enabled} className="ppi-toggle" />
+            </SettingRow>
+            <SettingRow label={a.ai_daily_limit}>
+              <input name="ai_daily_limit" type="number" min={0} max={1000} required aria-label={a.ai_daily_limit} defaultValue={settings.ai_daily_limit} className={numClass} />
+            </SettingRow>
+            <SettingRow label={a.notify_daily_cap}>
+              <input name="notify_daily_cap" type="number" min={0} max={200} required aria-label={a.notify_daily_cap} defaultValue={settings.notify_daily_cap} className={numClass} />
+            </SettingRow>
+            <SaveBar labels={saveLabels(dict, a.save)} />
           </form>
         </>
       )}

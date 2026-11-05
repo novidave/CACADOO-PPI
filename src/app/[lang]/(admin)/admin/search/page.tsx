@@ -17,7 +17,7 @@ export default async function AdminSearchPage({ params, searchParams }: PageProp
   const [searchSettings, sourcesEnv] = await Promise.all([session.supabase.rpc("admin_search_settings"), sourcesStatus(session.supabase)]);
   const hidden = <Hidden lang={lang} keep="" />;
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-4">
       <div>
         <AdminHead dict={dict} page="search" />
         <AdminNotice dict={dict} sp={sp} />
