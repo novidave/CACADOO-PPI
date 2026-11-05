@@ -1894,6 +1894,24 @@ file per section; `common.tsx` = `adminStart()` — `notFound()` unless `session
 auth, RLS or database change. Texts `admin_nav.*` (+ the old `admin_*` namespaces). e2e `e2e/admin.spec.ts`
 (E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD, else skipped; 1180×820 and 390×844: every menu item → its page with
 aria-current, old anchors and filters forward; an owner login that is not the admin gets 404 on every admin page).
+**Prehľad and Obchody a domény (A2):** `@/lib/adminOverview` (no imports; `adminOverview_test.ts` in `npm run
+test:content`) holds every rule of both pages: `isDomainProblem()` (needs_admin, waiting_credit, failed, dns_timeout =
+SQL's filter `problem`), `problemsFirst()`, `shopState()` (the row's dot and note), `tiles()`, `todos()` ("Treba
+riešiť": a domain problem, credit below its limit, the Telegram webhook not set or its last error, a partner whose
+NEWEST import failed, the translation budget's 80 % alert, an inventory connection with an invalid key or an error;
+worst first; none = "Všetko beží."), `services()` ("Služby": Websupport test / live from the orders' test_mode,
+subscriptions, SMS and e-mail from crm-messages `config`, the AI key, Telegram, the Facebook app, outside search
+today / limit, partners, inventory programs; a function that does not answer = grey "neodpovedá", never an error
+page), `HEALTH_COLORS` (only #1E9E5A / #F2B705 / #D64545 / #9AA5B1, always next to words), `pluralOf()`. Prehľad
+(`admin/page.tsx`) reads everything at once (`Promise.all` of the existing admin reads and functions), four tiles that
+link to their pages, each "Treba riešiť" row ONE link to its page ("Otvoriť" from 768 px, a chevron on a phone),
+"Služby" with a count line on a phone. Obchody a domény: the credit strip (yellow #F2B705 / #FFFBEA below the limit),
+ONE GET form — search, Stav as links (Všetky · S problémom n · Beží · Bez domény, `aria-current`; scrolls inside its
+own box on a phone), Druh (`SelectSubmit`, a submit button only in `<noscript>`) —, the table from 1024 px (a card per
+shop below it), problems first; "Otvoriť" = `@/components/admin/ExpandRow` (client; a real button with
+`aria-expanded` / `aria-controls`, the panel drawn on the server: Platba (paid / refunded + invoice), Websupport order,
+Platí do, E-mail o spustení, the last error and the existing domain actions; `?code_for=` opens its row). The column
+is "Platba" (`admin_domains.col_stripe`). Texts `admin_home.*`.
 
 ## Auth
 

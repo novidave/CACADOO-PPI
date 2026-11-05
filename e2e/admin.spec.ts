@@ -88,3 +88,25 @@ test("a shop owner who is not the admin gets 404 on /admin and every admin page"
     expect(res?.status(), path).toBe(404);
   }
 });
+
+test("Obchody a domény: Otvoriť opens a shop's row in place and Zavrieť closes it", async ({ page }) => {
+  test.skip(!(await loginAdmin(page)), "needs E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD");
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.goto("/sk/admin/shops");
+  const toggle = page.locator("[data-row-toggle]").first();
+  test.skip((await toggle.count()) === 0, "no shop with a domain");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const panel = page.locator(`#${await toggle.getAttribute("aria-controls")}`);
+  await expect(panel).toBeHidden();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(panel).toBeVisible();
+  // Platba, Websupport, Platí do, E-mail o spustení
+  await expect(panel.locator("span.text-xs")).toHaveCount(4);
+  await toggle.click();
+  await expect(panel).toBeHidden();
+  // the Stav filter: "S problémom" is the current one after a tap
+  await page.locator('[data-status-filter] [data-status="problem"]').click();
+  await page.waitForURL(/status=problem/);
+  await expect(page.locator('[data-status-filter] [data-status="problem"]')).toHaveAttribute("aria-current", "true");
+});
