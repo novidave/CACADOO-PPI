@@ -182,10 +182,22 @@ export interface Service {
 /** null = the function did not answer: grey "neodpovedá" (never an error page). */
 const silent = (name: string): Service => ({ name, health: "off", state: "svc_silent", vars: {} });
 
+/** What the admin-status function says (2026-11-05): modes only, never a key. null = the function did not answer. */
+export interface AdminStatus {
+  /** from STRIPE_SECRET_KEY's prefix: sk_/rk_ test or live; null = no key; "unknown" = another prefix */
+  stripe: "test" | "live" | "unknown" | null;
+  /** REGISTRAR_MODE (test unless "live") and whether the Websupport keys exist */
+  registrar: { mode: "test" | "live"; configured: boolean };
+  /** TRANSLATION_MONTHLY_BUDGET_EUR, null = no budget (no limit) */
+  translation_budget_eur: number | null;
+}
+
 export function services(input: {
   shops: OverviewShop[];
-  /** the mode of the newest domain order (test_mode), null = no domain yet */
+  /** the mode of the newest domain order (test_mode), null = no domain yet — used only while admin-status is silent */
   domainTestMode: boolean | null;
+  /** the admin-status function: Stripe's and Websupport's real modes (2026-11-05); null = did not answer */
+  status?: AdminStatus | null;
   crm: { email?: boolean; sms?: string; sms_live?: boolean } | null;
   aiKey: boolean;
   telegram: TelegramInfo | null;
@@ -195,15 +207,32 @@ export function services(input: {
   connections: InventoryConnection[] | null;
 }): Service[] {
   const out: Service[] = [];
+  const st = input.status ?? null;
   out.push(
-    input.domainTestMode === null
-      ? { name: "svc_websupport", health: "off", state: "svc_no_domain", vars: {} }
-      : input.domainTestMode
-        ? { name: "svc_websupport", health: "warn", state: "svc_test_mode", vars: {} }
-        : { name: "svc_websupport", health: "ok", state: "svc_live_mode", vars: {} },
+    st
+      ? !st.registrar.configured
+        ? { name: "svc_websupport", health: "off", state: "svc_not_set", vars: {} }
+        : st.registrar.mode === "live"
+          ? { name: "svc_websupport", health: "ok", state: "svc_live_mode", vars: {} }
+          : { name: "svc_websupport", health: "warn", state: "svc_test_mode", vars: {} }
+      : input.domainTestMode === null
+        ? { name: "svc_websupport", health: "off", state: "svc_no_domain", vars: {} }
+        : input.domainTestMode
+          ? { name: "svc_websupport", health: "warn", state: "svc_test_mode", vars: {} }
+          : { name: "svc_websupport", health: "ok", state: "svc_live_mode", vars: {} },
   );
   const subs = input.shops.filter((s) => s.has_plan).length;
-  out.push(subs ? { name: "svc_payments", health: "ok", state: "svc_subscriptions", vars: { n: subs } } : { name: "svc_payments", health: "off", state: "svc_no_subscriptions", vars: {} });
+  out.push(
+    st?.stripe === null
+      ? { name: "svc_payments", health: "off", state: "svc_not_set", vars: {} }
+      : st?.stripe === "test"
+        ? { name: "svc_payments", health: "warn", state: "svc_stripe_test", vars: { n: subs } }
+        : st?.stripe === "live"
+          ? { name: "svc_payments", health: "ok", state: "svc_stripe_live", vars: { n: subs } }
+          : subs
+            ? { name: "svc_payments", health: "ok", state: "svc_subscriptions", vars: { n: subs } }
+            : { name: "svc_payments", health: "off", state: "svc_no_subscriptions", vars: {} },
+  );
   if (!input.crm) out.push(silent("svc_sms"), silent("svc_email"));
   else {
     const sms = input.crm.sms ?? "test";
@@ -280,4 +309,47 @@ export function pluralOf(lang: string, n: number): "one" | "few" | "other" {
     rule = n === 1 ? "one" : "other";
   }
   return rule === "one" ? "one" : rule === "few" ? "few" : "other";
+}
+
+/**
+ * Admin → Chyby (2026-11-05): a friendly name for an error's place, from the route's file path (route groups and
+ * "/page" / "/route" left out). The key is `admin_errors.place_<key>`; "other" = no name, the path alone is shown.
+ */
+export type ErrorPlace =
+  | "home" | "shop" | "item" | "blog" | "shop_chat" | "shop_orders" | "shop_data" | "own_domain" | "ai_search"
+  | "public_api" | "owner_mcp" | "owner_data" | "sklad" | "food" | "dashboard" | "courier" | "device" | "admin"
+  | "login" | "legal" | "proxy" | "other";
+
+const PLACES: [RegExp, ErrorPlace][] = [
+  [/^\/api\/shops\/\[slug\]\/chat\b/, "shop_chat"],
+  [/^\/api\/shops\/\[slug\]\/(order|booking|callback)\b/, "shop_orders"],
+  [/^\/api\/shops\//, "shop_data"],
+  [/^\/(site|api\/site)\//, "own_domain"],
+  [/^\/api\/ai-search\b/, "ai_search"],
+  [/^\/(api\/v1|api\/openapi\.json|llms\.txt|mcp)(\/|$)(?!owner)/, "public_api"],
+  [/^\/(mcp\/owner|api\/oauth|\.well-known)\b/, "owner_mcp"],
+  [/^\/(\[lang\]\/kurier|api\/kurier)\b/, "courier"],
+  [/^\/\[lang\]\/zariadenie\b/, "device"],
+  [/^\/\[lang\]\/dashboard\/sklad\b|^\/api\/owner\/sklad\b/, "sklad"],
+  [/^\/\[lang\]\/dashboard\/assistant\/orders\b|^\/api\/owner\/(food|menu)\b/, "food"],
+  [/^\/api\/owner\//, "owner_data"],
+  [/^\/\[lang\]\/(dashboard|sync|oauth)\b/, "dashboard"],
+  [/^\/\[lang\]\/admin\b/, "admin"],
+  [/^\/\[lang\]\/(login|signup|forgot|password)\b|^\/auth\//, "login"],
+  [/^\/\[lang\]\/(podmienky|podmienky-domeny|sukromie|sukromie-asistent|pravne-informacie)\b/, "legal"],
+  [/^\/\[lang\]\/shops\/\[slug\]\/blog\b/, "blog"],
+  [/^\/\[lang\]\/shops\/\[slug\]$/, "shop"],
+  [/^\/\[lang\]\/items\//, "item"],
+  [/^\/\[lang\]$|^\/$/, "home"],
+];
+
+export function errorPlace(route: string, kind?: string): ErrorPlace {
+  if (kind === "proxy") return "proxy";
+  const path = ("/" + String(route ?? "").trim())
+    .replace(/^\/+/, "/")
+    .replace(/\/\([^/)]+\)(?=\/|$)/g, "")
+    .replace(/\/(page|route|layout)$/, "")
+    .replace(/\/+$/, "") || "/";
+  for (const [re, place] of PLACES) if (re.test(path)) return place;
+  return "other";
 }

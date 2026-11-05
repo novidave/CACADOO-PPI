@@ -1,7 +1,7 @@
 // Admin → Prehľad (2026-11-05): the tiles, "Treba riešiť" and "Služby" from the existing reads; the shops list's order.
 // Run with `npm run test:content`.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { isDomainProblem, pluralOf, problemsFirst, services, shopState, tiles, todos, type OverviewShop } from "./adminOverview.ts";
+import { errorPlace, isDomainProblem, pluralOf, problemsFirst, services, shopState, tiles, todos, type OverviewShop } from "./adminOverview.ts";
 
 const shop = (o: Partial<OverviewShop>): OverviewShop => ({
   shop_name: "Obchod",
@@ -159,4 +159,56 @@ Deno.test("plural categories for the words", () => {
   assertEquals([1, 2, 4, 5, 0].map((n) => pluralOf("sk", n)), ["one", "few", "few", "other", "other"]);
   assertEquals([1, 2, 5].map((n) => pluralOf("hu", n)), ["one", "other", "other"]);
   assertEquals([1, 2].map((n) => pluralOf("en", n)), ["one", "other"]);
+});
+
+Deno.test("Služby: admin-status decides Stripe's and Websupport's modes; silent = the old guesses", () => {
+  const base = { shops: [shop({ has_plan: true })], crm: null, aiKey: true, telegram: null, facebook: null, search: null, partners: null, connections: null };
+  const pick = (list: ReturnType<typeof services>, name: string) => list.find((v) => v.name === name);
+  const live = services({ ...base, domainTestMode: true, status: { stripe: "live", registrar: { mode: "live", configured: true }, translation_budget_eur: 20 } });
+  assertEquals([pick(live, "svc_websupport")?.state, pick(live, "svc_payments")?.state, pick(live, "svc_payments")?.vars], ["svc_live_mode", "svc_stripe_live", { n: 1 }]);
+  const test = services({ ...base, domainTestMode: null, status: { stripe: "test", registrar: { mode: "test", configured: true }, translation_budget_eur: null } });
+  assertEquals([pick(test, "svc_websupport")?.health, pick(test, "svc_payments")?.state], ["warn", "svc_stripe_test"]);
+  const none = services({ ...base, domainTestMode: null, status: { stripe: null, registrar: { mode: "test", configured: false }, translation_budget_eur: null } });
+  assertEquals([pick(none, "svc_websupport")?.state, pick(none, "svc_payments")?.state], ["svc_not_set", "svc_not_set"]);
+  const silent = services({ ...base, domainTestMode: false, status: null });
+  assertEquals([pick(silent, "svc_websupport")?.state, pick(silent, "svc_payments")?.state], ["svc_live_mode", "svc_subscriptions"]);
+});
+
+Deno.test("Chyby: a friendly name for every kind of place, the path alone for the rest", () => {
+  const cases: [string, string][] = [
+    ["/[lang]", "home"],
+    ["/[lang]/page", "home"],
+    ["/[lang]/shops/[slug]", "shop"],
+    ["/[lang]/(public)/shops/[slug]/page", "shop"],
+    ["/[lang]/shops/[slug]/blog/[post]", "blog"],
+    ["/[lang]/items/[id]", "item"],
+    ["/api/shops/[slug]/chat", "shop_chat"],
+    ["/api/shops/[slug]/order", "shop_orders"],
+    ["/api/shops/[slug]/search", "shop_data"],
+    ["/site/[lang]/[slug]/items/[id]", "own_domain"],
+    ["/api/site/[slug]/robots", "own_domain"],
+    ["/api/ai-search", "ai_search"],
+    ["/api/v1/search", "public_api"],
+    ["/mcp", "public_api"],
+    ["/mcp/owner", "owner_mcp"],
+    ["/api/oauth/token", "owner_mcp"],
+    ["/[lang]/(account)/dashboard/sklad/sale/page", "sklad"],
+    ["/api/owner/sklad/export", "sklad"],
+    ["/[lang]/dashboard/assistant/orders/[id]", "food"],
+    ["/api/owner/menu/read", "food"],
+    ["/api/owner/conversations/[id]/pdf", "owner_data"],
+    ["/[lang]/dashboard", "dashboard"],
+    ["/[lang]/sync", "dashboard"],
+    ["/[lang]/kurier/d/[id]", "courier"],
+    ["/api/kurier/step", "courier"],
+    ["/[lang]/zariadenie/predaj", "device"],
+    ["/[lang]/(admin)/admin/shops", "admin"],
+    ["/[lang]/login", "login"],
+    ["/auth/confirm", "login"],
+    ["/[lang]/sukromie", "legal"],
+    ["/something/else", "other"],
+    ["?", "other"],
+  ];
+  for (const [route, place] of cases) assertEquals(errorPlace(route), place, route);
+  assertEquals(errorPlace("/[lang]/shops/[slug]", "proxy"), "proxy", "the proxy, whatever the path");
 });
