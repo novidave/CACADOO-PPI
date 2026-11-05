@@ -164,6 +164,21 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           <p className="text-sm text-muted">{f.s_pay_hint}</p>
         </section>
 
+        <section className={cardClass} data-food-pay-note>
+          <label className="flex flex-col gap-2">
+            <span className="text-[19px] font-bold">{f.s_pay_note}</span>
+            <input
+              name="pay_note"
+              maxLength={120}
+              defaultValue={s.pay_note ?? ""}
+              placeholder={dict.chat.order_pay_note_default}
+              className={inputClass}
+              disabled={!canWrite}
+            />
+          </label>
+          <p className="text-sm text-muted">{t(f.s_pay_note_hint, { default: dict.chat.order_pay_note_default })}</p>
+        </section>
+
         <section className={cardClass}>
           <h2 className="text-[19px] font-bold">{f.s_when}</h2>
           <span className="text-sm font-semibold">{f.s_last}</span>

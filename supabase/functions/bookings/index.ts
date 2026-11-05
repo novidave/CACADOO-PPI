@@ -27,8 +27,9 @@
 //       book        {slug, conversation_id, conversation_token, ref, people?}  booking_assistant_book → booking_create
 //                    checks the slot again; confirmed at once (no confirmation SMS, no cancel link)
 //   - website, update 73 (food orders): code_start with purpose "order" (the order quota), then
-//       order_place {code_id, code, order_id, lines, kind, pay_method, address?, note?, lat?, lng?, conversation_id,
-//                    conversation_token, lang}  food_order_create: the code and the order in one transaction
+//       order_place {code_id, code, order_id, lines, kind, address?, note?, lat?, lng?, conversation_id,
+//                    conversation_token, lang}  food_order_create: the code and the order in one transaction (no pay
+//                    method since update 85: marked at the handover)
 //   - website, update 75 (couriers): courier_code {slug, phone, caller, lang}  the courier's login code
 //                    (food_courier_code_start: only an active courier of the shop gets an SMS — an unknown number gets
 //                    the same answer and nothing is sent; the owner's monthly SMS quota; kind phone_code, masked)
@@ -803,7 +804,8 @@ async function oauthBack(url: URL, deps: Deps) {
 
 // ---------------------------------------------------------------- update 63: the assistant's tools (website)
 
-export const CODE_REASONS = ["not_available", "purpose", "phone", "name", "conversation", "too_many", "sms_quota"] as const;
+// sms_failed (update 85): the limit is reached and the number's last code SMS failed at the provider
+export const CODE_REASONS = ["not_available", "purpose", "phone", "name", "conversation", "too_many", "sms_failed", "sms_quota"] as const;
 export const BOOK_REASONS = ["not_available", "conversation", "not_verified", "ref", "people", "contact_limit", "slot_taken", "service", "contact"] as const;
 
 const str = (body: Record<string, unknown>, k: string, max: number) =>
@@ -844,7 +846,7 @@ async function codeStart(body: Record<string, unknown>, deps: Deps) {
   });
   if (started.error) {
     const why = CODE_REASONS.find((r) => r === started.error!.message) ?? "failed";
-    return reply(why === "failed" ? 500 : why === "too_many" || why === "sms_quota" ? 429 : 400, { error: why });
+    return reply(why === "failed" ? 500 : why === "too_many" || why === "sms_quota" ? 429 : why === "sms_failed" ? 502 : 400, { error: why });
   }
   const c = started.data as { id: string; code: string; phone: string; shop_name: string; expires_at: string };
   const text = smsText(purpose === "delete_all" ? "forget_code" : purpose === "order" ? "order_code" : "contact_code", str(body, "lang", 12), {
@@ -864,7 +866,7 @@ async function codeStart(body: Record<string, unknown>, deps: Deps) {
   });
 }
 
-export const COURIER_REASONS = ["not_available", "phone", "too_many", "sms_quota"] as const;
+export const COURIER_REASONS = ["not_available", "phone", "too_many", "sms_failed", "sms_quota"] as const;
 
 /**
  * Update 75: the courier's login code. An active courier of the shop gets the SMS; an unknown number gets the same
@@ -877,7 +879,7 @@ async function courierCode(body: Record<string, unknown>, deps: Deps) {
   const started = await deps.db.rpc("food_courier_code_start", { p_slug: slug, p_phone: str(body, "phone", 40), p_caller_hash: caller });
   if (started.error) {
     const why = COURIER_REASONS.find((r) => r === started.error!.message) ?? "failed";
-    return reply(why === "failed" ? 500 : why === "too_many" || why === "sms_quota" ? 429 : 400, { error: why });
+    return reply(why === "failed" ? 500 : why === "too_many" || why === "sms_quota" ? 429 : why === "sms_failed" ? 502 : 400, { error: why });
   }
   const c = started.data as { id: string; send: boolean; code?: string; phone: string; shop_name: string; expires_at: string };
   let status: "sent" | "test" | "failed" | "quota" | "none" = "none";
@@ -1009,9 +1011,8 @@ async function orderPlace(body: Record<string, unknown>, deps: Deps) {
   const orderId = String(body.order_id ?? "");
   const lines = cleanOrderLines(body.lines);
   const kind = body.kind === "delivery" ? "delivery" : body.kind === "pickup" ? "pickup" : null;
-  // update 81: no method when the shop takes no payment in Cacaduu — food_order_create decides (a method is still
-  // required while "Platby v Cacaduu" is on: pay_method)
-  const pay = body.pay_method === "qr" || body.pay_method === "cash" || body.pay_method === "card" ? body.pay_method : null;
+  // update 85: the customer never chooses how to pay — every order has no method; the owner or the courier marks
+  // it at the handover (food_order_create ignores whatever is sent)
   if (!UUID.test(codeId) || !UUID.test(orderId) || !lines || !kind) return reply(400, { error: "bad_request" });
   const num = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
   const { data, error } = await deps.db.rpc("food_order_create", {
@@ -1020,7 +1021,7 @@ async function orderPlace(body: Record<string, unknown>, deps: Deps) {
     p_order_id: orderId,
     p_lines: lines,
     p_kind: kind,
-    p_pay_method: pay,
+    p_pay_method: null,
     p_address: kind === "delivery" ? str(body, "address", 300) : null,
     p_note: str(body, "note", 300),
     p_lat: num(body.lat, -90, 90),

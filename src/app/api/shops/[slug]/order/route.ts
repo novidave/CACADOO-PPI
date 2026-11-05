@@ -53,7 +53,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
       order_id: body.order_id,
       lines,
       kind,
-      pay_method: body.pay_method,
+      // update 85: the customer never chooses how to pay (marked by the owner or the courier at the handover)
+      pay_method: null,
       address,
       note: str("note", 300),
       lat: place?.lat ?? null,

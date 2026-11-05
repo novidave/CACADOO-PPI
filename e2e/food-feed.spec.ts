@@ -22,7 +22,7 @@ const c = sk.chat;
 test.describe.configure({ mode: "serial" });
 test.setTimeout(240_000);
 
-/** One pickup order, paid in cash on receipt, placed in the assistant with the SMS test code; its number. */
+/** One pickup order ("Osobný odber"), placed in the assistant with the SMS test code; its number. */
 async function pickupOrder(browser: Browser): Promise<number> {
   const context = await browser.newContext({ ...test.info().project.use });
   const page = await context.newPage();
@@ -30,13 +30,17 @@ async function pickupOrder(browser: Browser): Promise<number> {
   await page.goto(`/sk/shops/${SHOP}`);
   const box = page.locator("[data-assistant] textarea").first();
   await box.click();
-  await box.fill(`Chcem si objednať 1× ${ITEM} na osobný odber, platím hotovosťou.`);
+  await box.fill(`Chcem si objednať 1× ${ITEM} na osobný odber.`);
   await page.locator("[data-chat-send]").first().click();
   const panel = page.locator("[data-order-panel]");
   await expect(panel, "the assistant offers the cart card").toBeVisible({ timeout: 90_000 });
-  const pickup = panel.getByRole("button", { name: c.order_pickup, exact: true });
-  if (await pickup.count()) await pickup.click();
-  await panel.getByRole("button", { name: c.order_pay_cash }).click();
+  // the visible button is the radio's label (the input itself is visually hidden)
+  await panel.locator('[data-order-kind="pickup"]').click();
+  await expect(panel.getByRole("radio", { name: c.order_pickup, exact: true })).toBeChecked();
+  await expect(panel.locator('input[name="address"]'), "no address for Osobný odber").toHaveCount(0);
+  await expect(panel.locator("[data-order-time]")).toContainText(c.order_ready_at.split(" {")[0]);
+  // update 85: no payment choice for the customer (the shop marks it at the handover)
+  await expect(panel.getByRole("button", { name: /hotovos|QR platba|kartou/i })).toHaveCount(0);
   await panel.locator("[data-order-continue]").click();
   await panel.locator('input[name="name"]').fill("E2E feed");
   await panel.locator('input[name="phone"]').fill(PHONE);
@@ -48,6 +52,8 @@ async function pickupOrder(browser: Browser): Promise<number> {
   await panel.locator("[data-order-place]").click();
   const done = page.locator("[data-order-done]");
   await expect(done).toBeVisible({ timeout: 20_000 });
+  // the test restaurant keeps the default payment note
+  await expect(done.locator("[data-order-pay-note]")).toHaveText(c.order_pay_note_default);
   const number = Number(await done.getAttribute("data-order-done"));
   console.check();
   await context.close();
