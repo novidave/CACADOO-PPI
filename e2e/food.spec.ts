@@ -47,18 +47,26 @@ async function orderInAssistant(browser: Browser): Promise<number> {
   await page.goto(`/sk/shops/${SHOP}`);
   const box = page.locator("[data-assistant] textarea").first();
   await box.click();
-  await box.fill(`Chcem si objednať 1× ${ITEM} s donáškou, platím hotovosťou.`);
+  await box.fill(`Chcem si objednať 1× ${ITEM} s donáškou.`);
   await page.locator("[data-chat-send]").first().click();
   const panel = page.locator("[data-order-panel]");
   await expect(panel, "the assistant offers the cart card").toBeVisible({ timeout: 90_000 });
   await expect(panel.locator("li").first()).toContainText(ITEM);
-  const delivery = panel.getByRole("button", { name: c.order_delivery, exact: true });
-  if (await delivery.count()) await delivery.click();
-  await panel.getByRole("button", { name: c.order_pay_cash }).click();
+  // update 85: "Donáška" shows the address field, "Osobný odber" hides it (what was typed stays)
+  const delivery = panel.locator('[data-order-kind="delivery"]');
+  await delivery.click();
+  await expect(panel.getByRole("radio", { name: c.order_delivery, exact: true })).toBeChecked();
+  await expect(panel.locator("[data-order-time]")).toContainText(c.order_delivery_by.split(" {")[0]);
+  await panel.locator('input[name="address"]').fill(ADDRESS);
+  await panel.locator('[data-order-kind="pickup"]').click();
+  await expect(panel.locator('input[name="address"]')).toHaveCount(0);
+  await delivery.click();
+  await expect(panel.locator('input[name="address"]')).toHaveValue(ADDRESS);
+  // update 85: no payment choice for the customer (the shop marks it at the handover)
+  await expect(panel.getByRole("button", { name: /hotovos|QR platba|kartou/i })).toHaveCount(0);
   await panel.locator("[data-order-continue]").click();
   await panel.locator('input[name="name"]').fill("E2E zákazník");
   await panel.locator('input[name="phone"]').fill(PHONE);
-  await panel.locator('input[name="address"]').fill(ADDRESS);
   await panel.locator('input[name="consent"]').check();
   await panel.locator("[data-order-send-code]").click();
   const testCode = panel.locator("[data-order-test-code]");
@@ -67,6 +75,7 @@ async function orderInAssistant(browser: Browser): Promise<number> {
   await panel.locator("[data-order-place]").click();
   const done = page.locator("[data-order-done]");
   await expect(done).toBeVisible({ timeout: 20_000 });
+  await expect(done.locator("[data-order-pay-note]")).toHaveText(c.order_pay_note_default);
   const number = Number(await done.getAttribute("data-order-done"));
   expect(number).toBeGreaterThan(0);
   console.check();

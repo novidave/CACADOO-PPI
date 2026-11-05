@@ -60,6 +60,7 @@ const KIND_HINTS: Record<string, string> = {
   item_category: "a product category",
   assistant_label: "the label of a shop's chat button",
   assistant_welcome: "a shop assistant's welcome message",
+  food_pay_note: "a short note a restaurant shows its customer right after an order, about how to pay at the handover",
   special_note: "a short note about a shop's opening hours on a special day",
   content_title: "the heading of a shop page's news slider",
   section_title: "the title of a leaflet, menu or picture on a shop's page",

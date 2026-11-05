@@ -1,7 +1,7 @@
 import "server-only";
 import { type CartLine, townOf } from "./foodRules";
 import { geocodeTown } from "./productSources";
-import { createPublicClient } from "./supabase/public";
+import { createCachedPublicClient, createPublicClient } from "./supabase/public";
 
 /**
  * "Objednávky jedla" (database update 73) on the website: everything is decided in SQL — food_state (on, accepting,
@@ -30,6 +30,8 @@ export interface FoodState {
   pay?: { qr: boolean; cash: boolean; card: boolean };
   zones?: { name: string; fee_cents: number; minimum_cents: number }[];
   phone?: string | null;
+  /** update 85: "Poznámka k platbe po objednaní" as the owner wrote it (null = the default line, "-" = none). */
+  pay_note?: string | null;
 }
 
 export interface MenuItem {
@@ -80,6 +82,22 @@ export async function foodState(slug: string): Promise<FoodState> {
   const { data, error } = await db().rpc("food_state", { p_slug: slug });
   if (error || !data) return { enabled: false };
   return data as FoodState;
+}
+
+/**
+ * The owner's payment note in the page's language (update 85: kind food_pay_note, a preset of every translation run,
+ * so also in the shop's own language). null = no translation to show (the panel shows the note as written); nothing
+ * is asked for the default line or "-".
+ */
+export async function foodPayNote(slug: string, lang: string, raw: string | null | undefined): Promise<string | null> {
+  const note = (raw ?? "").trim();
+  if (!note || note === "-") return null;
+  const db = createCachedPublicClient();
+  if (!db) return null;
+  const { data, error } = await db.rpc("shop_translations", { p_slug: slug, p_lang: lang, p_kinds: ["food_pay_note"], p_refs: null });
+  if (error || !Array.isArray(data)) return null;
+  const row = (data as { kind: string; text: string }[]).find((r) => r.kind === "food_pay_note");
+  return row?.text ?? null;
 }
 
 export async function foodMenu(slug: string, q: string | null, limit = 60): Promise<MenuItem[]> {

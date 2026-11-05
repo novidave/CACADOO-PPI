@@ -15,12 +15,17 @@ import {
   changeCents,
   cleanCart,
   directionsTo,
+  firstKind,
   money,
   nextSteps,
   ORDER_PROBLEMS,
   type OrderKind,
+  orderKinds,
   type OrderStatus,
+  PAY_NOTE_NONE,
+  payNoteLine,
   plural,
+  readyClock,
   routeUrl,
   townOf,
 } from "./foodRules.ts";
@@ -163,7 +168,7 @@ Deno.test("words for every refusal and state, in sk / hu / en", async () => {
   const orderReasons = list("ORDER_REASONS", bookings);
   const courierCodeReasons = list("COURIER_REASONS", bookings);
   const door = list("COURIER_REASONS", await read("src/lib/courier.ts"));
-  assert(orderReasons.length > 10 && courierCodeReasons.length === 4 && door.length > 10, "the lists were read");
+  assert(orderReasons.length > 10 && courierCodeReasons.length === 5 && door.length > 10, "the lists were read");
   // a programmer's mistake (a broken request) or a race shows the general "Niečo sa nepodarilo"
   const general = new Set(["qty", "lines", "extras", "kind", "conflict", "bad_request", "courier_expired"]);
   for (const [lang, m] of Object.entries({ sk, hu, en })) {
@@ -203,3 +208,100 @@ Deno.test("first load: the order panel loads only after the first cart card", as
     assert(!/^import[^;]*OrderPanel/m.test(text), `${path} imports OrderPanel directly (it would join the first load)`);
   }
 });
+
+// ------------------------------------------------------------------ update 85: the order panel
+
+Deno.test("order panel: Osobný odber and Donáška as two radio buttons, Donáška only while the shop uses it", async () => {
+  assertEquals(orderKinds({ pickup: true, delivery: true }), ["pickup", "delivery"]);
+  assertEquals(orderKinds({ pickup: true, delivery: false }), ["pickup"], "without Donáška only Osobný odber");
+  assertEquals(orderKinds({ pickup: true }), ["pickup"], "food_state without a zone has no delivery");
+  assertEquals(orderKinds({ pickup: false, delivery: true }), ["delivery"]);
+  assertEquals(orderKinds({ pickup: false, delivery: false }), ["pickup"], "never no way at all");
+  assertEquals(firstKind("delivery", ["pickup"]), "pickup", "one way = already chosen");
+  assertEquals(firstKind("delivery", ["pickup", "delivery"]), "delivery", "the way the answer named");
+  assertEquals(firstKind(null, ["pickup", "delivery"]), "pickup");
+  const panel = await read("src/components/OrderPanel.tsx");
+  assert(panel.includes('type="radio"') && panel.includes('className="sr-only"'), "real radio inputs, visually hidden");
+  assert(panel.includes("min-h-[52px]") && panel.includes("grid grid-cols-2"), "≥ 52 px high, half the width each");
+  assert(panel.includes("bg-foreground font-bold text-white") && panel.includes("border-[1.5px] border-[#E2E2E2] bg-white"),
+    "the chosen one black with white bold text, the other white with a 1.5 px #E2E2E2 line");
+  assert(panel.includes("rounded-xl"), "radius 12");
+  assert(panel.includes("{kinds.map((k) =>") && panel.includes("orderKinds(state)"), "only the ways food_state offers");
+  assert(/kind === "delivery" && \(\s*<label[^]*name="address"/.test(panel), "the address field only with Donáška");
+  assert(panel.includes("value={address}") && panel.includes("onChange={(e) => setAddress(e.target.value)}"),
+    "the address is kept while Osobný odber hides the field");
+  assert(/function chooseKind[^]*?requote\(\{ kind: k \}\)/.test(panel), "every change asks food_quote again");
+  assert(panel.includes("labels.order_delivery_by : labels.order_ready_at"), "the time line under the buttons");
+});
+
+Deno.test("order panel: the time line comes from the database's minutes, in the shop's time zone", async () => {
+  const at = Date.UTC(2026, 10, 5, 17, 0);
+  assertEquals(readyClock(at, 40, "sk", "Europe/Bratislava"), "18:40", "pickup ready at");
+  assertEquals(readyClock(at, 70, "sk", "Europe/Bratislava"), "19:10", "delivery by");
+  assertEquals(readyClock(at, -5, "sk", "UTC"), "17:00", "never in the past");
+  const panel = await read("src/components/OrderPanel.tsx");
+  assert(panel.includes("quote.ready_minutes") && panel.includes("state.ready_pickup_min") && panel.includes("state.ready_delivery_min"),
+    "food_quote's / food_state's minutes (with the delay), never the assistant's estimate");
+  for (const [name, dict] of Object.entries({ sk, hu, en })) {
+    assert(dict.chat.order_ready_at.includes("{time}") && dict.chat.order_delivery_by.includes("{time}"), name);
+  }
+  assertEquals(sk.chat.order_ready_at, "Hotové o {time}");
+  assertEquals(sk.chat.order_delivery_by, "Donáška do {time}");
+});
+
+Deno.test("order panel: no payment choice for the customer, every order without a pay method", async () => {
+  const panel = await read("src/components/OrderPanel.tsx");
+  assert(!/pay_method/.test(panel), "the panel sends no pay method");
+  assert(!/order_pay_(label|qr|cash|card|hint)/.test(panel) && !/order_done_pay/.test(panel), "no payment block, no method in the box");
+  const route = await read("src/app/api/shops/[slug]/order/route.ts");
+  assert(route.includes("pay_method: null"), "the website forwards none");
+  const fn = await read("supabase/functions/bookings/index.ts");
+  assert(fn.includes("p_pay_method: null"), "the bookings function sends none to food_order_create");
+  const sql = await read("supabase/sql/85_food_order_panel.sql");
+  assert(/values \(p_order_id, v_shop\.id, v_seq, v_day, p_kind, null,/.test(sql), "food_order_create stores no method");
+  for (const [name, dict] of Object.entries({ sk, hu, en })) {
+    const chat = dict.chat as Record<string, string>;
+    for (const key of ["order_pay_label", "order_pay_qr", "order_pay_cash", "order_pay_card", "order_pay_hint_qr",
+      "order_pay_hint_cash", "order_pay_hint_card", "order_done_pay", "order_done_pay_line"]) {
+      assert(!(key in chat), `${name}: ${key} is gone`);
+    }
+  }
+  const prompt = await read("src/lib/shopChat.ts");
+  assert(prompt.includes("Never ask how the shopper will pay and never offer or name a payment method"), "the assistant never asks");
+  assert(!prompt.includes("picks pickup or delivery and the payment"), "the card has no payment choice");
+});
+
+Deno.test("order panel: the payment note — the default line, the owner's own, \"-\" = none", async () => {
+  const fallback = sk.chat.order_pay_note_default;
+  assertEquals(fallback, "Uprednostňujeme platbu QR kódom alebo v hotovosti. Ďakujeme!");
+  assertEquals(hu.chat.order_pay_note_default, "QR-kódos vagy készpénzes fizetést részesítünk előnyben. Köszönjük!");
+  assertEquals(en.chat.order_pay_note_default, "We prefer payment by QR code or cash. Thank you!");
+  assertEquals(payNoteLine(null, null, fallback), fallback, "no note = the default line");
+  assertEquals(payNoteLine("  ", null, fallback), fallback);
+  assertEquals(payNoteLine(PAY_NOTE_NONE, "x", fallback), null, '"-" = no line');
+  assertEquals(payNoteLine(" - ", null, fallback), null);
+  assertEquals(payNoteLine("Platba len v hotovosti.", null, fallback), "Platba len v hotovosti.", "the owner's own, as written");
+  assertEquals(payNoteLine("Platba len v hotovosti.", "Cash only, please.", fallback), "Cash only, please.", "translated");
+  const panel = await read("src/components/OrderPanel.tsx");
+  assert(panel.includes("payNoteLine(state.pay_note, order.pay_note_translated, labels.order_pay_note_default)"));
+  assert(/\{payNote && \(\s*<dd[^>]*data-order-pay-note/.test(panel), "one line under the time, nothing for \"-\"");
+  const page = await read("src/app/[lang]/(account)/dashboard/assistant/orders/settings/page.tsx");
+  assert(page.includes('name="pay_note"') && page.includes("maxLength={120}"), "Nastavenia: the field, ≤ 120");
+  const actions = await read("src/app/[lang]/(account)/dashboard/assistant/orders/actions.ts");
+  assert(actions.includes('if (formData.has("pay_note")) p.pay_note'), "saved only when the form has the field");
+  const translations = await read("src/lib/contentTranslations.ts");
+  assert(/PRESET_KINDS[^\n]*"food_pay_note"/.test(translations), "translated like the assistant's texts");
+  const translate = await read("supabase/functions/translate/index.ts");
+  assert(translate.includes("food_pay_note:"), "the translate function knows the kind");
+  // only the customer sees it: never in the owner's new-order e-mail
+  const mail = await read("supabase/functions/crm-messages/index.ts");
+  assert(!mail.includes("pay_note"), "not in the owner's e-mail");
+});
+
+Deno.test("code SMS: a failed one shows its own words, not \"Príliš veľa pokusov\"", async () => {
+  assertEquals(sk.chat.order_err_sms_failed, "SMS sa nepodarilo odoslať – skúste to znova o chvíľu alebo zavolajte do obchodu.");
+  for (const [name, dict] of Object.entries({ sk, hu, en })) assert(dict.chat.order_err_sms_failed.length > 10, name);
+  const fn = await read("supabase/functions/bookings/index.ts");
+  assert(/CODE_REASONS = \[[^\]]*"sms_failed"/.test(fn) && /COURIER_REASONS = \[[^\]]*"sms_failed"/.test(fn), "the refusal is passed on");
+});
+

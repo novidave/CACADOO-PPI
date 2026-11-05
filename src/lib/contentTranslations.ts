@@ -22,14 +22,16 @@ export type TranslationKind =
   | "section_title"
   | "section_alt"
   | "blog_title"
-  | "blog_body";
+  | "blog_body"
+  /** update 85: the payment note in the "Objednané" box (a preset like the assistant's texts) */
+  | "food_pay_note";
 
 /**
  * The assistant's button label and welcome text (update 46): a preset of every translation run — kept in every
  * pre-translated language and in the shop's own language too (the owner may write them in any language), shown like
  * the page's own texts (no "Preložené automaticky" note).
  */
-export const PRESET_KINDS: ReadonlySet<TranslationKind> = new Set(["assistant_label", "assistant_welcome"]);
+export const PRESET_KINDS: ReadonlySet<TranslationKind> = new Set(["assistant_label", "assistant_welcome", "food_pay_note"]);
 
 export interface Translation {
   text: string;

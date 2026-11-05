@@ -159,6 +159,8 @@ export async function saveFoodSettings(formData: FormData) {
     const n = Math.floor(Number(formData.get(k)));
     if (Number.isFinite(n) && n >= lo && n <= hi) p[k] = n;
   }
+  // update 85: "Poznámka k platbe po objednaní" (empty = the default line, "-" = none; SQL cleans it, ≤ 120)
+  if (formData.has("pay_note")) p.pay_note = String(formData.get("pay_note") ?? "").slice(0, 300);
   const { error } = await session.supabase.rpc("owner_food_save_settings", { p_shop_id: shopId, p });
   if (error) page({ err: reason(error.message) });
   if (slug) refreshShop(slug);

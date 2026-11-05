@@ -15404,7 +15404,8 @@ begin
   insert into t81 values ('p1', v_p1::text), ('d1', v_d1::text), ('p2', v_p2::text);
   assert (select ready_by - created_at = interval '40 minutes' from public.food_orders where id = v_p1), 'pickup: prep 20 + delay 20';
   assert (select ready_by - created_at = interval '65 minutes' from public.food_orders where id = v_d1), 'delivery: 45 + delay 20';
-  assert (select pay_method = 'cash' and paid_at is null from public.food_orders where id = v_p1);
+  -- update 85: the customer never chooses; the method comes with the owner's or the courier's payment mark
+  assert (select pay_method is null and paid_at is null from public.food_orders where id = v_p1);
 end $$;
 reset role;
 
@@ -15954,5 +15955,236 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 drop table t84;
+
+\echo '--- update 85: the order panel — no pay method from the customer (the mark still needed before the handover with Platby), the payment note after ordering (default, own, "-" = none, translated like the assistant''s texts), failed code SMS do not count toward the code limits'
+create temporary table t85 (k text primary key, v text);
+grant all on t85 to public;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+  v_open jsonb;
+  v_pizza uuid;
+begin
+  insert into t85 values ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(x) from public.subscriptions x where x.shop_id = v_a)::text),
+    ('day', ((now() at time zone v_tz)::date)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_85')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, (now() at time zone v_tz)::date, false, '[["00:00","23:59"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+  v_open := public.assistant_open(v_a, 'sk', repeat('5', 32));
+  v_pizza := (select si.id from public.sklad_items i join public.shop_items si on si.id = i.shop_item_id
+              where i.shop_id = v_a and si.name = 'Margherita 32 cm');
+  insert into public.sklad_movements (id, shop_id, shop_item_id, location_id, kind, qty, ref, client_at)
+  values (gen_random_uuid(), v_a, v_pizza, public.sklad_default_location(v_a, false), 'receipt', 10, 'Test 85', now());
+  perform public.sklad_apply(v_a, array[v_pizza]);
+  insert into t85 values ('conv', v_open ->> 'id'), ('token', v_open ->> 'token'), ('pizza', v_pizza::text), ('shop', v_a::text);
+  -- the code SMS rows of the block are not in the shop's monthly quota's way
+  update public.food_settings set enabled = true, pickup_on = true, payments_on = true, pay_cash = true where shop_id = v_a;
+end $$;
+reset role;
+
+-- orders: pay_method null whatever was sent and whatever "Platby v Cacaduu" says
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t85 where k = 'shop');
+  v_code jsonb;
+  vj jsonb;
+  v_o uuid;
+  v_pay text;
+begin
+  foreach v_pay in array array['cash', 'card', null, 'nonsense'] loop
+    v_code := public.sms_code_start('potraviny-centrum', 'order', '0907 885 ' || lpad((coalesce(length(v_pay), 0))::text, 3, '0'),
+                                    'Zákazník 85', md5('t85-' || coalesce(v_pay, 'null')),
+                                    (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'));
+    vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', gen_random_uuid(),
+            jsonb_build_array(jsonb_build_object('item_id', (select v from t85 where k = 'pizza'), 'qty', 1)),
+            'pickup', v_pay, null, null, null, null,
+            (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'), 'sk');
+    assert (vj ->> 'ok')::boolean, vj::text;
+    v_o := (vj -> 'order' ->> 'id')::uuid;
+    assert (select pay_method is null and paid_at is null from public.food_orders where id = v_o),
+      'no pay method from the customer: ' || coalesce(v_pay, 'null');
+  end loop;
+  insert into t85 values ('order', v_o::text);
+  -- with Platby on, picked up still needs the mark first (unchanged)
+  perform public.food_order_step(v_o, 'ready', 'owner', null, gen_random_uuid());
+  begin perform public.food_order_step(v_o, 'picked_up', 'owner', null, gen_random_uuid()); raise exception 'picked up unpaid';
+  exception when raise_exception then assert sqlerrm = 'not_paid', sqlerrm; end;
+  begin perform public.food_order_finish(v_o, gen_random_uuid(), 'owner', null, null, null); raise exception 'finished unpaid';
+  exception when raise_exception then assert sqlerrm = 'not_paid', sqlerrm; end;
+  -- the owner's mark gives the order its method
+  vj := public.food_order_finish(v_o, gen_random_uuid(), 'owner', null, 'cash', null);
+  assert vj ->> 'status' = 'picked_up' and vj ->> 'pay_method' = 'cash' and vj ->> 'paid_at' is not null, vj::text;
+end $$;
+reset role;
+
+-- the payment note: null = the default line, own text (plain, ≤ 120), "-" = none; in food_state and translated
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select v::uuid from t85 where k = 'shop');
+  vj jsonb;
+begin
+  assert (public.owner_food_settings(v_a) ->> 'pay_note') is null, 'the default line';
+  vj := public.owner_food_save_settings(v_a, jsonb_build_object('pay_note', '  Platba <b>kartou</b> nie je možná. Viac na www.example.com  '));
+  assert vj ->> 'pay_note' = 'Platba kartou nie je možná. Viac na', vj ->> 'pay_note';
+  vj := public.owner_food_save_settings(v_a, jsonb_build_object('pay_note', repeat('á', 200)));
+  assert char_length(vj ->> 'pay_note') = 120, 'at most 120 characters';
+  vj := public.owner_food_save_settings(v_a, '{"pay_note": " - "}');
+  assert vj ->> 'pay_note' = '-', '"-" = no line';
+  vj := public.owner_food_save_settings(v_a, '{"prep_minutes": 20}');
+  assert vj ->> 'pay_note' = '-', 'only the fields given change';
+  vj := public.owner_food_save_settings(v_a, '{"pay_note": ""}');
+  assert vj ->> 'pay_note' is null, 'empty = the default line';
+  vj := public.owner_food_save_settings(v_a, '{"pay_note": null}');
+  assert vj ->> 'pay_note' is null;
+  begin perform public.owner_food_save_settings(v_a, '{"pay_note": 5}'); raise exception 'a number as the note';
+  exception when invalid_parameter_value then assert sqlerrm = 'pay_note'; end;
+  vj := public.owner_food_save_settings(v_a, '{"pay_note": "Prosíme, platte radšej v hotovosti."}');
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'food_settings_saved'
+                 and details -> 'fields' ? 'pay_note');
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  assert public.food_state('potraviny-centrum') ->> 'pay_note' = 'Prosíme, platte radšej v hotovosti.', public.food_state('potraviny-centrum')::text;
+end $$;
+reset role;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t85 where k = 'shop');
+begin
+  assert public.preset_translation_kind('food_pay_note') and public.page_text_group('food_pay_note') = 'assistant';
+  assert exists (select 1 from public.translation_sources(v_a) s where s.kind = 'food_pay_note' and s.ref = v_a::text
+                 and s.source = 'Prosíme, platte radšej v hotovosti.'), 'a source of the translation runs';
+  -- kept in every pre-translated language and in the shop's own one (like the assistant's texts)
+  assert public.shop_main_lang(v_a) = any (public.shop_target_langs(v_a, 'food_pay_note'));
+  assert exists (select 1 from public.translation_work(2000, v_a) w where w.kind = 'food_pay_note' and w.source_lang = 'auto');
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  values (v_a, 'food_pay_note', v_a::text, 'en', 'Please pay in cash if you can.', 'ai', md5('Prosíme, platte radšej v hotovosti.'));
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  assert exists (select 1 from public.shop_translations('potraviny-centrum', 'en', array['food_pay_note']) t
+                 where t.text = 'Please pay in cash if you can.'), 'the visitors read the translation';
+end $$;
+reset role;
+-- "-" = no line, and nothing to translate any more (the old translation is never shown)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin perform public.owner_food_save_settings((select v::uuid from t85 where k = 'shop'), '{"pay_note": "-"}'); end $$;
+reset role;
+set role anon;
+do $$
+begin
+  assert not exists (select 1 from public.shop_translations('potraviny-centrum', 'en', array['food_pay_note'])), 'no line, no translation';
+end $$;
+reset role;
+
+-- failed code SMS do not count: 3 failed + 1 → allowed; 3 sent + 1 → refused
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t85 where k = 'shop');
+  v_code jsonb;
+  v_msg uuid;
+  i integer;
+  v_status text;
+  v_phone text;
+begin
+  foreach v_status in array array['failed', 'sent'] loop
+    v_phone := case v_status when 'failed' then '0907 885 801' else '0907 885 802' end;
+    for i in 1..3 loop
+      v_code := public.sms_code_start('potraviny-centrum', 'order', v_phone, 'Zákazník 85', md5('t85-sms-' || v_status || i),
+                                      (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'));
+      v_msg := public.sms_code_claim((v_code ->> 'id')::uuid, 'Kód 123456');
+      assert (select message_id from public.sms_codes where id = (v_code ->> 'id')::uuid) = v_msg, 'the code keeps its message';
+      assert public.booking_sms_settle(v_msg, v_status, 'test', null, case when v_status = 'failed' then '401' end);
+    end loop;
+    if v_status = 'failed' then
+      assert public.sms_codes_counted(public.booking_hash(public.crm_phone(v_phone, (select country from public.shops where slug = 'potraviny-centrum'))), null) = 0, 'failed ones do not count';
+      assert public.sms_code_last_failed(public.booking_hash(public.crm_phone(v_phone, (select country from public.shops where slug = 'potraviny-centrum'))));
+      v_code := public.sms_code_start('potraviny-centrum', 'order', v_phone, 'Zákazník 85', md5('t85-sms-4'),
+                                      (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'));
+      assert v_code ? 'code', '3 failed + 1 → allowed';
+      -- the new one waits (queued): it counts
+      assert public.sms_codes_counted(public.booking_hash(public.crm_phone(v_phone, (select country from public.shops where slug = 'potraviny-centrum'))), null) = 1;
+    else
+      begin
+        perform public.sms_code_start('potraviny-centrum', 'order', v_phone, 'Zákazník 85', md5('t85-sms-5'),
+                                      (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'));
+        raise exception '3 sent + 1 allowed';
+      exception when program_limit_exceeded then assert sqlerrm = 'too_many', sqlerrm; end;
+    end if;
+  end loop;
+  -- 2 sent, then a failed one: the limit is not reached (2 count); the 3rd sent reaches it
+  v_phone := '0907 885 803';
+  for i in 1..2 loop
+    v_code := public.sms_code_start('potraviny-centrum', 'order', v_phone, 'Zákazník 85', md5('t85-mix-' || i),
+                                    (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'));
+    perform public.booking_sms_settle(public.sms_code_claim((v_code ->> 'id')::uuid, 'Kód 123456'), 'test', 'test', null, null);
+  end loop;
+  v_code := public.sms_code_start('potraviny-centrum', 'order', v_phone, 'Zákazník 85', md5('t85-mix-3'),
+                                  (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'));
+  perform public.booking_sms_settle(public.sms_code_claim((v_code ->> 'id')::uuid, 'Kód 123456'), 'failed', 'test', null, '402');
+  v_code := public.sms_code_start('potraviny-centrum', 'order', v_phone, 'Zákazník 85', md5('t85-mix-4'),
+                                  (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'));
+  assert v_code ? 'code', 'the failed one did not count';
+  -- the limit reached while the last attempt failed at the provider: sms_failed, not too_many
+  perform public.booking_sms_settle(public.sms_code_claim((v_code ->> 'id')::uuid, 'Kód 123456'), 'test', 'test', null, null);
+  -- (one transaction: every row has the same now(), so this one is made the latest)
+  insert into public.sms_codes (shop_id, purpose, phone_hash, caller_hash, expires_at, message_id, created_at)
+  select v_a, 'order', public.booking_hash(public.crm_phone(v_phone, (select country from public.shops where slug = 'potraviny-centrum'))), md5('t85-mix-x'), now() + interval '10 minutes', m.id,
+         now() + interval '1 second'
+  from public.shop_outgoing_messages m where m.shop_id = v_a and m.status = 'failed' order by m.created_at desc limit 1;
+  begin
+    perform public.sms_code_start('potraviny-centrum', 'order', v_phone, 'Zákazník 85', md5('t85-mix-5'),
+                                  (select v::uuid from t85 where k = 'conv'), (select v from t85 where k = 'token'));
+    raise exception 'a 4th counted code allowed';
+  exception when program_limit_exceeded then assert sqlerrm = 'sms_failed', sqlerrm; end;
+  -- the caller's limit (10 an hour) counts the same way
+  assert public.sms_codes_counted(null, md5('t85-sms-failed1')) = 0 and public.sms_codes_counted(null, md5('t85-sms-sent1')) = 1;
+  -- the courier login: the same rule (failed courier codes do not count)
+  v_phone := '0907 885 804';
+  for i in 1..3 loop
+    insert into public.sms_codes (shop_id, purpose, phone_hash, caller_hash, expires_at, message_id)
+    values (v_a, 'courier', public.booking_hash(public.crm_phone(v_phone, (select country from public.shops where slug = 'potraviny-centrum'))), md5('t85-cr-' || i), now() + interval '10 minutes',
+            (select m.id from public.shop_outgoing_messages m where m.shop_id = v_a and m.status = 'failed' order by m.created_at desc limit 1));
+  end loop;
+  assert public.food_courier_code_start('potraviny-centrum', v_phone, md5('t85-cr-4')) ? 'id', '3 failed courier codes + 1 → allowed';
+  assert not has_function_privilege('anon', 'public.sms_codes_counted(text, text)', 'execute')
+     and not has_function_privilege('authenticated', 'public.sms_code_last_failed(text)', 'execute');
+end $$;
+reset role;
+
+-- tidy up: the note, ordering off, the day's hours, the subscription
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t85 where k = 'shop');
+begin
+  update public.food_settings set enabled = false, pay_note = null where shop_id = v_a;
+  delete from public.content_translations where shop_id = v_a and kind = 'food_pay_note';
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t85 where k = 'day');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t85 where k = 'sub'))
+  where (select v from t85 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t85 where k = 'had_plan');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+drop table t85;
 
 \echo 'ALL DATABASE CHECKS PASSED'

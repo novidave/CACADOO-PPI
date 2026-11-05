@@ -104,3 +104,46 @@ export function nextSteps(kind: OrderKind, status: OrderStatus): OrderStatus[] {
   if (status === "ready") return ["picked_up", "cancelled"];
   return [];
 }
+
+// ------------------------------------------------------------------ update 85: the order panel
+
+/**
+ * The ways of receiving an order the panel offers, in their order: "Osobný odber" and — only while the shop uses
+ * Donáška (food_state.delivery: on and with a zone) — "Donáška". One way = it is already chosen, nothing to pick.
+ */
+export function orderKinds(state: { pickup?: boolean; delivery?: boolean }): OrderKind[] {
+  const kinds: OrderKind[] = [];
+  if (state.pickup !== false) kinds.push("pickup");
+  if (state.delivery) kinds.push("delivery");
+  return kinds.length ? kinds : ["pickup"];
+}
+
+/** The way chosen first: the one the answer named when the shop offers it, else the first one offered. */
+export function firstKind(wanted: OrderKind | null | undefined, kinds: OrderKind[]): OrderKind {
+  return wanted && kinds.includes(wanted) ? wanted : kinds[0];
+}
+
+/**
+ * The time line under the kind buttons: when the order is ready (pickup) or delivered, from the database's minutes
+ * (food_state's ready_*_min, or food_quote's ready_minutes — both with today's delay; never the assistant's own
+ * estimate), as a clock time in the shop's time zone.
+ */
+export function readyClock(nowMs: number, minutes: number, locale: string, timeZone: string | undefined): string {
+  return new Intl.DateTimeFormat(locale, { timeZone: timeZone || "UTC", hour: "2-digit", minute: "2-digit" })
+    .format(new Date(nowMs + Math.max(0, minutes) * 60_000));
+}
+
+/** The owner's "-": no line under the time in the "Objednané" box. */
+export const PAY_NOTE_NONE = "-";
+
+/**
+ * The line under the time in the "Objednané" box ("Poznámka k platbe po objednaní", food_settings.pay_note): no note
+ * = the default line of the page language, "-" = no line, else the owner's text in the page language when it is
+ * translated (a preset kind, so the shop's own language too), else as the owner wrote it.
+ */
+export function payNoteLine(raw: string | null | undefined, translated: string | null | undefined, fallback: string): string | null {
+  const note = (raw ?? "").trim();
+  if (!note) return fallback;
+  if (note === PAY_NOTE_NONE) return null;
+  return translated?.trim() || note;
+}
