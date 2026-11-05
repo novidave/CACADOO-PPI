@@ -15780,6 +15780,38 @@ begin
 end $$;
 reset role;
 
+\echo '--- update 82: list_food_orders also carries the kitchen''s times and the parts (the Meškanie button''s before → after), through the same door'
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  vj jsonb;
+  v_door text;
+begin
+  -- update 81's door is kept under its own name, callable only by the newest door
+  assert to_regprocedure('public.owner_mcp_call_81(text, text, jsonb)') is not null;
+  v_door := 'public.owner_mcp_call_81(text, text, jsonb)';
+  assert not has_function_privilege('anon', v_door, 'execute') and not has_function_privilege('authenticated', v_door, 'execute');
+  assert has_function_privilege('anon', 'public.owner_mcp_call(text, text, jsonb)', 'execute');
+  update public.food_settings set delay_minutes = 20, prep_minutes = 25, delivery_minutes = 40 where shop_id = v_a;
+  vj := public.telegram_call(9081, 'list_food_orders', '{"limit": 1}');
+  assert (vj -> 'result' -> 'times' ->> 'delay_minutes')::int = 20 and (vj -> 'result' -> 'times' ->> 'ready_pickup_min')::int = 45
+     and (vj -> 'result' -> 'times' ->> 'ready_delivery_min')::int = 60 and vj -> 'result' -> 'times' ? 'delay_reset', vj::text;
+  assert vj -> 'result' -> 'parts' ? 'delivery' and vj -> 'result' -> 'parts' ? 'payments', vj::text;
+  -- the orders and the open state are as before
+  assert vj -> 'result' ? 'orders' and vj -> 'result' ? 'accepting' and vj ->> 'shop' = 'potraviny-centrum', vj::text;
+  -- other tools: nothing added
+  vj := public.telegram_call(9081, 'list_menu', '{}');
+  assert not (vj -> 'result' ? 'times'), vj::text;
+  -- the door still refuses what update 81's refused
+  begin perform public.telegram_call(9081, 'set_food_delay', '{"minutes": 10, "confirm": true}'); raise exception 'a write without Potvrdiť';
+  exception when insufficient_privilege then assert sqlerrm = 'needs_confirmation'; end;
+  begin perform public.owner_mcp_call('not-a-token', 'list_food_orders', '{}'); raise exception 'a wrong token';
+  exception when others then assert sqlerrm like 'invalid_token%', sqlerrm; end;
+  update public.food_settings set delay_minutes = 0, prep_minutes = 20, delivery_minutes = 45 where shop_id = v_a;
+end $$;
+reset role;
+
 -- tidy up: ordering off, the parts and the delay as by default, the courier, the day's hours, the subscription
 set role service_role;
 do $$

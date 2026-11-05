@@ -201,6 +201,11 @@ export const AI_TOOLS = [
     input_schema: { type: "object", properties: { item_id: { type: "string" }, sold_out: { type: "boolean" } }, required: ["item_id", "sold_out"] },
   },
   {
+    name: "propose_food_delay",
+    description: "Proposes the kitchen's delay for food orders (\"Meškanie\", minutes 0–120; usually 0, 10, 20, 30 or 45). The shop assistant then tells customers pickup / delivery that much later; it goes back to 0 by itself.",
+    input_schema: { type: "object", properties: { minutes: { type: "integer", minimum: 0, maximum: 120 } }, required: ["minutes"] },
+  },
+  {
     name: "propose_mark_handled",
     description: "Proposes marking conversations as handled (ids from list_conversations).",
     input_schema: { type: "object", properties: { conversation_ids: { type: "array", items: { type: "string" }, maxItems: 20 } }, required: ["conversation_ids"] },
@@ -376,6 +381,45 @@ export async function proposeMenuSoldOut(d: AssistantDeps, item: string, soldOut
   return null;
 }
 
+/** The kitchen's times as list_food_orders returns them (database update 82). */
+export interface FoodTimes {
+  prep_minutes: number;
+  delivery_minutes: number;
+  delay_minutes: number;
+  ready_pickup_min: number;
+  ready_delivery_min: number;
+  delay_reset?: string;
+}
+
+/** "Meškanie" (update 81): the delays the buttons offer (the database takes 0–120). */
+export const FOOD_DELAYS = [0, 10, 20, 30, 45] as const;
+
+/** The shop's times and whether it delivers (a read through the one door), or null when it takes no food orders. */
+export async function foodTimes(d: AssistantDeps): Promise<{ times: FoodTimes; delivery: boolean } | null> {
+  const out = (await d.call("list_food_orders", { limit: 1 })) as { times?: FoodTimes; parts?: { delivery?: boolean } };
+  if (!out?.times || typeof out.times.delay_minutes !== "number") return null;
+  return { times: out.times, delivery: out.parts?.delivery !== false };
+}
+
+/**
+ * The kitchen's delay (update 81): before → after with the times the shop assistant will tell customers;
+ * set_food_delay with confirm waits for Potvrdiť. null = proposed.
+ */
+export async function proposeFoodDelay(d: AssistantDeps, minutes: number): Promise<string | null> {
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 120) return "minutes must be a whole number 0–120";
+  const now = await foodTimes(d);
+  if (!now) return "this shop takes no food orders";
+  const { times, delivery } = now;
+  await d.propose("set_food_delay", { minutes, confirm: true }, [
+    d.t("sum_delay", { before: times.delay_minutes, after: minutes }),
+    d.t(delivery ? "sum_delay_times" : "sum_delay_pickup", {
+      pickup: times.prep_minutes + minutes,
+      delivery: times.delivery_minutes + minutes,
+    }),
+  ]);
+  return null;
+}
+
 /** One AI tool call: a read through the one door, help, or a proposal (nothing changes). */
 export async function aiTool(d: AssistantDeps, name: string, input: Record<string, unknown>, state: { proposals: number; links: HelpTopic[] }): Promise<{ content: string; error?: boolean }> {
   try {
@@ -404,6 +448,8 @@ export async function aiTool(d: AssistantDeps, name: string, input: Record<strin
       } else if (name === "propose_menu_sold_out") {
         if (!UUID.test(String(input.item_id))) problem = "invalid menu item";
         else problem = await proposeMenuSoldOut(d, String(input.item_id), input.sold_out !== false);
+      } else if (name === "propose_food_delay") {
+        problem = await proposeFoodDelay(d, Number(input.minutes));
       } else if (name === "propose_mark_handled") {
         const ids = (Array.isArray(input.conversation_ids) ? input.conversation_ids : []).map(String).filter((x) => UUID.test(x)).slice(0, 20);
         if (!ids.length) problem = "no conversation ids";
