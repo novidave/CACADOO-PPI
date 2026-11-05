@@ -1,7 +1,10 @@
 "use server";
 
+import { isLocale } from "@/i18n/config";
+import { getDictionary, t } from "@/i18n/dictionaries";
 import { getSession } from "@/lib/auth";
-import { foodFeed, type FoodFeed } from "@/lib/foodOwner";
+import { foodFeed, type FoodFeed, type FoodOrder } from "@/lib/foodOwner";
+import { payBySquareSvg } from "@/lib/payBySquare";
 
 /**
  * Objednávky jedla → the feed (database update 81). The feed calls these with the owner's own login and draws the
@@ -120,4 +123,28 @@ export async function reopenFeedOrder(shopId: string, orderId: string, stepId: s
   if (!supabase || !UUID.test(shopId) || !UUID.test(orderId) || !UUID.test(stepId)) return { ok: false, error: "err_failed" };
   const { error } = await supabase.rpc("owner_food_order_reopen", { p_shop_id: shopId, p_order_id: orderId, p_step_id: stepId });
   return answer(supabase, shopId, error);
+}
+
+/**
+ * "QR" in the feed's payment dialog (2026-11-05): the order's PAY by square code, drawn on the server exactly as on the
+ * order's page (owner_food_order decides who may read the order; the shop's IBAN from Sklad). null = no IBAN, already
+ * paid, or the order could not be read — the dialog then offers the order's page instead.
+ */
+export async function feedOrderQr(shopId: string, orderId: string, lang: string): Promise<{ svg: string; payee: string; iban: string; vs: string } | null> {
+  const supabase = await owner();
+  if (!supabase || !UUID.test(shopId) || !UUID.test(orderId)) return null;
+  const { data, error } = await supabase.rpc("owner_food_order", { p_shop_id: shopId, p_order_id: orderId });
+  const o = (error ? null : data) as FoodOrder | null;
+  if (!o || !o.iban || o.paid_at) return null;
+  const dict = await getDictionary(isLocale(lang) ? lang : "sk");
+  const payee = o.payee ?? o.shop_name;
+  const svg = await payBySquareSvg({
+    iban: o.iban,
+    bic: o.bic ?? null,
+    payee,
+    amount: o.total_cents / 100,
+    vs: o.vs,
+    message: t(dict.food.qr_message, { n: o.number }),
+  }).catch(() => null);
+  return svg ? { svg, payee, iban: o.iban, vs: o.vs } : null;
 }

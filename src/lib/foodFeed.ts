@@ -176,7 +176,7 @@ export const FEED_KEYS = [
   "feed_empty_text", "feed_done_today", "feed_done_hint", "feed_reopen", "feed_reopen_label", "feed_done_at",
   "feed_on_way_at", "feed_cancelled", "feed_older", "feed_older_title", "feed_pickup_short", "feed_delivery_short",
   "feed_toast_done", "feed_toast_on_way", "feed_toast_back", "feed_undo", "feed_pay_title", "feed_pay_finish",
-  "feed_show_qr", "feed_assign_title", "feed_assign_finish", "feed_no_couriers", "feed_close", "feed_saved", "feed_failed",
+  "feed_show_qr", "feed_qr_loading", "feed_qr_none", "feed_qr_line", "feed_qr_alt", "feed_qr_full", "feed_assign_title", "feed_assign_finish", "feed_no_couriers", "feed_close", "feed_saved", "feed_failed",
   "pay_qr", "pay_cash", "pay_card", "paid_short", "cash_title", "cash_exact", "cash_other", "cash_change", "cash_hint",
   "accepting", "not_accepting_off", "not_accepting_paused", "not_accepting_closed", "not_accepting_cutoff",
   "not_accepting_sms_quota", "ok_sms", "err_sms_failed", "err_failed", "err_step", "err_not_paid", "err_cash",

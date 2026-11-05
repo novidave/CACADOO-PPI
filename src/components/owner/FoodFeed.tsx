@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { formatTime } from "@/lib/format";
 import {
   agoLabel,
@@ -25,6 +25,7 @@ import {
 import type { FeedCard, FoodFeed as Feed } from "@/lib/foodOwner";
 import { cashChoices, money } from "@/lib/foodRules";
 import {
+  feedOrderQr,
   finishFeedOrder,
   type FeedAnswer,
   loadFeed,
@@ -107,6 +108,9 @@ export function FoodFeed({
   const [out, setOut] = useState<{ id: string; dir: number; w: number } | null>(null);
   const gesture = useRef<{ id: string; x0: number; y0: number; w: number; pid: number; on: boolean } | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
+  // the payment dialog's QR (2026-11-05): one stable loader per open dialog, so the dialog asks the server once
+  const payOrderId = dialog?.kind === "payment" ? dialog.order.id : null;
+  const loadQr = useCallback(() => (payOrderId ? feedOrderQr(shopId, payOrderId, lang) : Promise.resolve(null)), [shopId, payOrderId, lang]);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [toast, setToast] = useState<Toast>(null);
   const toastTimer = useRef<number | null>(null);
@@ -294,9 +298,9 @@ export function FoodFeed({
   const itemsText = (o: FeedCard) => o.lines.map((l) => `${l.qty}× ${l.name}${l.extras_text ? ` (${l.extras_text})` : ""}`).join(" · ");
 
   const stepper = (label: string, value: number, range: typeof PREP_RANGE | typeof DELIVERY_RANGE, field: "prep_minutes" | "delivery_minutes") => (
-    <div className="flex flex-col gap-1.5" data-feed-stepper={field}>
+    <div className="flex items-center justify-between gap-2 @[40rem]:flex-col @[40rem]:items-start @[40rem]:justify-start @[40rem]:gap-1.5" data-feed-stepper={field}>
       <span className="text-xs font-bold uppercase tracking-wide text-muted">{label}</span>
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-none items-center gap-1.5">
         <button
           type="button"
           className="flex size-12 items-center justify-center rounded-xl border border-line bg-white text-2xl font-bold disabled:opacity-40"
@@ -307,7 +311,7 @@ export function FoodFeed({
         >
           −
         </button>
-        <output className="min-w-20 text-center text-lg font-bold tabular-nums" aria-live="polite" data-feed-value={field}>
+        <output className="min-w-16 text-center text-lg font-bold tabular-nums" aria-live="polite" data-feed-value={field}>
           {fill(labels.feed_minutes, { n: value })}
         </output>
         <button
@@ -326,71 +330,77 @@ export function FoodFeed({
 
   return (
     <div className="flex flex-col gap-5" data-food-feed>
-      {/* the bar: one row on a tablet / computer, rows on a phone */}
-      <section className="flex flex-col gap-4 rounded-2xl border border-line bg-[#FAFAFA] p-4" aria-label={labels.feed_says}>
-        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
-        {settings.pickup_on && stepper(labels.feed_prep, prepShown, PREP_RANGE, "prep_minutes")}
-        {parts.delivery && stepper(labels.feed_delivery, delivShown, DELIVERY_RANGE, "delivery_minutes")}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-bold uppercase tracking-wide text-muted">{labels.feed_delay}</span>
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label={labels.feed_delay}>
-            {DELAYS.map((v) => (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={delayShown === v}
-                aria-label={fill(labels.feed_delay_chip, { n: v })}
-                disabled={!canWrite}
-                onClick={() => void pickDelay(v)}
-                className={`min-h-12 min-w-14 rounded-xl px-3 text-base font-bold tabular-nums ${delayShown === v ? "border-2 border-foreground bg-foreground text-white" : "border border-[#D6D6D6] bg-white"}`}
-                data-feed-delay={v}
-              >
-                {v === 0 ? "0" : `+${v}`}
-              </button>
-            ))}
+      {/* the bar (artboards 5a / 5c, 2026-11-05): a container query — one row from 56 rem (the tablet, the menu as a rail);
+          rows with the label left and the control right on a phone (5c). "Pozastaviť" sits in the box of what the
+          assistant says (nothing that differs between tabs may sit above the tabs). */}
+      <section className="@container rounded-2xl border border-line bg-[#FAFAFA] p-3 @[40rem]:p-4" aria-label={labels.feed_says} data-feed-bar>
+        <div className="flex flex-col gap-2.5 @[40rem]:flex-row @[40rem]:flex-wrap @[40rem]:items-end @[40rem]:gap-4 @[56rem]:flex-nowrap @[56rem]:items-center">
+          {settings.pickup_on && stepper(labels.feed_prep, prepShown, PREP_RANGE, "prep_minutes")}
+          {parts.delivery && stepper(labels.feed_delivery, delivShown, DELIVERY_RANGE, "delivery_minutes")}
+          <div className="flex items-center justify-between gap-2 @[40rem]:flex-col @[40rem]:items-start @[40rem]:gap-1.5">
+            <span className="text-xs font-bold uppercase tracking-wide text-muted">{labels.feed_delay}</span>
+            <div className="flex flex-none gap-1 @[40rem]:gap-1.5" role="group" aria-label={labels.feed_delay}>
+              {DELAYS.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={delayShown === v}
+                  aria-label={fill(labels.feed_delay_chip, { n: v })}
+                  disabled={!canWrite}
+                  onClick={() => void pickDelay(v)}
+                  className={`min-h-12 min-w-11 rounded-xl px-1.5 text-base font-bold tabular-nums @[40rem]:min-w-12 @[40rem]:px-2 ${delayShown === v ? "border-2 border-foreground bg-foreground text-white" : "border border-[#D6D6D6] bg-white"}`}
+                  data-feed-delay={v}
+                >
+                  {v === 0 ? "0" : `+${v}`}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-        {canWrite && settings.enabled && (
-          <button
-            type="button"
-            onClick={() => void togglePause()}
-            disabled={busy}
-            aria-pressed={settings.paused}
-            className={`min-h-12 rounded-xl px-4 sm:ml-auto font-semibold ${settings.paused ? "bg-foreground text-white" : "border border-line bg-white"}`}
-            data-feed-pause={settings.paused ? "resume" : "pause"}
+          <div
+            className={`flex min-w-0 flex-col gap-1 rounded-xl p-2.5 @[40rem]:basis-full @[40rem]:p-3 @[56rem]:min-w-60 @[56rem]:flex-1 @[56rem]:basis-auto ${settings.paused ? "border-2 border-[#F2B705] bg-[#FFFBEA]" : "border border-line bg-white"}`}
+            {...(settings.paused ? { "data-feed-paused": "" } : { "data-feed-says": "" })}
           >
-            {settings.paused ? labels.feed_resume : labels.feed_pause}
-          </button>
-        )}
+            <div className="flex items-center justify-between gap-2">
+              {settings.paused ? <strong>{labels.feed_paused_title}</strong> : <span className="text-xs font-bold uppercase tracking-wide text-muted">{labels.feed_says}</span>}
+              {canWrite && settings.enabled && (
+                <button
+                  type="button"
+                  onClick={() => void togglePause()}
+                  disabled={busy}
+                  aria-pressed={settings.paused}
+                  className={`min-h-11 flex-none rounded-xl px-3.5 text-[15px] font-semibold ${settings.paused ? "bg-foreground text-white" : "border border-line bg-white"}`}
+                  data-feed-pause={settings.paused ? "resume" : "pause"}
+                >
+                  {settings.paused ? labels.feed_resume : labels.feed_pause}
+                </button>
+              )}
+            </div>
+            {settings.paused ? (
+              <span className="text-sm">{labels.feed_paused_text}</span>
+            ) : (
+              <>
+                {!accepting && <span className="text-sm font-semibold text-[#B42318]">{reasonText}</span>}
+                {settings.pickup_on && (
+                  <span className="text-[15px] font-semibold" data-feed-says-pickup>
+                    {fill(labels.feed_says_pickup, { time: pickupAt, n: prepShown + delayShown })}
+                  </span>
+                )}
+                {parts.delivery && (
+                  <span className="text-[15px] font-semibold" data-feed-says-delivery>
+                    {fill(labels.feed_says_delivery, { time: deliveryAt, n: delivShown + delayShown })}
+                  </span>
+                )}
+                {times.long_delay && delay === null && <span className="text-sm">{labels.feed_says_long}</span>}
+                <span className="flex items-center gap-1 text-[13px] font-semibold text-[#146C37]">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+                    <path d="m5 12 5 5L20 7" />
+                  </svg>
+                  {labels.feed_synced}
+                </span>
+              </>
+            )}
+          </div>
         </div>
-        {settings.paused ? (
-          <div className="flex min-w-0 flex-col gap-1 rounded-xl border-2 border-[#F2B705] bg-[#FFFBEA] p-3" data-feed-paused>
-            <strong>{labels.feed_paused_title}</strong>
-            <span className="text-sm">{labels.feed_paused_text}</span>
-          </div>
-        ) : (
-          <div className="flex min-w-0 flex-col gap-1 rounded-xl border border-line bg-white p-3" data-feed-says>
-            <span className="text-xs font-bold uppercase tracking-wide text-muted">{labels.feed_says}</span>
-            {!accepting && <span className="text-sm font-semibold text-[#B42318]">{reasonText}</span>}
-            {settings.pickup_on && (
-              <span className="font-semibold" data-feed-says-pickup>
-                {fill(labels.feed_says_pickup, { time: pickupAt, n: prepShown + delayShown })}
-              </span>
-            )}
-            {parts.delivery && (
-              <span className="font-semibold" data-feed-says-delivery>
-                {fill(labels.feed_says_delivery, { time: deliveryAt, n: delivShown + delayShown })}
-              </span>
-            )}
-            {times.long_delay && delay === null && <span className="text-sm">{labels.feed_says_long}</span>}
-            <span className="flex items-center gap-1 text-sm font-semibold text-[#146C37]">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
-                <path d="m5 12 5 5L20 7" />
-              </svg>
-              {labels.feed_synced}
-            </span>
-          </div>
-        )}
       </section>
 
       {/* active cards */}
@@ -564,6 +574,7 @@ export function FoodFeed({
             lang={lang}
             methods={payMethods(settings, parts)}
             qrHref={parts.qr_terminal ? detailHref(dialog.order) : null}
+            loadQr={loadQr}
             onClose={() => setDialog(null)}
             onPaid={(pay, cash) => {
               const o = dialog.order;
@@ -643,6 +654,7 @@ function PaymentChoice({
   lang,
   methods,
   qrHref,
+  loadQr,
   onClose,
   onPaid,
 }: {
@@ -651,6 +663,8 @@ function PaymentChoice({
   lang: string;
   methods: FeedPay[];
   qrHref: string | null;
+  /** 2026-11-05: the order's PAY by square code inside the dialog (feedOrderQr; null = no IBAN / already paid) */
+  loadQr: () => Promise<{ svg: string; payee: string; iban: string; vs: string } | null>;
   onClose: () => void;
   onPaid: (pay: FeedPay, cash: number | null) => void;
 }) {
@@ -660,6 +674,24 @@ function PaymentChoice({
   const otherCents = other.trim() ? Math.round(Number(other.replace(",", ".")) * 100) : null;
   const cash = method === "cash" ? (otherCents ?? given) : null;
   const tooLittle = method === "cash" && cash !== null && (!Number.isFinite(cash) || cash < o.total_cents);
+  // the QR is drawn on the server once, the first time "QR" is chosen (with the QR terminal on)
+  const [qr, setQr] = useState<{ svg: string; payee: string; iban: string; vs: string } | null | "loading" | undefined>(undefined);
+  const askedQr = useRef(false);
+  const wantQr = method === "qr" && qrHref !== null;
+  useEffect(() => {
+    if (!wantQr || askedQr.current) return;
+    askedQr.current = true;
+    let live = true;
+    void Promise.resolve()
+      .then(() => live && setQr("loading"))
+      .then(() => loadQr())
+      .catch(() => null)
+      .then((answer) => live && setQr(answer ?? null));
+    return () => {
+      live = false;
+      askedQr.current = false;
+    };
+  }, [wantQr, loadQr]);
   return (
     <div className="flex flex-col gap-4 p-5" data-feed-pay>
       <h2 className="text-lg font-bold">{fill(labels.feed_pay_title, { n: o.number, total: money(o.total_cents, lang, o.currency) })}</h2>
@@ -678,9 +710,29 @@ function PaymentChoice({
         ))}
       </div>
       {method === "qr" && qrHref && (
-        <Link href={qrHref} className="self-start font-semibold underline underline-offset-4" data-feed-show-qr>
-          {labels.feed_show_qr}
-        </Link>
+        <div className="flex flex-col items-center gap-2" data-feed-qr={qr === "loading" || qr === undefined ? "loading" : qr ? "ready" : "none"}>
+          {qr && qr !== "loading" ? (
+            <>
+              <div
+                role="img"
+                aria-label={fill(labels.feed_qr_alt, { total: money(o.total_cents, lang, o.currency) })}
+                className="w-[min(100%,260px)] rounded-xl border border-line bg-white p-2 [&_svg]:h-auto [&_svg]:w-full"
+                // the SVG is drawn by our own server (payBySquareSvg), never from the browser or the order's text
+                dangerouslySetInnerHTML={{ __html: qr.svg }}
+              />
+              <span className="text-center text-sm text-muted">{fill(labels.feed_qr_line, { payee: qr.payee, vs: qr.vs })}</span>
+            </>
+          ) : qr === null ? (
+            <span className="text-sm text-muted">{labels.feed_qr_none}</span>
+          ) : (
+            <span className="text-sm text-muted" aria-live="polite">
+              {labels.feed_qr_loading}
+            </span>
+          )}
+          <Link href={qrHref} className="font-semibold underline underline-offset-4" data-feed-show-qr>
+            {qr && qr !== "loading" ? labels.feed_qr_full : labels.feed_show_qr}
+          </Link>
+        </div>
       )}
       {method === "cash" && (
         <div className="flex flex-col gap-2">
