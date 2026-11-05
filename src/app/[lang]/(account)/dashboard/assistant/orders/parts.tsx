@@ -265,7 +265,6 @@ export function FoodHead({
   return (
     <PageHead title={dict.nav.food} item="food" tabs={tabs} current={current} tabsLabel={dict.nav.tabs_label}>
       <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={switchHref} />
-      {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
     </PageHead>
   );
 }

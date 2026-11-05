@@ -13,7 +13,8 @@ import { FoodFeed } from "@/components/owner/FoodFeed";
 import { FoodViewSwitch } from "@/components/owner/FoodViewSwitch";
 import { chooseShop } from "../../contacts/parts";
 import { hiddenFields, ProOnly } from "../../shared";
-import { FoodHead, FoodNotice, OrderCard, StateStrip } from "./parts";
+import { FoodHead, FoodNotice, mainStep, OrderCard, StateStrip } from "./parts";
+import { BoardSwipe } from "@/components/owner/BoardSwipe";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders">): Promise<Metadata> {
   const { lang } = await params;
@@ -72,9 +73,20 @@ export default async function OrdersPage({ params, searchParams }: PageProps<"/[
     { key: "preparing", title: f.f_preparing, rows: byStatus(["preparing"]) },
     { key: "on_the_way", title: f.col_on_the_way, rows: byStatus(["on_the_way", "ready"]) },
   ];
-  const card = (o: FoodOrder, compact = false) => (
-    <OrderCard key={o.id} f={f} o={o} lang={lang} detailHref={detail(o)} hidden={hidden} stepId={crypto.randomUUID()} canWrite={hasPlan} compact={compact} payments={tab?.parts?.payments ?? true} />
-  );
+  const card = (o: FoodOrder, compact = false) => {
+    const drawn = (
+      <OrderCard key={o.id} f={f} o={o} lang={lang} detailHref={detail(o)} hidden={hidden} stepId={crypto.randomUUID()} canWrite={hasPlan} compact={compact} payments={tab?.parts?.payments ?? true} />
+    );
+    // "Stĺpce" (2026-11-05): a plain next step can be swiped (a finishing step needs the payment on the order's page)
+    const step = hasPlan ? mainStep(f, o) : null;
+    return step && step.to !== "delivered" && step.to !== "picked_up" ? (
+      <BoardSwipe key={o.id} label={step.label}>
+        {drawn}
+      </BoardSwipe>
+    ) : (
+      drawn
+    );
+  };
   const totals = done?.totals ?? open.totals;
 
   return (

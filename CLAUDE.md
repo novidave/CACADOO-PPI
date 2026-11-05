@@ -351,6 +351,16 @@ n": grey rows (time, number + name, pickup / address, "vybavené HH:MM" / "u kur
 slide in (`ppi-feed-in`); `prefers-reduced-motion`: no fly-out or slide-in. `FoodOrdersLive` draws the page again on a
 new order (with the sound) and on any change (`owner_food_tab().changed`). e2e `e2e/food-feed.spec.ts` (1180×820,
 390×844; a test restaurant: a short drag springs back, a swipe → the payment → grey, Späť → back, the delay → the box).
+**The remaining feed items (2026-11-05):** the bar is a container query (`@container`, `data-feed-bar`): ONE row from
+56 rem of its own width (the 1180 tablet with the menu as the rail: Príprava · Donáška · Meškanie · the "Asistent
+zákazníkom hovorí" box with "Pozastaviť príjem" in it — nothing tab-specific above the tabs), rows with the label left and
+the control right on a phone (artboard 5c; chips 44 px there). The payment dialog shows the order's PAY by square code
+itself (`feedOrderQr` in `orders/feedActions.ts` = `owner_food_order` + `payBySquareSvg`, drawn on the server once per
+open dialog; no IBAN / paid → "QR kód tu nie je…"; "QR na celú obrazovku" = the order's page). "Stĺpce": a card whose
+next step is a plain step (not picked up / delivered — those need the payment) follows the finger
+(`@/components/owner/BoardSwipe`, the feed's `swipeOutcome` 30 %) and past it sends the card's OWN step form
+(`requestSubmit`, the same step UUID); shorter springs back; the button stays. FoodHead no longer repeats the shop's
+name under the switcher.
 **Nastavenia + the assistant's times (F5c):** Objednávky jedla → Nastavenia starts with "Čo používate"
 (`@/components/owner/FoodSettingsParts` `FoodPartsCard`: Donáška · Aplikácia kuriéra · Platby v Cacaduu · Pokladňa · QR
 terminál, each with its line; "Len feed" / "Zapnúť všetko"; Aplikácia kuriéra greyed without Donáška, QR terminál
