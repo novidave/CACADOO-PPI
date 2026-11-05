@@ -164,6 +164,7 @@ export const AI_TOOLS = [
   { name: "list_conversations", description: "The shop assistant's conversations with shoppers.", input_schema: { type: "object", properties: { status: { type: "string", enum: ["new", "read", "archived"] } } } },
   { name: "search_stock", description: "Products of this shop by words, code or EAN.", input_schema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] } },
   { name: "list_contacts", description: "The shop's customer contacts by name.", input_schema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] } },
+  { name: "list_menu", description: "A restaurant's menu: dishes and sizes with item_id, category, price, tracked stock, hidden, sold out today.", input_schema: { type: "object", properties: {} } },
   {
     name: "help_search",
     description: "Cacaduu's own help: how to do something in Cacaduu (screens, buttons, limits). Answer how-to questions only from what it returns.",
@@ -193,6 +194,11 @@ export const AI_TOOLS = [
     name: "propose_stock_change",
     description: "Proposes a product's new quantity and/or price (item_id from search_stock).",
     input_schema: { type: "object", properties: { item_id: { type: "string" }, quantity: { type: "number" }, price: { type: "number" } }, required: ["item_id"] },
+  },
+  {
+    name: "propose_menu_sold_out",
+    description: "Proposes marking a menu dish or size \"Vypredané dnes\" (sold out until the shop's midnight) or available again (item_id from list_menu).",
+    input_schema: { type: "object", properties: { item_id: { type: "string" }, sold_out: { type: "boolean" } }, required: ["item_id", "sold_out"] },
   },
   {
     name: "propose_mark_handled",
@@ -340,6 +346,36 @@ export async function proposeStock(d: AssistantDeps, item: string, change: { qua
   return "proposed";
 }
 
+interface MenuLine {
+  item_id: string;
+  name: string;
+  price: number | null;
+  tracked: boolean;
+  hidden: boolean;
+  sold_out_today: boolean;
+}
+
+/** A restaurant's menu as list_menu returns it (update 80). */
+export async function menuLines(d: AssistantDeps): Promise<MenuLine[]> {
+  const out = (await d.call("list_menu", {})) as { items?: MenuLine[] };
+  return Array.isArray(out?.items) ? out.items : [];
+}
+
+/**
+ * "Vypredané dnes" on / off (update 80): the line's state from list_menu (a read), before → after; set_menu_sold_out
+ * with confirm waits for Potvrdiť. A tracked item (its Sklad quantity decides) is not proposed. null = proposed.
+ */
+export async function proposeMenuSoldOut(d: AssistantDeps, item: string, soldOut: boolean): Promise<string | null> {
+  const line = (await menuLines(d)).find((m) => m.item_id === item);
+  if (!line) return "not on the menu (use list_menu's item_id)";
+  if (line.tracked) return "not proposed: this item's stock is tracked in Sklad, its quantity decides";
+  const state = (on: boolean) => d.t(on ? "menu_sold" : "menu_on");
+  await d.propose("set_menu_sold_out", { item_id: item, sold_out: soldOut, confirm: true }, [
+    d.t("sum_menu", { name: line.name, before: state(line.sold_out_today), after: state(soldOut) }),
+  ]);
+  return null;
+}
+
 /** One AI tool call: a read through the one door, help, or a proposal (nothing changes). */
 export async function aiTool(d: AssistantDeps, name: string, input: Record<string, unknown>, state: { proposals: number; links: HelpTopic[] }): Promise<{ content: string; error?: boolean }> {
   try {
@@ -365,6 +401,9 @@ export async function aiTool(d: AssistantDeps, name: string, input: Record<strin
         else if ((await proposeStock(d, String(input.item_id), change)) === "sklad") {
           problem = "not proposed: this shop keeps its stock in Sklad v Cacaduu, so quantities change only through its receipts, sales and counts in My shop → Sklad (the owner was told and given the link)";
         }
+      } else if (name === "propose_menu_sold_out") {
+        if (!UUID.test(String(input.item_id))) problem = "invalid menu item";
+        else problem = await proposeMenuSoldOut(d, String(input.item_id), input.sold_out !== false);
       } else if (name === "propose_mark_handled") {
         const ids = (Array.isArray(input.conversation_ids) ? input.conversation_ids : []).map(String).filter((x) => UUID.test(x)).slice(0, 20);
         if (!ids.length) problem = "no conversation ids";
@@ -375,12 +414,12 @@ export async function aiTool(d: AssistantDeps, name: string, input: Record<strin
     }
     const allowed: Record<string, string[]> = {
       get_opening_hours: [], get_shop_details: [], list_bookings: ["from", "to"], list_conversations: ["status"],
-      search_stock: ["q"], list_contacts: ["q"],
+      search_stock: ["q"], list_contacts: ["q"], list_menu: [],
     };
     if (!(name in allowed)) return { content: "unknown tool", error: true };
     const args: Record<string, unknown> = { limit: 20 };
     for (const k of allowed[name]) if (input[k] !== undefined) args[k] = String(input[k]).slice(0, 200);
-    if (name === "get_opening_hours" || name === "get_shop_details") delete args.limit;
+    if (name === "get_opening_hours" || name === "get_shop_details" || name === "list_menu") delete args.limit;
     const out = await d.call(name, args);
     return { content: JSON.stringify(forAi(out)).slice(0, 12_000) };
   } catch (e) {

@@ -22,6 +22,7 @@ Setup steps for humans are in `SETUP.md`.
   owner's OK, 2026-11-05): a shop of kind `food` (`shops.kind`, update 79) sells from a **menu**, and its menu items
   (update 80) are not "stock" — no 24 h stock-file freshness, no freshness label; a dish is available unless "Vypredané
   dnes" (or, with "Sledovať zásobu", by its Sklad quantity). Every other shop and every other rule stay as above.
+  Details: "A restaurant's Menu (update 80)" below.
 - **Private columns** = every stock-file column not in the approved mapping: only in the private `raw-files` bucket;
   never in `sample_rows`, `stock_imports`, pages, the API/MCP or the shop assistant. The AI column proposal gets names
   plus ≤ 3 values per column, and names only for `isPrivateColumn()` / `is_private_column()` columns.
@@ -197,8 +198,8 @@ send). **L2 (moves):** each item's tabs are
 `bookingPartUrl()` is every booking form's way back; `?view=settings` and `/dashboard/assistant?at=settings&part=…`
 forward there); **AI asistent** = `/dashboard/assistant` (texts, the food-ordering card, the folders card),
 `/dashboard/assistant/documents` (`ShopDocuments view="docs"`) and `/dashboard/assistant/folders` (`view="folders"`; the
-forms send `at=folders`); **Objednávky jedla** = Objednávky · Kuriéri (update 75) · Menu (`settings?view=menu`: the sources and the menu check,
-`back=menu`) · Nastavenia (the switches incl. "Odpísať zo skladu", the zones);
+forms send `at=folders`); **Objednávky jedla** = Objednávky · Kuriéri (update 75) · Menu (`/dashboard/assistant/orders/menu`: the
+menu editor since update 80 and the menu check; `back=menu`) · Nastavenia (the switches incl. "Odpísať zo skladu", the zones);
 **Sklad** tabs Prehľad · Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia; **Právne informácie**
 (`/dashboard/legal`) = Firma (company name, IČO, DIČ — moved out of Údaje obchodu, whose form now carries them hidden;
 `saveCompany` re-saves the shop's row with the new IČO) + Údaje pre vlastnú doménu (`shop_legal`, `saveOperator`, only the
@@ -232,6 +233,60 @@ folder) · launch (`food_settings.enabled`; the card's "Prijímať objednávky" 
 `setup_step_skipped`). Each step links to its screen (`setupStepHref`); the missing codes are `setup.miss_*`. Texts
 `setup`, `nav.food_menu`. Tests: DB block "update 79", `dashboardPages_test.ts` (menu per kind), `setupSteps_test.ts`,
 e2e `e2e/shop-kind.spec.ts` (owner login: a new restaurant → its steps, Menu first, no Priečinok s exportom; deleted after).
+
+## A restaurant's Menu (update 80, 2026-11-05, the owner's OK: menu items are not "stock")
+
+`supabase/sql/80_food_menu.sql` + `@/lib/menuRules` (shared, no imports; `menuRules_test.ts` in `npm run test:food`) +
+`@/lib/menu` (server: `getShopMenu`, `searchShopMenu`, the photos' addresses) + `@/lib/menuRead` (the import's Claude
+call) + `@/lib/menuOrder` (the "Objednať" event, no imports) + `@/components/ShopMenu` / `MenuTools` +
+`@/components/owner/MenuImport` / `MenuOrderList` / `MenuSizeRows` / `MenuPreview` + `dashboard/assistant/orders/menu`
+(`page.tsx`, `actions.ts`) + `/api/shops/[slug]/menu-search` + `/api/owner/menu/read` + `.ppi-menu*` in `shopPage.css`.
+**The menu = Sklad products marked `menu_item`** (`sklad_items`: `menu_category` → `menu_categories` (the owner's own,
+ordered), `menu_parent` + `variant_label` = a size (each size its own Sklad product with its own price), `allergens`
+1–14 (the EU list; names `menu.allergen_*`), `menu_tags` veg | spicy, `track_stock`, `sold_out_on`, `menu_hidden`,
+`menu_position`). **The price is Sklad's sale price with VAT — the only price**; `food_quote` is unchanged. A dish with
+sizes has no price of its own. **Availability:** `track_stock` off (the default) = available unless "Vypredané dnes"
+(`sold_out_on` = the shop's `shop_today()`, so it ends by itself at the shop's midnight; a dish's mark covers its
+sizes); on = Sklad's quantity. `food_item` / `food_menu` follow it; **an untracked or hidden menu item is never in
+`inventory`** (`sklad_apply` leaves it out: no public_stock row, no freshness, no "Vypredané" from an empty stock).
+**Owners** (members; only through `owner_menu_*`): `owner_menu` (the editor), `owner_menu_save_category` /
+`_delete_category` (empty ones only) / `_order_categories`, `owner_menu_save_item` (a dish and its sizes; only the given
+keys change; a size left out is hidden, never deleted; through `owner_sklad_save_product`: the plan's product limit,
+each size counts), `owner_menu_duplicate_item`, `owner_menu_order_items`, `owner_menu_set_sold_out`; activity
+`menu_item_saved`, `menu_category_saved`, `menu_sold_out`, `menu_imported`. **The editor** (Objednávky jedla → Menu):
+"+ Nové jedlo" / "Upraviť" (`?edit=`; name, description, category, price or sizes, allergens, tags, "Sledovať zásobu",
+"Skryté", the photo = update 78's `ProductPhotoField`), categories (add, rename, delete an empty one, order by drag or
+▲ ▼), each dish's price inline, "Vypredané dnes" per dish / size (`aria-pressed`), Duplikovať, Skryť; the public Menu's
+preview at 390 and 760 px (scaled, `inert`); update 74's menu check last. **Import** ("Nahrať jedálny lístok"): a PDF
+(its text read in the browser, a scan's first page as a picture) or a photo (≤ 1568 px JPEG, HEIC through heic-to) →
+`/api/owner/menu/read` → `owner_menu_import_hit` (members, 10 a day per shop, `owner_ai_usage` kind menu) → Claude
+(`aiModel()`, structured output, the menu is data; prices only as written) → `cleanImportRows` → the review table
+(every row editable, its own tick) → "Uložiť do menu" = `owner_menu_import_save` (ONE transaction, all or nothing;
+nothing is stored before it; the prices as the owner confirmed) → tokens `owner_ai_spend` (kind menu). **Visitors:**
+`shop_menu(slug)` (active shops of kind food only, else null; the categories with dishes, sizes and prices, allergens,
+tags, sold out, tracked, the photo, `name_i18n`) and `shop_menu_search(slug, q)` (update 54's forgiving rule on the menu's
+names; a size counts for its dish), both cached (`CACHED_RPCS`), refreshed by every save. **The shop page of a
+restaurant** (`ShopView`: `getShopMenu` decides): the **Menu** section instead of "Produkty / Zoznam" and its stock
+line — server-rendered; "Hľadať v menu" (`MenuTools`: live through `/api/shops/[slug]/menu-search`, 200 ms, only the
+newest answer, `?mq=`; without JavaScript the GET form and the server hides the rest with `hidden`); sticky category
+chips; dish cards (photo 96 px from the 800 px file, name in the page language first + the shop's own under it,
+description / category through `item_description` / `item_category` translations, tags, "Alergény: 1, 7", sizes with
+prices); "Vypredané dnes" in grey; **no stock dot on an untracked dish**, a tracked one keeps the dot; one allergen
+legend (`<details>`, only the numbers used). JSON-LD: the shop as `Restaurant` with `hasMenu` = `menuJsonLd()` (Menu →
+MenuSection → MenuItem, one Offer or one per size, SoldOut today, VegetarianDiet). **"Objednať"** (only with the
+assistant on and food ordering enabled): a real link (`?ask=…#assistant` starts the question without JavaScript);
+with it `MENU_ORDER_EVENT` → `AssistantBoot` (loads the chat) / `ShopChat` (`orderNow`, later clicks) → the chat route's
+`order: [ids]` (`cleanOrderItems`: UUIDs, ≤ 10) → `runShopChat(…, ordered)`: only dishes `food_menu` returns, not sold
+out, get refs and `<menu_order>` for the AI, and they are in the cart card whatever the AI answers (`withPressed`),
+priced by `food_quote`; then the existing OrderPanel flow. Shop page first-load JS stays < 150 kB (`MenuTools` only on a
+restaurant's page; the event name lives in `@/lib/menuOrder`). **The owner's AI tools:** MCP `list_menu` (shop.read) and
+`set_menu_sold_out` (shop.write; before → after until `confirm: true`) in update 80's door (update 74's kept as
+`owner_mcp_call_74`); the AI pomocník / Telegram engine `list_menu` + `propose_menu_sold_out` (`proposeMenuSoldOut`,
+before → after from `list_menu`, "Potvrdiť"); the Telegram bot's "Vypredané dnes" button for a restaurant
+(`telegram_whoami` carries each shop's `kind`; live with the next telegram deploy, TODO 23). Texts `menu`,
+`telegram.b_soldout` / `soldout_*` / `sum_menu` / `menu_on` / `menu_sold`. Tests: DB block "update 80", `npm run
+test:food` (`menuRules_test.ts`), `test:photos`, `test:telegram`, e2e `e2e/food-menu.spec.ts` (a test restaurant:
+import with the AI stubbed → a price edited → the public Menu → Objednať → the SMS test code).
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 
@@ -886,7 +941,9 @@ to Sklad takes the products over (`sklad_adopt`: the file's EUR price, the quant
 deletes nothing. **Private:** last / average cost, supplier, margin — no grant on any Sklad table but the service role;
 owners only through `owner_sklad_*` (members); never public, in the API/MCP, the assistant or logs; margin and stock
 value only with `margin_reports`. **Plan:** `sklad_product_limit()` = 50 free, NULL with `shop_has_plan`; at the limit
-"Pre viac produktov prejdite na Pro", never an error page. A Sklad product is never deleted while its shop exists
+"Pre viac produktov prejdite na Pro", never an error page. A restaurant's menu items and sizes are Sklad products too
+(update 80: `menu_item`, `track_stock` off = not stock, no inventory row; see "A restaurant's Menu"); every rule here
+stays. A Sklad product is never deleted while its shop exists
 (`shop_items_sklad_guard`). Scanner: `ScanBurst` (≤ 50 ms, ≥ 6 characters, Enter; fields ignored except `data-scan-ok`)
 and the camera (`barcode-detector` / zxing-wasm, the `.wasm` self-hosted from `public/zxing/<version>/` by
 `scripts/copy-zxing-wasm.mjs`, loaded on the first "Skenovať") → `/dashboard/sklad/scan` (card or "Nový produkt" with the
@@ -1009,7 +1066,8 @@ lists dish names only → `owner_food_menu_pair` (trigram ≥ 0.45 against Sklad
 AI's tool data never carry a phone, address, note or place. Admin "SMS" sets the `order` quota. Texts `food`,
 `telegram.n_food_order`, `admin_sms.order`. Tests: DB block "update 74", `test:functions` (crm-messages, telegram).
 **Menu tab (update 79):** its own address `/dashboard/assistant/orders/menu` (`ITEM_TABS.food`; the old
-`settings?view=menu` forwards there with its query; the actions' `back=menu` lands there).
+`settings?view=menu` forwards there with its query; the actions' `back=menu` lands there). Since update 80 it is the
+menu editor (below, "A restaurant's Menu"); update 74's menu check is its last card.
 **F4 — couriers (update 75, 2026-11-03, the owner's OK for the SMS-code login; boards 15–19, "Môj obchod" artboards 6,
 20):** `supabase/sql/75_food_couriers.sql` + `@/lib/courier` + `src/app/[lang]/kurier/*` + `/api/kurier/step|logout` +
 `@/components/CourierStep` / `CourierCash` + Objednávky jedla → **Kuriéri** (`dashboard/assistant/orders/couriers`).
@@ -1498,7 +1556,9 @@ product's translation, never a hidden section's. Texts `items_bulk`, `owner_tr.t
 `@/lib/productPhotos` (shared, no imports: addresses, the bulk readers, the report; `productPhotos_test.ts`, `npm run
 test:photos`) + `@/lib/productPhotoDraw` + `@/lib/ownerPhotos` + `@/components/owner/ProductPhotoField` /
 `PhotoBulkUpload` + `dashboard/items/photos` ("Fotky produktov") + `/api/owner/product-photos/report` +
-`public/samples/fotky-produktov.{csv,xml}`. **ONE photo per product, shown ONLY on that product's page** (its JSON-LD
+`public/samples/fotky-produktov.{csv,xml}`. **ONE photo per product, shown ONLY on that product's page** (and, since
+update 80 with the owner's OK, a dish's photo on its restaurant's Menu — `shop_menu()` reads it, `@/lib/menu` builds
+its address; `productPhotos_test.ts` allows exactly that) (its JSON-LD
 `image` and og:image too) — never in the shop page's lists, the search, "Zoznam", cacaduu.com's listings, "Dostupné aj
 v", the sitemap, RSS / feeds, partner feeds, the API or the MCP server. That is why it lives apart: `product_photos`
 (no grant to visitors; members read their own rows; only the function writes) and the one public read

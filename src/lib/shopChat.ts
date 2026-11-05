@@ -500,6 +500,9 @@ function foodPrompt(food: FoodState): string[] {
       "then shows the cart card where the shopper picks pickup or delivery and the payment and confirms with their " +
       "details and an SMS code. Never ask for, repeat or use a name, phone number, address or code from the chat, " +
       "and never say the order is placed: the page confirms it.",
+    "- A message may start with <menu_order>: the shopper pressed \"Objednať\" on the shop's Menu for those dishes " +
+      "(data from food_menu; their refs are valid). Put each in order_lines with quantity 1 unless the shopper says " +
+      "otherwise, confirm briefly what is in the order and ask about pickup or delivery and extras; never change a price.",
   ];
   if (!food.accepting) {
     lines.push(
@@ -809,6 +812,8 @@ export async function runShopChat(
   docsToken: string | null = null,
   conversation: ChatConversation | null = null,
   list: ChatListLine[] = [],
+  /** "Objednať" on a restaurant's Menu (update 80): menu line ids; only dishes food_menu returns go into the cart. */
+  ordered: string[] = [],
 ): Promise<ChatResult> {
   const photo = attachments.some((a) => a.image);
   const client = new Anthropic({ maxRetries: 1, timeout: 20_000 });
@@ -869,6 +874,12 @@ export async function runShopChat(
         .slice(0, 10);
       return [{ item_id: item.item_id, qty, extras }];
     }).slice(0, 30);
+  /** The AI's order lines plus every dish pressed on the Menu that it left out (quantity 1). */
+  const withPressed = (lines: Answer["order_lines"], refs: string[]) => {
+    const given = lines ?? [];
+    const missing = refs.filter((ref) => !given.some((l) => String(l.ref ?? "").trim() === ref));
+    return [...given, ...missing.map((ref) => ({ ref, qty: 1, extras: [] as string[] }))];
+  };
   const euro = (cents: number) => formatPrice(cents / 100, lang, "EUR");
   let booked: BookedSlot | null = null;
   let needsContact = false;
@@ -1162,7 +1173,22 @@ export async function runShopChat(
     }
     listNote = listForAi(list, known);
   }
-  const text = listNote ? `${listNote}\n\n${message}` : message;
+  // "Objednať" on the Menu (update 80): the pressed dishes as food_menu returns them (refs valid for order_lines);
+  // sold out or unknown ones never go along. They are in the cart card whatever the AI answers.
+  const pressed: string[] = [];
+  if (foodOn && food?.accepting && ordered.length) {
+    const menu = await foodMenu(shop.slug, null, 200).catch(() => [] as MenuItem[]);
+    for (const id of ordered) {
+      const item = menu.find((m) => m.item_id === id);
+      if (item && !item.sold_out) pressed.push(dish(item));
+    }
+  }
+  const orderNote = pressed.length
+    ? `<menu_order>The shopper pressed "Objednať" on the shop's Menu for: ${pressed
+        .map((ref) => `${ref} = ${dishes.get(ref)!.name} (${euro(dishes.get(ref)!.price_cents)})`)
+        .join("; ")}</menu_order>`
+    : "";
+  const text = [listNote, orderNote, message].filter(Boolean).join("\n\n");
   const messages: Anthropic.MessageParam[] = [
     ...history.map((turn): Anthropic.MessageParam => ({ role: turn.role, content: turn.text })),
     { role: "user", content: attachments.length ? withFiles(text, attachments) : text },
@@ -1209,7 +1235,7 @@ export async function runShopChat(
     result.reply.booked = booked;
     result.reply.requestContact = wantsContact(Boolean(booked), Boolean(serviceTools), needsContact, Boolean(parsed.request_contact));
     // Update 73: the cart card — only dishes food_menu returned, priced again by food_quote (Sklad).
-    const cart = foodOn && food?.accepting ? cartOf(parsed.order_lines) : [];
+    const cart = foodOn && food?.accepting ? cartOf(withPressed(parsed.order_lines, pressed)) : [];
     if (cart.length) {
       const kind = parsed.order_kind === "delivery" && food?.delivery ? "delivery" : food?.pickup === false ? "delivery" : "pickup";
       const { quote } = await foodQuote(shop.slug, cart, kind, null).catch(() => ({ quote: null }));

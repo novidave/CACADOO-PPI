@@ -124,7 +124,7 @@ async function filesUnder(dir: URL, out: URL[] = []): Promise<URL[]> {
   return out;
 }
 
-Deno.test("Only the product page and the assistant's photo tool read a product photo: no list, search, feed, API or MCP", async () => {
+Deno.test("Only the product page, the assistant's photo tool and a restaurant's Menu read a product photo: no list, search, feed, API or MCP", async () => {
   const src = new URL("../", import.meta.url);
   const rel = (u: URL) => u.pathname.slice(src.pathname.length);
   const readers: string[] = [];
@@ -137,8 +137,10 @@ Deno.test("Only the product page and the assistant's photo tool read a product p
   // the public read: the product page's data (getItemPhoto in data.ts, used by ItemView) and the assistant's photo tool
   // (supabase/public.ts only lists it among the cached reads)
   eq(readers.sort(), ["app/[lang]/items/[id]/ItemView.tsx", "lib/data.ts", "lib/shopChat.ts", "lib/supabase/public.ts"], "who reads item_photo");
-  // the photo's address: the product page, the assistant's card, the owner's screens and the shared rules only
+  // the photo's address: the product page, the assistant's card, the owner's screens and the shared rules only — and a
+  // restaurant's Menu (update 80, the owner's OK of 2026-11-05: a dish's photo on its Menu; shop_menu() reads it in SQL)
   const allowed = new Set([
+    "lib/menu.ts",
     "app/[lang]/items/[id]/ItemView.tsx",
     "lib/data.ts",
     "lib/shopChat.ts",

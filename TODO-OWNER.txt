@@ -221,6 +221,20 @@ OPEN
    c) Optional: "+ Pridať obchod" now asks "Aký je to obchod?" first. A test restaurant shows Menu and Objednávky jedla
       first in the menu and its own steps; delete it afterwards (Môj obchod → Odstrániť obchod).
 
+32. A restaurant's Menu: look once (nothing to set up; for a restaurant only)
+   a) In a restaurant (Typ obchodu "Reštaurácia, bistro, jedlo"): Objednávky jedla → Menu. Add a category (e.g.
+      "Pizza") and a dish: name, short description, price with VAT, or sizes (32 cm / 45 cm, each its own price),
+      allergens 1–14, "Vegetariánske" / "Pikantné". "Upraviť" → "Fotka jedla" adds its photo.
+   b) Or "Nahrať jedálny lístok": a PDF or a photo of your menu. The AI proposes the dishes and prices; check and
+      correct every row, then "Uložiť do menu". Nothing is saved before that, and the prices are exactly what you
+      confirmed. 10 menus a day per shop.
+   c) "Vypredané dnes" on a dish: one tap, it comes back by itself after midnight. Drinks or desserts sold by the piece:
+      "Sledovať zásobu" in the dish form → the Sklad quantity decides instead.
+   d) Open the restaurant's page: instead of "Produkty / Zoznam" it shows the Menu (categories, dishes, allergens);
+      with the Pro plan and ordering switched on, "Objednať" puts the dish into the assistant's order.
+   e) The Telegram bot's "Vypredané dnes" button for restaurants comes with the next telegram deploy (item 23); until
+      then use the website or the AI pomocník.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)
