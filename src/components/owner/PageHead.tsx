@@ -67,7 +67,7 @@ export function PageHead({
       {tabs && tabs.length > 0 && (
         <nav
           aria-label={tabsLabel ?? title}
-          className="ppi-tabs -mx-4 mt-3 flex gap-6 overflow-x-auto whitespace-nowrap border-b border-[#E4E4E4] px-4 md:mx-0 md:px-0"
+          className="ppi-item-tabs -mx-4 mt-3 flex gap-6 overflow-x-auto whitespace-nowrap border-b border-[#E4E4E4] px-4 md:mx-0 md:px-0"
           data-item-tabs={item}
         >
           {tabs.map((tab) => {

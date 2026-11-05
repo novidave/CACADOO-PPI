@@ -169,7 +169,7 @@ area, no legal footer). The QR terminal has no menu.
 Active = black, white bold, `aria-current="page"`; badges 22 px black pills (white on the active item); icons inline SVG
 (`@/components/owner/navIcons`, 22 px, stroke 2, `currentColor`). globals.css (owner block): the site's header hidden
 inside the shell (`body:has([data-owner-shell])`), `scrollbar-gutter: stable` on the page (the scrollbar never moves
-the tabs sideways), `.ppi-tabs` scroll sideways inside themselves without a scrollbar, `.ppi-owner-aside` 256 ↔ 76 px,
+the tabs sideways), the tab row `.ppi-item-tabs` scrolls sideways inside itself without a scrollbar (never `.ppi-tabs`, the shop page's Produkty / Zoznam box — `cssScope_test.ts` keeps the shop page's class names out of owner and admin pages), `.ppi-owner-aside` 256 ↔ 76 px,
 `.ppi-owner-panel`. The site header's language picker and "who is signed in" sit at the end of "Účet a nastavenia";
 the legal footer stays. Public pages are untouched (budget unchanged). **Tabs have one fixed place (Rezervácie is the
 model):** `@/components/owner/PageHead` is the FIRST block of the content area and the same on every tab of an item

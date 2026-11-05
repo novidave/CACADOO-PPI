@@ -107,7 +107,6 @@ export function SkladShell({
     <div className="flex w-full flex-col gap-5" data-sklad={current}>
       <PageHead title={s.title} item="sklad" tabs={tabs} current={current} tabsLabel={s.tabs_label} actions={scanner}>
         <ShopSwitcher shops={shops} current={shop} label={dict.dashboard.shop} href={(slug) => `${base}${current === "overview" ? "" : `/${current}`}?shop=${slug}`} />
-        {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
       </PageHead>
       <div className={`flex min-w-0 flex-col gap-4 ${wide ? "" : "max-w-5xl"}`}>
         {source && source !== "sklad" && current !== "settings" && (
