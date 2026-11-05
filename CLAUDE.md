@@ -319,6 +319,28 @@ an order on the way counts as done), `older_count` / `older` (7 days), `times`, 
 as `owner_mcp_call_80`): `set_food_delay` {shop?, minutes}, `finish_food_order` {order_id, paid_with?, cash_given?},
 `reopen_food_order` {order_id} — shop.write, before → after until `confirm: true`; Telegram uses them through its
 "Potvrdiť". Tests: DB block "update 81".
+**The feed screen (F5b)** = Objednávky by default: `@/components/owner/FoodFeed` (client) + `@/lib/foodFeed` (pure
+rules, no imports; `foodFeed_test.ts` in `npm run test:food`: order and grouping, the labels "o n min" / "teraz" /
+"pred n min", the tags per part, the 30 % swipe, what a finish opens first, the steppers, `FEED_KEYS` in sk/hu/en) +
+`orders/feedActions.ts` (server actions; every write answers with `owner_food_feed` again, so the screen never guesses;
+"on the way" with `sms_on_the_way` sends that SMS) + `@/components/owner/FoodViewSwitch`. "Feed | Stĺpce" from 1024 px
+(the kitchen board of boards 11–13 = Stĺpce), per device: localStorage `ppi.food.view` / `?view=` → `<html
+data-food-view>` before the first paint (`FOOD_VIEW_BOOT`), CSS in globals.css; a phone shows only the feed (no phone
+filter list any more). The bar: Príprava / Donáška − n min + (steps of 5, saved after 0.5 s), Meškanie 0 · +10 · +20 ·
++30 · +45 (one tap), the box "Asistent zákazníkom hovorí … · Synchronizované s asistentom" from `food_times` (now +
+minutes, the shop's time zone), "Pozastaviť príjem" (paused = the yellow card). Cards: arrival + "pred n min", number
++ name (link to the order), "Nová" + 2 px black border while new, "Odber o … · o n min" / "Donáška do …" + address,
+items, note, total, the pay tag only with payments, the courier only with the courier app, "Vybavené" (≥ 44 px).
+**Swipe** (pointer events, `touch-action: pan-y`, never from a button / link / field): past 30 % of the width it flies
+out (0.23 s), else springs back; the pale green #E3F4EA "Vybavené" layer under it; with payments and no mark the
+payment choice opens first (only the methods on, cash with Presne + the quick amounts + the change, "Ukázať QR" to the
+order's page with the QR terminal), with the courier app and no courier "Prideliť" (assign + finish). "Vybavené dnes ·
+n": grey rows (time, number + name, pickup / address, "vybavené HH:MM" / "u kuriéra od", total, "Vrátiť"; cancelled =
+"Zrušená"), a swipe on a grey row (#E4E4E4 "Vrátiť" layer) reopens, "Zobraziť staršie (n)" (7 days). The toast
+"Objednávka #n vybavená · Späť" 5 s. While a finger is on a card the list waits (`held`); cards newer than the page
+slide in (`ppi-feed-in`); `prefers-reduced-motion`: no fly-out or slide-in. `FoodOrdersLive` draws the page again on a
+new order (with the sound) and on any change (`owner_food_tab().changed`). e2e `e2e/food-feed.spec.ts` (1180×820,
+390×844; a test restaurant: a short drag springs back, a swipe → the payment → grey, Späť → back, the delay → the box).
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 

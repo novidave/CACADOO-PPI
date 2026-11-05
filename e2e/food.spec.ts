@@ -74,10 +74,10 @@ async function orderInAssistant(browser: Browser): Promise<number> {
   return number;
 }
 
-/** The owner's detail page of one order (found by its number on the Objednávky tab). */
+/** The owner's detail page of one order (found by its number in the feed of the Objednávky tab, update 81). */
 async function openOrder(owner: Page, number: number, list: "new" | "done" = "new") {
-  await owner.goto(`/sk/dashboard/assistant/orders?shop=${SHOP}&f=${list}`);
-  const card = owner.locator(`[data-food-order="${number}"]`).first();
+  await owner.goto(`/sk/dashboard/assistant/orders?shop=${SHOP}&view=feed`);
+  const card = owner.locator(`${list === "done" ? "[data-feed-done]" : "[data-feed-active]"} [data-feed-number="${number}"]`).first();
   await expect(card).toBeVisible();
   await card.locator("a").first().click();
   await expect(owner.locator("[data-food-detail]")).toBeVisible();
