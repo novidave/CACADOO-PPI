@@ -7,6 +7,8 @@ import type { MenuKey } from "@/lib/dashboardPages";
 export const NAV_ICONS: Record<MenuKey | "signout" | "menu" | "close" | "open" | "chevron" | "group_page" | "group_account" | "collapse" | "plus" | "stop" | "send", string> = {
   sklad: "M3 8l9-5 9 5v8l-9 5-9-5zM3 8l9 5 9-5M12 13v8",
   food: "M6 8h12l-1 12H7zM9 8a3 3 0 0 1 6 0",
+  // a restaurant's menu (update 79): fork and knife
+  food_menu: "M7 3v7a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3M9 12v9M16 3c-1.7 1.6-2.5 4-2.5 6.5V13H16v8",
   bookings: "M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM3 10h18M8 3v4M16 3v4",
   crm: "M9 11a4 4 0 1 0 0-8a4 4 0 1 0 0 8zM2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 7M18 14a6 6 0 0 1 4 7",
   shop: "M4 10h16v10H4zM3 10l2-6h14l2 6",

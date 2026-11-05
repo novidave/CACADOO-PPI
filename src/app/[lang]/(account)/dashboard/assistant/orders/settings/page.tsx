@@ -5,12 +5,12 @@ import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { foodTab, type FoodSettings, type FoodZone } from "@/lib/foodOwner";
-import { money, plural } from "@/lib/foodRules";
+import { money } from "@/lib/foodRules";
 import { DbError } from "@/components/DbError";
 import { cardClass, Toggle } from "@/components/owner/ui";
 import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, inputClass, ProOnly } from "../../../shared";
-import { checkMenu, deleteZone, saveFoodSettings, saveZone } from "../actions";
+import { deleteZone, saveFoodSettings, saveZone } from "../actions";
 import { btn, btnGhost, FoodHead, FoodNotice } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders/settings">): Promise<Metadata> {
@@ -21,13 +21,6 @@ export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const euros = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
-
-interface MenuDoc {
-  id: string;
-  name: string;
-  pages: number;
-  created_at: string;
-}
 
 /**
  * Nastavenia objednávok (board 14, database updates 73–74): the switch "Objednávky jedla v asistentovi" (the
@@ -44,30 +37,29 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
   const [dict, session] = await Promise.all([getDictionary(lang), requireUser(lang)]);
   const { supabase } = session;
   const f = dict.food;
+  if (first(sp.view) === "menu") {
+    const query = new URLSearchParams(Object.entries(sp).flatMap(([k, v]) => (k === "view" || v === undefined ? [] : [[k, String(first(v))]])));
+    redirect(`/${lang}/dashboard/assistant/orders/menu?${query}`);
+  }
   const chosen = await chooseShop(supabase, first(sp.shop));
   if (chosen.error) return <DbError message={chosen.error} dict={dict} />;
   const shop = chosen.shop;
   if (!shop) redirect(`/${lang}/dashboard`);
-  const [res, docsRes, foodTabRes] = await Promise.all([
+  const [res, foodTabRes] = await Promise.all([
     supabase.rpc("owner_food_settings", { p_shop_id: shop.id }),
-    supabase.rpc("owner_food_menu_docs", { p_shop_id: shop.id }),
     foodTab(supabase, shop.id),
   ]);
   if (res.error) return <DbError message={res.error.message} dict={dict} />;
   const s = res.data as FoodSettings;
-  const docs = (docsRes.error ? [] : (docsRes.data ?? [])) as MenuDoc[];
   const hidden = (extra: Record<string, string> = {}) => hiddenFields(lang, shop)({ back: "settings", ...extra });
   const canWrite = s.has_plan;
-  const check = s.menu_check;
   const quota = s.sms?.order;
-  const skladHref = `/${lang}/dashboard/sklad?shop=${shop.slug}`;
-  const day = (iso: string) => new Intl.DateTimeFormat(lang, { day: "numeric", month: "numeric" }).format(new Date(iso));
   const kinds: FoodZone["kind"][] = ["town", "postcode", "radius_km"];
   const kindText = (k: FoodZone["kind"]) => (f as Record<string, string>)[`s_zone_kind_${k}`];
 
   const minutes = (n: number) => t(f.s_min, { n });
-  // back-end layout L2: "Menu" (?view=menu: the menu's sources and the check) and "Nastavenia" (the switches, the zones)
-  const view = first(sp.view) === "menu" ? "menu" : "settings";
+  // update 79: the Menu tab has its own address (an old ?view=menu link goes there with its query)
+  const view = "settings" as const;
   const withCurrent = (list: number[], v: number) => (list.includes(v) ? list : [...list, v].sort((a, b) => a - b));
 
   return (
@@ -79,57 +71,11 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
         shop={shop}
         current={view}
         newOrders={foodTabRes?.new ?? 0}
-        switchHref={(slug) => `/${lang}/dashboard/assistant/orders/settings?${new URLSearchParams({ shop: slug, ...(view === "menu" ? { view } : {}) })}`}
+        switchHref={(slug) => `/${lang}/dashboard/assistant/orders/settings?${new URLSearchParams({ shop: slug })}`}
       />
       <div className="flex w-full max-w-xl flex-col gap-5" data-food-settings={view}>
       {!canWrite && <ProOnly dict={dict} href={`/${lang}/dashboard/plan?shop=${shop.slug}`} />}
       <FoodNotice f={f} ok={first(sp.ok)} err={first(sp.err)} />
-
-      {view === "menu" && (
-        <section id="menu" className={`${cardClass} scroll-mt-4`}>
-          <h2 className="text-[19px] font-bold">{f.s_menu}</h2>
-          <p className="text-sm text-muted">{f.s_menu_hint}</p>
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-[#F6F7F9] p-3">
-            <span className="flex flex-col">
-              <strong>{s.sklad_source ? plural(s.menu_items, { one: f.s_sklad_one, few: f.s_sklad_few, many: f.s_sklad_many }, lang) : f.s_sklad_off}</strong>
-              {s.menu_categories.length > 0 && <span className="text-sm text-muted">{s.menu_categories.join(" · ")}</span>}
-            </span>
-            <Link href={skladHref} className="flex min-h-11 flex-none items-center text-sm font-semibold underline underline-offset-4">
-              {f.s_open_sklad}
-            </Link>
-          </div>
-          {docs.length === 0 ? (
-            <p className="text-sm text-muted">
-              {f.s_docs_none}{" "}
-              <Link href={`/${lang}/dashboard/assistant/folders?shop=${shop.slug}`} className="font-semibold underline underline-offset-4">
-                {f.s_docs_upload}
-              </Link>
-            </p>
-          ) : (
-            docs.slice(0, 3).map((d) => (
-              <div key={d.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#F6F7F9] p-3">
-                <span className="flex min-w-0 flex-col">
-                  <strong className="truncate">{d.name}</strong>
-                  <span className="text-sm text-muted">{t(f.s_doc_line, { date: day(d.created_at) })}</span>
-                </span>
-              </div>
-            ))
-          )}
-          {check && (
-            <div className={`rounded-lg border p-3 ${check.missing.length ? "border-[#F2B705] bg-[#FFF8E1]" : "border-[#1E9E5A]"}`} data-menu-check>
-              {check.missing.length ? (
-                <>
-                  <strong>{plural(check.missing.length, { one: f.s_missing_one, few: f.s_missing_few, many: f.s_missing_many }, lang)}</strong>
-                  <p className="text-sm">{t(f.s_missing_hint, { names: check.missing.slice(0, 12).join(", ") })}</p>
-                </>
-              ) : (
-                <strong>{f.s_missing_none}</strong>
-              )}
-              <p className="text-xs text-muted">{t(f.s_menu_checked, { date: day(check.checked_at), doc: check.document })}</p>
-            </div>
-          )}
-        </section>
-      )}
 
       {view === "settings" && (
       <form action={saveFoodSettings} className="flex flex-col gap-5">
@@ -204,27 +150,6 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           </button>
         )}
       </form>
-      )}
-
-      {/* the menu check: Claude lists the dishes of the menu, the pairing with Sklad is decided in SQL */}
-      {view === "menu" && canWrite && docs.length > 0 && (
-        <form action={checkMenu} className={`${cardClass} gap-2`}>
-          {hidden({ back: "menu" })}
-          <label className="flex flex-col gap-1 text-sm font-semibold">
-            {f.s_check_doc}
-            <select name="document_id" className={inputClass} defaultValue={check?.document_id ?? docs[0].id}>
-              {docs.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="submit" className={btnGhost} data-menu-check-run>
-            {check ? f.s_check_again : f.s_check}
-          </button>
-          <p className="text-xs text-muted">{f.s_check_hint}</p>
-        </form>
       )}
 
       {view === "settings" && (

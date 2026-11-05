@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import {
   isBareScreen,
   MENU_GROUPS,
+  menuFor,
   menuHref,
   menuItemFor,
   OWNER_MENU,
@@ -13,6 +14,7 @@ import {
   type MenuGroup,
   type MenuItem,
   type MenuKey,
+  type ShopKind,
 } from "@/lib/dashboardPages";
 import { NAV_ICONS } from "./navIcons";
 
@@ -30,6 +32,8 @@ export interface NavShop {
   name: string;
   /** The shop's public page (its own domain when live); null while the shop is not shown to visitors. */
   page: string | null;
+  /** The kind of shop (update 79): its menu (a restaurant: Menu and Objednávky jedla first, no stock-file pages). */
+  kind: ShopKind;
 }
 
 export interface NavLabels {
@@ -173,7 +177,8 @@ export function OwnerNav({
   const at = params?.get("at") ?? "";
   const shopParam = params?.get("shop") ?? "";
   const shop = shops.find((s) => s.slug === shopParam) ?? shops[0] ?? null;
-  const current = menuItemFor(path, at);
+  const kind: ShopKind = shop?.kind ?? "goods";
+  const current = menuItemFor(path, at, kind);
 
   // only one group open: the one holding the page, until the owner opens the other one (or closes it) on this page
   const holding: MenuGroup = current?.group === "account" ? "account" : "page";
@@ -213,7 +218,8 @@ export function OwnerNav({
   if (isBareScreen(path)) return null;
 
   const byKey = new Map(items.map((i) => [i.key, i]));
-  const shown = OWNER_MENU.filter((m) => byKey.has(m.key));
+  // update 79: the menu of this kind of shop (a restaurant: Menu and Objednávky jedla first, no stock-file pages)
+  const shown = menuFor(kind).filter((m) => byKey.has(m.key));
   const inGroup = (g: MenuGroup) => shown.filter((m) => m.group === g);
   const labelOf = (m: MenuItem) => byKey.get(m.key)?.label ?? m.key;
   const badgeOf = (m: MenuItem) => (shop ? (byKey.get(m.key)?.badges?.[shop.slug] ?? 0) : 0);
@@ -222,8 +228,9 @@ export function OwnerNav({
     const view = byKey.get(m.key);
     return n > 0 && view?.badgeLabel ? `${labelOf(m)}, ${view.badgeLabel.replace("{n}", String(n))}` : labelOf(m);
   };
-  const hrefOf = (m: MenuItem) => menuHref(m, lang, shopParam || null);
-  const switchTo = (slug: string) => menuHref(current ?? OWNER_MENU.find((m) => m.key === "shop")!, lang, slug);
+  const hrefOf = (m: MenuItem) => menuHref(m, lang, shopParam || null, kind);
+  const switchTo = (slug: string) =>
+    menuHref(current ?? OWNER_MENU.find((m) => m.key === "shop")!, lang, slug, shops.find((s) => s.slug === slug)?.kind);
   const closePanel = () => setPanelOpen(false);
   // opened by the owner: straight into the question box of the panel
   const toggleAi = (on: boolean) => {

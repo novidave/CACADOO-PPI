@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { isLocale } from "@/i18n/config";
-import { getDictionary } from "@/i18n/dictionaries";
+import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom, sectionUrl } from "@/lib/dashboardPages";
 import { addressLine } from "@/lib/format";
@@ -10,8 +10,12 @@ import { DashboardSection } from "@/components/DashboardSection";
 import { DbError } from "@/components/DbError";
 import { LogoInput } from "@/components/LogoInput";
 import { ShopForm } from "@/components/ShopForm";
-import { ghostClass } from "@/components/owner/ui";
-import { deleteShop, saveShop, uploadLogo } from "./actions";
+import { buttonClass, ghostClass } from "@/components/owner/ui";
+import { KindChoice } from "@/components/owner/KindChoice";
+import { loadLiveSites, shopHref } from "@/lib/customDomain";
+import { readSetup } from "@/lib/setupSteps";
+import { deleteShop, saveShop, setShopKind, uploadLogo } from "./actions";
+import { SetupCard } from "./SetupCard";
 import { errorText, hiddenFields, messages, SubmitButton } from "./shared";
 import { Holidays, holidaysSummary, loadHolidays } from "./Holidays";
 import { loadSiteLogo, siteLogoSummary, SiteLogoPanel } from "./SiteLogoPanel";
@@ -69,6 +73,14 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           defaults={{ country: "", timezone: "" }}
           action={saveShop}
           submitLabel={o.create_button}
+          first={
+            // update 79: the kind of shop first — the menu and the setup steps follow it
+            <fieldset className="flex flex-col gap-2 pb-2" data-new-shop-kind>
+              <legend className="mb-1 text-[19px] font-bold">{dict.setup.kind_question}</legend>
+              <p className="text-sm text-muted">{dict.setup.kind_question_hint}</p>
+              <KindChoice labels={dict.setup} />
+            </fieldset>
+          }
         />
       </div>
     );
@@ -76,14 +88,20 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
 
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
   // back-end layout L3: the plan box moved to "Predplatné a doména" (/dashboard/plan)
-  const [holidays, header, stockState] = await Promise.all([
+  const [holidays, header, stockState, setupRes, sites] = await Promise.all([
     // "Sviatky a mimoriadne zatvorenie" (database update 27; null before it).
     loadHolidays(supabase, shop),
     // "Logo v hlavičke webu" (database update 31; null before it).
     loadSiteLogo(supabase, shop),
     // After "Vymazať celý sklad" (database update 43): ask for a new stock file until one is applied.
     supabase.rpc("owner_inventory_state", { p_shop_id: shop.id }),
+    // "Nastavenie obchodu" (database update 79; nothing before it)
+    supabase.rpc("owner_setup_steps", { p_shop_id: shop.id }),
+    loadLiveSites(supabase),
   ]);
+  const setup = setupRes.error ? null : readSetup(setupRes.data);
+  const kind = shop.kind === "food" ? "food" : "goods";
+  const s = dict.setup;
   const needsFile = !stockState.error && (stockState.data as { needs_file?: boolean } | null)?.needs_file === true;
   const hidden = hiddenFields(lang, shop);
   const m = messages(dict, sp);
@@ -125,31 +143,49 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
           </div>
         )}
         {ok === "created" ? (
-          <div className="flex flex-col gap-2 border border-foreground p-3">
-            <p className="font-semibold">{o.created}</p>
-            <ol className="list-decimal pl-6 text-sm">
-              <li>
-                <Link href={`/${lang}/sync?${new URLSearchParams({ shop: shop.slug })}`} className="underline underline-offset-4">
-                  {o.step_folder}
-                </Link>
-              </li>
-              <li>
-                <Link href={`/${lang}/dashboard/translations?${new URLSearchParams({ shop: shop.slug, at: "columns" })}#columns`} className="underline underline-offset-4">
-                  {o.step_columns}
-                </Link>
-              </li>
-              <li>{o.step_visible}</li>
-            </ol>
-          </div>
+          // update 79: the next steps are the setup card below (the stock file's steps or a restaurant's)
+          <p className="border border-foreground p-3 font-semibold" role="status">
+            {o.created}
+          </p>
         ) : (
           ok && !at && <p className="border border-foreground p-3 font-medium">{okText}</p>
         )}
         {err && !at && <p className="border border-line p-3">{errorText(dict, err)}</p>}
       </header>
 
+      {setup && !setup.finished && (
+        <SetupCard state={setup} shop={shop} lang={lang} dict={dict} preview={shop.is_active ? shopHref(sites, lang, shop.slug, shop.country) : null} />
+      )}
+
       <div className="flex flex-col gap-3">
         <DashboardSection {...section("details")} title={d.details_title} summary={summaries.details}>
           {notice("details")}
+          {/* "Typ obchodu" (update 79): nothing is deleted by a change, the owner confirms it first */}
+          <div id="kind" className="flex scroll-mt-4 flex-col gap-2 rounded-2xl border border-[#E4E4E4] p-4" data-shop-kind={kind}>
+            <span className="text-sm font-semibold">{s.kind_title}</span>
+            <p className="text-base font-bold">{t(s.kind_now, { kind: kind === "food" ? s.kind_food : s.kind_goods })}</p>
+            <details className="group">
+              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold underline underline-offset-4" data-kind-change>
+                {s.kind_change}
+              </summary>
+              <form action={setShopKind} className="flex flex-col gap-3 pt-2">
+                {hidden({ at: "details" })}
+                <KindChoice value={kind} labels={s} />
+                <p className="text-sm">{s.kind_change_intro}</p>
+                <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+                  <li>{s.kind_to_food}</li>
+                  <li>{s.kind_to_goods}</li>
+                </ul>
+                <label className="flex min-h-11 items-center gap-3 text-sm font-semibold">
+                  <input type="checkbox" name="confirm" required className="h-6 w-6 flex-none accent-[#111]" />
+                  {s.kind_confirm}
+                </label>
+                <button type="submit" className={`${buttonClass} self-start`} data-kind-save>
+                  {s.kind_save}
+                </button>
+              </form>
+            </details>
+          </div>
           <ShopForm
             dict={dict}
             lang={lang}

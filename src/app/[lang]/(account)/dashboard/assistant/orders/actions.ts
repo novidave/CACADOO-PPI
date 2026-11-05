@@ -41,13 +41,15 @@ async function start(formData: FormData) {
     const base =
       back === "detail" && UUID.test(order)
         ? `/${lang}/dashboard/assistant/orders/${order}`
-        : back === "settings" || back === "menu"
+        : back === "settings"
           ? `/${lang}/dashboard/assistant/orders/settings`
-          : back === "couriers"
+          : back === "menu"
+            ? `/${lang}/dashboard/assistant/orders/menu`
+            : back === "couriers"
             ? `/${lang}/dashboard/assistant/orders/couriers`
             : `/${lang}/dashboard/assistant/orders`;
-    // back-end layout L2: the menu check is the "Menu" tab (?view=menu)
-    const q = new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...(back === "list" && filter ? { f: filter } : {}), ...(back === "menu" ? { view: "menu" } : {}), ...query });
+    // update 79: the menu check is the "Menu" tab, on its own address
+    const q = new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...(back === "list" && filter ? { f: filter } : {}), ...query });
     redirect(`${base}?${q}${anchor}`);
   };
   return { lang, session, shopId, slug, order, page };

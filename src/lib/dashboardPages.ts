@@ -43,7 +43,8 @@ export const ITEM_TABS = {
     { key: "orders", path: "/dashboard/assistant/orders" },
     // update 75 (couriers): Objednávky · Kuriéri · Menu · Nastavenia, as the canvas
     { key: "couriers", path: "/dashboard/assistant/orders/couriers" },
-    { key: "menu", path: "/dashboard/assistant/orders/settings", query: { view: "menu" } },
+    // update 79: the Menu tab has its own address (owned by the "Menu" item food_menu, which restaurants see in Hlavné)
+    { key: "menu", path: "/dashboard/assistant/orders/menu" },
     { key: "settings", path: "/dashboard/assistant/orders/settings" },
   ],
   bookings: [
@@ -190,7 +191,11 @@ export function forwardUrl(lang: string, at: string, sp: Record<string, string |
 // (the QR terminal). The menu (@/components/owner/OwnerNav), the forwards above and dashboardPages_test.ts read it.
 
 export type MenuGroup = "main" | "page" | "account";
+/** The kind of shop (update 79): a shop with stock or a restaurant; the menu shows what each one uses. */
+export type ShopKind = "goods" | "food";
+export const SHOP_KINDS: ShopKind[] = ["goods", "food"];
 export type MenuKey =
+  | "food_menu"
   | "sklad"
   | "food"
   | "bookings"
@@ -230,9 +235,13 @@ export interface MenuItem {
   admin?: boolean;
   /** Which count the item's badge shows. */
   badge?: "food" | "crm";
+  /** Only for these kinds of shop (update 79); none = every shop. */
+  kinds?: ShopKind[];
 }
 
 export const OWNER_MENU: MenuItem[] = [
+  // update 79: a restaurant's menu (dishes, prices, categories) — the Menu tab of Objednávky jedla
+  { key: "food_menu", group: "main", path: "/dashboard/assistant/orders/menu", owns: [{ path: "/dashboard/assistant/orders/menu" }], shop: true, kinds: ["food"] },
   { key: "sklad", group: "main", path: "/dashboard/sklad", owns: [{ path: "/dashboard/sklad" }], shop: true },
   { key: "food", group: "main", path: "/dashboard/assistant/orders", owns: [{ path: "/dashboard/assistant/orders" }], shop: true, badge: "food" },
   { key: "bookings", group: "main", path: "/dashboard/bookings", owns: [{ path: "/dashboard/bookings" }], shop: true },
@@ -251,7 +260,8 @@ export const OWNER_MENU: MenuItem[] = [
   { key: "blog", group: "page", path: "/dashboard/blog", owns: [{ path: "/dashboard/blog" }], shop: true },
   { key: "assistant", group: "page", path: "/dashboard/assistant", owns: [{ path: "/dashboard/assistant" }], shop: true },
   { key: "translations", group: "page", path: "/dashboard/translations", owns: [{ path: "/dashboard/translations" }, { path: "/dashboard/items" }], shop: true },
-  { key: "export", group: "account", path: "/sync", owns: [{ path: "/sync" }], shop: true },
+  // the stock file's folder, Zdroj zásob, the inventory program, the POS agent: not for a restaurant (update 79)
+  { key: "export", group: "account", path: "/sync", owns: [{ path: "/sync" }], shop: true, kinds: ["goods"] },
   { key: "plan", group: "account", path: "/dashboard/plan", owns: [{ path: "/dashboard/plan" }], shop: true },
   { key: "legal", group: "account", path: "/dashboard/legal", owns: [{ path: "/dashboard/legal" }], shop: true },
   { key: "password", group: "account", path: "/password", owns: [{ path: "/password" }], shop: false },
@@ -262,6 +272,28 @@ export const OWNER_MENU: MenuItem[] = [
 ];
 
 export const MENU_GROUPS: MenuGroup[] = ["main", "page", "account"];
+
+/** Hlavné of a restaurant starts with these (update 79); every other item keeps its place. */
+const FOOD_FIRST: MenuKey[] = ["food_menu", "food"];
+
+/**
+ * The menu of one kind of shop (update 79): goods = OWNER_MENU as before (without the restaurant's Menu); food = Menu
+ * and Objednávky jedla first in Hlavné, no stock-file pages (Priečinok s exportom). The pages themselves stay reachable
+ * by their address.
+ */
+export function menuFor(kind: ShopKind | null | undefined): MenuItem[] {
+  const k: ShopKind = kind === "food" ? "food" : "goods";
+  const items = OWNER_MENU.filter((m) => !m.kinds || m.kinds.includes(k));
+  if (k !== "food") return items;
+  const first = FOOD_FIRST.flatMap((key) => items.filter((m) => m.key === key));
+  return [...first, ...items.filter((m) => !FOOD_FIRST.includes(m.key))];
+}
+
+/** The link of "Jazyky a inventár" for a restaurant: its page texts first (the Tovar list is for stock files). */
+export function itemQueryFor(item: MenuItem, kind: ShopKind | null | undefined): Record<string, string> | undefined {
+  if (kind === "food" && item.key === "translations") return { at: "texts" };
+  return item.query;
+}
 
 /** "/sk/dashboard/sklad/sale" → "/dashboard/sklad/sale" (the address without its language). */
 export function withoutLang(pathname: string): string {
@@ -285,14 +317,23 @@ export function menuOwners(path: string, at = ""): { item: MenuItem; score: numb
   }).sort((a, b) => b.score - a.score);
 }
 
-/** The menu item an address belongs to ("/dashboard/sklad/sale" → Sklad); null outside the owner area. */
-export function menuItemFor(path: string, at = ""): MenuItem | null {
-  return menuOwners(path, at)[0]?.item ?? null;
+/**
+ * The menu item an address belongs to ("/dashboard/sklad/sale" → Sklad); null outside the owner area. With a kind of
+ * shop: the most specific item that kind's menu shows (a shop with stock on the Menu tab → Objednávky jedla).
+ */
+export function menuItemFor(path: string, at = "", kind?: ShopKind | null): MenuItem | null {
+  const owners = menuOwners(path, at);
+  if (kind) {
+    const shown = new Set(menuFor(kind).map((m) => m.key));
+    const visible = owners.find((o) => shown.has(o.item.key));
+    if (visible) return visible.item;
+  }
+  return owners[0]?.item ?? null;
 }
 
-/** An item's link: its page with its query and, for a shop page, the open shop. */
-export function menuHref(item: MenuItem, lang: string, shop: string | null): string {
-  const query = new URLSearchParams({ ...(item.shop && shop ? { shop } : {}), ...(item.query ?? {}) });
+/** An item's link: its page with its query and, for a shop page, the open shop (a restaurant's own query, update 79). */
+export function menuHref(item: MenuItem, lang: string, shop: string | null, kind?: ShopKind | null): string {
+  const query = new URLSearchParams({ ...(item.shop && shop ? { shop } : {}), ...(itemQueryFor(item, kind) ?? {}) });
   const q = query.toString();
   return `/${lang}${item.path}${q ? `?${q}` : ""}`;
 }

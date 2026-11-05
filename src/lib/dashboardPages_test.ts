@@ -2,6 +2,8 @@
 // addresses forward with their query, ?shop= stays on every shop page's link. Run with `npm run test:content`.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
+  menuFor,
+  itemQueryFor,
   assistantTabUrl,
   bookingPartUrl,
   forwardUrl,
@@ -143,7 +145,8 @@ Deno.test("the items' tabs (L2): Rezervácie's booking parts, CRM, AI asistent, 
   assertEquals(tabHref("sk", "bookings", "rules", "davide"), "/sk/dashboard/bookings?shop=davide&tab=rules");
   assertEquals(tabHref("sk", "crm", "templates", "davide"), "/sk/dashboard/contacts?shop=davide&view=templates");
   assertEquals(tabHref("hu", "assistant", "folders", "davide"), "/hu/dashboard/assistant/folders?shop=davide");
-  assertEquals(tabHref("sk", "food", "menu", "davide"), "/sk/dashboard/assistant/orders/settings?shop=davide&view=menu");
+  // update 79: the Menu tab has its own address
+  assertEquals(tabHref("sk", "food", "menu", "davide"), "/sk/dashboard/assistant/orders/menu?shop=davide");
   // a booking settings part of update 63 goes back to its Rezervácie tab (the calendar and the messages to Nastavenia)
   assertEquals(bookingPartUrl("sk", "services", { shop: "davide", ok: "1" }), "/sk/dashboard/bookings?shop=davide&ok=1&tab=services&part=services#services");
   assertEquals(bookingPartUrl("sk", "calendar", { shop: "davide" }), "/sk/dashboard/bookings?shop=davide&tab=settings&part=calendar#calendar");
@@ -153,11 +156,43 @@ Deno.test("the items' tabs (L2): Rezervácie's booking parts, CRM, AI asistent, 
   assertEquals(assistantTabUrl("sk", "conversations", "davide"), "/sk/dashboard/crm?shop=davide&at=conversations");
   assertEquals(assistantTabUrl("sk", "bookings", "davide"), "/sk/dashboard/bookings?shop=davide");
   assertEquals(assistantTabUrl("sk", "settings", "davide"), "/sk/dashboard/assistant?shop=davide");
-  // every tab of a tabbed item is owned by that item
+  // every tab of a tabbed item is owned by that item — except Objednávky jedla's Menu, which a restaurant reaches from
+  // its own "Menu" item (update 79); in the menu of a shop with stock it is Objednávky jedla's again
   for (const [item, tabs] of Object.entries(ITEM_TABS)) {
     for (const tab of tabs) {
       const href = new URL(tabHref("sk", item as keyof typeof ITEM_TABS, tab.key, "davide"), "https://x");
-      assertEquals(menuItemFor(withoutLang(href.pathname), href.searchParams.get("at") ?? "")?.key, item, `${item} → ${tab.key}`);
+      const path = withoutLang(href.pathname);
+      const at = href.searchParams.get("at") ?? "";
+      const own = item === "food" && tab.key === "menu" ? "food_menu" : item;
+      assertEquals(menuItemFor(path, at)?.key, own, `${item} → ${tab.key}`);
+      assertEquals(menuItemFor(path, at, "goods")?.key, item, `${item} → ${tab.key} (goods)`);
     }
   }
+});
+
+Deno.test("the menu by kind of shop (update 79): a restaurant sees Menu and Objednávky jedla first, no stock-file pages", () => {
+  const goods = menuFor("goods").map((m) => m.key);
+  const food = menuFor("food").map((m) => m.key);
+  // a shop with stock: exactly as before (without the restaurant's Menu), in the same order
+  assertEquals(goods, OWNER_MENU.filter((m) => m.key !== "food_menu").map((m) => m.key));
+  assertEquals(menuFor(null).map((m) => m.key), goods, "no kind = goods");
+  // a restaurant: Menu and Objednávky jedla first in Hlavné, Priečinok s exportom out of the menu
+  const main = menuFor("food").filter((m) => m.group === "main").map((m) => m.key);
+  assertEquals(main.slice(0, 2), ["food_menu", "food"]);
+  assert(!food.includes("export"), "a restaurant has no Priečinok s exportom in its menu");
+  for (const key of ["sklad", "crm", "bookings", "shop", "content", "blog", "assistant", "translations", "plan", "legal"]) {
+    assert(food.includes(key as never), `${key} stays in a restaurant's menu`);
+  }
+  assertEquals(new Set(food).size, food.length);
+  // the pages stay reachable by address: /sync is still Priečinok s exportom
+  assertEquals(menuItemFor("/sync", "", "food")?.key, "export");
+  // "Jazyky a inventár" of a restaurant opens its page texts (Tovar is for stock files)
+  const tr = OWNER_MENU.find((m) => m.key === "translations")!;
+  assertEquals(itemQueryFor(tr, "food"), { at: "texts" });
+  assertEquals(menuHref(tr, "sk", "bistro", "food"), "/sk/dashboard/translations?shop=bistro&at=texts");
+  assertEquals(menuHref(tr, "sk", "davide", "goods"), "/sk/dashboard/translations?shop=davide");
+  // the Menu tab: Menu for a restaurant, Objednávky jedla for a shop with stock
+  assertEquals(menuItemFor("/dashboard/assistant/orders/menu", "", "food")?.key, "food_menu");
+  assertEquals(menuItemFor("/dashboard/assistant/orders/menu", "", "goods")?.key, "food");
+  assertEquals(menuItemFor("/dashboard/assistant/orders", "", "food")?.key, "food");
 });

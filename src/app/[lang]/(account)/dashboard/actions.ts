@@ -128,9 +128,13 @@ export async function saveShop(formData: FormData) {
     }
   }
 
+  // the kind of a NEW shop (update 79: the first question of "Nový obchod"); a later change goes through setShopKind
+  const kind = text(formData, "kind", 10);
+  if (isNew && kind !== "goods" && kind !== "food") fail("kind");
   const { data, error } = await session.supabase.rpc("owner_save_shop", {
     p: {
       id: isNew ? null : shopId,
+      ...(isNew ? { kind } : {}),
       slug_base: slugBase(name, city),
       name,
       ico: text(formData, "ico", 40),
@@ -273,4 +277,36 @@ async function billingError(error: unknown): Promise<string> {
   if (reply?.error === "not_configured") return "plan_unavailable";
   const message = reply?.message ?? (error instanceof Error ? error.message : "no answer");
   return `stripe:${String(message).slice(0, 300)}`;
+}
+
+/**
+ * "Typ obchodu" (update 79): a shop with stock ↔ a restaurant. Only after the owner ticked that they understand what
+ * changes; owner_set_shop_kind decides (members, goods / food, logged). Nothing is deleted.
+ */
+export async function setShopKind(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const kind = text(formData, "kind", 10);
+  if (kind !== "goods" && kind !== "food") back({ err: "kind" });
+  if (formData.get("confirm") !== "on") back({ err: "kind" });
+  const { error } = await session.supabase.rpc("owner_set_shop_kind", { p_shop_id: shopId, p_kind: kind });
+  back(error ? { err: error.message } : { ok: "kind" });
+}
+
+/** "Preskočiť" / "Vrátiť do zoznamu" on an optional setup step (update 79; the database refuses any other step). */
+export async function skipSetupStep(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const skip = formData.get("skip") === "1";
+  const { error } = await session.supabase.rpc("owner_skip_setup_step", {
+    p_shop_id: shopId,
+    p_step: text(formData, "step", 20),
+    p_skip: skip,
+  });
+  back(error ? { err: error.message } : { ok: skip ? "setup_skip" : "setup_unskip" });
+}
+
+/** "Prijímať objednávky" (update 79, the last step of a restaurant): only the switch changes (update 73's rules). */
+export async function launchFoodOrders(formData: FormData) {
+  const { session, shopId, back } = await start(formData);
+  const { error } = await session.supabase.rpc("owner_food_save_settings", { p_shop_id: shopId, p: { enabled: true } });
+  back(error ? { err: error.message } : { ok: "launched" });
 }

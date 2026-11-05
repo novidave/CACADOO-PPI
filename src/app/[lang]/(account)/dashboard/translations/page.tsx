@@ -15,6 +15,7 @@ import { ItemsSection, loadItems } from "../Inventory";
 import type { LanguageSettings } from "../LanguagesForm";
 import { messages, ShopSwitcher } from "../shared";
 import { PageTitle } from "@/components/owner/PageHead";
+import { NotForFood } from "@/components/owner/NotForFood";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/translations">): Promise<Metadata> {
   const { lang } = await params;
@@ -65,23 +66,39 @@ export default async function TranslationsPage({ params, searchParams }: PagePro
   ]);
   const filesCleared = !stockState.error && (stockState.data as { files_cleared?: boolean } | null)?.files_cleared === true;
   if (stock.error) return <DbError message={stock.error} dict={dict} />;
-  const itemsSection = (
-    <ItemsSection
-      shop={shop}
+  // update 79: a restaurant's dishes and prices are in the Menu; the Tovar list only when asked for (?at=items)
+  const food = shop.kind === "food";
+  const foodNote = food ? (
+    <NotForFood
       lang={lang}
-      dict={dict}
-      m={m}
-      items={stock.items}
-      total={stock.total}
-      counts={stock.counts}
-      q={q}
-      page={page}
-      filter={filter}
-      filesCleared={filesCleared}
-      itemLang={stock.langs && itemLang && stock.langs.includes(itemLang) ? itemLang : null}
-      langs={stock.langs}
+      shop={shop.slug}
+      labels={dict.setup}
+      more={at === "items" ? undefined : { href: `/${lang}/dashboard/translations?${new URLSearchParams({ shop: shop.slug, at: "items" })}#items`, label: dict.setup.items_show }}
     />
-  );
+  ) : null;
+  const itemsSection =
+    food && at !== "items" ? (
+      foodNote
+    ) : (
+      <>
+        {foodNote}
+        <ItemsSection
+          shop={shop}
+          lang={lang}
+          dict={dict}
+          m={m}
+          items={stock.items}
+          total={stock.total}
+          counts={stock.counts}
+          q={q}
+          page={page}
+          filter={filter}
+          filesCleared={filesCleared}
+          itemLang={stock.langs && itemLang && stock.langs.includes(itemLang) ? itemLang : null}
+          langs={stock.langs}
+        />
+      </>
+    );
   const header = (
     <header className="flex flex-col gap-2">
       <PageTitle>{dict.account.translations_page}</PageTitle>
