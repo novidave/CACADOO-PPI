@@ -36,7 +36,7 @@
 //     from 18:00 — crm_settings), the customer's SMS when the owner moved or cancelled (3 tries), the calendar pushes
 //     (only events Cacaduu made: create / update / delete by google_event_id; 3 tries; a failure never blocks a
 //     booking) and the busy times of connected calendars (booking_calendar_busy)
-// SMS go through the SmsProvider interface (SMS_PROVIDER: brevo, twilio; unset = "test": written down, never sent).
+// SMS go through the SmsProvider interface (SMS_PROVIDER: brevo, twilio, infobip; unset = "test": written down, never sent).
 // Every SMS is written down first and takes its parts of the shop's monthly "booking" quota (database update 58:
 // booking_sms_claim → send → booking_sms_settle; at the limit nothing is sent: sms_quota). For testing without a
 // provider, BOOKING_TEST_CODES=on returns the code to the chat; it is ignored while a real provider is set.
