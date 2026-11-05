@@ -239,6 +239,37 @@ OPEN
    e) The Telegram bot's "Vypredané dnes" button for restaurants comes with the next telegram deploy (item 23); until
       then use the website or the AI pomocník.
 
+33. Optional: send SMS through Infobip instead of Brevo (only if you choose Infobip)
+   Nothing changes until you do this — SMS keep going through Brevo. Infobip is built in and tested, but it was never
+   tried with a real Infobip account, so send one test SMS before you rely on it.
+   a) Make an account at https://www.infobip.com (Sign up). In the Infobip portal, on the home page (or "Developers →
+      API keys"), copy two things: your **Base URL** (looks like xxxxx.api.infobip.com) and an **API key**
+      (create one with the right to send SMS).
+   b) Sender name: Infobip → Channels and Numbers → SMS → Senders. Register "Cacaduu" (or the name you want) for
+      Slovakia and Hungary. Without a registered sender the operators may change it or block the SMS.
+   c) Supabase → Project Settings → Edge Functions → Secrets → add:
+        INFOBIP_API_KEY  = the API key from a)
+        INFOBIP_BASE_URL = the Base URL from a) (with or without https://)
+      then change SMS_PROVIDER from "brevo" to "infobip". If the sender name is not "Cacaduu", set SMS_SENDER to the
+      registered name (max. 11 letters and digits).
+   d) Check: open Cacaduu → Admin → SMS. It should say "SMS posiela: Infobip." and "Odosielateľ: <your name>". Then in
+      a shop with Pro: CRM → Kontakty → your own contact → Správy → send yourself one SMS. It should arrive within a
+      minute and show "odoslané" in the list.
+   e) To go back to Brevo: set SMS_PROVIDER back to "brevo". Nothing else changes.
+
+34. Optional, with item 23: receive "Hodiny cez SMS" through an Infobip number
+   Only when you want owners to text their opening hours and you chose Infobip (item 33), and only after "deploy
+   hours-sms" (item 23).
+   a) Infobip → Channels and Numbers → Numbers → buy a number that can receive SMS (a Slovak one if you can). Put it
+      in Supabase secrets as HOURS_SMS_NUMBER (for example +421…), so owners see it in Môj obchod.
+   b) Supabase secrets: add INBOUND_SMS_SECRET = a long random password, at least 32 characters (any password
+      generator; keep a copy for the next step). If it already exists, use the same one.
+   c) Infobip → the number → "Incoming messages" / "Forward to HTTP": address
+        https://szhotccxyaepjhwsqdqx.supabase.co/functions/v1/hours-sms/inbound/infobip
+      method POST, format JSON, authentication **Basic**: user name "cacaduu", password = INBOUND_SMS_SECRET from b).
+   d) Check: Admin → SMS shows "Prijímanie SMS: … Infobip". From your verified owner phone, text the number
+      "Po-Pi 9-17" — you get the confirmation SMS and the shop page shows the new hours.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)

@@ -3,7 +3,9 @@
 //
 // Sends one SMS or e-mail from a contact card in Môj obchod → Kontakty. Called by the website's server action with the
 // owner's own login:
-//   - action "config": what can be sent here ({email, sms, sms_live}) so the page can say it.
+//   - action "config": what can be sent here ({email, sms, sms_live}) so the page can say it; since 2026-11-05 also the
+//     SMS sender name (SMS_SENDER as sent) and how hours-sms can receive SMS (twilio / infobip / generic — only whether
+//     their secrets exist, never a value) and whether HOURS_SMS_NUMBER is set, for the admin's SMS page.
 //   - action "send" {contact_id, channel "sms" | "email", template_id?, subject?, body?}: the database writes the
 //     message down first (owner_message_queue: members of the shop with the paid plan, the contact's own number or
 //     address, the variables filled in, at most 100 per channel and day), then this function sends it and reports the
@@ -51,7 +53,10 @@ export const REASONS = [
 //   - "brevo": Brevo transactional SMS (POST https://api.brevo.com/v3/transactionalSMS/send) with BREVO_API_KEY — the
 //     key the e-mails already use; sends to Slovakia and the rest of Europe; the account needs SMS credits;
 //   - "twilio": Twilio Programmable Messaging (POST /2010-04-01/Accounts/<sid>/Messages.json) with TWILIO_ACCOUNT_SID,
-//     TWILIO_AUTH_TOKEN and TWILIO_FROM (a number or an alphanumeric sender) or TWILIO_MESSAGING_SERVICE_SID.
+//     TWILIO_AUTH_TOKEN and TWILIO_FROM (a number or an alphanumeric sender) or TWILIO_MESSAGING_SERVICE_SID;
+//   - "infobip": Infobip SMS (POST https://<INFOBIP_BASE_URL>/sms/3/messages, "Authorization: App <INFOBIP_API_KEY>")
+//     with the account's own base URL (xxxxx.api.infobip.com, shown in the Infobip portal) and the key; the sender is
+//     SMS_SENDER (an alphanumeric sender must be registered at Infobip for SK / HU).
 // SMS_SENDER = the sender's name shown on the phone (letters and digits, ≤ 11; default "Cacaduu"). A provider without
 // its secrets fails every SMS ("failed", which never counts in the quota) instead of pretending to send. Errors carry
 // only the provider's status and code — never the number or the text.
@@ -116,6 +121,38 @@ export function twilioSmsForm(to: string, text: string, from: { from?: string; s
   return form;
 }
 
+/** Infobip: the account's base URL as https://<host>, only a host of infobip.com (null when it is not one). */
+export function infobipBase(value: string | undefined): string | null {
+  const raw = (value ?? "").trim().replace(/\/+$/, "");
+  if (!raw) return null;
+  const host = raw.replace(/^https:\/\//i, "");
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.infobip\.com$/i.test(host) ? `https://${host.toLowerCase()}` : null;
+}
+
+/** Infobip: the request for one SMS (POST /sms/3/messages); the number in E.164 without the "+". */
+export function infobipSmsBody(to: string, text: string, sender: string) {
+  return { messages: [{ sender, destinations: [{ to: to.replace(/^\+/, "") }], content: { text } }] };
+}
+
+/** Infobip: the answer of one send → ok with the message id, or the status / error code (never the number or text). */
+export function infobipResult(status: number, answer: unknown): SmsResult {
+  const a = (answer ?? {}) as {
+    messages?: { messageId?: string; status?: { groupName?: string; name?: string } }[];
+    requestError?: { serviceException?: { messageId?: string } };
+    errorCode?: string;
+  };
+  if (status < 200 || status >= 300) {
+    const code = a.requestError?.serviceException?.messageId ?? a.errorCode ?? "";
+    return { ok: false, error: `infobip ${status} ${String(code).slice(0, 40)}`.trim() };
+  }
+  const first = a.messages?.[0];
+  const group = String(first?.status?.groupName ?? "").toUpperCase();
+  if (group === "REJECTED" || group === "UNDELIVERABLE" || group === "EXPIRED") {
+    return { ok: false, error: `infobip ${group.toLowerCase()} ${String(first?.status?.name ?? "").slice(0, 40)}`.trim() };
+  }
+  return { ok: true, ref: first?.messageId ? String(first.messageId).slice(0, 100) : undefined };
+}
+
 /** The provider named by SMS_PROVIDER, with its secrets read through `env`. */
 export function smsProvider(name: string | undefined, env: SmsEnv = () => undefined, fetchImpl: typeof fetch = fetch): SmsProvider {
   const key = (name ?? "").trim().toLowerCase();
@@ -168,6 +205,26 @@ export function smsProvider(name: string | undefined, env: SmsEnv = () => undefi
         const answer = (await res.json().catch(() => ({}))) as { sid?: string; code?: number | string };
         if (!res.ok) return { ok: false, error: `twilio ${res.status} ${String(answer.code ?? "").slice(0, 20)}`.trim() };
         return { ok: true, ref: answer.sid?.slice(0, 100) };
+      },
+    };
+  }
+  if (key === "infobip") {
+    const apiKey = env("INFOBIP_API_KEY")?.trim();
+    const base = infobipBase(env("INFOBIP_BASE_URL"));
+    if (!apiKey || !base) return failing("infobip", "infobip is not set up (INFOBIP_API_KEY, INFOBIP_BASE_URL)");
+    const sender = smsSender(env("SMS_SENDER"));
+    return {
+      name: "infobip",
+      live: true,
+      async send(to, text) {
+        const res = await fetchImpl(`${base}/sms/3/messages`, {
+          method: "POST",
+          headers: { Authorization: `App ${apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(infobipSmsBody(to, text, sender)),
+          signal: timeout(),
+        }).catch(() => null);
+        if (!res) return { ok: false, error: "infobip network" };
+        return infobipResult(res.status, await res.json().catch(() => ({})));
       },
     };
   }
@@ -237,7 +294,17 @@ export interface Deps {
   asCaller: (authorization: string) => Caller;
   email: EmailConfig | null;
   sms: SmsProvider;
+  /** The admin's SMS page (2026-11-05): the sender as sent and the inbound ways whose secrets exist. */
+  smsInfo?: { sender: string; inbound: string[]; number: boolean };
   fetch: typeof fetch;
+}
+
+/** Which inbound ways of hours-sms have their secrets: Twilio's auth token; Infobip / a gateway share INBOUND_SMS_SECRET (32+). */
+export function inboundWays(env: (name: string) => string | undefined): string[] {
+  const ways: string[] = [];
+  if ((env("TWILIO_AUTH_TOKEN") ?? "").trim()) ways.push("twilio");
+  if ((env("INBOUND_SMS_SECRET") ?? "").trim().length >= 32) ways.push("infobip", "generic");
+  return ways;
 }
 
 function reply(status: number, body: unknown) {
@@ -514,7 +581,14 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const action = body?.action;
 
-  if (action === "config") return reply(200, { email: Boolean(deps.email), sms: deps.sms.name, sms_live: deps.sms.live });
+  if (action === "config") {
+    return reply(200, {
+      email: Boolean(deps.email),
+      sms: deps.sms.name,
+      sms_live: deps.sms.live,
+      ...(deps.smsInfo ? { sms_sender: deps.smsInfo.sender, sms_inbound: deps.smsInfo.inbound, sms_number: deps.smsInfo.number } : {}),
+    });
+  }
   if (action === "courier_invite" && body) {
     // update 75: one SMS with the address of the shop's courier login — written down first (the owner quota)
     const shop = String(body.shop_id ?? "");
@@ -618,6 +692,11 @@ export async function handler(req: Request): Promise<Response> {
     email: apiKey && from ? { apiKey, from } : null,
     siteUrl: (Deno.env.get("SITE_URL") ?? "").trim().replace(/\/+$/, "") || null,
     sms: smsProvider(Deno.env.get("SMS_PROVIDER"), (name) => Deno.env.get(name), fetch),
+    smsInfo: {
+      sender: smsSender(Deno.env.get("SMS_SENDER")),
+      inbound: inboundWays((name) => Deno.env.get(name)),
+      number: Boolean((Deno.env.get("HOURS_SMS_NUMBER") ?? "").trim()),
+    },
     fetch,
   });
 }

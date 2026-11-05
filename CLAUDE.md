@@ -791,9 +791,15 @@ Kontakty, the contact's Správy (owner quota) and Rezervácie → Nastavenia (bo
 pause. Providers by `SMS_PROVIDER`: unset/`test` (written down, never sent), `brevo` (POST
 `https://api.brevo.com/v3/transactionalSMS/send`, `BREVO_API_KEY`, `type: transactional`, `unicodeEnabled` only for
 non-GSM text, 402 = no credits), `twilio` (`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` or
-`TWILIO_MESSAGING_SERVICE_SID`); `SMS_SENDER` letters/digits ≤ 11 (default "Cacaduu"); a provider without its secrets
-fails every SMS (never pretends). Errors keep only the provider's status/code — **never a number or text in a log**.
-`BOOKING_TEST_CODES` is ignored while a real provider is set. Texts `sms_usage`, `admin_sms`.
+`TWILIO_MESSAGING_SERVICE_SID`), `infobip` (2026-11-05, TODO 33: POST `<INFOBIP_BASE_URL>/sms/3/messages` — only an
+`*.infobip.com` host, `infobipBase()` —, `Authorization: App <INFOBIP_API_KEY>`, `{messages: [{sender, destinations:
+[{to}], content: {text}}]}`, the number without "+"; a REJECTED / UNDELIVERABLE / EXPIRED group = failed, an error keeps
+only its messageId code); `SMS_SENDER` letters/digits ≤ 11 (default "Cacaduu"; Infobip and Twilio need it registered for
+SK / HU); a provider without its secrets fails every SMS (never pretends). Errors keep only the provider's status/code —
+**never a number or text in a log**. `BOOKING_TEST_CODES` is ignored while a real provider is set. crm-messages
+`config` also answers `sms_sender`, `sms_inbound` (twilio / infobip / generic — only which secrets exist) and
+`sms_number` (`HOURS_SMS_NUMBER` set) for admin → SMS's "Odosielateľ", "Prijímanie SMS", "Číslo pre majiteľov". Texts
+`sms_usage`, `admin_sms`.
 
 ## Unanswered questions: the shopper leaves a contact (paid, update 59, CRM phase 5)
 
@@ -825,8 +831,10 @@ or test owner message to that contact marks its waiting conversations answered (
 hash only, 10 minutes, 5 tries, 3 codes/hour/phone, 10/shop/day; the SMS log masks it) and is typed into
 `owner_phone_verify()`; the website never sees a code (except `BOOKING_TEST_CODES=on` while `SMS_PROVIDER` is test).
 Inbound: Brevo cannot receive SMS, so `POST /hours-sms/inbound/twilio` (`X-Twilio-Signature` = HMAC-SHA1 of the
-webhook address + sorted fields with `TWILIO_AUTH_TOKEN`; TwiML answer) or `/inbound/generic` (`x-ppi-inbound` =
-`INBOUND_SMS_SECRET`, ≥ 32; `{from, text, id?}`); anything unsigned → 403. `hours_sms_receive()` writes every SMS
+webhook address + sorted fields with `TWILIO_AUTH_TOKEN`; TwiML answer), `/inbound/generic` (`x-ppi-inbound` =
+`INBOUND_SMS_SECRET`, ≥ 32; `{from, text, id?}`) or `/inbound/infobip` (2026-11-05, TODO 34: Infobip's "Forward to
+HTTP" JSON `results[]`, ≤ 10 per call, HTTP Basic auth whose password = `INBOUND_SMS_SECRET`, "+" added to the number;
+`readInfobip()`); anything unsigned → 403. `hours_sms_receive()` writes every SMS
 down (`hours_sms_messages`; an unknown number keeps no text, only a hash; provider ref once → duplicate; ≤ 10/hour per
 phone) and returns the shops of that verified phone (active, plan, owner still a member) — unknown numbers get **no
 reply**. Claude (`AI_MODEL`, structured output `PARSE_SCHEMA`; the SMS is data) reads intent hours|other|unclear,

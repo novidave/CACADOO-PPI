@@ -2697,7 +2697,9 @@ which replaces three of its functions):
   `business_failed`, `business_pushed`, `business_set_location`, `business_remove`. Owners: `owner_phone_verify(id,
   code)` (wrong_code + attempts_left / expired / too_many_attempts), `owner_phone_remove(id)`. `valid_week_hours(jsonb)`.
 - `supabase/functions/hours-sms/index.ts`: `POST /inbound/twilio` (signature with `TWILIO_AUTH_TOKEN` against
-  `<SUPABASE_URL>/functions/v1/hours-sms/inbound/twilio`) and `/inbound/generic` (`INBOUND_SMS_SECRET`) →
+  `<SUPABASE_URL>/functions/v1/hours-sms/inbound/twilio`), `/inbound/generic` (`INBOUND_SMS_SECRET`) and
+  `/inbound/infobip` (2026-11-05: Infobip's "Forward to HTTP" JSON `results[]`, HTTP Basic auth with the password
+  `INBOUND_SMS_SECRET`, `readInfobip`; each result its own `handleSms`) →
   `handleSms`: receive → Claude (`claudeParser`, `PARSE_SCHEMA`, input: today + weekday in the shop's zone, shop
   names, current week, the SMS) → shop choice → `checkParsed` → `hours_sms_apply` → `/api/revalidate` → `pushToGoogle`
   (`googleRegular` / `googleSpecial`) → reply (`describeChange`, `replyText` sk/hu/en) through the SMS providers block →
