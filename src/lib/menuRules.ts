@@ -142,6 +142,18 @@ export function orderLines(dish: MenuDish): { id: string; label: string | null; 
   return [{ id: dish.id, label: null, price_cents: dish.price_cents ?? 0, sold_out: dish.sold_out, tracked: dish.tracked }];
 }
 
+/**
+ * The restaurant page's rows (update 84: the dishes in the shop page's "Jedlá / Zoznam" box): every orderable line —
+ * a dish, or each of its sizes — in the owner's order, or in the search's order (`found` = shop_menu_search's dish ids,
+ * best first; ids the menu does not show are dropped). Sold out = "Vypredané dnes" (the dish's mark covers its sizes) or
+ * a tracked line's Sklad quantity, as shop_menu() decided.
+ */
+export function menuRowLines(menu: ShopMenu, found: string[] | null): { dish: MenuDish; id: string; label: string | null; price_cents: number; sold_out: boolean }[] {
+  const byId = new Map(menu.items.map((d) => [d.id, d]));
+  const dishes = found ? [...new Set(found)].flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])) : menu.items;
+  return dishes.flatMap((dish) => orderLines(dish).map((l) => ({ dish, id: l.id, label: l.label, price_cents: l.price_cents, sold_out: l.sold_out })));
+}
+
 const money = (cents: number) => (cents / 100).toFixed(2);
 
 /**

@@ -1,6 +1,7 @@
 import { AssistantBoot, type AssistantProps } from "./AssistantBoot";
 import { AssistantHeading } from "./AssistantHeading";
 import { welcomePieces } from "@/lib/chatList";
+import type { MenuOrderEvent } from "@/lib/menuOrder";
 
 /**
  * The shop assistant's first view (performance pass, Screen 11): the same box, texts and field as `ShopChat`, written
@@ -8,12 +9,12 @@ import { welcomePieces } from "@/lib/chatList";
  * files, PDFs, access keys) is not part of the page's first JavaScript — `AssistantBoot` loads it and carries over
  * what was typed, the cursor, an opened key row and a tapped "Poslať".
  */
-export function ShopAssistant({ question = "", ...props }: AssistantProps & { question?: string }) {
+export function ShopAssistant({ question = "", order = null, ...props }: AssistantProps & { question?: string; order?: MenuOrderEvent | null }) {
   const { lang, shopName, keys, labels, buttonLabel, welcome, archive = false } = props;
   const title = buttonLabel?.trim() || labels.title;
   const intro = welcome?.trim() || labels.intro;
   return (
-    <AssistantBoot props={props}>
+    <AssistantBoot props={props} order={order}>
       <section id="assistant" className="ppi-ai scroll-mt-4" data-pop aria-labelledby="assistant-heading" data-assistant>
         <AssistantHeading title={title} lang={lang} shopName={shopName} archive={archive} labels={labels} />
         <div className="flex flex-col px-[13px] py-[14px]">

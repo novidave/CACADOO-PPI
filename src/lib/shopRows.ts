@@ -2,7 +2,8 @@ import type { Locale } from "@/i18n/config";
 import type { ShopItemRow, ShopSearchRow } from "@/lib/data";
 import { formatPrice } from "@/lib/format";
 import { itemNames } from "@/lib/names";
-import { highlightParts } from "@/lib/searchWords";
+import { menuRowLines, type ShopMenu } from "@/lib/menuRules";
+import { highlightParts, searchStem } from "@/lib/searchWords";
 import { stockState, type StockState } from "@/lib/stockDot";
 
 /**
@@ -59,4 +60,32 @@ export function productRow(item: ShopItemRow & { matched?: string[] }, lang: Loc
     nameMarks: marks(names.primary, item.matched ?? []),
     originalMarks: names.secondary ? marks(names.secondary, item.matched ?? []) : null,
   };
+}
+
+/**
+ * A restaurant's rows (update 84, at the owner's request: the dishes in the same "Produkty / Zoznam" box, the first tab
+ * "Jedlá"): one row per thing a visitor can take — a dish, or each size of a dish with sizes ("Pizza Diavola 32 cm",
+ * as the assistant names it) — in the owner's order (or the search's, best first: `found` = shop_menu_search's dish
+ * ids). The price is Sklad's sale price with VAT (shop_menu); the dot is green unless sold out ("Vypredané dnes", or a
+ * tracked dish's Sklad quantity) — a menu has no stock file, so never the yellow "no information" (update 80's rule).
+ */
+export function dishRows(menu: ShopMenu, lang: Locale, q: string, found: string[] | null): ProductRow[] {
+  const words = q ? q.split(/\s+/).map(searchStem).filter(Boolean) : [];
+  return menuRowLines(menu, found).map((line): ProductRow => {
+    const names = itemNames(line.dish.name, line.dish.name_i18n, lang);
+    const name = line.label ? `${names.primary} ${line.label}` : names.primary;
+    const original = names.secondary ? (line.label ? `${names.secondary} ${line.label}` : names.secondary) : null;
+    const price = line.price_cents / 100;
+    return {
+      id: line.id,
+      name,
+      original,
+      price,
+      currency: menu.currency,
+      priceText: formatPrice(price, lang, menu.currency),
+      stock: line.sold_out ? "sold_out" : "available",
+      nameMarks: marks(name, words),
+      originalMarks: original ? marks(original, words) : null,
+    };
+  });
 }

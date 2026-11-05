@@ -2,7 +2,8 @@ import type { NextRequest } from "next/server";
 import { isLocale, type Locale } from "@/i18n/config";
 import { json, rateLimit } from "@/lib/apiHttp";
 import { getShop, getShopItems, searchShopItems } from "@/lib/data";
-import { productRow, type ProductRows } from "@/lib/shopRows";
+import { getShopMenu, searchShopMenu } from "@/lib/menu";
+import { dishRows, productRow, type ProductRows } from "@/lib/shopRows";
 
 /** The live search sends a request a few keys apart: more than the API's 60 a minute, still a limit per caller. */
 const SEARCH_PER_MINUTE = 120;
@@ -14,7 +15,9 @@ const ROWS = 50;
  * update 54): the forgiving shop_item_search() (+ Claude's words when nothing matched, @/lib/data searchShopItems),
  * without words the shop's first page; written for the page language on the server (@/lib/shopRows: names, price,
  * the stock dot's state — no stock sentence). Anonymous, public_stock data only; every call through rateLimit
- * (api_hit, per caller).
+ * (api_hit, per caller). A restaurant (update 84): its dishes the same way — shop_menu_search() (the same forgiving
+ * rule) finds them, shop_menu() gives the rows (@/lib/shopRows dishRows: a dish or each of its sizes, Sklad's price,
+ * green unless sold out).
  */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/shops/[slug]/search">) {
   const { slug } = await ctx.params;
@@ -27,6 +30,12 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/shops/[s
   try {
     const shop = await getShop(slug);
     if (!shop) return json({ error: "Not found" }, 404);
+    const menu = await getShopMenu(shop.slug);
+    if (menu) {
+      const rows = dishRows(menu, lang, q, q ? await searchShopMenu(shop.slug, q) : null);
+      const body: ProductRows = { q, kind: q ? (rows.length ? "match" : null) : null, total: rows.length, rows: rows.slice(0, ROWS) };
+      return json(body);
+    }
     const { items, total, kind } = q
       ? await searchShopItems(shop.slug, q, ROWS)
       : await getShopItems(shop.slug, "", 1, ROWS).then((r) => ({ ...r, kind: null }));

@@ -12,7 +12,9 @@ import { ALLERGENS, readMenu } from "@/lib/menuRules";
 import { ownerProductPhoto, productPhotoLabels } from "@/lib/ownerPhotos";
 import { dishPhotoSrc, withPhotoUrls } from "@/lib/menu";
 import { DbError } from "@/components/DbError";
-import { ShopMenu } from "@/components/ShopMenu";
+import { ShopProducts } from "@/components/ShopProducts";
+import { dishRows } from "@/lib/shopRows";
+import { productLabels } from "@/lib/productLabels";
 import { MenuImport } from "@/components/owner/MenuImport";
 import { MenuOrderList } from "@/components/owner/MenuOrderList";
 import { MenuPreview } from "@/components/owner/MenuPreview";
@@ -112,6 +114,7 @@ export default async function FoodMenuPage({ params, searchParams }: PageProps<"
   const s = settingsRes.error ? null : (settingsRes.data as FoodSettings);
   const docs = (docsRes.error ? [] : (docsRes.data ?? [])) as MenuDoc[];
   const preview = publicRes.error ? null : withPhotoUrls(readMenu(publicRes.data));
+  const previewRows = preview ? dishRows(preview, lang, "", null) : [];
   const hidden = hiddenFields(lang, shop);
   const plain = { lang, shop_id: shop.id, shop_slug: shop.slug };
   const money = (value: number | null) => (value === null ? "–" : formatPrice(Number(value), lang, "EUR"));
@@ -315,7 +318,21 @@ export default async function FoodMenuPage({ params, searchParams }: PageProps<"
           <section className={cardClass} data-menu-preview-card>
             <h2 className="text-[19px] font-bold">{m.ed_preview}</h2>
             <MenuPreview labels={{ phone: m.ed_preview_phone, computer: m.ed_preview_computer }}>
-              <ShopMenu menu={preview} lang={lang} dict={dict} texts={null} slug={shop.slug} path="" ordering={false} q="" matched={null} preview />
+              {/* the restaurant page's "Jedlá / Zoznam" box (update 84), drawn as visitors see it */}
+              <ShopProducts
+                shopId={shop.id}
+                slug={shop.slug}
+                lang={lang}
+                path=""
+                itemBase={`/${lang}/items/`}
+                shopName={shop.name}
+                address={null}
+                initial={{ q: "", kind: null, total: previewRows.length, rows: previewRows }}
+                page={1}
+                pageSize={1000}
+                emptyNote={{ text: m.empty, kind: "menu" }}
+                labels={productLabels(dict, true)}
+              />
             </MenuPreview>
           </section>
         )}

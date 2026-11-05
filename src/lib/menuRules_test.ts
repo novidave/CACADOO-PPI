@@ -6,7 +6,7 @@ import { assert, assertEquals } from "jsr:@std/assert@1";
 import en from "../i18n/messages/en.json" with { type: "json" };
 import hu from "../i18n/messages/hu.json" with { type: "json" };
 import sk from "../i18n/messages/sk.json" with { type: "json" };
-import { ALLERGENS, allergenLegend, allergensFromText, cleanImportRows, cleanOrderItems, menuJsonLd, menuSections, orderLines, readMenu } from "./menuRules.ts";
+import { ALLERGENS, allergenLegend, allergensFromText, cleanImportRows, cleanOrderItems, menuJsonLd, menuRowLines, menuSections, orderLines, readMenu } from "./menuRules.ts";
 
 const PIZZA = "11111111-1111-4111-8111-111111111111";
 const P32 = "22222222-2222-4222-8222-222222222222";
@@ -127,4 +127,38 @@ Deno.test("the import's proposal is made safe for the review table: no name = no
 Deno.test("the review table's allergen field: numbers 1–14 only, each once, in order", () => {
   assertEquals(allergensFromText("7, 1;3 1 15 0"), [1, 3, 7]);
   assertEquals(allergensFromText(""), []);
+});
+
+Deno.test("the restaurant page's rows (update 84): a dish or each size, the owner's order or the search's, sold out kept", () => {
+  const menu = readMenu(raw)!;
+  const all = menuRowLines(menu, null);
+  // the owner's order (shop_menu's), each size its own row with its own price; the dish with sizes has no row of its own
+  assertEquals(all.map((r) => [r.id, r.label, r.price_cents, r.sold_out]), [
+    [P32, "32 cm", 750, true],
+    [P45, "45 cm", 1190, false],
+    [SOUP, null, 320, true],
+    [COLA, null, 150, false],
+    ["77777777-7777-4777-8777-777777777777", null, 200, false],
+  ]);
+  assert(all.every((r) => r.id !== PIZZA), "a dish with sizes is ordered by its sizes");
+  // "Vypredané dnes" on the dish covers its sizes
+  const marked = readMenu({ ...raw, items: [{ ...raw.items[0], sold_out: true }] })!;
+  assertEquals(menuRowLines(marked, null).map((r) => r.sold_out), [true, true]);
+  // the search's order (best first), each dish once, ids the menu does not show dropped
+  assertEquals(menuRowLines(menu, [COLA, "99999999-9999-4999-8999-999999999999", PIZZA, COLA]).map((r) => r.id), [COLA, P32, P45]);
+  assertEquals(menuRowLines(menu, []), []);
+  // the row knows its dish (its name and translations)
+  assertEquals(menuRowLines(menu, [PIZZA])[0].dish.name_i18n, { en: "Diavola pizza" });
+});
+
+Deno.test("the restaurant's texts: \"Jedlá\" and the dish page in sk / hu / en", () => {
+  for (const d of [sk, hu, en]) {
+    for (const key of ["tab_dishes", "tabs_label_dishes", "found_dish_one", "found_dish_few", "found_dish_other"] as const) {
+      assert(d.shop[key], key);
+    }
+    for (const key of ["dish_available", "sizes", "dish_meta", "ask", "ask_prefill", "order", "order_message", "sold_out_today", "empty"] as const) {
+      assert(d.menu[key], key);
+    }
+  }
+  assertEquals(sk.shop.tab_dishes, "Jedlá");
 });

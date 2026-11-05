@@ -138,7 +138,8 @@ Deno.test("Only the product page, the assistant's photo tool and a restaurant's 
   // (supabase/public.ts only lists it among the cached reads)
   eq(readers.sort(), ["app/[lang]/items/[id]/ItemView.tsx", "lib/data.ts", "lib/shopChat.ts", "lib/supabase/public.ts"], "who reads item_photo");
   // the photo's address: the product page, the assistant's card, the owner's screens and the shared rules only — and a
-  // restaurant's Menu (update 80, the owner's OK of 2026-11-05: a dish's photo on its Menu; shop_menu() reads it in SQL)
+  // restaurant's dish (update 80, the owner's OK of 2026-11-05; since update 84 on the dish's own page, DishView;
+  // shop_menu() reads it in SQL — the "Jedlá" rows never carry it)
   const allowed = new Set([
     "lib/menu.ts",
     "app/[lang]/items/[id]/ItemView.tsx",

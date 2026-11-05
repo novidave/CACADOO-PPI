@@ -170,6 +170,11 @@
     "search_similar": "Nincs pontos egyezés – hasonló termékek:",
     "tabs_label": "Termékek és bevásárlólista",
     "tab_products": "Termékek",
+    "tab_dishes": "Ételek",
+    "tabs_label_dishes": "Ételek és bevásárlólista",
+    "found_dish_one": "Találat: {n} étel",
+    "found_dish_few": "Találat: {n} étel",
+    "found_dish_other": "Találat: {n} étel",
     "tab_list": "Lista",
     "tab_list_count": "{n} db",
     "found_one": "Találat: {n} termék",
@@ -5611,7 +5616,12 @@
     "err_import_failed": "Az étlapot nem sikerült elolvasni. Próbáljon másik fotót vagy PDF-et.",
     "err_rows": "Válasszon legalább egy ételt.",
     "err_file": "Válasszon PDF-et vagy fotót (JPG, PNG, WebP, HEIC).",
-    "err_no_text": "A PDF-ben nincs szöveg – inkább töltsön fel fotót az étlapról."
+    "err_no_text": "A PDF-ben nincs szöveg – inkább töltsön fel fotót az étlapról.",
+    "dish_available": "Elérhető",
+    "sizes": "Méret",
+    "dish_meta": "{name} – {shop}, {city}: ár, allergének és rendelés.",
+    "ask": "Kérdezze az asszisztenst az ételről",
+    "ask_prefill": "Kérdésem van az ételről: „{name}“: "
   },
   "admin_nav": {
     "label": "Admin menü",

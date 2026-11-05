@@ -234,13 +234,13 @@ folder) · launch (`food_settings.enabled`; the card's "Prijímať objednávky" 
 `setup`, `nav.food_menu`. Tests: DB block "update 79", `dashboardPages_test.ts` (menu per kind), `setupSteps_test.ts`,
 e2e `e2e/shop-kind.spec.ts` (owner login: a new restaurant → its steps, Menu first, no Priečinok s exportom; deleted after).
 
-## A restaurant's Menu (update 80, 2026-11-05, the owner's OK: menu items are not "stock")
+## A restaurant's Menu (update 80, 2026-11-05, the owner's OK: menu items are not "stock"; on the page as "Jedlá" rows since update 84)
 
 `supabase/sql/80_food_menu.sql` + `@/lib/menuRules` (shared, no imports; `menuRules_test.ts` in `npm run test:food`) +
 `@/lib/menu` (server: `getShopMenu`, `searchShopMenu`, the photos' addresses) + `@/lib/menuRead` (the import's Claude
-call) + `@/lib/menuOrder` (the "Objednať" event, no imports) + `@/components/ShopMenu` / `MenuTools` +
-`@/components/owner/MenuImport` / `MenuOrderList` / `MenuSizeRows` / `MenuPreview` + `dashboard/assistant/orders/menu`
-(`page.tsx`, `actions.ts`) + `/api/shops/[slug]/menu-search` + `/api/owner/menu/read` + `.ppi-menu*` in `shopPage.css`.
+call) + `@/lib/menuOrder` (the "Objednať" event, no imports) + `@/lib/shopRows` `dishRows` + `@/components/DishBuy` +
+`items/[id]/DishView.tsx` + `@/components/owner/MenuImport` / `MenuOrderList` / `MenuSizeRows` / `MenuPreview` +
+`dashboard/assistant/orders/menu` (`page.tsx`, `actions.ts`) + `/api/owner/menu/read` + `supabase/sql/84_menu_dish_page.sql`.
 **The menu = Sklad products marked `menu_item`** (`sklad_items`: `menu_category` → `menu_categories` (the owner's own,
 ordered), `menu_parent` + `variant_label` = a size (each size its own Sklad product with its own price), `allergens`
 1–14 (the EU list; names `menu.allergen_*`), `menu_tags` veg | spicy, `track_stock`, `sold_out_on`, `menu_hidden`,
@@ -256,8 +256,9 @@ each size counts), `owner_menu_duplicate_item`, `owner_menu_order_items`, `owner
 `menu_item_saved`, `menu_category_saved`, `menu_sold_out`, `menu_imported`. **The editor** (Objednávky jedla → Menu):
 "+ Nové jedlo" / "Upraviť" (`?edit=`; name, description, category, price or sizes, allergens, tags, "Sledovať zásobu",
 "Skryté", the photo = update 78's `ProductPhotoField`), categories (add, rename, delete an empty one, order by drag or
-▲ ▼), each dish's price inline, "Vypredané dnes" per dish / size (`aria-pressed`), Duplikovať, Skryť; the public Menu's
-preview at 390 and 760 px (scaled, `inert`); update 74's menu check last. **Import** ("Nahrať jedálny lístok"): a PDF
+▲ ▼), each dish's price inline, "Vypredané dnes" per dish / size (`aria-pressed`), Duplikovať, Skryť; the restaurant
+page's "Jedlá / Zoznam" box as a preview at 390 and 760 px (the same `ShopProducts`, scaled, `inert`); update 74's menu
+check last. **Import** ("Nahrať jedálny lístok"): a PDF
 (its text read in the browser, a scan's first page as a picture) or a photo (≤ 1568 px JPEG, HEIC through heic-to) →
 `/api/owner/menu/read` → `owner_menu_import_hit` (members, 10 a day per shop, `owner_ai_usage` kind menu) → Claude
 (`aiModel()`, structured output, the menu is data; prices only as written) → `cleanImportRows` → the review table
@@ -266,27 +267,37 @@ nothing is stored before it; the prices as the owner confirmed) → tokens `owne
 `shop_menu(slug)` (active shops of kind food only, else null; the categories with dishes, sizes and prices, allergens,
 tags, sold out, tracked, the photo, `name_i18n`) and `shop_menu_search(slug, q)` (update 54's forgiving rule on the menu's
 names; a size counts for its dish), both cached (`CACHED_RPCS`), refreshed by every save. **The shop page of a
-restaurant** (`ShopView`: `getShopMenu` decides): the **Menu** section instead of "Produkty / Zoznam" and its stock
-line — server-rendered; "Hľadať v menu" (`MenuTools`: live through `/api/shops/[slug]/menu-search`, 200 ms, only the
-newest answer, `?mq=`; without JavaScript the GET form and the server hides the rest with `hidden`); sticky category
-chips; dish cards (photo 96 px from the 800 px file, name in the page language first + the shop's own under it,
-description / category through `item_description` / `item_category` translations, tags, "Alergény: 1, 7", sizes with
-prices); "Vypredané dnes" in grey; **no stock dot on an untracked dish**, a tracked one keeps the dot; one allergen
-legend (`<details>`, only the numbers used). JSON-LD: the shop as `Restaurant` with `hasMenu` = `menuJsonLd()` (Menu →
-MenuSection → MenuItem, one Offer or one per size, SoldOut today, VegetarianDiet). **"Objednať"** (only with the
-assistant on and food ordering enabled): a real link (`?ask=…#assistant` starts the question without JavaScript);
-with it `MENU_ORDER_EVENT` → `AssistantBoot` (loads the chat) / `ShopChat` (`orderNow`, later clicks) → the chat route's
-`order: [ids]` (`cleanOrderItems`: UUIDs, ≤ 10) → `runShopChat(…, ordered)`: only dishes `food_menu` returns, not sold
-out, get refs and `<menu_order>` for the AI, and they are in the cart card whatever the AI answers (`withPressed`),
-priced by `food_quote`; then the existing OrderPanel flow. Shop page first-load JS stays < 150 kB (`MenuTools` only on a
-restaurant's page; the event name lives in `@/lib/menuOrder`). **The owner's AI tools:** MCP `list_menu` (shop.read) and
+restaurant** (update 84, 2026-11-05, at the owner's request: "keep this format for restaurants as well, only rename
+Products → Dishes"): the SAME "Produkty / Zoznam" box as every shop (`ShopProducts`; `getShopMenu` decides), the first
+tab **"Jedlá"** (`shop.tab_dishes`, `tabs_label_dishes`, "Nájdené: 3 jedlá" = `found_dish_*`; `@/lib/productLabels`) —
+everything else unchanged (search, rows, the dot as the list's button, the Zoznam, the assistant's list bubble); no
+"Zásoby" line (dishes are not stock). One row per orderable line (`menuRowLines` in `@/lib/menuRules`, `dishRows`): a
+dish, or each of its sizes ("Pizza Diavola 32 cm", the assistant's naming), in the owner's order, Sklad's price; the dot
+**green unless sold out** ("Vypredané dnes" or a tracked line's quantity — red), never the yellow "no information" (a
+menu has no stock file). The live search is the same route `/api/shops/[slug]/search` (a restaurant: `shop_menu_search`
+→ the dishes' rows, best first; `?q=` without JavaScript); the photo, description, tags and allergens are on the
+dish's page. **The dish's page** = the product page's address `/[lang]/items/<id>` (a dish or a size id; own domains
+too): `shop_menu_dish_of(id)` (update 84; `{slug, dish}` while the Menu shows it, cached) → `DishView` (the unified
+design: back chip, the photo, the main card — category chip, name + the shop's own, tags, `DishBuy` = the sizes as a
+choice, the price, "Dostupné" / "Vypredané dnes", `ItemListButton` (the same list) and "Objednať" —, Popis, Alergény
+(numbers + names), `WhereToBuy`; JSON-LD `MenuItem`; no stock sentence, no other shops); otherwise `ItemView` as
+before. JSON-LD on the restaurant page: the shop as `Restaurant` with `hasMenu` = `menuJsonLd()` (Menu → MenuSection →
+MenuItem, one Offer or one per size, SoldOut today, VegetarianDiet). **"Objednať"** (only with the assistant on and food
+ordering enabled, on the dish's page): a real link to the restaurant page `?ask=…&order=<line id>#assistant` (without
+JavaScript the question is written); the shop page checks the line (`orderLines`, not sold out) and passes it to
+`ShopAssistant` → `AssistantBoot` loads the chat at once (`orderNow`) → the chat route's `order: [ids]`
+(`cleanOrderItems`: UUIDs, ≤ 10) → `runShopChat(…, ordered)`: only dishes `food_menu` returns, not sold out, get refs
+and `<menu_order>` for the AI, and they are in the cart card whatever the AI answers (`withPressed`), priced by
+`food_quote`; then the existing OrderPanel flow (`MENU_ORDER_EVENT` in `@/lib/menuOrder` still works for a page that
+sends it). **The owner's AI tools:** MCP `list_menu` (shop.read) and
 `set_menu_sold_out` (shop.write; before → after until `confirm: true`) in update 80's door (update 74's kept as
 `owner_mcp_call_74`); the AI pomocník / Telegram engine `list_menu` + `propose_menu_sold_out` (`proposeMenuSoldOut`,
 before → after from `list_menu`, "Potvrdiť"); the Telegram bot's "Vypredané dnes" button for a restaurant
 (`telegram_whoami` carries each shop's `kind`; live with the next telegram deploy, TODO 23). Texts `menu`,
 `telegram.b_soldout` / `soldout_*` / `sum_menu` / `menu_on` / `menu_sold`. Tests: DB block "update 80", `npm run
-test:food` (`menuRules_test.ts`), `test:photos`, `test:telegram`, e2e `e2e/food-menu.spec.ts` (a test restaurant:
-import with the AI stubbed → a price edited → the public Menu → Objednať → the SMS test code).
+test:food` (`menuRules_test.ts`: the rows), `test:photos`, `test:telegram`, DB block "update 84", e2e
+`e2e/food-menu.spec.ts` (a test restaurant: import with the AI stubbed → a price edited → the "Jedlá" row → the dish's
+page → Objednať → the SMS test code).
 
 ## Objednávky jedla: the order feed (update 81, 2026-11-05)
 
@@ -1657,8 +1668,9 @@ product's translation, never a hidden section's. Texts `items_bulk`, `owner_tr.t
 test:photos`) + `@/lib/productPhotoDraw` + `@/lib/ownerPhotos` + `@/components/owner/ProductPhotoField` /
 `PhotoBulkUpload` + `dashboard/items/photos` ("Fotky produktov") + `/api/owner/product-photos/report` +
 `public/samples/fotky-produktov.{csv,xml}`. **ONE photo per product, shown ONLY on that product's page** (and, since
-update 80 with the owner's OK, a dish's photo on its restaurant's Menu — `shop_menu()` reads it, `@/lib/menu` builds
-its address; `productPhotos_test.ts` allows exactly that) (its JSON-LD
+update 80 with the owner's OK, a dish's photo — since update 84 on the dish's own page, the product page of a
+restaurant; `shop_menu()` reads it, `@/lib/menu` builds its address; `productPhotos_test.ts` allows exactly that; the
+"Jedlá" rows show no photo) (its JSON-LD
 `image` and og:image too) — never in the shop page's lists, the search, "Zoznam", cacaduu.com's listings, "Dostupné aj
 v", the sitemap, RSS / feeds, partner feeds, the API or the MCP server. That is why it lives apart: `product_photos`
 (no grant to visitors; members read their own rows; only the function writes) and the one public read
