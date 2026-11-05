@@ -212,8 +212,7 @@ export type MenuKey =
   | "password"
   | "hours_sms"
   | "ai"
-  | "admin_domains"
-  | "admin_translations";
+  | "admin";
 
 /** An address an item owns, after "/<lang>": the page and everything under it, or (`exact`) only the page; `at` = only
  * with one of these ?at= values (no `at` given = any, "" = none). */
@@ -267,8 +266,8 @@ export const OWNER_MENU: MenuItem[] = [
   { key: "password", group: "account", path: "/password", owns: [{ path: "/password" }], shop: false },
   { key: "hours_sms", group: "account", path: "/dashboard/hours-sms", owns: [{ path: "/dashboard/hours-sms" }], shop: true },
   { key: "ai", group: "account", path: "/dashboard/ai", owns: [{ path: "/dashboard/ai" }], shop: false },
-  { key: "admin_domains", group: "account", path: "/admin/domains", owns: [{ path: "/admin/domains" }], shop: false, admin: true },
-  { key: "admin_translations", group: "account", path: "/admin/translations", owns: [{ path: "/admin/translations" }], shop: false, admin: true },
+  // the admin area (2026-11-05): its own shell and menu (@/lib/adminPages); here only the way in, for is_admin
+  { key: "admin", group: "account", path: "/admin", owns: [{ path: "/admin" }], shop: false, admin: true },
 ];
 
 export const MENU_GROUPS: MenuGroup[] = ["main", "page", "account"];

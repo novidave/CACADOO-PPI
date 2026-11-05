@@ -2,7 +2,7 @@
 
 import { buttonClass } from "@/components/owner/ui";
 
-// Last-resort error screen for the dashboard and admin pages (texts kept short and
+// Last-resort error screen for the dashboard pages (texts kept short and
 // in all three languages, because error screens cannot load the dictionaries).
 export default function AccountError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (

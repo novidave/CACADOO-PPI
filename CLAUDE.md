@@ -525,7 +525,7 @@ server-renders the plain results (crawlers, no JavaScript); with JavaScript it s
 ## Search in layers (Prompt 11 phase A, update 34)
 
 `supabase/sql/34_layered_search.sql` + `supabase/functions/product-sources` (one file, Verify JWT off) + `@/lib/sources`
-(shared rules) / `@/lib/productSources` / `@/lib/osmHours` + `admin/domains/ExternalSearchAdmin.tsx`. The chat's one job
+(shared rules) / `@/lib/productSources` / `@/lib/osmHours` + `admin/_parts/ExternalSearchAdmin.tsx`. The chat's one job
 is finding a product in a town; anything else → `off_topic` → "Pomáham len s hľadaním produktov v obchodoch v okolí."
 Tools: `search_stock` (layer 1) always; `search_nearby_shops` (layer 3, OpenStreetMap; optional Google Places) and
 `search_web` (layer 4, Claude's web search on the admin's allowed domains) only with `EXTERNAL_SEARCH_SECRET`. **The
@@ -547,7 +547,7 @@ page lists the services). Admin texts `admin_search`; every admin read/write via
 ## Partner feeds (Prompt 11 phase B, update 35)
 
 `supabase/sql/35_partner_feeds.sql` + `supabase/functions/partner-feeds` (one file, Verify JWT off) + `@/lib/partnerSearch`
-/ `@/lib/partners` (card texts) + `admin/domains/PartnerFeedsAdmin.tsx` / `partnerActions.ts` + `@/components/PartnerFileUpload`.
+/ `@/lib/partners` (card texts) + `admin/_parts/PartnerFeedsAdmin.tsx` / `partnerActions.ts` + `@/components/PartnerFileUpload`.
 Layer 2 of the chat: tool `search_partners` {query, town} only when `partner_layer_ready()` (no partner with rows → the
 layer is skipped); refused before Cacaduu or with 3+ good Cacaduu results; a town not in the shopper's words is dropped.
 Shops nearby and the web need the partners searched first (or in the same turn) and fewer than 3 good results of
@@ -777,7 +777,7 @@ Never log phones, codes, names or tokens. Texts `chat.booking_*`, `bookings`.
 
 `supabase/sql/58_sms_quotas.sql` + the **SMS providers block** (identical in `crm-messages/index.ts`,
 `bookings/index.ts` and, since update 60, `hours-sms/index.ts`, between "SMS providers (the same block…" and "end of the
-SMS providers"; `sms_providers_test.ts` fails when the copies differ — edit all three) + `@/lib/smsUsage` + `@/components/SmsUsage` + `admin/domains/SmsAdmin.tsx`.
+SMS providers"; `sms_providers_test.ts` fails when the copies differ — edit all three) + `@/lib/smsUsage` + `@/components/SmsUsage` + `admin/_parts/SmsAdmin.tsx`.
 **Two monthly quotas per shop, kept apart:** `booking` (kinds booking_code + booking_reminder) and `owner` (kind owner),
 limits only in `sms_quota_limits` (default 100 each; only `admin_save_sms_quotas()`, admin "SMS"). A quota counts **SMS
 parts** (`crm_sms_parts()` = `smsParts()` in `@/lib/crm` = `isGsm()` in the providers: GSM-7 160/153, Unicode 70/67) of
@@ -1217,8 +1217,8 @@ search, API/MCP; nothing of one shop reachable with another shop's session.
 
 `supabase/sql/25_custom_domains.sql` + `supabase/functions/domains` (one file, Verify JWT off) + `src/proxy.ts` +
 dashboard `dashboard/plan` ("Predplatné a doména": `PlanDetails`, `@/components/DomainWizard`, `@/components/DomainStatus`,
-`plan/actions.ts`) + admin `admin/domains` ("Predplatné a domény", `notFound()` unless `profiles.is_admin`; SQL
-`is_admin()` decides). 13: the shop finds a name on websupport.sk (search URL from `domain_settings`), pastes it
+`plan/actions.ts`) + admin `admin/shops` and `admin/domains` ("Obchody a domény", "Domény a cenník" since
+2026-11-05; `notFound()` unless `profiles.is_admin`; SQL `is_admin()` decides). 13: the shop finds a name on websupport.sk (search URL from `domain_settings`), pastes it
 (`cleanDomain()` in `@/lib/domainName` = the function's), the function checks it at Websupport and quotes the price
 **only from `domain_prices`** (frozen on the order: price shown = price charged; never Websupport's partner price);
 owner details in `shop_legal` (`owner_save_legal`, never invented); pay: Pro + saved card → one-click invoice, else
@@ -1776,7 +1776,7 @@ alerts exist yet (nothing to cancel). Tests: `npm run test:export`, DB block "up
 ## Pripojiť skladový program (API) (update 49)
 
 `supabase/sql/49_inventory_api.sql` + `supabase/functions/inventory-connect` (one file, Verify JWT off) +
-`@/components/InventoryConnect` + `sync/inventoryApiActions.ts` + `admin/domains/InventoryAdmin.tsx`. First section of
+`@/components/InventoryConnect` + `sync/inventoryApiActions.ts` + `admin/_parts/InventoryAdmin.tsx`. First section of
 "Priečinok s exportom" (`api` in `@/lib/dashboardPages`). **The only place PPI pulls stock:** a read-only key, adapters
 behind one interface (`testConnection`, `listProducts` → {rows, complete, total}, `capabilities`, rate limits), built
 only from official docs: SuperFaktúra, WooCommerce, "Vlastné API" (https JSON/CSV); anything unverified (Shoptet,
@@ -1862,10 +1862,43 @@ IndexedDB (`@/lib/folderStore`), check every 15 min, one window per shop (Web Lo
 newest finished file (untouched 60 s) to `stock-pull?shop_id=…` with the owner's JWT. Also "Upload file" (one file by
 hand, any browser, same POST). Guide: `docs/SHOP_PC_SETUP.md`.
 
+## The admin area (2026-11-05, canvas "Cacaduu – Admin", artboards 1–14)
+
+The admin pages have their own shell and menu: `src/app/[lang]/(admin)/` (its own route group — not inside the owner
+shell) = `layout.tsx` (server: `requireUser` + `notFound()` unless `session.isAdmin`; badges: shops with a domain
+problem = `admin_domain_overview` filter `problem`, places with errors = `admin_server_errors(7)`) +
+`@/components/admin/AdminNav` (client; the current item from the address): from 768 px a 256 px column — "Cacaduu" +
+the black ADMIN pill, "Späť do Môj obchod" (48 px, `/<lang>/dashboard`), the groups Prevádzka · Nastavenia ·
+Vyhľadávanie a dáta with 46 px items (current = black, white, `aria-current="page"`; badges 22 px pills), the admin's
+name and e-mail at the bottom; below 768 px a top bar (48 px menu button + the page's name + ADMIN) and the same menu as
+a bottom sheet (a modal `<dialog>`, `.ppi-admin-sheet`; Esc, a tap outside or a link closes it, the focus back to the
+button). globals.css hides the site header inside it (`body:has([data-admin-shell])`). **The one map is
+`@/lib/adminPages`** (no imports; `adminPages_test.ts` in `npm run test:content`): `ADMIN_PAGES` (route → item, group,
+its `sections` — each id on exactly one page —, `prefixes` for per-row ids, `keeps` = the query its forms carry back,
+`badge`), `adminKeyFor()`, `adminHref()`, **`adminBack(lang, section, keep, query)`** = where every admin action
+returns (its section's page, that page's own kept query, ?ok= / ?err=, #section; every action file uses it, never an
+address of its own), `forwardAnchor()` / `forwardScript()` (the old long page: `/admin/domains#<moved section>` and
+`/admin/translations#limits` go to their page by a small inline script, query along) and `forwardDomainsQuery()`
+(old `?hcountry` / `?hyear` → Sviatky, the shops' filters → Obchody a domény, server-side). Pages: Prehľad `/admin` ·
+Obchody a domény `/admin/shops` (credit + "Overiť kredit", the numbers, filters, the table and its actions) · Chyby
+`/admin/errors` · Domény a cenník `/admin/domains` (settings + prices; e-mails and functions that link to
+/admin/domains still land here) · Limity plánov `/admin/limits` (page content, blog posts, pre-translated languages,
+the inventory programs' intervals and Free switch, Sklad 50 / no limit read only, "Len s Pro" read only) · SMS
+`/admin/sms` · AI a prepojenia `/admin/integrations` (Telegram, AI pre majiteľov, the Facebook app) · Preklady
+`/admin/translations` (languages, interface texts, the AI cost; its limits on Limity plánov) · Vyhľadávanie mimo Cacaduu
+`/admin/search` · Partnerské feedy `/admin/partners` · Skladové programy `/admin/inventory` (programs + connections,
+a link to Limity plánov) · Sviatky `/admin/holidays`. The sections themselves live in `(admin)/admin/_parts/` (one
+file per section; `common.tsx` = `adminStart()` — `notFound()` unless `session.isAdmin` —, `Hidden`, `keepOf`,
+`AdminHead` = 28 px title + one line, `AdminNotice` = the old page's ok/err texts). The owner menu has ONE item for it:
+"Admin" (`nav.admin`, `OWNER_MENU` key `admin`, `/admin`) at the end of "Účet a nastavenia", only for is_admin. No
+auth, RLS or database change. Texts `admin_nav.*` (+ the old `admin_*` namespaces). e2e `e2e/admin.spec.ts`
+(E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD, else skipped; 1180×820 and 390×844: every menu item → its page with
+aria-current, old anchors and filters forward; an owner login that is not the admin gets 404 on every admin page).
+
 ## Auth
 
-Self-service, shop owners only — **no admin area on the website** except "Predplatné a domény" (`/[lang]/admin/domains`,
-own domains and, since update 34, "Vyhľadávanie mimo Cacaduu", since update 35 "Partnerské feedy", since update 37 "Novinky / Blog" limits and the Meta app's addresses; only `profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
+Self-service, shop owners only — the only other area is the admin's (`/[lang]/admin/*`, "The admin area" below; only
+`profiles.is_admin`, checked again by `is_admin()` in SQL). E-mail + password: `/signup` (anyone; Supabase
 sends a confirmation e-mail), `/login`, `/forgot` (reset e-mail → `/auth/confirm` → `/[lang]/password`). `/auth/confirm`
 handles `token_hash` (templates in SETUP.md E3), `code` (default templates) and `#access_token` (→ `/[lang]/login/finish`).
 Owners create/edit shops via `owner_save_shop()`, read them via `my_shops()`, approve columns via `owner_set_mapping()`,

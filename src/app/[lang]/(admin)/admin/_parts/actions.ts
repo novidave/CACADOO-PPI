@@ -4,12 +4,13 @@ import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { callDomains } from "@/lib/domains";
+import { adminBack } from "@/lib/adminPages";
 import { refreshAll } from "@/lib/publicCache";
 
 /**
- * "Predplatné a domény" (admin only). The page is shown only to is_admin; every action is
- * checked again where it runs: the admin_* SQL functions and the domains function both ask
- * is_admin() with the caller's own login.
+ * The admin pages' actions (admin only; since 2026-11-05 each returns to its own page, @/lib/adminPages). The pages
+ * are shown only to is_admin; every action is checked again where it runs: the admin_* SQL functions and the
+ * functions both ask is_admin() with the caller's own login.
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20,12 +21,11 @@ async function start(formData: FormData) {
   const session = await getSession();
   if (!session) redirect(`/${lang}/login`);
   const keep = String(formData.get("keep") ?? "");
+  // every form returns to its own page (@/lib/adminPages: the page its section lives on, that page's query kept)
   const back = (query: Record<string, string>, at = "shops"): never => {
-    const params = new URLSearchParams(keep.startsWith("?") ? keep.slice(1) : keep);
-    for (const [k, v] of Object.entries(query)) params.set(k, v);
     // A saved setting can change every shop's page (holidays, limits, languages): read again at once.
     if (query.ok) refreshAll();
-    redirect(`/${lang}/admin/domains?${params}#${at}`);
+    redirect(adminBack(lang, at, keep, query));
   };
   return { session, back };
 }
@@ -137,11 +137,11 @@ export async function saveBlogLimits(formData: FormData) {
   for (const plan of ["free", "pro"] as const) {
     const text = String(formData.get(plan) ?? "").trim();
     const n = text === "" ? null : Number(text);
-    if (n !== null && (!Number.isInteger(n) || n < 0 || n > 10_000)) back({ err: "blog_limits" }, "blog");
+    if (n !== null && (!Number.isInteger(n) || n < 0 || n > 10_000)) back({ err: "blog_limits" }, "blog-limits");
     const { error } = await session.supabase.rpc("admin_save_blog_limits", { p_plan: plan, p_max_posts: n });
-    if (error) back({ err: error.message.slice(0, 200) }, "blog");
+    if (error) back({ err: error.message.slice(0, 200) }, "blog-limits");
   }
-  back({ ok: "blog_limits" }, "blog");
+  back({ ok: "blog_limits" }, "blog-limits");
 }
 
 /** "SMS" (database update 58): the two monthly quotas of every shop; admin_save_sms_quotas checks is_admin() itself. */
@@ -167,14 +167,14 @@ export async function saveInventorySettings(formData: FormData) {
   const { session, back } = await start(formData);
   const pro = Number(formData.get("pro_interval"));
   const free = Number(formData.get("free_interval"));
-  if (![pro, free].every((n) => Number.isInteger(n) && n >= 5 && n <= 10_080)) back({ err: "inventory" }, "inventory");
+  if (![pro, free].every((n) => Number.isInteger(n) && n >= 5 && n <= 10_080)) back({ err: "inventory" }, "inventory-limits");
   const { error } = await session.supabase.rpc("admin_save_inventory_settings", {
     p_pro_interval: pro,
     p_free_allowed: formData.get("free_allowed") === "on",
     p_free_interval: free,
   });
-  if (error) back({ err: "inventory" }, "inventory");
-  back({ ok: "inventory" }, "inventory");
+  if (error) back({ err: "inventory" }, "inventory-limits");
+  back({ ok: "inventory" }, "inventory-limits");
 }
 
 /** A built program on or off (a program that is not built stays off; the SQL decides). */

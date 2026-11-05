@@ -11,7 +11,9 @@ import { requireUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
-import { saveLanguage, saveLimits, saveUiText } from "./actions";
+import { forwardScript } from "@/lib/adminPages";
+import { AdminHead } from "../_parts/common";
+import { saveLanguage, saveUiText } from "./actions";
 import { UiTranslateButton } from "./UiTranslateButton";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/admin/translations">): Promise<Metadata> {
@@ -39,8 +41,8 @@ interface UiRow {
  * "Admin → Preklady" (database update 40; only profiles.is_admin, checked again by is_admin() in SQL): 1) "Jazyky" —
  * each language on or off and pre-translated or not; 2) "Preklady rozhrania" — the interface texts of a language
  * (Slovak is the source; sk, hu, en are written in the repository): "Preložiť chýbajúce texty", search, edit, mark
- * checked (legal texts carry "Strojový preklad – záväzná je slovenská verzia" until then); 3) the plans' numbers of
- * pre-translated languages and the AI cost per month.
+ * checked (legal texts carry "Strojový preklad – záväzná je slovenská verzia" until then); 3) the AI cost per month.
+ * The plans' numbers of pre-translated languages are on Limity plánov since 2026-11-05 (an old #limits link goes there).
  */
 export default async function AdminTranslationsPage({ params, searchParams }: PageProps<"/[lang]/admin/translations">) {
   const { lang } = await params;
@@ -57,9 +59,8 @@ export default async function AdminTranslationsPage({ params, searchParams }: Pa
   const filter = first(sp.filter) ?? "";
   const page = Math.max(1, Number(first(sp.page)) || 1);
 
-  const [rowsResult, limitsResult, usageResult] = await Promise.all([
+  const [rowsResult, usageResult] = await Promise.all([
     supabase.rpc("admin_ui_translations", { p_lang: target }),
-    supabase.rpc("admin_translation_limits"),
     supabase.rpc("admin_translation_usage"),
   ]);
   if (rowsResult.error) return <DbError message={rowsResult.error.message} dict={dict} />;
@@ -84,7 +85,6 @@ export default async function AdminTranslationsPage({ params, searchParams }: Pa
   const visible = shown.slice((page - 1) * PER_PAGE, page * PER_PAGE);
   const keep = `?${new URLSearchParams({ target, ...(q ? { q } : {}), ...(filter ? { filter } : {}), page: String(page) })}`;
   const pageUrl = (n: number) => `/${lang}/admin/translations?${new URLSearchParams({ target, ...(q ? { q } : {}), ...(filter ? { filter } : {}), page: String(n) })}#ui`;
-  const limits = (limitsResult.data ?? []) as { plan: "free" | "pro"; max_preferred: number }[];
   const usage = (usageResult.data ?? []) as { month: string; calls: number; input_tokens: number; output_tokens: number; cost_eur: number; alerted_at: string | null }[];
   const ok = first(sp.ok);
   const err = first(sp.err);
@@ -92,9 +92,10 @@ export default async function AdminTranslationsPage({ params, searchParams }: Pa
 
   return (
     <div className="flex max-w-4xl flex-col gap-8">
+      {/* an old link to the plans' languages (#limits) goes to Limity plánov */}
+      <script dangerouslySetInnerHTML={{ __html: forwardScript("/admin/translations") }} />
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{a.title}</h1>
-        <p className="text-sm">{a.intro}</p>
+        <AdminHead dict={dict} page="translations" intro={a.intro} />
         {(ok || err) && (
           <p role="status" className={ok ? "border border-foreground p-3 font-medium" : "border border-line p-3"}>
             {ok ? a.saved : t(dict.account.error, { message: err ?? "" })}
@@ -224,21 +225,8 @@ export default async function AdminTranslationsPage({ params, searchParams }: Pa
         )}
       </section>
 
-      <section id="limits" className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">{a.limits_title}</h2>
-        <p className="text-sm text-muted">{a.limits_help}</p>
-        <form action={saveLimits} className="flex flex-wrap items-end gap-3 text-sm" data-translation-limits>
-          <input type="hidden" name="lang" value={lang} />
-          <input type="hidden" name="keep" value={keep} />
-          {(["free", "pro"] as const).map((plan) => (
-            <label key={plan} className="flex flex-col gap-1">
-              <span className="text-muted">{plan === "free" ? a.limit_free : a.limit_pro}</span>
-              <input type="number" name={plan} min={0} max={42} defaultValue={limits.find((l) => l.plan === plan)?.max_preferred ?? (plan === "free" ? 2 : 6)} className="w-24 rounded border border-line px-2 py-2" />
-            </label>
-          ))}
-          <PendingButton pending={dict.owner.saving}>{a.save}</PendingButton>
-        </form>
-        <h3 className="font-semibold">{a.usage_title}</h3>
+      <section id="usage" className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">{a.usage_title}</h2>
         <p className="text-sm text-muted">{a.budget_help}</p>
         {usage.length === 0 ? (
           <p className="text-sm text-muted">{a.usage_none}</p>
