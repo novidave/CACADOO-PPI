@@ -1,5 +1,9 @@
 import { t, type Dictionary } from "@/i18n/dictionaries";
+import { HEALTH_COLORS } from "@/lib/adminOverview";
+import { cardClass } from "@/components/owner/ui";
+import { SaveBar } from "@/components/owner/SaveBar";
 import { saveOwnerAi } from "./actions";
+import { DotText, numClass, saveLabels, SettingRow } from "./common";
 
 export interface OwnerAiInfo {
   grammar_daily_limit: number;
@@ -9,61 +13,55 @@ export interface OwnerAiInfo {
   month: Record<string, { calls: number; input: number; output: number }>;
 }
 
+type Usage = OwnerAiInfo["today"];
+
 /**
- * "AI pre majiteľov" on the admin page (database update 76): the daily limit of "Opraviť gramatiku" per shop, and how
- * much the owners' AI tools were used today and this month (calls and tokens — the AI spend). The website's AI
+ * "AI pre majiteľov" (database update 76; artboard 7 since 2026-11-05): whether the website has the AI key, the daily
+ * limits per shop ("Opraviť gramatiku", since update 77 the blog editor's AI) with the save bar, and how much the
+ * owners' AI tools were used today and this month (calls per tool and tokens — the AI spend). The website's AI
  * pomocník uses the Telegram bot's switch and daily limit (one limit for the website and Telegram), set on that card.
  */
-export function OwnerAiAdmin({ info, aiKey, dict, hidden }: { info: OwnerAiInfo | null; aiKey: boolean; dict: Dictionary; hidden: React.ReactNode }) {
+export function OwnerAiAdmin({ info, aiKey, lang, dict, hidden }: { info: OwnerAiInfo | null; aiKey: boolean; lang: string; dict: Dictionary; hidden: React.ReactNode }) {
   const a = dict.admin_owner_ai;
-  const input = "rounded border border-line px-3 py-2 outline-none focus:border-foreground";
-  const line = (text: string, x: OwnerAiInfo["today"]) =>
-    t(text, {
-      g: x.grammar?.calls ?? 0,
-      gt: (x.grammar?.input ?? 0) + (x.grammar?.output ?? 0),
-      a: x.assistant?.calls ?? 0,
-      at: (x.assistant?.input ?? 0) + (x.assistant?.output ?? 0),
-    });
+  const tokens = (x: Usage) => Object.values(x).reduce((sum, v) => sum + (v?.input ?? 0) + (v?.output ?? 0), 0);
+  const usage = (head: string, x: Usage) => (
+    <span className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5 rounded-xl bg-[#F4F4F4] px-3.5 py-3 text-sm">
+      <span className="text-xs font-bold uppercase tracking-[.04em] text-[#5C5C5C]">{head}</span>
+      <span>
+        {t(a.usage_line, { g: x.grammar?.calls ?? 0, a: x.assistant?.calls ?? 0, b: x.blog?.calls ?? 0 })}
+      </span>
+      <span className="text-[13px] text-[#5C5C5C]">{t(a.usage_tokens, { n: new Intl.NumberFormat(lang).format(tokens(x)) })}</span>
+    </span>
+  );
   return (
-    <section id="owner-ai" className="flex flex-col gap-3" aria-labelledby="owner-ai-heading" data-admin-owner-ai>
-      <h2 id="owner-ai-heading" className="text-lg font-semibold">
-        {a.title}
-      </h2>
-      <p className="text-sm text-muted">{a.intro}</p>
-      {!aiKey && <p className="text-sm font-semibold">{a.no_key}</p>}
+    <section id="owner-ai" className={`${cardClass} min-w-0 !gap-0`} aria-labelledby="owner-ai-heading" data-admin-owner-ai>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="owner-ai-heading" className="text-[19px] font-bold">
+          {a.title}
+        </h2>
+        <DotText color={aiKey ? HEALTH_COLORS.ok : HEALTH_COLORS.off}>{aiKey ? dict.admin_home.svc_key_set : dict.admin_home.svc_key_missing}</DotText>
+      </div>
+      <p className="pb-3 pt-1 text-sm text-[#5C5C5C]">{a.intro}</p>
+      {!aiKey && <p className="pb-3 text-sm font-semibold">{a.no_key}</p>}
       {info === null ? (
-        <p className="text-sm text-muted">{a.unavailable}</p>
+        <p className="text-sm text-[#5C5C5C]">{a.unavailable}</p>
       ) : (
-        <>
-          <p className="text-sm">{line(a.today, info.today)}</p>
-          <p className="text-sm">{line(a.month, info.month)}</p>
+        <form action={saveOwnerAi} className="flex flex-col" data-owner-ai-settings>
+          {hidden}
+          <SettingRow label={a.grammar_label} hint={a.zero_off}>
+            <input name="grammar_daily_limit" type="number" min={0} max={1000} required aria-label={a.grammar_limit} defaultValue={info.grammar_daily_limit} className={numClass} />
+          </SettingRow>
           {info.blog_daily_limit !== undefined && (
-            <p className="text-sm">
-              {t(a.blog_today, {
-                n: info.today.blog?.calls ?? 0,
-                t: (info.today.blog?.input ?? 0) + (info.today.blog?.output ?? 0),
-                m: info.month.blog?.calls ?? 0,
-                mt: (info.month.blog?.input ?? 0) + (info.month.blog?.output ?? 0),
-              })}
-            </p>
+            <SettingRow label={a.blog_label} hint={a.zero_off}>
+              <input name="blog_daily_limit" type="number" min={0} max={1000} required aria-label={a.blog_limit} defaultValue={info.blog_daily_limit} className={numClass} />
+            </SettingRow>
           )}
-          <form action={saveOwnerAi} className="flex flex-wrap items-end gap-3 text-sm" data-owner-ai-settings>
-            {hidden}
-            <label className="flex flex-col gap-1">
-              <span>{a.grammar_limit}</span>
-              <input name="grammar_daily_limit" type="number" min={0} max={1000} required defaultValue={info.grammar_daily_limit} className={`${input} w-28`} />
-            </label>
-            {info.blog_daily_limit !== undefined && (
-              <label className="flex flex-col gap-1">
-                <span>{a.blog_limit}</span>
-                <input name="blog_daily_limit" type="number" min={0} max={1000} required defaultValue={info.blog_daily_limit} className={`${input} w-28`} />
-              </label>
-            )}
-            <button type="submit" className="rounded border border-foreground px-3 py-2 font-medium">
-              {a.save}
-            </button>
-          </form>
-        </>
+          <div className="flex flex-wrap gap-2.5 border-t border-[#E4E4E4] py-3" data-owner-ai-usage>
+            {usage(a.usage_today, info.today)}
+            {usage(a.usage_month, info.month)}
+          </div>
+          <SaveBar labels={saveLabels(dict, a.save)} />
+        </form>
       )}
     </section>
   );

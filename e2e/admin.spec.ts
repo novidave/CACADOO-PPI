@@ -5,7 +5,8 @@ import { loginOwner } from "./helpers";
  * The admin area (2026-11-05): its own shell and menu, one page per topic (@/lib/adminPages). With an admin login
  * (E2E_ADMIN_EMAIL + E2E_ADMIN_PASSWORD, else skipped), at 1180×820 and 390×844: every menu item opens its page and is
  * the current one (aria-current); an old /admin/domains#section link lands on its new page. With an owner login that is
- * not an admin (E2E_OWNER_*): /admin and every admin page answer 404.
+ * not an admin (E2E_OWNER_*): /admin and every admin page answer 404. Phase A3 adds read-only checks (nothing is saved):
+ * Limity plánov is one form with one save bar, SMS shows each quota's busiest shop, Sviatky's segments, year and panel.
  */
 
 const PAGES = [
@@ -109,4 +110,48 @@ test("Obchody a domény: Otvoriť opens a shop's row in place and Zavrieť close
   await page.locator('[data-status-filter] [data-status="problem"]').click();
   await page.waitForURL(/status=problem/);
   await expect(page.locator('[data-status-filter] [data-status="problem"]')).toHaveAttribute("aria-current", "true");
+});
+
+test("Limity plánov: every limit in one form; the save bar counts a change and Zrušiť puts it back (nothing saved)", async ({ page }) => {
+  test.skip(!(await loginAdmin(page)), "needs E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD");
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.goto("/sk/admin/limits");
+  const form = page.locator("[data-limits-form]");
+  await expect(form).toHaveCount(1);
+  for (const id of ["section-limits", "blog-limits", "translation-limits", "inventory-limits", "sklad-limits", "pro-only"]) {
+    await expect(form.locator(`#${id}`)).toHaveCount(1);
+  }
+  await expect(form.locator("[data-save-bar]")).toHaveCount(1);
+  const field = form.locator('input[name="tr:free"]');
+  test.skip((await field.count()) === 0, "translation limits not readable");
+  const before = await field.inputValue();
+  await field.fill(String(Number(before) + 1));
+  await expect(form.locator("[data-unsaved]")).toHaveAttribute("data-unsaved", "1");
+  await form.locator('[data-save-bar] button[type="reset"]').click();
+  await expect(field).toHaveValue(before);
+});
+
+test("SMS: each quota row shows the month's total and the busiest shop's bar", async ({ page }) => {
+  test.skip(!(await loginAdmin(page)), "needs E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD");
+  await page.goto("/sk/admin/sms");
+  const rows = page.locator("[data-sms-quota]");
+  test.skip((await rows.count()) === 0, "SMS quotas not readable");
+  for (const row of await rows.all()) await expect(row.locator("[data-sms-busiest]")).toHaveCount(1);
+});
+
+test("Sviatky: the country as a segmented row, the year with ‹ ›, Upraviť opens the panel on the right", async ({ page }) => {
+  test.skip(!(await loginAdmin(page)), "needs E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD");
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.goto("/sk/admin/holidays?hcountry=HU");
+  await expect(page.locator('[data-holiday-country] [data-country="HU"]')).toHaveAttribute("aria-current", "true");
+  const year = Number(await page.locator("[data-holiday-year]").getAttribute("data-holiday-year"));
+  await page.getByRole("link", { name: /Nasledujúci rok/ }).click();
+  await expect(page.locator("[data-holiday-year]")).toHaveAttribute("data-holiday-year", String(year + 1));
+  const edit = page.locator("[data-holiday-edit]").first();
+  test.skip((await edit.count()) === 0, "no holidays that year");
+  const date = await edit.getAttribute("data-holiday-edit");
+  await edit.click();
+  await expect(page.locator("[data-holiday-panel]")).toHaveAttribute("data-holiday-panel", date ?? "");
+  await expect(page.locator(`[data-holiday-row^="${date}:"]`).first()).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("[data-holiday-form]")).toBeVisible();
 });

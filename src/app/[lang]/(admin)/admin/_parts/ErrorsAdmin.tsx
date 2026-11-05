@@ -1,6 +1,8 @@
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import type { Locale } from "@/i18n/config";
 import { formatDateTime } from "@/lib/format";
+import { cardClass } from "@/components/owner/ui";
+import { tableBox, tdClass, thClass } from "./common";
 
 export interface ServerErrorRow {
   kind: string;
@@ -13,49 +15,56 @@ export interface ServerErrorRow {
 }
 
 /**
- * "Chyby za posledných 7 dní" (database update 42): the website's server errors, grouped — where (the route's file
- * path), what (a cleaned message), how often and when. No visitor data is stored (src/lib/errorLog.ts); only the
- * admin reads them (admin_server_errors() checks is_admin()). null = update 42 not run yet.
+ * "Chyby za posledných 7 dní" (database update 42; artboard 3 since 2026-11-05): the website's server errors, grouped —
+ * Kde (the route's file path and its kind), Čo (a cleaned message and its code), Počet, Naposledy (and the first time).
+ * No visitor data is stored (src/lib/errorLog.ts); only the admin reads them (admin_server_errors() checks
+ * is_admin()). null = update 42 not run yet. The table scrolls inside its own box on a narrow screen.
  */
 export function ErrorsAdmin({ rows, lang, dict }: { rows: ServerErrorRow[] | null; lang: string; dict: Dictionary }) {
   const a = dict.admin_errors;
   const when = (iso: string) => formatDateTime(iso, lang as Locale, "UTC");
   return (
-    <section id="errors" className="flex flex-col gap-3" aria-labelledby="errors-heading" data-admin-errors>
-      <h2 id="errors-heading" className="text-lg font-semibold">
-        {a.title}
-      </h2>
-      <p className="text-sm text-muted">{a.intro}</p>
+    <section id="errors" className={`${cardClass} min-w-0`} aria-label={a.title} data-admin-errors>
       {rows === null ? (
-        <p className="text-sm text-muted">{a.unavailable}</p>
+        <p className="text-[15px] text-[#5C5C5C]">{a.unavailable}</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm font-medium">{a.none}</p>
+        <p className="text-base font-semibold" data-errors-none>
+          {a.none}
+        </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-line text-xs text-muted">
+        <div className={tableBox}>
+          <table className="w-full min-w-[46rem] border-collapse text-[15px]">
+            <thead>
               <tr>
-                <th className="py-2 pr-3 font-medium">{a.where}</th>
-                <th className="py-2 pr-3 font-medium">{a.what}</th>
-                <th className="py-2 pr-3 font-medium">{a.count}</th>
-                <th className="py-2 pr-3 font-medium">{a.last}</th>
+                <th className={`${thClass} w-[28%]`}>{a.where}</th>
+                <th className={thClass}>{a.what}</th>
+                <th className={`${thClass} w-20`}>{a.count}</th>
+                <th className={`${thClass} w-44`}>{a.last}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} className="border-b border-line align-top">
-                  <td className="py-2 pr-3">
-                    <span className="font-mono text-xs">{r.route}</span>
-                    <span className="block text-xs text-muted">{r.kind}</span>
+                <tr key={i} data-error-row>
+                  <td className={tdClass}>
+                    <span className="flex flex-col gap-0.5">
+                      <strong className="text-sm">{r.kind}</strong>
+                      <span className="break-all font-mono text-[13px] text-[#5C5C5C]">{r.route}</span>
+                    </span>
                   </td>
-                  <td className="max-w-md break-words py-2 pr-3 text-xs">
-                    {r.message}
-                    {r.digest && <span className="block font-mono text-muted">{t(a.digest, { digest: r.digest })}</span>}
+                  <td className={tdClass}>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="break-words font-mono text-[13px]">{r.message}</span>
+                      {r.digest && <span className="text-[13px] text-[#5C5C5C]">{t(a.digest, { digest: r.digest })}</span>}
+                    </span>
                   </td>
-                  <td className="py-2 pr-3 font-semibold">{r.hits}</td>
-                  <td className="py-2 pr-3 text-xs">
-                    {when(r.last_at)}
-                    <span className="block text-muted">{t(a.first, { when: when(r.first_at) })}</span>
+                  <td className={tdClass}>
+                    <strong className="text-base">{r.hits}</strong>
+                  </td>
+                  <td className={tdClass}>
+                    <span className="flex flex-col gap-0.5 text-sm">
+                      <span>{when(r.last_at)}</span>
+                      <span className="text-[13px] text-[#5C5C5C]">{t(a.first, { when: when(r.first_at) })}</span>
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -63,6 +72,7 @@ export function ErrorsAdmin({ rows, lang, dict }: { rows: ServerErrorRow[] | nul
           </table>
         </div>
       )}
+      <p className="text-sm text-[#5C5C5C]">{a.intro}</p>
     </section>
   );
 }

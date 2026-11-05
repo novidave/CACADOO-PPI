@@ -13,9 +13,8 @@ import { adminBack } from "@/lib/adminPages";
 import { refreshAll } from "@/lib/publicCache";
 
 /**
- * "Admin → Preklady" (database update 40): the languages, the interface texts and the limits (on Limity plánov since
- * 2026-11-05). The page is shown only
- * to is_admin; every action is checked again where it runs (the admin_* SQL functions and the translate function
+ * "Admin → Preklady" (database update 40): the languages and the interface texts (the plans' numbers of languages are
+ * saved with every other limit on Limity plánov since 2026-11-05). The page is shown only to is_admin; every action is checked again where it runs (the admin_* SQL functions and the translate function
  * ask is_admin() with the caller's own login).
  */
 
@@ -42,26 +41,22 @@ async function start(formData: FormData) {
   return { session, back };
 }
 
-export async function saveLanguage(formData: FormData) {
+/**
+ * "Jazyky" (artboard 8): every language row in ONE form; only the rows whose switches changed are saved
+ * (admin_save_language checks is_admin(); Slovak is never sent). "was:<code>" carries what the page drew.
+ */
+export async function saveLanguages(formData: FormData) {
   const { session, back } = await start(formData);
-  const code = String(formData.get("code") ?? "");
-  const { error } = await session.supabase.rpc("admin_save_language", {
-    p_code: code,
-    p_enabled: formData.get("enabled") === "on",
-    p_indexed: formData.get("indexed") === "on",
-  });
-  if (error) back({ err: error.message }, "languages");
+  for (const code of formData.getAll("codes").map(String).slice(0, 100)) {
+    // Slovak is the source and always on: its switches are drawn disabled (and so never sent)
+    if (code === "sk") continue;
+    const enabled = formData.get(`${code}:enabled`) === "on";
+    const indexed = formData.get(`${code}:indexed`) === "on";
+    if (String(formData.get(`was:${code}`) ?? "") === `${enabled ? 1 : 0}${indexed ? 1 : 0}`) continue;
+    const { error } = await session.supabase.rpc("admin_save_language", { p_code: code, p_enabled: enabled, p_indexed: indexed });
+    if (error) back({ err: error.message }, "languages");
+  }
   back({ ok: "language" }, "languages");
-}
-
-export async function saveLimits(formData: FormData) {
-  const { session, back } = await start(formData);
-  const { error } = await session.supabase.rpc("admin_save_translation_limits", {
-    p_free: Number(formData.get("free")),
-    p_pro: Number(formData.get("pro")),
-  });
-  if (error) back({ err: error.message }, "translation-limits");
-  back({ ok: "tr_limits" }, "translation-limits");
 }
 
 /** "Uložiť" of one text (the admin's own: never replaced by Claude) and "Skontrolované". */

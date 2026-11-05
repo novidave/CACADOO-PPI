@@ -33,22 +33,24 @@ export default async function AdminIntegrationsPage({ params, searchParams }: Pa
   ]);
   const hidden = <Hidden lang={lang} keep="" />;
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-4">
       <div>
         <AdminHead dict={dict} page="integrations" />
         <AdminNotice dict={dict} sp={sp} />
       </div>
-      <TelegramAdmin
-        info={telegramInfo}
-        settings={telegramSettings.error ? null : (telegramSettings.data as TelegramSettings | null)}
-        lang={lang as Locale}
-        dict={dict}
-        hidden={hidden}
-      />
-
-      <OwnerAiAdmin info={ownerAi.error ? null : (ownerAi.data as OwnerAiInfo | null)} aiKey={ownerAiReady()} dict={dict} hidden={hidden} />
-
-      <FacebookAppAdmin info={blogInfo} dict={dict} />
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <TelegramAdmin
+          info={telegramInfo}
+          settings={telegramSettings.error ? null : (telegramSettings.data as TelegramSettings | null)}
+          lang={lang as Locale}
+          dict={dict}
+          hidden={hidden}
+        />
+        <div className="flex flex-col gap-4">
+          <OwnerAiAdmin info={ownerAi.error ? null : (ownerAi.data as OwnerAiInfo | null)} aiKey={ownerAiReady()} lang={lang} dict={dict} hidden={hidden} />
+          <FacebookAppAdmin info={blogInfo} dict={dict} />
+        </div>
+      </div>
     </div>
   );
 }

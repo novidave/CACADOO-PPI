@@ -1,7 +1,10 @@
 import type { Locale } from "@/i18n/config";
 import { formatDateTime } from "@/lib/format";
 import { t, type Dictionary } from "@/i18n/dictionaries";
+import { HEALTH_COLORS, type Health } from "@/lib/adminOverview";
+import { cardClass, ghostClass } from "@/components/owner/ui";
 import { setInventoryProvider } from "./actions";
+import { DotText, tableBox, tdClass, thClass } from "./common";
 
 /** admin_inventory_overview() (database update 49): never a key or a key hint. */
 export interface InventoryOverview {
@@ -10,79 +13,100 @@ export interface InventoryOverview {
   connections: { shop: string; slug: string; timezone: string; provider: string; status: string; last_success_at: string | null; fail_count: number; last_error: string | null }[];
 }
 
+/** A connection's dot: running = green, waiting for the owner's approval = yellow, a bad key or an error = red. */
+const STATUS_HEALTH: Record<string, Health> = { active: "ok", preview: "warn", invalid_key: "bad", error: "bad" };
+
 /**
- * "Skladové programy (API)" (database update 49; since 2026-11-05 its own page): which programs can be connected
- * (only built ones can be switched on; admin_set_inventory_provider) and the connections — shop, program, state, last
- * sync, last error — without any key. The intervals per plan are on Limity plánov (InventoryLimitsAdmin).
+ * "Skladové programy (API)" (database update 49; its own page since 2026-11-05, artboard 11): which programs can be
+ * connected — one tile each (built ones can be switched on or off: admin_set_inventory_provider; the rest are
+ * "pripravujeme") with the shortest interval and the number of connections — and the connections (shop, program,
+ * state as a dot + words, last sync, last error) without any key. The intervals per plan are on Limity plánov (one form
+ * with every limit; `limitsNote` links there).
  */
 export function InventoryAdmin({ overview, lang, dict, hidden, limitsNote }: { overview: InventoryOverview | null; lang: Locale; dict: Dictionary; hidden: React.ReactNode; limitsNote?: React.ReactNode }) {
   const a = dict.admin_inventory;
   const ia = dict.inventory_api as Record<string, string>;
   const s = a as Record<string, string>;
+  const live = overview?.connections.filter((c) => c.status === "active").length ?? 0;
   return (
-    <section id="inventory" className="flex flex-col gap-3" aria-labelledby="inventory-heading" data-admin-inventory>
-      <h2 id="inventory-heading" className="text-lg font-semibold">
-        {a.title}
-      </h2>
-      <p className="text-sm text-muted">{a.intro}</p>
+    <section id="inventory" className="flex flex-col gap-4" aria-label={a.title} data-admin-inventory>
       {limitsNote}
       {!overview ? (
-        <p className="text-sm text-muted">{dict.owner_blog.unavailable}</p>
+        <p className={`${cardClass} text-sm text-[#5C5C5C]`}>{dict.owner_blog.unavailable}</p>
       ) : (
         <>
-          <h3 className="font-semibold">{a.providers}</h3>
-          <ul className="flex flex-col gap-2 text-sm">
-            {(overview.providers ?? []).map((p) => (
-              <li key={p.code} className="flex flex-wrap items-center gap-3 border border-line p-2" data-admin-provider={p.code}>
-                <span className="font-medium">{ia[`name_${p.code}`] ?? p.code}</span>
-                <span className="text-muted">
-                  {p.built ? a.provider_built : a.provider_coming}
-                  {p.min_interval_minutes ? ` · ${t(a.provider_min, { minutes: p.min_interval_minutes })}` : ""} · {p.connections}
-                </span>
-                {p.built && (
-                  <form action={setInventoryProvider} className="ml-auto flex items-center gap-2">
-                    {hidden}
-                    <input type="hidden" name="code" value={p.code} />
-                    <input type="hidden" name="enabled" value={p.enabled ? "0" : "1"} />
-                    <span>{p.enabled ? a.provider_on : "–"}</span>
-                    <button type="submit" className="rounded border border-line px-3 py-1">
-                      {p.enabled ? ia.disconnect : ia.connect}
-                    </button>
-                  </form>
-                )}
-              </li>
-            ))}
-          </ul>
+          <div className={`${cardClass} min-w-0`}>
+            <h2 className="text-[19px] font-bold">{a.providers}</h2>
+            <ul className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+              {(overview.providers ?? []).map((p) => (
+                <li key={p.code} className="flex flex-col gap-1.5 rounded-[14px] border border-[#E4E4E4] p-3.5" data-admin-provider={p.code}>
+                  <span className="flex items-start justify-between gap-2">
+                    <strong className="text-base">{ia[`name_${p.code}`] ?? p.code}</strong>
+                    <DotText color={!p.built ? HEALTH_COLORS.off : p.enabled ? HEALTH_COLORS.ok : HEALTH_COLORS.off}>
+                      <span className="text-sm">{!p.built ? a.provider_coming : p.enabled ? a.provider_enabled : a.provider_disabled}</span>
+                    </DotText>
+                  </span>
+                  <span className="text-[13px] text-[#5C5C5C]">
+                    {p.built ? a.provider_built : a.provider_coming}
+                    {p.min_interval_minutes ? ` · ${t(a.provider_min, { minutes: p.min_interval_minutes })}` : ""}
+                  </span>
+                  <span className="text-sm">{p.built ? t(a.provider_connections, { n: p.connections }) : "—"}</span>
+                  {p.built && (
+                    <form action={setInventoryProvider} className="pt-1">
+                      {hidden}
+                      <input type="hidden" name="code" value={p.code} />
+                      <input type="hidden" name="enabled" value={p.enabled ? "0" : "1"} />
+                      <button type="submit" className={`${ghostClass} !min-h-11 w-full !px-4 !text-[15px]`} aria-pressed={p.enabled} data-provider-toggle={p.code}>
+                        {p.enabled ? a.provider_turn_off : a.provider_turn_on}
+                      </button>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
 
-          <h3 className="font-semibold">{a.connections}</h3>
-          {overview.connections.length === 0 ? (
-            <p className="text-sm">{a.none}</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse text-sm">
-                <thead>
-                  <tr>
-                    {[a.col_shop, a.col_program, a.col_status, a.col_last, a.col_error].map((h) => (
-                      <th key={h} className="border-b border-line px-2 py-1 text-left font-medium">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {overview.connections.map((c) => (
-                    <tr key={c.slug}>
-                      <td className="border-b border-line px-2 py-1">{c.shop}</td>
-                      <td className="border-b border-line px-2 py-1">{ia[`name_${c.provider}`] ?? c.provider}</td>
-                      <td className="border-b border-line px-2 py-1">{s[`status_${c.status}`] ?? c.status}</td>
-                      <td className="border-b border-line px-2 py-1">{c.last_success_at ? formatDateTime(c.last_success_at, lang, c.timezone) : ia.never}</td>
-                      <td className="border-b border-line px-2 py-1 break-all">{c.last_error ?? ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className={`${cardClass} min-w-0`} data-inventory-connections>
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h2 className="text-[19px] font-bold">{a.connections}</h2>
+              {overview.connections.length > 0 && <span className="text-sm text-[#5C5C5C]">{t(a.connections_count, { n: overview.connections.length, live })}</span>}
             </div>
-          )}
+            {overview.connections.length === 0 ? (
+              <p className="text-[15px]">{a.none}</p>
+            ) : (
+              <div className={tableBox}>
+                <table className="w-full min-w-[44rem] border-collapse text-[15px]">
+                  <thead>
+                    <tr>
+                      {[a.col_shop, a.col_program, a.col_status, a.col_last, a.col_error].map((h) => (
+                        <th key={h} className={thClass}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overview.connections.map((c) => (
+                      <tr key={`${c.slug}-${c.provider}`} data-connection={c.slug}>
+                        <td className={tdClass}>
+                          <strong>{c.shop}</strong>
+                        </td>
+                        <td className={tdClass}>{ia[`name_${c.provider}`] ?? c.provider}</td>
+                        <td className={tdClass}>
+                          <DotText color={HEALTH_COLORS[STATUS_HEALTH[c.status] ?? "off"]}>
+                            <span className="font-medium">{s[`status_${c.status}`] ?? c.status}</span>
+                          </DotText>
+                        </td>
+                        <td className={`${tdClass} text-sm`}>{c.last_success_at ? formatDateTime(c.last_success_at, lang, c.timezone) : ia.never}</td>
+                        <td className={`${tdClass} break-all text-sm`}>{c.last_error ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-sm text-[#5C5C5C]">{a.connections_note}</p>
+          </div>
         </>
       )}
     </section>
