@@ -1200,7 +1200,7 @@
   min-height: 58px;
   align-items: center;
   gap: 10px;
-  /* the GDPR pill's place (80 px + 13 px) and the 8 px gap to the list button (2026-11-05) */
+  /* the GDPR pill's place (its fixed 80 px + 13 px) and the 8 px gap to the list button (2026-11-05) */
   padding: 12px 101px 12px 13px;
   border-bottom: 1px solid #fde3cc;
   background: #fff6ee;
@@ -1221,8 +1221,11 @@
   top: 12px;
   right: 13px;
   display: inline-flex;
+  /* a fixed width (2026-11-05): the list button's 8 px gap is the header's padding minus exactly this */
+  width: 80px;
   height: 34px;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   overflow: hidden;
   padding: 0 12px 0 9px;
