@@ -15,6 +15,8 @@ export interface ImportView {
   imported: number;
   zeroed: number;
   skipped: number;
+  /** update 88: rows of products the owner ignores ("Ignorované: n"; not errors). */
+  ignored: number;
   error: string | null;
   /** The approved columns only: never a private column. */
   columns: string[];
@@ -96,6 +98,7 @@ export function RecentImports({ imports, labels }: { imports: ImportView[]; labe
             </span>
             <span>{fill(labels.imported, { n: imp.imported })}</span>
             <span>{fill(labels.skipped, { n: imp.skipped })}</span>
+            {imp.ignored > 0 && <span data-import-ignored>{fill(labels.ignored, { n: imp.ignored })}</span>}
             <Preview rows={imp.preview} columns={imp.columns} compact empty={labels.no_preview} />
             <button
               type="button"
@@ -171,6 +174,12 @@ export function RecentImports({ imports, labels }: { imports: ImportView[]; labe
               <dd className="tabular-nums">{chosen.zeroed}</dd>
               <dt className="text-muted">{labels.skipped_label}</dt>
               <dd className="tabular-nums">{chosen.skipped}</dd>
+              {chosen.ignored > 0 && (
+                <>
+                  <dt className="text-muted">{labels.ignored_label}</dt>
+                  <dd className="tabular-nums">{chosen.ignored}</dd>
+                </>
+              )}
               {chosen.error && (
                 <>
                   <dt className="text-muted">{labels.error}</dt>

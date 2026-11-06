@@ -21,7 +21,7 @@
     "check:functions": "cd supabase/functions && (deno check --config deno.json */index.ts || npx -y deno check --config deno.json */index.ts)",
     "test:functions": "cd supabase/functions && (PPI_STOCK_PULL_TEST=1 PPI_FUNCTION_TEST=1 deno test --config deno.json --allow-env --allow-read=. . || PPI_STOCK_PULL_TEST=1 PPI_FUNCTION_TEST=1 npx -y deno test --config deno.json --allow-env --allow-read=. .)",
     "test:export": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/exportFiles_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/exportFiles_test.ts",
-    "test:items": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts",
+    "test:items": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts src/lib/ignoredItems_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerItems_test.ts src/lib/ignoredItems_test.ts",
     "test:connector": "deno test --no-check --no-lock --allow-read src/lib/connectorContract_test.ts || npx -y deno test --no-check --no-lock --allow-read src/lib/connectorContract_test.ts",
     "test:search": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/searchWords_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/searchWords_test.ts",
     "test:mcp": "deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerMcpRules_test.ts || npx -y deno test --no-check --no-lock --unstable-sloppy-imports src/lib/ownerMcpRules_test.ts",

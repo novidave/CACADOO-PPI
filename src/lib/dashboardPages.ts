@@ -110,7 +110,7 @@ export function assistantTabUrl(lang: string, tab: AssistantTab, shop: string, e
  * stock file's columns), "Preklady v priečinku" (update 45: the translations folder and the stock files in other
  * languages), "Posledné nahrané súbory" (back here since update 43) and "Nebezpečná zóna – sklad".
  */
-export const EXPORT_SECTIONS = ["source", "api", "pos", "export", "review", "trfolder", "imports", "conversations-pc", "danger"];
+export const EXPORT_SECTIONS = ["source", "api", "pos", "export", "review", "trfolder", "imports", "conversations-pc", "danger", "ignored"];
 export const CONTENT_SECTIONS = ["content", "library", "sections"];
 /**
  * "Jazyky a inventár" (update 40): "Tovar" = the products and every translation of them, "Texty stránky" = the

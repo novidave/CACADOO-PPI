@@ -24,7 +24,10 @@ Setup steps for humans are in `SETUP.md`.
   movements, no freshness label; a dish is available unless "Vypredané dnes" — and **its Sklad stock never expires by
   time** (tracked dishes, sizes, drinks, any Sklad product: shown exactly as it is until the owner changes it,
   `freshness_label(file_time, kind)`, update 86). Every other shop keeps the 24 h rule and every other rule stays as
-  above. Details: "A restaurant's Menu (update 80)" and "A restaurant's stock (update 86)" below.
+  above. Details: "A restaurant's Menu (update 80)" and "A restaurant's stock (update 86)" below. **The owner's
+  ignored products (update 88, the owner's OK, 2026-11-07):** a product the owner deletes on "Ignorované produkty"
+  leaves the shop's data (its row goes, as update 43's option A) and NO later import brings it back until the owner
+  restores it — never "hidden but listed"; see "Ignorované produkty (update 88)" below.
 - **Private columns** = every stock-file column not in the approved mapping: only in the private `raw-files` bucket;
   never in `sample_rows`, `stock_imports`, pages, the API/MCP or the shop assistant. The AI column proposal gets names
   plus ≤ 3 values per column, and names only for `isPrivateColumn()` / `is_private_column()` columns.
@@ -1936,13 +1939,51 @@ itself in CSS (`field-sizing: content`), not after hydration.
 nový" wherever the last file is shown, `files_cleared`) and, `collapsed` at the bottom, "Nebezpečná zóna – sklad":
 **A** remove the products missing from the last file (sold out and older than the newest `updated_at` of the shop's
 items), **B** delete the whole stock + every uploaded file (typed shop name; keep translations by code — default on;
-clear the mapping — default off). Only `owner_inventory_reset()` decides: membership, 3 per shop and day, a backup CSV
+clear the mapping — default off), **C** "Ignorované produkty" (update 88, its own section above: products the owner
+deletes stay away from every later import until restored). Only `owner_inventory_reset()` decides: membership, 3 per shop and day, a backup CSV
 first (`inventory_backups`, 30 days, public fields + translations only), products into `inventory_trash` (30 days, daily
 `ppi-inventory-purge`), `owner_inventory_restore()` = exactly back (same ids) unless a newer file was applied or a later
 removal exists. Translations/descriptions return by code through the `shop_items_reattach_*` triggers. Every action in
 `shop_activity`. Visitors: `shop_stock_resetting()` → "Sortiment sa práve aktualizuje." Never touches blog, slider,
 assistant, private folders and their files, contacts, domain, subscription or opening hours. There are no customer alerts
 ("Upozorniť ma") and no Pomocník yet — the activity log and `owner_inventory_state()` are what they will read.
+
+## Ignorované produkty (update 88, 2026-11-07, at the owner's request and with his OK for the display rule)
+
+`supabase/sql/88_ignored_items.sql` + `@/components/IgnoredItems` + `sync/ignoredActions.ts` + `@/lib/ignoredItems` (no
+imports; `ignoredItems_test.ts` in `npm run test:items`). Part **C** of "Nebezpečná zóna – sklad" on `/sync`
+(dashboardPages id `ignored`, `?at=ignored#ignored` opens the zone; the zone stays collapsed otherwise). **The rule:** a
+product the owner deletes here is skipped by EVERY import until restored — on no page, search, API, MCP, assistant or
+AI search, never "hidden but listed". `shop_ignored_items` (shop + key; `key_kind` 'code', `key_value` =
+`stock_item_key(source_code)` = the one rule every import uses to recognise a product: trimmed, ≤ 100; ≤ 5000 per shop;
+members read, no writes but the functions). **Imports skip ignored keys first:** `apply_stock_file` (folder, uploads,
+the inventory program), `inventory_apply_prices`, `connector_apply_rows` / `connector_snapshot_settle` (the POS agent;
+its "fewer than half" rule counts without ignored rows and `agent_product_count` drops by what the owner removed),
+`apply_shop_translations` (an ignored row is never matched to another product by its EAN); the guard trigger
+`shop_items_ignored_guard` (before insert on shop_items, not while the source is Sklad) keeps any other writer out.
+Skipped rows are not errors (never in stock-pull's > 5 % unreadable rule, which counts unreadable rows before SQL).
+`stock_imports.ignored_count` ("Ignorované: n" on the import cards; `sync_sources.last_ignored` + `last_ignored_time`
+carry it from the apply to `record_stock_import` / `inventory_record_import`; the agent's report sets it itself);
+preview and example rows leave ignored products out. **Owners:** `owner_ignore_candidates` ("Produkty zo súboru": all
+by name, or `shop_item_search`'s rows for "Názov, kód alebo EAN"; `matched` never counts the "similar" rows),
+`owner_ignore_items(shop, ids | null, q, expected)` (members; `sklad_source` for a Sklad shop; null ids = everything
+the search shows; `changed` when the count ≠ expected; ≤ 5000; ONE transaction: the keys, then update 43's way out —
+a removal of kind `ignored` that never expires while ignored, the backup CSV, the trash with translations, Cacaduu
+description; the photo stays by code; activity `items_ignored`), `owner_ignore_undo(reset)` (the toast's "Späť", 8 s on
+the screen, 10 minutes and before the next file in SQL: exactly back from the trash), `owner_unignore_items(shop, keys
+| null, expected)` (the products come back only with the next file / sync — with their old translations by code;
+their trash rows wait 30 days; activity `items_unignored`), `owner_ignored_items` (who, when). An ignore is not one of
+update 43's 3 resets a day and not in its removals list; update 43's restore never brings an ignore back. **The
+screen:** the intro line, "Produkty zo súboru" (search, 50 at a time, name · code / EAN · the stock word), "Upraviť" →
+rows slide 44 px right (200 ms, none with reduced motion), round 24 px ticks (2 px #2563EB, filled with a white check;
+the whole row is the checkbox), toolbar "Vybrať všetko" / "Zrušiť výber" · "Vymazať (n)" / "Vymazať všetko (n)" ·
+"Hotovo", Esc leaves; on a phone a sticky bottom bar "Vybrané: n" + the button; the dialog "Vymazať 3 produkty zo
+stránky?" (the whole list needs the shop's name typed; Esc = back); the toast "Vymazané: 3 · Späť"; "Ignorované (n)" with
+its own edit mode "Obnoviť (n)", then "Vrátia sa pri ďalšom nahratí súboru" (+ "Synchronizovať teraz" for the POS agent
+or the inventory program). A Sklad shop or a restaurant sees a note with a link instead. The owner MCP's `update_stock` on
+an ignored product answers `ignored` (the `owner_mcp_call` wrapper; `toolError`). Texts `ignored`, `imports.ignored*`,
+`reset.activity_items_*`. Tests: DB block "update 88", `npm run test:items`, e2e `e2e/ignored-items.spec.ts` (1180×820,
+390×844; owner login + `E2E_OWNER_SHOP` with a file source).
 
 ## Priečinok s exportom: review after an upload, translations folder (update 45)
 
@@ -2051,7 +2092,8 @@ only the holder reports (`409 not_claimed`). The holder's announce skips the 5-m
 `POST ?shop_id=&file_time=&file_name=[&gzip=1]` with the owner's (or legacy admin's) JWT, checked by `upload_check_in()`.
 It downloads nothing and runs on no schedule (cloud links and the cron pull were removed on 2026-10-08, migration 16;
 the only pull is the inventory API above), and refuses files (409 `api_connected`) while a program is connected.
-A file not newer than `latest_file_time` is skipped; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows; mapping proposals
+A file not newer than `latest_file_time` is skipped; XML/CSV(UTF-8 or Windows-1250)/XLSX → rows (the owner's ignored
+products, update 88, are skipped in SQL first and counted as `ignored_count`, never as errors); mapping proposals
 (Claude with structured outputs, else `guessMapping`) are never auto-approved; `apply_stock_file()` writes a full file
 in one transaction (missing items → quantity 0). >5 % unreadable rows → keep old stock, propose a new mapping.
 Claude's proposal sees `columnSamples()` (names + ≤ 3 values; private-looking columns by name only); `sample_rows` holds
