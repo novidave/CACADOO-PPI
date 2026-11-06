@@ -17,7 +17,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODE = /^skp_[0-9a-f]{64}$/;
 const langOf = (v: unknown): Locale => (isLocale(String(v ?? "")) ? (String(v) as Locale) : "sk");
 const reasonOf = (m: string | undefined) =>
-  ["device", "device_expired", "forbidden", "too_many", "qty", "not_found", "done", "cancelled", "no_price", "empty", "sale_source", "sklad_active"].find(
+  ["device", "device_expired", "forbidden", "too_many", "qty", "not_found", "done", "cancelled", "no_price", "empty", "sale_source", "sklad_active", "untracked_dish"].find(
     (r) => r === m,
   ) ?? "failed";
 

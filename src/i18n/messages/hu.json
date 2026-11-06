@@ -134,7 +134,8 @@
     "stale": "A készletinformáció jelenleg nem elérhető",
     "dot_available": "raktáron",
     "dot_sold_out": "elfogyott",
-    "dot_no_info": "készlet ismeretlen"
+    "dot_no_info": "készlet ismeretlen",
+    "changed_on": "Utoljára módosítva: {month}. {day}. {time}"
   },
   "shop": {
     "open_now": "Nyitva",
@@ -303,7 +304,8 @@
     "bookings_page": "Foglalások",
     "hours_sms_page": "Nyitvatartás SMS-ben",
     "ai_page": "AI asszisztensek",
-    "sklad_page": "Raktár"
+    "sklad_page": "Raktár",
+    "state_never_expires": "Addig látható, amíg meg nem változtatja"
   },
   "dashboard": {
     "shop": "Üzlet",
@@ -387,7 +389,9 @@
     "shopper_hidden_stale": "Rejtve – az adatok 24 óránál régebbiek",
     "file_status_cleared": "Nincs feltöltött fájl · töltsön fel újat",
     "welcome_list_insert": "{zoznam} beillesztése az üdvözlő üzenetbe",
-    "welcome_list_hint": "A {zoznam} a vásárlónak egy kék buborékot mutat a bevásárlólistája darabszámával; koppintással beilleszti a csevegésbe. Koppintson a címkére, vagy húzza a szövegbe."
+    "welcome_list_hint": "A {zoznam} a vásárlónak egy kék buborékot mutat a bevásárlólistája darabszámával; koppintással beilleszti a csevegésbe. Koppintson a címkére, vagy húzza a szövegbe.",
+    "shopper_in_menu": "A menüben",
+    "file_status_food": "Utolsó készletváltozás: {time}"
   },
   "items_bulk": {
     "pick": "Kijelölés",
@@ -4680,7 +4684,13 @@
     "dv_qr_done": "Kész",
     "ok_device_saved": "Az eszköz mentve.",
     "ok_device_revoked": "Az eszköz leválasztva – a kulcsa már nem működik.",
-    "err_perms": "Jelöljön be legalább egy lehetőséget."
+    "err_perms": "Jelöljön be legalább egy lehetőséget.",
+    "sale_on_menu": "Kínálatban",
+    "sale_sold_out_today": "Ma elfogyott",
+    "untracked": "Menü – készlet nélkül",
+    "untracked_card": "Menüétel „Készlet követése” nélkül: a vásárlók kínálatban látják, amíg „Ma elfogyott” jelölést nem kap. Az eladások és a rendelések nem vonják le.",
+    "never_expires": "A készlet addig látható, amíg meg nem változtatja.",
+    "err_untracked_dish": "Ennek az ételnek nincs készlete. Ha vezetni szeretné, kapcsolja be nála a Menüben a „Készlet követése” lehetőséget."
   },
   "device": {
     "title": "Raktár ezen a telefonon",
@@ -5473,8 +5483,8 @@
     "kind_now": "Jelenleg: {kind}",
     "kind_change": "Az üzlet típusának módosítása",
     "kind_change_intro": "Semmi sem törlődik: a termékek, fájlok, rendelések és beállítások megmaradnak. Csak az változik, amit a Saját üzlet menüje mutat, és a beállítás lépései.",
-    "kind_to_food": "Étterem: a Menü és az Ételrendelések a menü tetejére kerülnek. Az exportmappa és az Áru lista eltűnik a menüből – az oldalak elérhetők maradnak.",
-    "kind_to_goods": "Üzlet: az exportmappa és az Áru visszakerül a menübe, a Menü eltűnik a menüből. Az Ételrendelések megmaradnak.",
+    "kind_to_food": "Étterem: a Menü és az Ételrendelések a menü tetejére kerülnek. Az exportmappa és az Áru lista eltűnik a menüből – az oldalak elérhetők maradnak. A készlet addig látható az oldalon, amíg meg nem változtatja.",
+    "kind_to_goods": "Üzlet: az exportmappa és az Áru visszakerül a menübe, a Menü eltűnik a menüből. Az Ételrendelések megmaradnak. Ha a készletet az elmúlt 24 órában nem frissítették, az oldalon elrejtjük.",
     "kind_confirm": "Értem – módosítom az üzlet típusát",
     "kind_save": "Típus módosítása",
     "kind_saved": "Az üzlet típusa módosult.",
@@ -5550,7 +5560,7 @@
     "ed_allergens": "Allergének (1–14)",
     "ed_tags": "Jelölés",
     "ed_track": "Készlet követése",
-    "ed_track_hint": "Darabra árult italokhoz és desszertekhez: az elérhetőség a Raktár mennyisége szerint. Kikapcsolva: az étel elérhető, amíg „Ma elfogyott” jelölést nem kap.",
+    "ed_track_hint": "Darabra árult italokhoz és desszertekhez: az elérhetőség a Raktár mennyisége szerint. Kikapcsolva: az étel elérhető, amíg „Ma elfogyott” jelölést nem kap. A készlet 0-ról indul, minden eladás csökkenti.",
     "ed_sold_out_hint": "Éjfélig érvényes (az üzlet ideje szerint).",
     "ed_qty": "Raktáron: {n}",
     "ed_save": "Étel mentése",

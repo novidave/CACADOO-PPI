@@ -27,7 +27,8 @@ export interface MyShop {
   sample_rows: Record<string, unknown>[] | null;
   latest_file_time: string | null;
   last_error: string | null;
-  freshness_state: FreshnessState;
+  /** Update 86: a restaurant's stock = "never_expires" (shown until the owner changes it). */
+  freshness_state: FreshnessState | "never_expires";
   folder_seen_at: string | null;
   last_file_name: string | null;
   email: string | null;

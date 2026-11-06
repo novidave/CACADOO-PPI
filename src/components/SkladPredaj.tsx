@@ -65,7 +65,7 @@ const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w
 export type PredajLabels = Record<
   | "sale_search" | "sale_search_ph" | "sale_results" | "sale_none" | "sale_add" | "sale_scanned" | "sale_added" | "sale_unknown"
   | "sale_unknown_add" | "sale_no_price_short" | "sale_no_price" | "sale_basket" | "sale_empty" | "sale_empty_hint" | "sale_stock"
-  | "sale_sold_out" | "sale_warn" | "sale_low" | "sale_per_unit" | "sale_less" | "sale_more" | "sale_remove" | "sale_qty"
+  | "sale_sold_out" | "sale_on_menu" | "sale_sold_out_today" | "sale_warn" | "sale_low" | "sale_per_unit" | "sale_less" | "sale_more" | "sale_remove" | "sale_qty"
   | "sale_from" | "sale_clear" | "sale_pay_label" | "pay_cash" | "pay_card" | "pay_qr" | "sale_note_ekasa" | "sale_note_qr"
   | "sale_qr_off" | "sale_qr_off_link" | "sale_total" | "items_one" | "items_few" | "items_other" | "sale_confirm"
   | "sale_confirm_empty" | "sale_show_qr" | "sale_saving" | "sale_offline" | "sale_done_title" | "sale_done_text"
@@ -245,9 +245,13 @@ export function SkladPredaj(p: Props) {
     searchRef.current?.focus();
   };
 
+  // update 86: an untracked dish is not stock — "V ponuke" (green) or "Vypredané dnes" (red), never a quantity
   const stockText = (prod: SaleProduct) =>
-    prod.total <= 0 ? L.sale_sold_out : fill(L.sale_stock, { n: formatQty(prod.total, prod.unit, p.lang) });
-  const dot = (prod: SaleProduct) => (prod.total <= 0 ? "#D64545" : "#1E9E5A");
+    prod.tracked === false
+      ? prod.soldOutToday ? L.sale_sold_out_today : L.sale_on_menu
+      : prod.total <= 0 ? L.sale_sold_out : fill(L.sale_stock, { n: formatQty(prod.total, prod.unit, p.lang) });
+  const dot = (prod: SaleProduct) =>
+    (prod.tracked === false ? prod.soldOutToday : prod.total <= 0) ? "#D64545" : "#1E9E5A";
   const opts: { k: Payment; label: string }[] = [
     { k: "cash", label: L.pay_cash },
     { k: "card", label: L.pay_card },

@@ -6,7 +6,7 @@ import { sectionUrl } from "@/lib/dashboardPages";
 import { formatDateTime, formatPrice } from "@/lib/format";
 import { LANGUAGE_COLUMN_ROWS, MAPPING_FIELDS, REQUIRED_FIELDS, TEXT_FIELDS, type MyShop } from "@/lib/myShops";
 import { translatedName, type NameI18n } from "@/lib/names";
-import { fileStatus, filterCount, ITEM_FILTERS, shopperView, type ItemCounts, type ItemFilter } from "@/lib/ownerItems";
+import { fileStatus, filterCount, ITEM_FILTERS, shopperView, type ItemCounts, type ItemFilter, type OwnerAvailability } from "@/lib/ownerItems";
 import { availabilityText, type AvailabilityKey } from "@/lib/stock";
 import { DashboardSection } from "@/components/DashboardSection";
 import { ItemsBulk } from "@/components/ItemsBulk";
@@ -30,7 +30,7 @@ interface OwnerItem {
   price: number | null;
   currency: string;
   quantity: number | null;
-  availability: AvailabilityKey | null;
+  availability: OwnerAvailability | null;
   total_count: number;
   name_lang: string | null;
   name_i18n: NameI18n | null;
@@ -305,8 +305,15 @@ export function ItemsSection({
                   </Link>
                 ) : (
                   <>
-                    {t(d.file_status, { time: formatDateTime(file.at, lang, shop.timezone) })} ·{" "}
-                    <span className={file.state === "stale" ? "font-semibold" : undefined}>{d[`file_state_${file.state}`]}</span>
+                    {file.state === "never_expires" ? (
+                      // update 86: a restaurant's stock never goes stale — no "aktuálny / starší / zastaraný"
+                      t(d.file_status_food, { time: formatDateTime(file.at, lang, shop.timezone) })
+                    ) : (
+                      <>
+                        {t(d.file_status, { time: formatDateTime(file.at, lang, shop.timezone) })} ·{" "}
+                        <span className={file.state === "stale" ? "font-semibold" : undefined}>{d[`file_state_${file.state}`]}</span>
+                      </>
+                    )}
                     {file.state === "stale" && (
                       <>
                         {" · "}
@@ -417,9 +424,17 @@ function ShopperSees({ item, lang, dict, upload }: { item: OwnerItem; lang: Loca
       </span>
     );
   }
+  if (view === "in_menu") {
+    // update 86: a restaurant's dish without "Sledovať zásobu" is on the Menu, not stock
+    return (
+      <span className="font-semibold" data-shopper-sees="in_menu">
+        {dict.dashboard.shopper_in_menu}
+      </span>
+    );
+  }
   return (
     <span className="font-semibold" data-shopper-sees={view}>
-      {availabilityText(dict, item.availability, item.quantity, lang)}
+      {availabilityText(dict, item.availability as AvailabilityKey, item.quantity, lang)}
     </span>
   );
 }

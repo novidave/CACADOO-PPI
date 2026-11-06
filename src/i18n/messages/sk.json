@@ -134,7 +134,8 @@
     "stale": "Informácia o zásobe momentálne nie je dostupná",
     "dot_available": "na sklade",
     "dot_sold_out": "vypredané",
-    "dot_no_info": "zásoba neznáma"
+    "dot_no_info": "zásoba neznáma",
+    "changed_on": "Naposledy zmenené {day}. {month}. o {time}"
   },
   "shop": {
     "open_now": "Otvorené",
@@ -303,7 +304,8 @@
     "bookings_page": "Rezervácie",
     "hours_sms_page": "Hodiny cez SMS",
     "ai_page": "AI asistenti",
-    "sklad_page": "Sklad"
+    "sklad_page": "Sklad",
+    "state_never_expires": "Zobrazuje sa, kým ju nezmeníte"
   },
   "dashboard": {
     "shop": "Obchod",
@@ -387,7 +389,9 @@
     "shopper_hidden_stale": "Skryté – údaje sú staršie ako 24 h",
     "file_status_cleared": "Žiadny nahraný súbor · nahrajte nový",
     "welcome_list_insert": "Vložiť {zoznam} do uvítacej správy",
-    "welcome_list_hint": "{zoznam} ukáže zákazníkovi modrú bublinu s počtom kusov v jeho nákupnom zozname; ťuknutím ho vloží do chatu. Ťuknite na značku alebo ju potiahnite do textu."
+    "welcome_list_hint": "{zoznam} ukáže zákazníkovi modrú bublinu s počtom kusov v jeho nákupnom zozname; ťuknutím ho vloží do chatu. Ťuknite na značku alebo ju potiahnite do textu.",
+    "shopper_in_menu": "V menu",
+    "file_status_food": "Posledná zmena zásoby: {time}"
   },
   "items_bulk": {
     "pick": "Označiť",
@@ -4680,7 +4684,13 @@
     "dv_qr_done": "Hotovo",
     "ok_device_saved": "Zariadenie je uložené.",
     "ok_device_revoked": "Zariadenie je odpojené – jeho kľúč už nefunguje.",
-    "err_perms": "Zaškrtnite aspoň jednu možnosť."
+    "err_perms": "Zaškrtnite aspoň jednu možnosť.",
+    "sale_on_menu": "V ponuke",
+    "sale_sold_out_today": "Vypredané dnes",
+    "untracked": "Menu – bez zásoby",
+    "untracked_card": "Jedlo z Menu bez „Sledovať zásobu“: zákazníci ho vidia v ponuke, kým ho neoznačíte „Vypredané dnes“. Predaje ani objednávky ho neodpisujú.",
+    "never_expires": "Zásoba sa zobrazuje, kým ju nezmeníte.",
+    "err_untracked_dish": "Toto jedlo nemá zásobu. Ak ju chcete viesť, zapnite pri ňom v Menu „Sledovať zásobu“."
   },
   "device": {
     "title": "Sklad v tomto telefóne",
@@ -5473,8 +5483,8 @@
     "kind_now": "Teraz: {kind}",
     "kind_change": "Zmeniť typ obchodu",
     "kind_change_intro": "Nič sa nevymaže: produkty, súbory, objednávky a nastavenia zostanú. Zmení sa len to, čo ukazuje menu Môjho obchodu, a kroky nastavenia.",
-    "kind_to_food": "Reštaurácia: Menu a Objednávky jedla budú v menu hore. Priečinok s exportom a zoznam Tovar sa z menu skryjú – stránky zostanú dostupné.",
-    "kind_to_goods": "Predajňa: Priečinok s exportom a Tovar sa vrátia do menu, Menu sa z menu skryje. Objednávky jedla zostanú.",
+    "kind_to_food": "Reštaurácia: Menu a Objednávky jedla budú v menu hore. Priečinok s exportom a zoznam Tovar sa z menu skryjú – stránky zostanú dostupné. Zásoba sa na stránke zobrazuje, kým ju nezmeníte.",
+    "kind_to_goods": "Predajňa: Priečinok s exportom a Tovar sa vrátia do menu, Menu sa z menu skryje. Objednávky jedla zostanú. Ak zásoby neboli aktualizované posledných 24 h, na stránke sa skryjú.",
     "kind_confirm": "Rozumiem – zmeniť typ obchodu",
     "kind_save": "Zmeniť typ",
     "kind_saved": "Typ obchodu je zmenený.",
@@ -5550,7 +5560,7 @@
     "ed_allergens": "Alergény (1–14)",
     "ed_tags": "Označenie",
     "ed_track": "Sledovať zásobu",
-    "ed_track_hint": "Pre nápoje a dezerty na kusy: dostupnosť podľa množstva v Sklade. Vypnuté: jedlo je dostupné, kým ho neoznačíte „Vypredané dnes“.",
+    "ed_track_hint": "Pre nápoje a dezerty na kusy: dostupnosť podľa množstva v Sklade. Vypnuté: jedlo je dostupné, kým ho neoznačíte „Vypredané dnes“. Zásoba začne od 0, každý predaj ju zníži.",
     "ed_sold_out_hint": "Platí do polnoci (čas obchodu).",
     "ed_qty": "Na sklade: {n}",
     "ed_save": "Uložiť jedlo",

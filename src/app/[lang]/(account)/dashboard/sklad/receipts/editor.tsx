@@ -36,7 +36,7 @@ export async function ReceiptEditor({ ctx, receipt, sp }: { ctx: Ctx; receipt: R
         shopSlug={shop.slug}
         receipt={receipt}
         newId={randomUUID()}
-        products={saleProducts(res.rows.slice(0, LIST))}
+        products={saleProducts(res.rows.filter((r) => r.tracked !== false).slice(0, LIST))}
         complete={res.rows.length <= LIST}
         locations={o.locations.map((l) => ({ id: l.id, name: l.name }))}
         defaultLocation={def}

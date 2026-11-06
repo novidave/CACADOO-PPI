@@ -19,10 +19,12 @@ Setup steps for humans are in `SETUP.md`.
   "Vypredané" at 0 or less; nothing for stale shops). PPI never edits, corrects or completes shop data, and "My shop"
   has no setting that changes the uploaded data or how stock is shown (display modes and hidden items were removed by
   migration 21 — never bring them back). Translations are not shop data. **The one exception: a restaurant** (the
-  owner's OK, 2026-11-05): a shop of kind `food` (`shops.kind`, update 79) sells from a **menu**, and its menu items
-  (update 80) are not "stock" — no 24 h stock-file freshness, no freshness label; a dish is available unless "Vypredané
-  dnes" (or, with "Sledovať zásobu", by its Sklad quantity). Every other shop and every other rule stay as above.
-  Details: "A restaurant's Menu (update 80)" below.
+  owner's OK, 2026-11-05 and 2026-11-06): a shop of kind `food` (`shops.kind`, update 79) sells from a **menu**: its
+  untracked menu items (update 80; no "Sledovať zásobu" — `sklad_tracks_stock()`, update 86) are not stock — no
+  movements, no freshness label; a dish is available unless "Vypredané dnes" — and **its Sklad stock never expires by
+  time** (tracked dishes, sizes, drinks, any Sklad product: shown exactly as it is until the owner changes it,
+  `freshness_label(file_time, kind)`, update 86). Every other shop keeps the 24 h rule and every other rule stays as
+  above. Details: "A restaurant's Menu (update 80)" and "A restaurant's stock (update 86)" below.
 - **Private columns** = every stock-file column not in the approved mapping: only in the private `raw-files` bucket;
   never in `sample_rows`, `stock_imports`, pages, the API/MCP or the shop assistant. The AI column proposal gets names
   plus ≤ 3 values per column, and names only for `isPrivateColumn()` / `is_private_column()` columns.
@@ -250,7 +252,8 @@ ordered), `menu_parent` + `variant_label` = a size (each size its own Sklad prod
 sizes has no price of its own. **Availability:** `track_stock` off (the default) = available unless "Vypredané dnes"
 (`sold_out_on` = the shop's `shop_today()`, so it ends by itself at the shop's midnight; a dish's mark covers its
 sizes); on = Sklad's quantity. `food_item` / `food_menu` follow it; **an untracked or hidden menu item is never in
-`inventory`** (`sklad_apply` leaves it out: no public_stock row, no freshness, no "Vypredané" from an empty stock).
+`inventory`** (`sklad_apply` leaves it out: no public_stock row, no freshness, no "Vypredané" from an empty stock), and
+**since update 86 it has no Sklad movements at all** (see "A restaurant's stock (update 86)").
 **Owners** (members; only through `owner_menu_*`): `owner_menu` (the editor), `owner_menu_save_category` /
 `_delete_category` (empty ones only) / `_order_categories`, `owner_menu_save_item` (a dish and its sizes; only the given
 keys change; a size left out is hidden, never deleted; through `owner_sklad_save_product`: the plan's product limit,
@@ -300,6 +303,35 @@ before → after from `list_menu`, "Potvrdiť"); the Telegram bot's "Vypredané 
 test:food` (`menuRules_test.ts`: the rows), `test:photos`, `test:telegram`, DB block "update 84", e2e
 `e2e/food-menu.spec.ts` (a test restaurant: import with the AI stubbed → a price edited → the "Jedlá" row → the dish's
 page → Objednať → the SMS test code).
+
+## A restaurant's stock (update 86, 2026-11-06, the owner's OK for this rule change)
+
+`supabase/sql/86_food_shop_stock.sql`. **ONE rule `sklad_tracks_stock(item)`** = not (menu_item and not track_stock), a
+size follows its dish; every Sklad read and write asks it, never React. An **untracked dish has no Sklad movements**:
+the one guard `sklad_movements_untracked` (before insert on `sklad_movements`) skips its rows, so a sale
+(`sklad_sale_book`: the sale and its lines, VS, prices, totals, payment stored as before), a food order's finish
+("Odpísať zo skladu": `food_take_stock`, ids md5(order ':' line) as before) and an eKasa line paired with it (booked,
+never "unmatched") write none; a reopen returns only the movements a finish really stored. Manual movements
+(`owner_sklad_move`: Príjem, Odpis, Inventúra, Oprava, Presun — also inside a Príjemka's confirmation, one transaction)
+and an Inventúra line (`owner_sklad_count_set`) are refused `untracked_dish`; `sklad_count_scope` leaves it out.
+**"Sledovať zásobu" switched on** (trigger `sklad_track_start`): the item starts at 0 — one Oprava "Začiatok sledovania
+zásoby" per place that held stock (clears an old negative), id md5('track:' item ':' switch time ':' place), once.
+`owner_sklad_products` / `owner_sklad_product` carry `tracked` and `sold_out_today` (Predaj, Inventúra's lookup); an
+untracked dish is never low or out. **A food shop's stock never goes stale by time:** `freshness_label(file_time, kind)`
+= 'current' at any age for a food shop with a stock time, else update 1's rule — used by `public_stock` and
+`public_shops` (so search_stock, item_search, shop_item_search, shop_stock, the API, the MCP, the assistants); the
+owner's side answers `never_expires` (`freshness_state(shop)` → owner_items, `my_shops`, `owner_sklad_overview`: no
+countdown, no "Stav je správny"); `sklad_reminders_due` never picks a food shop. The kind decides at every read: food →
+goods = the 24 h rule from that moment ("Ak zásoby neboli aktualizované posledných 24 h, na stránke sa skryjú."), goods
+→ food = shown again at once. The public text of an old change: `freshnessText` → "Naposledy zmenené 3. 11. o 14:20"
+(`stock.changed_on`), never "pred 4320 min". **Screens:** Predaj "V ponuke" (green) / "Vypredané dnes" (red) for an
+untracked dish, never a stock warning (`basketView`); Produkty and the card "Menu – bez zásoby" (no moves, no places, no
+stock value); Inventúra and Príjemka lists leave it out; a food shop's Prehľad, Nastavenia and card: "Zásoba sa
+zobrazuje, kým ju nezmeníte." (`sklad.never_expires`); Jazyky a inventár → Tovar: an untracked dish = "V menu"
+(availability `in_menu`, neither in stock nor sold out), the status line "Posledná zmena zásoby: …" without "aktuálny /
+starší / zastaraný"; the Menu editor's switch says "Zásoba začne od 0, každý predaj ju zníži." Goods shops: unchanged.
+Tests: DB block "update 86", `test:sklad`, `test:items`, e2e `food-menu.spec.ts` (Predaj "V ponuke", a sale, no
+movement in Pohyby).
 
 ## Objednávky jedla: the order feed (update 81, 2026-11-05)
 
@@ -1063,7 +1095,8 @@ reason) whose id the form carries (a UUID made when the page was drawn) → `own
 (`duplicate`); the stock per location = the sum of movements (`sklad_stock`, a transfer on both sides). **One public
 writer:** `sklad_apply()` (quantity = total, price = sale price with VAT, EUR; no sale price → not public; the shop's
 `latest_file_time` = now) in the same transaction as every movement, product save, switch and "Stav je správny"
-(`owner_sklad_confirm`); the 24 h freshness rule is unchanged; the public side reads `public_stock` as always. Switching
+(`owner_sklad_confirm`); the 24 h freshness rule is unchanged for goods shops — a food shop's stock never expires
+(update 86: no countdown, no "Stav je správny", no reminder); the public side reads `public_stock` as always. Switching
 to Sklad takes the products over (`sklad_adopt`: the file's EUR price, the quantity as an opening count); switching back
 deletes nothing. **Private:** last / average cost, supplier, margin — no grant on any Sklad table but the service role;
 owners only through `owner_sklad_*` (members); never public, in the API/MCP, the assistant or logs; margin and stock
@@ -1082,7 +1115,9 @@ EAN). Touch targets ≥ 44 px. Texts `sklad`, `stock_source.sklad*`, `sync.sklad
 `supabase/sql/68_sklad_predaj.sql` + `dashboard/sklad/sale` (Predaj; `[id]` = Platba QR) + `dashboard/sklad/terminal` +
 `@/components/SkladPredaj` / `SkladTerminal` + `@/lib/payBySquare` (server only) + `/api/owner/sklad/terminal`. A sale =
 one `sklad_sales` row (the basket's own UUID: a retry is the same sale) + one `sale` movement per line (`sale_id`, ref
-"Predaj <VS>") + `sklad_apply()` in one transaction (`owner_sklad_sell` → `sklad_sale_book`). Prices as sold = the sale
+"Predaj <VS>") + `sklad_apply()` in one transaction (`owner_sklad_sell` → `sklad_sale_book`); an untracked dish (update
+86) is sold and stored in the sale's lines but gets no movement, and Predaj shows it "V ponuke" / "Vypredané dnes",
+never a quantity or a stock warning. Prices as sold = the sale
 price; no price → `no_price`; short stock only warns. Hotovosť / Karta = done at once (**the receipt stays the shop's
 eKasa; Cacaduu records no payment and talks to no terminal or bank**). QR = PAY by square (`bysquare` + `qrcode` SVG on
 the server; IBAN only via `owner_sklad_save_payment`, mod 97) → pending, nothing booked, until the owner's

@@ -175,6 +175,10 @@ export interface SkladRow {
   is_out: boolean;
   is_low: boolean;
   no_price: boolean;
+  /** Update 86: false for a menu dish without "Sledovať zásobu" (not stock: no quantity, never low or out). */
+  tracked?: boolean;
+  /** Update 86: "Vypredané dnes" (the dish itself or the dish of a size). */
+  sold_out_today?: boolean;
 }
 
 export interface MovementRow {
@@ -258,6 +262,9 @@ export interface SaleProduct {
   total: number;
   min: number;
   unit: string;
+  /** Update 86: an untracked dish is "V ponuke" / "Vypredané dnes", never a quantity or a stock warning. */
+  tracked?: boolean;
+  soldOutToday?: boolean;
 }
 
 export interface BasketLine {
@@ -326,7 +333,9 @@ export function basketView(lines: BasketLine[], products: Map<string, SaleProduc
     totalCents += lineCents;
     pieces += l.qty;
     const after = p.total - l.qty;
-    rows.push({ line: l, product: p, lineTotal: lineCents / 100, after, short: after < 0, low: after >= 0 && p.min > 0 && after < p.min, noPrice: p.price === null });
+    // update 86: an untracked dish has no stock, so never a short or low warning
+    const stock = p.tracked !== false;
+    rows.push({ line: l, product: p, lineTotal: lineCents / 100, after, short: stock && after < 0, low: stock && after >= 0 && p.min > 0 && after < p.min, noPrice: p.price === null });
   }
   return { rows, total: totalCents / 100, pieces, noPrice: rows.some((r) => r.noPrice) };
 }
@@ -377,6 +386,8 @@ export function saleProducts(rows: SkladRow[]): SaleProduct[] {
     total: Number(r.total) || 0,
     min: Number(r.min_qty) || 0,
     unit: r.unit || "ks",
+    tracked: r.tracked !== false,
+    soldOutToday: r.sold_out_today === true,
   }));
 }
 

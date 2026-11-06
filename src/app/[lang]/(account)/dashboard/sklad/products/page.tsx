@@ -123,19 +123,26 @@ export default async function SkladProducts({ params, searchParams }: PageProps<
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <strong className="text-[15px]">{p.name}</strong>
                   <span className="text-[13px] text-muted">
-                    {[p.code, ...p.locations.map((l) => `${l.name} ${new Intl.NumberFormat(ctx.lang, { maximumFractionDigits: 3 }).format(l.qty)}`)].join(" · ")}
+                    {[p.code, ...(p.tracked === false ? [] : p.locations).map((l) => `${l.name} ${new Intl.NumberFormat(ctx.lang, { maximumFractionDigits: 3 }).format(l.qty)}`)].join(" · ")}
                   </span>
                   {note && <span className={`text-[13px] font-bold ${p.is_out ? "text-[#B42318]" : "text-[#7A4A00]"}`}>{note}</span>}
                 </span>
                 <span className="flex flex-none flex-col items-end gap-0.5">
-                  <span className="flex items-center gap-1.5 text-base font-bold" data-sklad-total={p.total}>
-                    <span
-                      role="img"
-                      aria-label={p.total > 0 ? dict.stock.dot_available : dict.stock.dot_sold_out}
-                      className={`size-2.5 flex-none rounded-full shadow-[0_0_0_1px_rgba(0,0,0,.25)] ${p.total > 0 ? "bg-[#22C55E]" : "bg-[#EF4444]"}`}
-                    />
-                    {p.total > 0 ? formatQty(p.total, p.unit, ctx.lang) : s.sold_out}
-                  </span>
+                  {p.tracked === false ? (
+                    // update 86: a dish without "Sledovať zásobu" is not stock
+                    <span className="text-sm font-semibold text-muted" data-sklad-untracked>
+                      {p.sold_out_today ? s.sale_sold_out_today : s.untracked}
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-base font-bold" data-sklad-total={p.total}>
+                      <span
+                        role="img"
+                        aria-label={p.total > 0 ? dict.stock.dot_available : dict.stock.dot_sold_out}
+                        className={`size-2.5 flex-none rounded-full shadow-[0_0_0_1px_rgba(0,0,0,.25)] ${p.total > 0 ? "bg-[#22C55E]" : "bg-[#EF4444]"}`}
+                      />
+                      {p.total > 0 ? formatQty(p.total, p.unit, ctx.lang) : s.sold_out}
+                    </span>
+                  )}
                   <span className="text-sm text-muted">{p.sale_price === null ? s.no_price_short : formatPrice(p.sale_price, ctx.lang, "EUR")}</span>
                 </span>
               </Link>

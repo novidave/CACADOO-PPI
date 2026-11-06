@@ -16187,4 +16187,302 @@ reset role;
 reset request.jwt.claim.sub;
 drop table t85;
 
+\echo '--- update 86: a restaurant''s stock — untracked dishes are not stock (a sale and a food order store no movement for them, manual movements and counts refused, "Sledovať zásobu" on starts at 0 once), a food shop''s stock never goes stale (public: current at any age; the owner: never_expires; no reminder), goods shops unchanged'
+create temporary table t86 (k text primary key, v text);
+grant all on t86 to public;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+begin
+  insert into t86 values ('shop', v_a::text), ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(x) from public.subscriptions x where x.shop_id = v_a)::text),
+    ('day', ((now() at time zone v_tz)::date)::text),
+    ('kind', (select kind from public.shops where id = v_a)),
+    ('food', (select to_jsonb(f) from public.food_settings f where f.shop_id = v_a)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_86')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, (now() at time zone v_tz)::date, false, '[["00:00","23:59"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+  assert public.stock_source_of(v_a) = 'sklad', 'the test shop sells from Sklad';
+  assert not has_function_privilege('authenticated', 'public.sklad_tracks_stock(uuid)', 'execute')
+     and not has_function_privilege('anon', 'public.sklad_tracks_stock(uuid)', 'execute'), 'the rule is read inside the database';
+end $$;
+reset role;
+
+-- the owner: a restaurant with an untracked soup, a tracked juice, and a dessert to switch on and off
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+  v_soup uuid; v_juice uuid; v_cake uuid; v_count uuid;
+  vj jsonb;
+begin
+  perform public.owner_set_shop_kind(v_a, 'food');
+  perform public.owner_food_save_settings(v_a, '{"enabled": true, "pickup_on": true, "payments_on": true, "pay_cash": true, "deduct_on_delivery": true}');
+  v_soup := public.owner_menu_save_item(v_a, null, '{"name": "Polievka 86", "price": "2.80"}');
+  v_juice := public.owner_menu_save_item(v_a, null, '{"name": "Džús 86", "price": "1.90", "track_stock": true}');
+  v_cake := public.owner_menu_save_item(v_a, null, '{"name": "Tiramisu 86", "price": "3.50"}');
+  insert into t86 values ('soup', v_soup::text), ('juice', v_juice::text), ('cake', v_cake::text);
+  perform public.owner_sklad_move(v_a, gen_random_uuid(), v_juice, 'receipt', 10);
+
+  -- manual movements and counts of an untracked dish are refused; nothing stored
+  begin perform public.owner_sklad_move(v_a, gen_random_uuid(), v_soup, 'writeoff', 1, null, null, null, 'Rozliate'); raise exception 'an Odpis of an untracked dish';
+  exception when invalid_parameter_value then if sqlerrm <> 'untracked_dish' then raise; end if; end;
+  begin perform public.owner_sklad_move(v_a, gen_random_uuid(), v_soup, 'receipt', 5); raise exception 'a Príjem of an untracked dish';
+  exception when invalid_parameter_value then if sqlerrm <> 'untracked_dish' then raise; end if; end;
+  begin perform public.owner_sklad_move(v_a, gen_random_uuid(), v_soup, 'correction', 2, null, null, null, 'Oprava'); raise exception 'an Oprava of an untracked dish';
+  exception when invalid_parameter_value then if sqlerrm <> 'untracked_dish' then raise; end if; end;
+  v_count := gen_random_uuid();
+  perform public.owner_sklad_count_start(v_a, v_count, 'Inventúra 86', null, null, false);
+  begin perform public.owner_sklad_count_set(v_a, v_count, v_soup, 'Pult', 3); raise exception 'counting an untracked dish';
+  exception when invalid_parameter_value then if sqlerrm <> 'untracked_dish' then raise; end if; end;
+  perform public.owner_sklad_count_cancel(v_a, v_count);
+
+  -- the lists: tracked / sold out today, an untracked dish is never low or out
+  vj := public.owner_sklad_products(v_a, 'Polievka 86');
+  assert jsonb_array_length(vj -> 'rows') = 1 and not (vj -> 'rows' -> 0 ->> 'tracked')::boolean
+     and not (vj -> 'rows' -> 0 ->> 'is_out')::boolean and not (vj -> 'rows' -> 0 ->> 'sold_out_today')::boolean, vj::text;
+  perform public.owner_menu_set_sold_out(v_a, v_soup, true);
+  assert (public.owner_sklad_products(v_a, 'Polievka 86') -> 'rows' -> 0 ->> 'sold_out_today')::boolean, 'Vypredané dnes';
+  perform public.owner_menu_set_sold_out(v_a, v_soup, false);
+  vj := public.owner_sklad_products(v_a, 'Džús 86');
+  assert (vj -> 'rows' -> 0 ->> 'tracked')::boolean and (vj -> 'rows' -> 0 ->> 'total')::numeric = 10, vj::text;
+  vj := public.owner_sklad_product(v_a, v_soup);
+  assert not (vj ->> 'tracked')::boolean and (vj ->> 'menu_item')::boolean and (vj ->> 'never_expires')::boolean, vj::text;
+
+  -- a sale: the sale and its lines are stored, the untracked soup gets no movement, the juice does
+  vj := public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_soup, 'qty', 2),
+                                                                          jsonb_build_object('item_id', v_juice, 'qty', 1)), 'cash');
+  insert into t86 values ('sale', vj ->> 'id');
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+  v_soup uuid := (select v::uuid from t86 where k = 'soup');
+  v_juice uuid := (select v::uuid from t86 where k = 'juice');
+  v_sale public.sklad_sales;
+begin
+  select * into v_sale from public.sklad_sales where id = (select v::uuid from t86 where k = 'sale');
+  assert v_sale.id is not null and v_sale.status = 'done' and jsonb_array_length(v_sale.lines) = 2 and v_sale.total = 7.50, to_jsonb(v_sale)::text;
+  assert not exists (select 1 from public.sklad_movements where shop_item_id = v_soup), 'no movement for the untracked soup';
+  assert (select count(*) from public.sklad_movements where sale_id = v_sale.id and shop_item_id = v_juice and qty = -1) = 1;
+  assert (select qty from public.sklad_stock_total where shop_item_id = v_juice) = 9;
+  -- a direct insert is skipped too (the one guard)
+  insert into public.sklad_movements (id, shop_id, shop_item_id, location_id, kind, qty, ref)
+  values (gen_random_uuid(), v_a, v_soup, public.sklad_default_location(v_a, false), 'sale', -1, 'Test 86');
+  assert not exists (select 1 from public.sklad_movements where shop_item_id = v_soup), 'the guard skipped it';
+  -- an untracked dish is not stock: no inventory row; the juice is
+  assert not exists (select 1 from public.inventory where shop_item_id = v_soup)
+     and exists (select 1 from public.inventory where shop_item_id = v_juice and quantity = 9);
+  assert not exists (select 1 from public.sklad_count_scope((select c from public.sklad_counts c where c.shop_id = v_a and c.name = 'Inventúra 86')) x
+                     where x.shop_item_id = v_soup), 'no untracked dish in a count';
+end $$;
+reset role;
+
+-- a food order with "Odpísať zo skladu": only the tracked line moves; a reopen returns only what was taken
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+  v_open jsonb := public.assistant_open((select v::uuid from t86 where k = 'shop'), 'sk', repeat('8', 32));
+  v_code jsonb;
+  vj jsonb;
+begin
+  v_code := public.sms_code_start('potraviny-centrum', 'order', '0907 886 001', 'Zákazník 86', md5('t86-1'),
+                                  (v_open ->> 'id')::uuid, v_open ->> 'token');
+  vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', gen_random_uuid(),
+          jsonb_build_array(jsonb_build_object('item_id', (select v from t86 where k = 'soup'), 'qty', 2),
+                            jsonb_build_object('item_id', (select v from t86 where k = 'juice'), 'qty', 3)),
+          'pickup', null, null, null, null, null, (v_open ->> 'id')::uuid, v_open ->> 'token', 'sk');
+  assert (vj ->> 'ok')::boolean, vj::text;
+  insert into t86 values ('order', vj -> 'order' ->> 'id');
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+  v_order uuid := (select v::uuid from t86 where k = 'order');
+  vj jsonb;
+begin
+  vj := public.owner_food_order_finish(v_a, v_order, gen_random_uuid(), 'cash', 10000);
+  assert vj ->> 'status' = 'picked_up', vj::text;
+  vj := public.owner_food_order_reopen(v_a, v_order, gen_random_uuid());
+  assert (vj ->> 'stock_returned')::boolean, vj::text;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_soup uuid := (select v::uuid from t86 where k = 'soup');
+  v_juice uuid := (select v::uuid from t86 where k = 'juice');
+  v_order uuid := (select v::uuid from t86 where k = 'order');
+begin
+  assert not exists (select 1 from public.sklad_movements where shop_item_id = v_soup), 'the soup never moved';
+  assert (select count(*) from public.sklad_movements where shop_item_id = v_juice and kind = 'sale' and qty = -3
+          and id in (select md5(v_order::text || ':' || l.id::text)::uuid from public.food_order_lines l where l.order_id = v_order)) = 1,
+         'the juice was taken once, by its md5(order : line) id';
+  assert (select count(*) from public.sklad_movements where shop_item_id = v_juice and kind = 'correction' and qty = 3
+          and reason like 'Vrátené – objednávka č.%') = 1, 'and returned once';
+  assert (select qty from public.sklad_stock_total where shop_item_id = v_juice) = 9, 'back to 9';
+end $$;
+reset role;
+
+-- "Sledovať zásobu" on: the dessert starts at 0 (an old negative cleared), once
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+  v_cake uuid := (select v::uuid from t86 where k = 'cake');
+begin
+  perform public.owner_menu_save_item(v_a, v_cake, '{"track_stock": true}');
+  perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_cake, 'qty', 2)), 'cash');
+  perform public.owner_menu_save_item(v_a, v_cake, '{"track_stock": false}');
+  perform public.owner_sklad_sell(v_a, gen_random_uuid(), jsonb_build_array(jsonb_build_object('item_id', v_cake, 'qty', 1)), 'cash');
+  set local role service_role;
+  assert (select qty from public.sklad_stock_total where shop_item_id = v_cake) = -2, 'tracked: -2; untracked: no movement';
+  assert not exists (select 1 from public.sklad_movements where shop_item_id = v_cake and kind = 'correction'), 'switched on at 0: no Oprava';
+  set local role authenticated;
+  perform public.owner_menu_save_item(v_a, v_cake, '{"track_stock": true}');
+  perform public.owner_menu_save_item(v_a, v_cake, '{"track_stock": true}');
+  set local role service_role;
+  assert (select qty from public.sklad_stock_total where shop_item_id = v_cake) = 0, 'starts at 0';
+  assert (select count(*) from public.sklad_movements where shop_item_id = v_cake and kind = 'correction'
+          and reason = 'Začiatok sledovania zásoby' and qty = 2) = 1, 'one Oprava';
+  assert exists (select 1 from public.inventory where shop_item_id = v_cake and quantity = 0), 'tracked: on the public side, sold out';
+end $$;
+reset role;
+
+-- Jazyky a inventár → Tovar and Prehľad: "V menu", never_expires, no countdown
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+  v_soup uuid := (select v::uuid from t86 where k = 'soup');
+  vj jsonb;
+  r record;
+begin
+  select * into r from public.owner_items(v_a, 'Polievka 86') x where x.item_id = v_soup;
+  assert r.availability = 'in_menu', r::text;
+  assert not exists (select 1 from public.owner_items(v_a, 'Polievka 86', 50, 0, 'sold_out') x where x.item_id = v_soup)
+     and not exists (select 1 from public.owner_items(v_a, 'Polievka 86', 50, 0, 'in_stock') x where x.item_id = v_soup), 'neither in stock nor sold out';
+  assert (select freshness_state from public.my_shops() where id = v_a) = 'never_expires';
+  vj := public.owner_sklad_overview(v_a);
+  assert (vj ->> 'never_expires')::boolean and not (vj ->> 'needs_check')::boolean and vj -> 'fresh_until' = 'null'::jsonb
+     and vj ->> 'freshness_state' = 'never_expires', vj::text;
+end $$;
+reset role;
+
+-- a food shop's stock never goes stale by time; a goods shop hides after 24 h; the kind decides at once
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+  v_juice uuid := (select v::uuid from t86 where k = 'juice');
+begin
+  update public.sync_sources set latest_file_time = now() - interval '3 days' where shop_id = v_a;
+end $$;
+reset role;
+set role anon;
+do $$
+declare
+  v_juice uuid := (select v::uuid from t86 where k = 'juice');
+begin
+  assert (select availability = 'in_stock_count' and quantity = 9 and freshness_state = 'current'
+          from public.public_stock where item_id = v_juice), 'a food shop 3 days later: still shown with its quantity';
+  assert (select freshness_state from public.public_shops where slug = 'potraviny-centrum') = 'current';
+  assert exists (select 1 from public.shop_item_search('potraviny-centrum', 'Džús 86', 10, 0) x
+                 where x.item_id = v_juice and x.is_available), 'the shop''s search too';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$ begin perform public.owner_set_shop_kind((select v::uuid from t86 where k = 'shop'), 'goods'); end $$;
+reset role;
+set role anon;
+do $$
+declare
+  v_juice uuid := (select v::uuid from t86 where k = 'juice');
+begin
+  assert (select availability is null and quantity is null and freshness_state = 'stale'
+          from public.public_stock where item_id = v_juice), 'food → goods: the 24 h rule at once';
+  assert (select freshness_state from public.public_shops where slug = 'potraviny-centrum') = 'stale';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+begin
+  assert (select freshness_state from public.my_shops() where id = v_a) = 'stale', 'goods: the owner sees stale again';
+  assert (public.owner_sklad_overview(v_a) ->> 'fresh_until') is not null, 'goods: the countdown is back';
+  perform public.owner_set_shop_kind(v_a, 'food');
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  assert (select availability = 'in_stock_count' from public.public_stock where item_id = (select v::uuid from t86 where k = 'juice')),
+         'goods → food: shown again at once';
+end $$;
+reset role;
+
+-- the daily reminder never picks a food shop (a goods shop with no movement today would get it)
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+begin
+  begin
+    alter table public.sklad_movements disable trigger sklad_movements_frozen;
+    update public.sklad_movements set created_at = created_at - interval '3 days' where shop_id = v_a;
+    update public.sklad_settings set reminder_on = true, reminder_time = '00:00', confirmed_at = now() - interval '2 days',
+                                     reminded_on = null where shop_id = v_a;
+    update public.shops set kind = 'food' where id = v_a;
+    assert not exists (select 1 from public.sklad_reminders_due() d where d.shop_id = v_a), 'a food shop: no reminder';
+    update public.shops set kind = 'goods' where id = v_a;
+    assert exists (select 1 from public.sklad_reminders_due() d where d.shop_id = v_a), 'a goods shop: the reminder as before';
+    raise exception 'undo 86';
+  exception when raise_exception then
+    if sqlerrm <> 'undo 86' then raise; end if;
+  end;
+  assert exists (select 1 from public.sklad_movements where shop_id = v_a and created_at > now() - interval '1 hour'), 'undone';
+end $$;
+
+-- tidy up: the kind, food ordering, the day's hours, the subscription
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t86 where k = 'shop');
+begin
+  update public.shops set kind = (select v from t86 where k = 'kind') where id = v_a;
+  update public.food_settings f set enabled = coalesce((x ->> 'enabled')::boolean, false),
+         deduct_on_delivery = coalesce((x ->> 'deduct_on_delivery')::boolean, false)
+  from (select (select v::jsonb from t86 where k = 'food') x) y where f.shop_id = v_a;
+  update public.sync_sources set latest_file_time = now() where shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t86 where k = 'day');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t86 where k = 'sub'))
+  where (select v from t86 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t86 where k = 'had_plan');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+drop table t86;
+
 \echo 'ALL DATABASE CHECKS PASSED'
