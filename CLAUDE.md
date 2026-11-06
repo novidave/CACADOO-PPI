@@ -1778,7 +1778,9 @@ never moves; without JavaScript the form and the list's page links land on `#ite
 message only, never the address, IP or personal data) → `log_server_error()` → admin "Chyby za posledných 7 dní";
 Sentry too when `SENTRY_DSN` is set. Budget: `.github/workflows/performance.yml` (Lighthouse CI `lighthouserc.cjs` +
 `scripts/first-load-js.mjs` + `npm run test:e2e` on every Vercel preview, throttling applied while loading); first-load JS
-< 150 kB gzip on public pages. The main chat box sizes itself in CSS (`field-sizing: content`), not after hydration.
+< 150 kB gzip on public pages. **The main page and its AI search are not measured** until the owner turns them back on
+(2026-11-06; `lighthouserc.cjs` + `scripts/first-load-js.mjs`; the e2e tests still check them). The main chat box sizes
+itself in CSS (`field-sizing: content`), not after hydration.
 
 ## Začať sklad odznova (update 43)
 

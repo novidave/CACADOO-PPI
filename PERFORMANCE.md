@@ -16,8 +16,9 @@ How fast Cacaduu PPI must be, how it stays that way, and how to measure it. Set 
 | Tap feedback | < 100 ms | `npm run test:e2e` (the chat question shows at once) |
 
 `lighthouserc.cjs` holds the budget; `.github/workflows/performance.yml` runs it and the phone e2e on every Vercel
-preview and fails the check when a page goes over. Shop and item pages only **warn** on LCP, the search page on LCP
-and score (see "Known limits"). The checks send `x-vercel-skip-toolbar: 1` (and the bypass header) only to the site
+preview and fails the check when a page goes over. Shop and item pages only **warn** on LCP (see "Known limits").
+**The main page and its AI search are not measured** until the owner turns them back on (2026-11-06: "not configured
+well yet"; `lighthouserc.cjs` + `scripts/first-load-js.mjs`); the e2e tests still check that both work. The checks send `x-vercel-skip-toolbar: 1` (and the bypass header) only to the site
 under test: the Vercel toolbar exists only on previews and is not part of the site.
 
 ## Rules that keep it fast
