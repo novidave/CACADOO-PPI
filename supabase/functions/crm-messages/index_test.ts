@@ -304,6 +304,11 @@ Deno.test("a new food order: the owner e-mail has the number, the time, the item
   // update 81: a shop without payments in Cacaduu — no method, no empty brackets
   const none = foodAlertMail({ ...row, pay_method: null }, "sk", null);
   eq(none.text.includes("Spolu: 35,60") && none.text.includes("platba pri prevzatí") && !none.text.includes("()") && !none.text.includes("null"), true, "no method");
+
+  // update 87: the zone the customer picked, after the delivery time (never for a pickup)
+  eq(foodAlertMail({ ...row, zone: "Veľké Kapušany" }, "sk", null).text.includes("Donáška do 19:20 · Veľké Kapušany"), true, "the zone");
+  eq(foodAlertMail({ ...row, kind: "pickup", zone: "Veľké Kapušany" }, "sk", null).text.includes("Kapušany"), false, "no zone for a pickup");
+  eq(foodAlertMail({ ...row, zone: null }, "sk", null).text.includes("Donáška do 19:20\n"), true, "no zone: as before");
 });
 
 Deno.test("food_sms: written down as the owner first (owner_food_sms_queue), then sent; refusals passed on", async () => {

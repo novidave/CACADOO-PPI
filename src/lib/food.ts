@@ -1,5 +1,5 @@
 import "server-only";
-import { type CartLine, townOf } from "./foodRules";
+import { type CartLine, townOf, type ZoneOption } from "./foodRules";
 import { geocodeTown } from "./productSources";
 import { createCachedPublicClient, createPublicClient } from "./supabase/public";
 
@@ -29,6 +29,9 @@ export interface FoodState {
   payments?: boolean;
   pay?: { qr: boolean; cash: boolean; card: boolean };
   zones?: { name: string; fee_cents: number; minimum_cents: number }[];
+  /** update 87: how many zones the shop has (0 = Donáška anywhere, no fee) and the customer's list in the owner's order */
+  zones_count?: number;
+  zone_list?: ZoneOption[];
   phone?: string | null;
   /** update 85: "Poznámka k platbe po objednaní" as the owner wrote it (null = the default line, "-" = none). */
   pay_note?: string | null;
@@ -61,7 +64,8 @@ export interface Quote {
   kind: "pickup" | "delivery";
   lines: QuoteLine[];
   refused: { item_id: string; name: string | null; reason: string; extra_of?: string }[];
-  zone: { id: string; name: string; fee_cents: number; minimum_cents: number } | null;
+  zone: { id: string; name: string; label?: string; kind?: ZoneOption["kind"]; fee_cents: number; minimum_cents: number } | null;
+  zones_count?: number;
   subtotal_cents: number;
   delivery_cents: number;
   minimum_cents: number;
@@ -106,12 +110,17 @@ export async function foodMenu(slug: string, q: string | null, limit = 60): Prom
   return ((data as { items?: MenuItem[] }).items ?? []) as MenuItem[];
 }
 
+/**
+ * The price rule. `zone` (update 87): the zone the customer picked — null = none picked (refused with zones:
+ * zone_required); the database checks it fits the address and charges only its fee.
+ */
 export async function foodQuote(
   slug: string,
   lines: CartLine[],
   kind: "pickup" | "delivery",
   address: string | null,
   place: { lat: number; lng: number } | null = null,
+  zone: string | null = null,
 ): Promise<{ quote: Quote | null; error: string | null }> {
   const { data, error } = await db().rpc("food_quote", {
     p_slug: slug,
@@ -120,21 +129,26 @@ export async function foodQuote(
     p_address: address,
     p_lat: place?.lat ?? null,
     p_lng: place?.lng ?? null,
+    p_zone: kind === "delivery" ? zone : null,
   });
   if (error) return { quote: null, error: error.message };
   return { quote: data as Quote, error: null };
 }
 
 /**
- * The quote with the address's place: when no town or postcode zone matched, the town of the address is geocoded once
- * (the search's own Nominatim rule, cached) for the shop's kilometre zones. Returns the place to keep with the order.
+ * The quote with the address's place (update 87: for the zone the customer picked): only when that zone is a
+ * kilometre zone and the database could not place the address, the town of the address is geocoded once (the search's
+ * own Nominatim rule, cached). No zones, a town or a postcode zone: never geocoded. Returns the place to keep with the
+ * order.
  */
-export async function quoteWithPlace(slug: string, lines: CartLine[], kind: "pickup" | "delivery", address: string | null) {
-  const first = await foodQuote(slug, lines, kind, address);
-  if (kind !== "delivery" || !address || first.quote?.problem !== "outside_zone") return { ...first, place: null };
+export async function quoteWithPlace(slug: string, lines: CartLine[], kind: "pickup" | "delivery", address: string | null, zone: string | null = null) {
+  const first = await foodQuote(slug, lines, kind, address, null, zone);
+  if (kind !== "delivery" || !address || first.quote?.problem !== "zone_mismatch" || first.quote.zone?.kind !== "radius_km") {
+    return { ...first, place: null };
+  }
   const town = townOf(address);
   const place = town ? await geocodeTown(town).catch(() => null) : null;
   if (!place) return { ...first, place: null };
-  const again = await foodQuote(slug, lines, kind, address, place);
-  return { ...again, place: again.quote?.zone ? place : null };
+  const again = await foodQuote(slug, lines, kind, address, place, zone);
+  return { ...again, place: again.quote?.orderable || again.quote?.problem !== "zone_mismatch" ? place : null };
 }

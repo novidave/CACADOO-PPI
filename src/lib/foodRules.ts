@@ -25,7 +25,8 @@ export const ORDER_PROBLEMS = [
 export function townOf(address: string): string | null {
   const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
   const last = parts.length > 1 ? parts[parts.length - 1] : parts[0] ?? "";
-  const town = last.replace(/^\s*\d{3}\s?\d{2}\s*/, "").replace(/\s*\d{3}\s?\d{2}\s*$/, "").trim();
+  // update 87: a Hungarian / Austrian four-digit postcode too ("1051 Budapest"); the same rule as food_town_of() in SQL
+  const town = last.replace(/^\s*(\d{3}\s?\d{2}|\d{4})\s*/, "").replace(/\s*(\d{3}\s?\d{2}|\d{4})\s*$/, "").trim();
   return town.length >= 2 && /\p{L}/u.test(town) ? town.slice(0, 100) : null;
 }
 
@@ -116,7 +117,7 @@ export interface KindChoice {
 /**
  * The two ways of receiving an order (the owner's request, 2026-11-06): "Osobný odber" and "Donáška" are ALWAYS both
  * shown, nothing is chosen at first, and a way the shop does not offer is shown greyed — Donáška only while the shop
- * uses it (food_state.delivery: switched on and with a zone), Osobný odber unless the shop switched it off and
+ * uses it (food_state.delivery: its switch; zones are optional since update 87), Osobný odber unless the shop switched it off and
  * delivers (never no way at all). SQL still decides every order (food_quote / food_order_create).
  */
 export function orderKinds(state: { pickup?: boolean; delivery?: boolean }): KindChoice[] {
@@ -127,14 +128,73 @@ export function orderKinds(state: { pickup?: boolean; delivery?: boolean }): Kin
   ];
 }
 
+// ------------------------------------------------------------------ update 87: the delivery zone the customer picks
+
+/** A zone as food_state's zone_list gives it (the owner's order; no coordinates, no internal names). */
+export interface ZoneOption {
+  id: string;
+  /** The owner's "Názov pre zákazníka", else the town, else the postcode(s), else "do <n> km" (in Slovak). */
+  label: string;
+  own_label?: boolean;
+  kind: "town" | "postcode" | "radius_km";
+  /** The town or the postcode(s) of a town / postcode zone (null for kilometres). */
+  value: string | null;
+  km: number | null;
+  fee_cents: number;
+  min_cents: number;
+}
+
+/** Words without accents and case ("Veľké Kapušany" → "velke kapusany"), = food_words() in SQL. */
+export function placeWords(text: string | null | undefined): string {
+  return (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * A town zone fits the address (= food_town_fits() in SQL): the address's town (townOf) is the zone's town, or the
+ * address ends with it (a postcode after it ignored) — "Hlavná 5 Veľké Kapušany 079 01" fits "Veľké Kapušany".
+ */
+export function townFits(address: string, town: string): boolean {
+  const t = placeWords(town);
+  if (!t || !/[a-z]/.test(t)) return false;
+  const words = placeWords(address).replace(/(\s[0-9]+)+$/, "");
+  return placeWords(townOf(address)) === t || words === t || words.endsWith(` ${t}`);
+}
+
+/** A postcode zone fits: one of its postcodes ("071 01", "07101; 07102") is in the address (spaces ignored). */
+export function postcodeFits(address: string, codes: string): boolean {
+  const typed = address.replace(/\s/g, "").toUpperCase();
+  return codes.split(/[,;]+/).map((c) => c.replace(/\s/g, "").toUpperCase()).some((c) => c !== "" && typed.includes(c));
+}
+
+/**
+ * The zone chosen for the customer when the typed address fits exactly ONE town or postcode zone (else none: the
+ * customer picks). Kilometre zones are never guessed (only the database's geocoded check decides them).
+ */
+export function preselectZone(address: string, zones: ZoneOption[]): string | null {
+  if (!address.trim()) return null;
+  const fits = zones.filter((z) =>
+    z.value && (z.kind === "town" ? townFits(address, z.value) : z.kind === "postcode" ? postcodeFits(address, z.value) : false));
+  return fits.length === 1 ? fits[0].id : null;
+}
+
+/** The button's label: the owner's own name, else the town / postcode, else "do <n> km" in the page language. */
+export function zoneLabel(z: ZoneOption, kmText: string, locale: string): string {
+  if (z.kind !== "radius_km" || z.own_label || z.km === null) return z.label;
+  return kmText.replace("{n}", new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(z.km));
+}
+
 /** A tap on a way: the way when the shop offers it, else null (the panel shows why and keeps the choice). */
 export function pickKind(kinds: KindChoice[], wanted: OrderKind): OrderKind | null {
   return kinds.some((k) => k.kind === wanted && k.available) ? wanted : null;
 }
 
-/** "Pokračovať" only after the customer picked a way the shop offers (nothing is chosen for them). */
-export function canContinue(kind: OrderKind | null, kinds: KindChoice[], lines: number): boolean {
-  return lines > 0 && kind !== null && pickKind(kinds, kind) === kind;
+/**
+ * "Pokračovať" only after the customer picked a way the shop offers (nothing is chosen for them) and — for Donáška at
+ * a shop with zones (update 87) — a zone.
+ */
+export function canContinue(kind: OrderKind | null, kinds: KindChoice[], lines: number, zone: { needed: boolean; chosen: string | null } = { needed: false, chosen: null }): boolean {
+  if (lines <= 0 || kind === null || pickKind(kinds, kind) !== kind) return false;
+  return !(kind === "delivery" && zone.needed && !zone.chosen);
 }
 
 /**

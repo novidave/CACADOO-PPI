@@ -904,7 +904,15 @@
     "order_kind_pick": "Válassza a személyes átvételt vagy a házhozszállítást.",
     "order_delivery_off": "Ez az üzlet még nem szállít házhoz – válassza a személyes átvételt.",
     "order_pickup_off": "Ez az üzlet nem kínál személyes átvételt – válassza a házhozszállítást.",
-    "order_err_no_kind": "Válassza a személyes átvételt vagy a házhozszállítást."
+    "order_err_no_kind": "Válassza a személyes átvételt vagy a házhozszállítást.",
+    "order_zone_question": "Hová szállítsunk?",
+    "order_zone_fee": "+ {fee}",
+    "order_zone_no_fee": "díjmentes",
+    "order_zone_min": "min. {min}",
+    "order_zone_km": "{n} km-ig",
+    "order_err_zone_required": "Válassza ki, hová szállítsunk.",
+    "order_err_zone_mismatch": "Ez a cím nincs a(z) „{zone}” zónában – válasszon másikat, vagy javítsa a címet.",
+    "order_err_zone_unknown": "Ez a zóna már nem érvényes – válasszon másikat."
   },
   "docs": {
     "title": "Dokumentumok az asszisztensnek",
@@ -4901,10 +4909,10 @@
     "s_delivery_on": "Kiszállítás engedélyezése",
     "s_eta": "Becsült kiszállítás",
     "s_min": "{n} perc",
-    "s_zone_hint": "A zónákon kívüli címet az asszisztens elutasítja, és személyes átvételt ajánl.",
+    "s_zone_hint": "A vásárló a cím megadása után kiválasztja a zónát – annak díja és minimuma érvényes. A címnek a zónába kell esnie.",
     "s_zones_count": "Kiszállítási zónák: {n}",
     "s_zones": "Kiszállítási zónák",
-    "s_zones_none": "Még nincs zóna – az asszisztens nem kínál kiszállítást.",
+    "s_zones_none": "Még nincs zóna.",
     "s_zone_add": "+ Zóna hozzáadása",
     "s_zone_name": "Név",
     "s_zone_kind": "Alapja",
@@ -5134,7 +5142,14 @@
     "mod_feed_newest": "Legújabb felül",
     "mod_feed_oldest": "Legrégebbi felül",
     "mod_feed_hint": "A kész rendelések szürkén a feed végére kerülnek, a mainál régebbiek elrejtődnek.",
-    "mod_min_unit": "perc"
+    "mod_min_unit": "perc",
+    "s_zones_free": "Zónák nélkül bárhová díjmentesen szállítunk.",
+    "s_zone_label": "Név a vásárlónak (nem kötelező)",
+    "s_zone_label_hint": "A zóna gombján jelenik meg, legfeljebb 40 karakter. Üresen = település, irányítószám vagy „n km-ig”.",
+    "s_zone_up": "Feljebb: {zone}",
+    "s_zone_down": "Lejjebb: {zone}",
+    "err_label": "A vásárlónak szóló név legfeljebb 40 karakter lehet.",
+    "ok_zones_ordered": "A zónák sorrendje mentve."
   },
   "nav": {
     "label": "Menü",

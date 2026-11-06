@@ -458,7 +458,10 @@ export function FoodFeed({
                   {tags.address && (
                     <p className="flex items-start gap-1.5 text-sm">
                       <PinIcon />
-                      <span className="min-w-0">{o.address}</span>
+                      <span className="min-w-0">
+                        {o.address}
+                        {o.zone_name && <span className="font-semibold" data-feed-zone> · {o.zone_name}</span>}
+                      </span>
                     </p>
                   )}
                   <p className="text-[15px]">{itemsText(o)}</p>
@@ -631,7 +634,9 @@ export function FoodFeed({
 
 /** A grey row's text: time, number + name, pickup or the address, when it was finished, the total. */
 function DoneRowText({ o, labels, hm, lang, href, day = false }: { o: FeedCard; labels: Labels; hm: (iso: string | null) => string; lang: string; href: string; day?: boolean }) {
-  const summary = o.kind === "delivery" ? fill(labels.feed_delivery_short, { address: o.address ?? "" }) : labels.feed_pickup_short;
+  const summary = o.kind === "delivery"
+    ? fill(labels.feed_delivery_short, { address: [o.address, o.zone_name].filter(Boolean).join(" · ") })
+    : labels.feed_pickup_short;
   const when = o.status === "on_the_way" ? fill(labels.feed_on_way_at, { time: hm(o.done_at) }) : fill(labels.feed_done_at, { time: hm(o.done_at) });
   return (
     <>

@@ -14,9 +14,9 @@ export const ORDER_CONSENT = "food-order-2026-11-03";
 
 /**
  * The order form in the shop assistant (database update 73), never the AI:
- *   quote {lines, kind, address?} → the price rule (Sklad prices, the zone, its fee and minimum, the total)
+ *   quote {lines, kind, address?, zone?} → the price rule (Sklad prices, the picked zone, its fee and minimum, the total)
  *   code  {name, phone, consent, conversation, lang} → an SMS code (the shop's order quota)
- *   place {code_id, code, order_id, lines, kind, pay_method, address?, note?, conversation, lang} → the order
+ *   place {code_id, code, order_id, lines, kind, address?, zone?, note?, conversation, lang} → the order
  * Prices, zones, times and the code are decided in SQL; at most 20 calls a minute per caller.
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug]/order">) {
@@ -39,7 +39,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
     // 2026-11-06: an order only with the way the customer picked (the panel chooses nothing for them)
     if (body.action === "place" && body.kind !== "pickup" && body.kind !== "delivery") return json({ error: "no_kind" }, 400);
     const address = kind === "delivery" ? str("address", 300) : null;
-    const { quote, error, place } = await quoteWithPlace(slug, lines, kind, address);
+    // update 87: the zone the customer picked (a UUID, or none); the database checks it again, never trusted alone
+    const zone = typeof body.zone === "string" && UUID.test(body.zone) ? body.zone : null;
+    const { quote, error, place } = await quoteWithPlace(slug, lines, kind, address, zone);
     if (error || !quote) return json({ error: error === "not_available" ? "not_available" : "failed" }, error === "not_available" ? 404 : 502);
     if (body.action === "quote") return json({ quote });
     if (!quote.orderable) return json({ error: quote.problem ?? "failed", quote }, 400);
@@ -55,6 +57,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
       order_id: body.order_id,
       lines,
       kind,
+      zone: kind === "delivery" ? zone : null,
       // update 85: the customer never chooses how to pay (marked by the owner or the courier at the handover)
       pay_method: null,
       address,

@@ -29,6 +29,12 @@ import {
   readyClock,
   routeUrl,
   townOf,
+  placeWords,
+  postcodeFits,
+  preselectZone,
+  townFits,
+  type ZoneOption,
+  zoneLabel,
 } from "./foodRules.ts";
 
 const root = new URL("../../", import.meta.url);
@@ -242,10 +248,11 @@ Deno.test("order panel: Osobný odber and Donáška ALWAYS as two radio buttons,
   assert(panel.includes("aria-disabled={available ? undefined : true}"), "a greyed way is aria-disabled");
   assert(panel.includes("labels.order_delivery_off") && panel.includes("setKindHint(k)"), "a tap shows why");
   assert(/onKeyDown=\{\(e\) => \{\s*if \(e\.key === "Enter"\)/.test(panel), "Enter shows it too");
-  assert(panel.includes("disabled={busy || !canContinue(kind, kinds, quote.lines.length)}"), "Pokračovať waits for a choice");
+  assert(panel.includes("disabled={busy || !canContinue(kind, kinds, quote.lines.length, { needed: zones.length > 0, chosen: zone })}"),
+    "Pokračovať waits for a choice (update 87: and for a zone)");
   assert(panel.includes("labels.order_kind_pick"), "the line under the buttons until a choice");
   assert(/kind === "delivery" && \(\s*<label[^]*name="address"/.test(panel), "the address field only with Donáška");
-  assert(panel.includes("value={address}") && panel.includes("onChange={(e) => setAddress(e.target.value)}"),
+  assert(panel.includes("value={address}") && panel.includes("setAddress(e.target.value);"),
     "the address is kept while Osobný odber hides the field");
   assert(/function chooseKind[^]*?requote\(\{ kind: k \}\)/.test(panel), "every change asks food_quote again");
   assert(/\{kind \? \(\s*<p[^>]*data-order-time/.test(panel), "the time line once a way is chosen");
@@ -339,3 +346,90 @@ Deno.test("code SMS: a failed one shows its own words, not \"Príliš veľa poku
   assert(/CODE_REASONS = \[[^\]]*"sms_failed"/.test(fn) && /COURIER_REASONS = \[[^\]]*"sms_failed"/.test(fn), "the refusal is passed on");
 });
 
+// ------------------------------------------------------------------ update 87: Donáška without zones, the zone the customer picks
+
+const Z = (id: string, kind: ZoneOption["kind"], value: string | null, extra: Partial<ZoneOption> = {}): ZoneOption => ({
+  id, label: value ?? "do 5 km", kind, value: kind === "radius_km" ? null : value, km: kind === "radius_km" ? 5 : null,
+  fee_cents: 150, min_cents: 1000, ...extra,
+});
+
+Deno.test("zones: the town and postcode rules are the database's (food_town_of / food_town_fits / food_postcode_fits)", () => {
+  // the same cases as the DB block "update 87"
+  assertEquals(townOf("Okružná 14, 071 01 Michalovce"), "Michalovce");
+  assertEquals(townOf("Hlavná 5, Veľké Kapušany 079 01"), "Veľké Kapušany");
+  assertEquals(townOf("Váci utca 5, 1051 Budapest"), "Budapest", "a four-digit postcode too");
+  assertEquals(townOf("Ulica 5, 04001"), null);
+  assertEquals(placeWords("Veľké  Kapušany"), "velke kapusany");
+  assert(townFits("Hlavná 5, Veľké Kapušany", "velke kapusany"));
+  assert(townFits("Hlavná 5 Veľké Kapušany 079 01", "Veľké Kapušany"), "no comma: the address ends with the town");
+  assert(!townFits("Kapušanská 5, Michalovce", "Kapušany"));
+  assert(!townFits("Hlavná 5, Pavlovce", "Michalovce"));
+  assert(!townFits("Hlavná 5, 07901 Kapušany", "07901"), "a postcode is not a town");
+  assert(postcodeFits("Hlavná 5, 071 01 Michalovce", "07101") && postcodeFits("Hlavná 5, 07102 X", "071 01; 071 02"));
+  assert(!postcodeFits("Hlavná 5, 04001 Košice", "071 01"));
+});
+
+Deno.test("zones: preselect only when the address fits exactly ONE town / postcode zone; kilometres never guessed", () => {
+  const zones = [Z("kap", "town", "Veľké Kapušany"), Z("mi", "town", "Michalovce"), Z("psc", "postcode", "071 01"), Z("km", "radius_km", null)];
+  assertEquals(preselectZone("Hlavná 5, Veľké Kapušany", zones), "kap");
+  assertEquals(preselectZone("Hlavná 5, 04001 Košice", zones), null, "nothing fits: the customer picks");
+  assertEquals(preselectZone("Okružná 2, 071 01 Michalovce", zones), null, "two fit (town + postcode): the customer picks");
+  assertEquals(preselectZone("Okružná 2, 071 01 Pavlovce", zones), "psc", "by the postcode");
+  assertEquals(preselectZone("", zones), null);
+  assertEquals(preselectZone("Hlavná 5, Dedina", [Z("km", "radius_km", null)]), null, "a kilometre zone is never guessed");
+});
+
+Deno.test("zones: the button's label — the owner's own, the town / postcode, else \"do n km\" in the page language", () => {
+  assertEquals(zoneLabel(Z("a", "town", "Michalovce", { label: "Michalovce – centrum", own_label: true }), "do {n} km", "sk"), "Michalovce – centrum");
+  assertEquals(zoneLabel(Z("a", "postcode", "071 01"), "do {n} km", "sk"), "071 01");
+  assertEquals(zoneLabel(Z("a", "radius_km", null, { km: 7.5, label: "do 7,5 km" }), "do {n} km", "sk"), "do 7,5 km");
+  assertEquals(zoneLabel(Z("a", "radius_km", null, { km: 7.5, label: "do 7,5 km" }), "up to {n} km", "en"), "up to 7.5 km");
+  assertEquals(zoneLabel(Z("a", "radius_km", null, { km: 7.5, label: "Okolie", own_label: true }), "{n} km-ig", "hu"), "Okolie");
+});
+
+Deno.test("zones: Pokračovať needs a zone only for Donáška at a shop with zones", () => {
+  const kinds = orderKinds({ pickup: true, delivery: true });
+  assertEquals(canContinue("delivery", kinds, 1, { needed: true, chosen: null }), false, "zones, none picked");
+  assertEquals(canContinue("delivery", kinds, 1, { needed: true, chosen: "kap" }), true);
+  assertEquals(canContinue("delivery", kinds, 1, { needed: false, chosen: null }), true, "no zones: no question");
+  assertEquals(canContinue("pickup", kinds, 1, { needed: true, chosen: null }), true, "pickup never asks");
+  // update 87: Donáška = its switch alone (food_state.delivery), zones optional
+  assertEquals(orderKinds({ pickup: true, delivery: true })[1], { kind: "delivery", available: true });
+});
+
+Deno.test("zones: the panel — buttons after the address, one per zone, radios, the fee / minimum, the refusals' words", async () => {
+  const panel = await read("src/components/OrderPanel.tsx");
+  assert(panel.includes("const zones = state.zone_list ?? [];"), "the zones from food_state");
+  assert(panel.includes('const showZones = kind === "delivery" && zones.length > 0 && addressDone && address.trim() !== "";'),
+    "only for Donáška, only with zones, after the address");
+  assert(panel.includes("onBlur={addressLeft}") && /if \(e\.key === "Enter"\) \{\s*e\.preventDefault\(\);\s*addressLeft\(\);/.test(panel), "on blur or Enter");
+  assert(panel.includes("const z = zonePicked ? zone : preselectZone(typed, zones);"), "a pick is never overridden by a guess");
+  assert(panel.includes('type="radio"') && panel.includes("name={zoneGroup}") && panel.includes("onChange={() => chooseZone(z.id)}"),
+    "real radio inputs (arrows move, the chosen one announced)");
+  assert(panel.includes("min-h-[56px] w-full") && panel.includes("rounded-xl") && panel.includes("border-[1.5px] border-[#E2E2E2]"),
+    "a long button ≥ 56 px, radius 12, 1.5 px #E2E2E2");
+  assert(panel.includes("{on && <CheckIcon />}") && panel.includes("bg-foreground font-bold text-white"), "chosen = black, white bold, a check");
+  assert(panel.includes("labels.order_zone_fee") && panel.includes("labels.order_zone_min") && panel.includes("labels.order_zone_question"));
+  assert(panel.includes("canContinue(kind, kinds, quote.lines.length, { needed: zones.length > 0, chosen: zone })"), "Pokračovať waits");
+  assert(panel.includes('zone: k === "delivery" ? z : null') && panel.includes('zone: kind === "delivery" ? zone : null'),
+    "every quote and the order carry the picked zone");
+  const route = await read("src/app/api/shops/[slug]/order/route.ts");
+  assert(route.includes("const zone = typeof body.zone === \"string\" && UUID.test(body.zone) ? body.zone : null;"), "only a UUID");
+  for (const [lang, m] of Object.entries({ sk, hu, en })) {
+    const chat = m.chat as Record<string, string>;
+    for (const k of ["order_zone_question", "order_zone_fee", "order_zone_no_fee", "order_zone_min", "order_zone_km",
+      "order_err_zone_required", "order_err_zone_mismatch", "order_err_zone_unknown"]) assert(chat[k], `${lang}: chat.${k}`);
+    assert(chat.order_err_zone_mismatch.includes("{zone}") && chat.order_zone_km.includes("{n}"), lang);
+  }
+  assertEquals(sk.chat.order_err_zone_mismatch, "Táto adresa nie je v zóne „{zone}“ – vyberte inú alebo opravte adresu.");
+  assertEquals(sk.chat.order_err_zone_required, "Vyberte, kam doručujeme.");
+  assertEquals(sk.chat.order_zone_question, "Kam doručujeme?");
+  // the assistant never picks a zone or names a fee
+  const chat = await read("src/lib/shopChat.ts");
+  assert(chat.includes("never choose a delivery zone and never name a delivery fee"), "the prompt");
+  assert(!/fee: euro\(z\.fee_cents\)/.test(chat), "no zone fee in the tool data");
+  // the owner: "Názov pre zákazníka", ▲ ▼, the line under the card
+  const settings = await read("src/app/[lang]/(account)/dashboard/assistant/orders/settings/page.tsx");
+  assert(settings.includes('name="label" maxLength={40}') && settings.includes("action={moveZone}") && settings.includes("f.s_zones_free"));
+  assertEquals(sk.food.s_zones_free, "Bez zón donášame kamkoľvek bez poplatku.");
+});

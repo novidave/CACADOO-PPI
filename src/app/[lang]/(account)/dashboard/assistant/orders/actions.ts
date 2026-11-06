@@ -22,6 +22,8 @@ const REASONS = [
   "phone", "phone_taken", "limit", "inactive", "courier", "site", "sms_failed",
   // update 81 (the feed)
   "courier_app", "too_late", "delay",
+  // update 87 (zones)
+  "label", "zones",
 ] as const;
 const reason = (message: string | undefined) => (REASONS.find((r) => r === message) ? `err_${message}` : "err_failed");
 
@@ -183,10 +185,31 @@ export async function saveZone(formData: FormData) {
     p_fee_cents: fee,
     p_minimum_cents: minimum,
     p_sort: null,
+    // update 87: "Názov pre zákazníka" ('' = none; SQL keeps plain text, ≤ 40)
+    p_label: String(formData.get("label") ?? "").slice(0, 200),
   });
   if (error) page({ err: reason(error.message) }, "#zones");
   if (slug) refreshShop(slug);
   page({ ok: "ok_zone" }, "#zones");
+}
+
+/** ▲ ▼ (update 87): one zone a place up or down; the database stores the whole order (owner_food_order_zones). */
+export async function moveZone(formData: FormData) {
+  const { session, shopId, slug, page } = await start(formData);
+  const zone = String(formData.get("zone_id") ?? "");
+  const dir = formData.get("dir") === "up" ? -1 : 1;
+  if (!UUID.test(zone)) page({ err: "err_not_found" }, "#zones");
+  const { data, error: readError } = await session.supabase.rpc("owner_food_settings", { p_shop_id: shopId });
+  if (readError) page({ err: reason(readError.message) }, "#zones");
+  const ids = ((data as { zones?: { id: string }[] } | null)?.zones ?? []).map((z) => z.id);
+  const at = ids.indexOf(zone);
+  const to = at + dir;
+  if (at < 0 || to < 0 || to >= ids.length) page({}, "#zones");
+  [ids[at], ids[to]] = [ids[to], ids[at]];
+  const { error } = await session.supabase.rpc("owner_food_order_zones", { p_shop_id: shopId, p_ids: ids });
+  if (error) page({ err: reason(error.message) }, "#zones");
+  if (slug) refreshShop(slug);
+  page({ ok: "ok_zones_ordered" }, "#zones");
 }
 
 export async function deleteZone(formData: FormData) {

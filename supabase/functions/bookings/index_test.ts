@@ -358,3 +358,32 @@ Deno.test("courier_code: a courier gets the SMS; an unknown number the same answ
   eq((await handle(website({ ...body, slug: "Bad Slug" }), deps)).status, 400, "slug");
   eq((await handle(website({ ...body, caller: "short" }), deps)).status, 400, "caller");
 });
+
+// ---------------------------------------------------------------- update 87: the zone the customer picked
+
+Deno.test("order_place: the picked zone goes to food_order_create; a website from before (no zone key) keeps the old rule; zone refusals pass on", async () => {
+  const ZONE = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const base = {
+    action: "order_place", code_id: BOOKING, code: "123 456", order_id: "0f8fad5b-d9cb-469f-a165-70867728950e",
+    lines: [{ item_id: "16fd2706-8baf-433b-82eb-8c7fada847da", qty: 1, extras: [] }], kind: "delivery", address: "Hlavná 5, Michalovce",
+    conversation_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", conversation_token: "t".repeat(32), lang: "sk",
+  };
+  const placed = { food_order_create: { data: { ok: true, duplicate: false, order: { number: 1 } } } };
+  const picked = await setup({ rpc: placed });
+  eq((await handle(website({ ...base, zone: ZONE }), picked.deps)).status, 200, "placed");
+  eq(picked.log.find((l) => l.startsWith("db food_order_create"))!.includes(`"p_zone":"${ZONE}"`), true, "the zone sent");
+  const none = await setup({ rpc: placed });
+  await handle(website({ ...base, zone: null }), none.deps);
+  eq(none.log.find((l) => l.startsWith("db food_order_create"))!.includes('"p_zone":null'), true, "none picked = null (the database refuses with zones)");
+  const pickup = await setup({ rpc: placed });
+  await handle(website({ ...base, kind: "pickup", zone: ZONE }), pickup.deps);
+  eq(pickup.log.find((l) => l.startsWith("db food_order_create"))!.includes('"p_zone":null'), true, "a pickup never sends a zone");
+  const old = await setup({ rpc: placed });
+  await handle(website(base), old.deps);
+  eq(old.log.find((l) => l.startsWith("db food_order_create"))!.includes("p_zone"), false, "no zone key: the database's old rule");
+  for (const why of ["zone_required", "zone_unknown", "zone_mismatch"]) {
+    const refused = await setup({ rpc: { food_order_create: { error: { message: why, code: "P0001" } } } });
+    const res = await handle(website({ ...base, zone: ZONE }), refused.deps);
+    eq([res.status, (await res.json()).error], [400, why], why);
+  }
+});

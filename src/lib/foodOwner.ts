@@ -122,6 +122,8 @@ export interface FoodZone {
   fee_cents: number;
   minimum_cents: number;
   sort: number;
+  /** update 87: "Názov pre zákazníka" (the zone's button), null = the town / postcode / "do n km" */
+  label?: string | null;
 }
 
 export interface MenuCheck {

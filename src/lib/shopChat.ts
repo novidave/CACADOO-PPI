@@ -544,6 +544,16 @@ function foodPrompt(food: FoodState): string[] {
       "- This shop does not deliver now (only pickup): never offer delivery; when the shopper writes about delivery, " +
         "say kindly that delivery is not offered yet and pickup is.",
     );
+  } else {
+    // update 87: zones are optional; the page's card asks for the zone and shows its fee — never the assistant
+    const zones = (food.zone_list ?? []).map((z) => z.label);
+    lines.push(
+      "- Delivery: never choose a delivery zone and never name a delivery fee, a minimum or a total with delivery — the " +
+        "page's card shows them after the shopper types the address" +
+        (zones.length
+          ? ` and picks the zone. When asked where the shop delivers, you may name its zones: ${zones.map((z) => `"${z}"`).join(", ")}.`
+          : "."),
+    );
   }
   lines.push(
     "- Dishes are on the menu, never in the stock: for a dish, drink or its price call food_menu, never search_items, " +
@@ -1225,8 +1235,12 @@ export async function runShopChat(
           refused: quote.refused.map((r) => ({ dish: r.name, reason: r.reason })),
           subtotal: euro(quote.subtotal_cents),
           ...(kind === "delivery"
-            ? { delivery: (food?.zones ?? []).map((z) => ({ zone: z.name, fee: euro(z.fee_cents), minimum: euro(z.minimum_cents) })),
-                note: "The delivery fee is added by the zone of the address the shopper types in the page's form." }
+            ? {
+                // update 87: the zones' names only — the customer picks the zone on the page's card, which shows its fee
+                delivery_zones: (food?.zone_list ?? []).map((z) => z.label),
+                note: "Delivery: the shopper types the address and picks the zone on the page's card, which shows the " +
+                  "fee and the minimum. Never choose a zone and never name a delivery fee or a total with delivery.",
+              }
             : { total: euro(quote.total_cents) }),
           ready_in_minutes: kind === "delivery" ? (food?.ready_delivery_min ?? quote.ready_minutes) : quote.ready_minutes,
           accepting: quote.state.accepting,
