@@ -36,6 +36,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
   if (body.action === "quote" || body.action === "place") {
     const lines = cleanCart(body.lines);
     if (!lines) return json({ error: "lines" }, 400);
+    // 2026-11-06: an order only with the way the customer picked (the panel chooses nothing for them)
+    if (body.action === "place" && body.kind !== "pickup" && body.kind !== "delivery") return json({ error: "no_kind" }, 400);
     const address = kind === "delivery" ? str("address", 300) : null;
     const { quote, error, place } = await quoteWithPlace(slug, lines, kind, address);
     if (error || !quote) return json({ error: error === "not_available" ? "not_available" : "failed" }, error === "not_available" ? 404 : 502);

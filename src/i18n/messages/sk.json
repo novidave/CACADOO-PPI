@@ -900,7 +900,11 @@
     "food_day_thu": "vo štvrtok",
     "food_day_fri": "v piatok",
     "food_day_sat": "v sobotu",
-    "food_day_sun": "v nedeľu"
+    "food_day_sun": "v nedeľu",
+    "order_kind_pick": "Vyberte osobný odber alebo donášku.",
+    "order_delivery_off": "Tento obchod zatiaľ nedonáša – vyberte osobný odber.",
+    "order_pickup_off": "Tento obchod neponúka osobný odber – vyberte donášku.",
+    "order_err_no_kind": "Vyberte osobný odber alebo donášku."
   },
   "docs": {
     "title": "Dokumenty pre asistenta",

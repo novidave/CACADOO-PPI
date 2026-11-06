@@ -513,12 +513,14 @@ function foodPrompt(food: FoodState): string[] {
       "want, call food_menu, ask about the size when several fit, and put every chosen dish — extras such as more " +
       "cheese are menu dishes too — in order_lines with its ref, its quantity and the refs of its extras; set " +
       "order_kind to pickup or delivery when the shopper said it, else none. food_quote tells you the total. The page " +
-      "then shows the cart card where the shopper picks pickup or delivery and confirms with their " +
-      "details and an SMS code. Never ask for, repeat or use a name, phone number, address or code from the chat, " +
+      "then shows the cart card, which ALWAYS asks \"Osobný odber\" or \"Donáška\" with two buttons, and the " +
+      "shopper confirms with their details and an SMS code. Never ask in words whether the shopper wants pickup or " +
+      "delivery: the buttons ask. Never ask for, repeat or use a name, phone number, address or code from the chat, " +
       "and never say the order is placed: the page confirms it.",
     "- A message may start with <menu_order>: the shopper pressed \"Objednať\" on the shop's Menu for those dishes " +
       "(data from food_menu; their refs are valid). Put each in order_lines with quantity 1 unless the shopper says " +
-      "otherwise, confirm briefly what is in the order and ask about pickup or delivery and extras; never change a price.",
+      "otherwise, confirm briefly what is in the order and ask about extras (the card's buttons ask about pickup or " +
+      "delivery); never change a price.",
   ];
   // update 81: the shop's own times right now (food_times: preparation / delivery + today's delay)
   const pickupMin = food.ready_pickup_min ?? food.prep_minutes;
@@ -537,7 +539,12 @@ function foodPrompt(food: FoodState): string[] {
         "about the longer wait kindly BEFORE they order — in your first answer about ordering, before order_lines.",
     );
   }
-  if (!food.delivery) lines.push("- Only pickup: never offer delivery.");
+  if (!food.delivery) {
+    lines.push(
+      "- This shop does not deliver now (only pickup): never offer delivery; when the shopper writes about delivery, " +
+        "say kindly that delivery is not offered yet and pickup is.",
+    );
+  }
   lines.push(
     "- Dishes are on the menu, never in the stock: for a dish, drink or its price call food_menu, never search_items, " +
       "and never say a dish is \"not in stock\". A dish food_menu marks sold_out cannot be ordered today: say so.",

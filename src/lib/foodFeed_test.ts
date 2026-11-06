@@ -196,7 +196,7 @@ Deno.test("Nastavenia and the assistant follow the parts: greyed switches keep t
   const chat = await read("src/lib/shopChat.ts");
   assert(chat.includes("never offer or name a payment method"), "the assistant offers no method");
   assert(chat.includes("BEFORE they order"), "a long delay is said before the order");
-  assert(chat.includes("Only pickup: never offer delivery."), "without Donáška only pickup");
+  assert(chat.includes("This shop does not deliver now (only pickup): never offer delivery"), "without Donáška only pickup");
   const head = await read("src/app/[lang]/(account)/dashboard/assistant/orders/parts.tsx");
   assert(head.includes('.filter((x) => couriers || x.key !== "couriers")'), "the Kuriéri tab only with the courier app");
 });

@@ -900,7 +900,11 @@
     "food_day_thu": "on Thursday",
     "food_day_fri": "on Friday",
     "food_day_sat": "on Saturday",
-    "food_day_sun": "on Sunday"
+    "food_day_sun": "on Sunday",
+    "order_kind_pick": "Choose pickup or delivery.",
+    "order_delivery_off": "This shop doesn't deliver yet – please choose pickup.",
+    "order_pickup_off": "This shop doesn't offer pickup – please choose delivery.",
+    "order_err_no_kind": "Choose pickup or delivery."
   },
   "docs": {
     "title": "Documents for the assistant",

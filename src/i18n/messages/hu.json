@@ -900,7 +900,11 @@
     "food_day_thu": "csütörtökön",
     "food_day_fri": "pénteken",
     "food_day_sat": "szombaton",
-    "food_day_sun": "vasárnap"
+    "food_day_sun": "vasárnap",
+    "order_kind_pick": "Válassza a személyes átvételt vagy a házhozszállítást.",
+    "order_delivery_off": "Ez az üzlet még nem szállít házhoz – válassza a személyes átvételt.",
+    "order_pickup_off": "Ez az üzlet nem kínál személyes átvételt – válassza a házhozszállítást.",
+    "order_err_no_kind": "Válassza a személyes átvételt vagy a házhozszállítást."
   },
   "docs": {
     "title": "Dokumentumok az asszisztensnek",

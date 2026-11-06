@@ -107,20 +107,34 @@ export function nextSteps(kind: OrderKind, status: OrderStatus): OrderStatus[] {
 
 // ------------------------------------------------------------------ update 85: the order panel
 
-/**
- * The ways of receiving an order the panel offers, in their order: "Osobný odber" and — only while the shop uses
- * Donáška (food_state.delivery: on and with a zone) — "Donáška". One way = it is already chosen, nothing to pick.
- */
-export function orderKinds(state: { pickup?: boolean; delivery?: boolean }): OrderKind[] {
-  const kinds: OrderKind[] = [];
-  if (state.pickup !== false) kinds.push("pickup");
-  if (state.delivery) kinds.push("delivery");
-  return kinds.length ? kinds : ["pickup"];
+/** A way of receiving an order and whether the shop offers it now. */
+export interface KindChoice {
+  kind: OrderKind;
+  available: boolean;
 }
 
-/** The way chosen first: the one the answer named when the shop offers it, else the first one offered. */
-export function firstKind(wanted: OrderKind | null | undefined, kinds: OrderKind[]): OrderKind {
-  return wanted && kinds.includes(wanted) ? wanted : kinds[0];
+/**
+ * The two ways of receiving an order (the owner's request, 2026-11-06): "Osobný odber" and "Donáška" are ALWAYS both
+ * shown, nothing is chosen at first, and a way the shop does not offer is shown greyed — Donáška only while the shop
+ * uses it (food_state.delivery: switched on and with a zone), Osobný odber unless the shop switched it off and
+ * delivers (never no way at all). SQL still decides every order (food_quote / food_order_create).
+ */
+export function orderKinds(state: { pickup?: boolean; delivery?: boolean }): KindChoice[] {
+  const delivery = Boolean(state.delivery);
+  return [
+    { kind: "pickup", available: state.pickup !== false || !delivery },
+    { kind: "delivery", available: delivery },
+  ];
+}
+
+/** A tap on a way: the way when the shop offers it, else null (the panel shows why and keeps the choice). */
+export function pickKind(kinds: KindChoice[], wanted: OrderKind): OrderKind | null {
+  return kinds.some((k) => k.kind === wanted && k.available) ? wanted : null;
+}
+
+/** "Pokračovať" only after the customer picked a way the shop offers (nothing is chosen for them). */
+export function canContinue(kind: OrderKind | null, kinds: KindChoice[], lines: number): boolean {
+  return lines > 0 && kind !== null && pickKind(kinds, kind) === kind;
 }
 
 /**

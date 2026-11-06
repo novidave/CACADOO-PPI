@@ -1223,13 +1223,22 @@ the search's Nominatim rule) + `@/lib/foodRules` (shared: `townOf`, `cleanCart`,
 from Sklad, document excerpts for allergens) and `food_quote` (never an address); the answer's `order_lines` /
 `order_kind` → `reply.order` built on the server from food_menu's own results, unknown refs dropped, priced again by
 `food_quote`) + `@/components/OrderPanel` (loaded by `next/dynamic` only with the first cart card: Upraviť; **update
-85** (`supabase/sql/85_food_order_panel.sql`, `orderKinds` / `firstKind` / `readyClock` / `payNoteLine` in
+85** (`supabase/sql/85_food_order_panel.sql`, `orderKinds` / `pickKind` / `canContinue` / `readyClock` / `payNoteLine` in
 `@/lib/foodRules`): "Osobný odber" (bag) and "Donáška" (scooter) as two big buttons side by side — real radio inputs,
 visually hidden (`sr-only`; ← → move between them natively, the checked one announced), ≥ 52 px, half the width each,
-the chosen one black with white bold text, the other white with a 1.5 px #E2E2E2 line, radius 12; Donáška only while
-`food_state.delivery` (on + a zone), else only Osobný odber, already chosen; Donáška shows the address field under the
-buttons (Osobný odber hides it, what was typed stays), every change asks `food_quote` again; under them one line from
-the database's minutes ("Hotové o 18:40" / "Donáška do 19:10", `chat.order_ready_at` / `order_delivery_by`, the
+the chosen one black with white bold text, the other white with a 1.5 px #E2E2E2 line, radius 12; **both ways ALWAYS
+(the owner's request, 2026-11-06), whatever the shop's setup, and NOTHING chosen at first** (never the AI's
+`order_kind`): "Pokračovať" stays disabled until the customer picks one, with "Vyberte osobný odber alebo donášku."
+(`chat.order_kind_pick`) under the buttons; a way the shop does not offer is greyed (`aria-disabled`, never
+selectable; `orderKinds()` → `{kind, available}`: Donáška only while `food_state.delivery` = on + a zone, Osobný odber
+unless switched off while delivering) and a tap or Enter shows one line under it ("Tento obchod zatiaľ nedonáša –
+vyberte osobný odber.", `chat.order_delivery_off` / `order_pickup_off`); before a choice the quote carries no kind
+(the price without a fee) and the route places no order without the customer's own kind (`no_kind`); food_order_create
+still refuses delivery when it is off (`delivery_off`) or outside a zone; Donáška shows the address field under the
+buttons (Osobný odber hides it, what was typed stays) and, with the address, the zone's fee line (`data-order-fee`),
+every change asks `food_quote` again; the assistant never asks "Osobný odber alebo donáška?" in words (the buttons
+ask; without Donáška it says so only when the customer writes about delivery); once a way is chosen one line from the
+database's minutes ("Hotové o 18:40" / "Donáška do 19:10", `chat.order_ready_at` / `order_delivery_by`, the
 shop's time zone; never the assistant's estimate); **no payment choice** — the customer never picks a method, every
 order has `pay_method` null (`food_order_create` ignores what is sent; the route and the bookings function send
 null), the owner / courier marks it at the handover (the feed's payment dialog, the order page, the courier app;
