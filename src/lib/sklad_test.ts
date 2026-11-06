@@ -130,7 +130,7 @@ Deno.test("the exports: a column per location, the kind in words, the shop's tim
 
 // ---------------------------------------------------------------- Predaj (update 68)
 
-import { addToBasket, basketView, findProducts, formatIban, paymentMessage, productByCode, readBasket, setBasketQty } from "./sklad.ts";
+import { addToBasket, basketView, findProducts, formatIban, paymentMessage, productByCode, readBasket, saleProducts, setBasketQty } from "./sklad.ts";
 import type { SaleProduct } from "./sklad.ts";
 
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -163,6 +163,19 @@ Deno.test("Predaj: totals in cents, the stock after the sale, short and below th
   assertEquals(v.rows[0].low, false);
   assertEquals(basketView([{ item_id: ID(4), qty: 1 }], byId).noPrice, true);
   assertEquals(basketView([{ item_id: ID(9), qty: 1 }], byId).rows.length, 0);
+});
+
+Deno.test("Predaj (update 86): an untracked dish never warns about stock; the rows carry tracked and sold out today", () => {
+  const soup: SaleProduct = { id: ID(5), name: "Polievka", code: "M1", ean: null, price: 2.8, total: -4, min: 0, unit: "ks", tracked: false, soldOutToday: false };
+  const v = basketView([{ item_id: ID(5), qty: 3 }], new Map([[soup.id, soup]]));
+  assertEquals(v.rows[0].short, false);
+  assertEquals(v.rows[0].low, false);
+  assertEquals(v.total, 8.4);
+  const rows = saleProducts([
+    { id: ID(5), name: "Polievka", code: "M1", ean: null, sale_price: 2.8, min_qty: 0, unit: "ks", shelf: null, total: 0, locations: [], is_out: false, is_low: false, no_price: false, tracked: false, sold_out_today: true },
+    { id: ID(1), name: "Farba", code: "10231", ean: null, sale_price: 24.9, min_qty: 5, unit: "ks", shelf: null, total: 18, locations: [], is_out: false, is_low: false, no_price: false },
+  ]);
+  assertEquals(rows.map((r) => [r.tracked, r.soldOutToday]), [[false, true], [true, false]]);
 });
 
 Deno.test("Predaj: the search without accents, by code and EAN; a scan by EAN then code", () => {

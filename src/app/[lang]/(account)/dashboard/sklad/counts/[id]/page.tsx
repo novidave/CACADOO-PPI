@@ -61,7 +61,7 @@ export default async function SkladCount({ params, searchParams }: PageProps<"/[
         blind={count.blind}
         inScope={count.in_scope}
         counted={count.counted}
-        products={rows.map((r) => ({ id: r.id, name: r.name, code: r.code ?? null, ean: r.ean ?? null }))}
+        products={rows.filter((r) => r.tracked !== false).map((r) => ({ id: r.id, name: r.name, code: r.code ?? null, ean: r.ean ?? null }))}
         uncounted={count.uncounted}
         diffHref={href(`/counts/${id}/diff`)}
         labels={labels}

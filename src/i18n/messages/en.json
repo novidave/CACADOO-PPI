@@ -134,7 +134,8 @@
     "stale": "Stock information not currently available",
     "dot_available": "in stock",
     "dot_sold_out": "sold out",
-    "dot_no_info": "stock unknown"
+    "dot_no_info": "stock unknown",
+    "changed_on": "Last changed {day}/{month} at {time}"
   },
   "shop": {
     "open_now": "Open now",
@@ -303,7 +304,8 @@
     "bookings_page": "Bookings",
     "hours_sms_page": "Hours by SMS",
     "ai_page": "AI assistants",
-    "sklad_page": "Stock"
+    "sklad_page": "Stock",
+    "state_never_expires": "Shown until you change it"
   },
   "dashboard": {
     "shop": "Shop",
@@ -387,7 +389,9 @@
     "shopper_hidden_stale": "Hidden – data older than 24 h",
     "file_status_cleared": "No uploaded file · upload a new one",
     "welcome_list_insert": "Insert {zoznam} into the welcome message",
-    "welcome_list_hint": "{zoznam} shows the shopper a blue bubble with the number of pieces in their shopping list; a tap puts it into the chat. Tap the tag or drag it into the text."
+    "welcome_list_hint": "{zoznam} shows the shopper a blue bubble with the number of pieces in their shopping list; a tap puts it into the chat. Tap the tag or drag it into the text.",
+    "shopper_in_menu": "On the menu",
+    "file_status_food": "Last stock change: {time}"
   },
   "items_bulk": {
     "pick": "Select",
@@ -4680,7 +4684,13 @@
     "dv_qr_done": "Done",
     "ok_device_saved": "The device is saved.",
     "ok_device_revoked": "The device is disconnected – its key no longer works.",
-    "err_perms": "Tick at least one option."
+    "err_perms": "Tick at least one option.",
+    "sale_on_menu": "On the menu",
+    "sale_sold_out_today": "Sold out today",
+    "untracked": "Menu – no stock",
+    "untracked_card": "A menu dish without “Track stock”: shoppers see it on the menu until you mark it “Sold out today”. Sales and orders do not take it off.",
+    "never_expires": "Stock is shown until you change it.",
+    "err_untracked_dish": "This dish has no stock. To keep stock for it, switch on “Track stock” for it in the Menu."
   },
   "device": {
     "title": "Stock on this phone",
@@ -5473,8 +5483,8 @@
     "kind_now": "Now: {kind}",
     "kind_change": "Change the type of shop",
     "kind_change_intro": "Nothing is deleted: products, files, orders and settings stay. Only what the My shop menu shows and the setup steps change.",
-    "kind_to_food": "Restaurant: Menu and Food orders move to the top of the menu. The export folder and the Products list leave the menu – the pages stay reachable.",
-    "kind_to_goods": "Shop: the export folder and Products return to the menu, Menu leaves it. Food orders stay.",
+    "kind_to_food": "Restaurant: Menu and Food orders move to the top of the menu. The export folder and the Products list leave the menu – the pages stay reachable. Stock is shown on the page until you change it.",
+    "kind_to_goods": "Shop: the export folder and Products return to the menu, Menu leaves it. Food orders stay. If the stock was not updated in the last 24 h, it is hidden on the page.",
     "kind_confirm": "I understand – change the type of shop",
     "kind_save": "Change type",
     "kind_saved": "The type of shop has changed.",
@@ -5550,7 +5560,7 @@
     "ed_allergens": "Allergens (1–14)",
     "ed_tags": "Labels",
     "ed_track": "Track stock",
-    "ed_track_hint": "For drinks and desserts sold by the piece: available by Sklad's quantity. Off: the dish is available until you mark it “Sold out today”.",
+    "ed_track_hint": "For drinks and desserts sold by the piece: available by Sklad's quantity. Off: the dish is available until you mark it “Sold out today”. Stock starts at 0, each sale lowers it.",
     "ed_sold_out_hint": "Until midnight (the shop's time).",
     "ed_qty": "In stock: {n}",
     "ed_save": "Save dish",

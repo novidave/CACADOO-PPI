@@ -5,7 +5,7 @@ import sk from "../i18n/messages/sk.json" with { type: "json" };
 import hu from "../i18n/messages/hu.json" with { type: "json" };
 import en from "../i18n/messages/en.json" with { type: "json" };
 import { fileStatus, filterCount, ITEM_FILTERS, itemFilter, shopperView } from "./ownerItems.ts";
-import { availabilityText } from "./stock.ts";
+import { availabilityText, freshnessText } from "./stock.ts";
 import type { Dictionary } from "../i18n/dictionaries.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -114,4 +114,25 @@ Deno.test("Začať sklad odznova: the state and the preview as the database send
   const p = readPreview({ shop_name: "Davide paint shop", items: 4, missing: 2, missing_list: [{ code: "D3", name: "Štetec" }], files: 0, resets_left: 3 });
   eq(p?.missing_list, [{ code: "D3", name: "Štetec" }], "missing list");
   eq(backupHref(7), "/api/owner/inventory-backups/7", "download address");
+});
+
+Deno.test("update 86: a restaurant — an untracked dish is \"V menu\", its stock never expires, an old change is dated", () => {
+  const dict = sk as unknown as Dictionary;
+  eq(shopperView("in_menu"), "in_menu", "an untracked dish");
+  eq(sk.dashboard.shopper_in_menu, "V menu", "its words");
+  eq(fileStatus("2026-11-03T10:00:00Z", "never_expires"), { kind: "file", at: "2026-11-03T10:00:00Z", state: "never_expires" }, "no stale word");
+  for (const d of [sk, hu, en]) {
+    if (!d.dashboard.file_status_food.includes("{time}")) throw new Error("file_status_food needs {time}");
+    if (!d.account.state_never_expires || !d.sklad.never_expires) throw new Error("never_expires texts");
+    for (const v of ["{day}", "{month}", "{time}"]) if (!d.stock.changed_on.includes(v)) throw new Error(`changed_on needs ${v}`);
+  }
+  const now = new Date("2026-11-06T12:00:00Z");
+  // a goods shop: under 30 min, today, yesterday — as before
+  eq(freshnessText(dict, "current", 8, "2026-11-06T11:52:00Z", "Europe/Bratislava", now), "Aktualizované pred 8 min", "fresh");
+  eq(freshnessText(dict, "recent", 300, "2026-11-06T07:00:00Z", "Europe/Bratislava", now), "Naposledy potvrdené dnes o 08:00", "today");
+  eq(freshnessText(dict, "recent", 1200, "2026-11-05T16:00:00Z", "Europe/Bratislava", now), "Naposledy potvrdené včera o 17:00", "yesterday");
+  // a restaurant: current at any age, never "pred 4320 min"
+  eq(freshnessText(dict, "current", 240, "2026-11-06T08:00:00Z", "Europe/Bratislava", now), "Naposledy potvrdené dnes o 09:00", "a food shop today");
+  eq(freshnessText(dict, "current", 4320, "2026-11-03T13:20:00Z", "Europe/Bratislava", now), "Naposledy zmenené 3. 11. o 14:20", "a food shop 3 days ago");
+  eq(freshnessText(dict, "stale", null, "2026-11-03T13:20:00Z", "Europe/Bratislava", now), sk.stock.stale, "stale stays stale");
 });

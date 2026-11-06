@@ -18,10 +18,14 @@ export function itemFilter(value: string | string[] | undefined): ItemFilter {
  * What the shopper sees for one item: nothing while the data is stale (the database gives no availability then),
  * "Vypredané" at 0 or less, otherwise the quantity exactly as in the file ("22 ks na sklade").
  */
-export type ShopperView = "hidden_stale" | "sold_out" | "in_stock";
+export type ShopperView = "hidden_stale" | "sold_out" | "in_stock" | "in_menu";
 
-export function shopperView(availability: AvailabilityKey | null): ShopperView {
+/** The owner's availability of an item: the shopper's key, or (update 86) "in_menu" for a dish without stock tracking. */
+export type OwnerAvailability = AvailabilityKey | "in_menu";
+
+export function shopperView(availability: OwnerAvailability | null): ShopperView {
   if (availability === null || availability === undefined) return "hidden_stale";
+  if (availability === "in_menu") return "in_menu";
   return availability === "out_of_stock" ? "sold_out" : "in_stock";
 }
 
@@ -30,11 +34,14 @@ export function shopperView(availability: AvailabilityKey | null): ShopperView {
  * the uploaded files were deleted and no file came since: "Žiadny nahraný súbor · nahrajte nový" (the stock's freshness
  * still runs out as usual, but a deleted file is never shown as present).
  */
-export type FileStatus = { kind: "none" } | { kind: "cleared" } | { kind: "file"; at: string; state: FreshnessState };
+/** The owner's freshness: the shopper's, or (update 86) "never_expires" for a restaurant (shown until changed). */
+export type OwnerFreshness = FreshnessState | "never_expires";
+
+export type FileStatus = { kind: "none" } | { kind: "cleared" } | { kind: "file"; at: string; state: OwnerFreshness };
 
 export function fileStatus(
   latestFileTime: string | null | undefined,
-  state: FreshnessState | null | undefined,
+  state: OwnerFreshness | null | undefined,
   filesCleared = false,
 ): FileStatus {
   if (filesCleared) return { kind: "cleared" };

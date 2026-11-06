@@ -32,6 +32,8 @@ const REASONS = [
   "sale_source", "columns", "ekasa_file", "ekasa_big", "ekasa_rows", "ekasa_empty",
   // update 72 (Zariadenia)
   "perms",
+  // update 86 (a dish without "Sledovať zásobu" is not stock)
+  "untracked_dish",
 ] as const;
 const reason = (message: string | undefined) => REASONS.find((r) => r === message) ?? "failed";
 

@@ -241,6 +241,15 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
 
         <form action={saveSettings} className="flex flex-col gap-4">
           {hidden({ ...back })}
+          {shop.kind === "food" ? (
+            // update 86: a restaurant's stock never goes stale — no reminder to confirm it (the saved choice is kept)
+            <section className={card} aria-labelledby="st-fresh" data-sklad-never-expires>
+              <h2 id="st-fresh" className="text-lg font-bold">{s.fresh_section}</h2>
+              <p className="text-sm">{s.never_expires}</p>
+              {st.reminder_on && <input type="hidden" name="reminder_on" value="on" />}
+              <input type="hidden" name="reminder_time" value={st.reminder_time} />
+            </section>
+          ) : (
           <section className={card} aria-labelledby="st-fresh">
             <h2 id="st-fresh" className="text-lg font-bold">{s.fresh_section}</h2>
             <p className="text-sm">{s.fresh_section_text}</p>
@@ -256,6 +265,7 @@ export default async function SkladSettings({ params, searchParams }: PageProps<
               <input type="time" name="reminder_time" defaultValue={st.reminder_time} required className={`${input} w-28 text-center`} />
             </label>
           </section>
+          )}
           <section className={card} aria-labelledby="st-margin">
             <h2 id="st-margin" className="text-lg font-bold">{s.margin_section}</h2>
             <label className="flex min-h-12 items-center justify-between gap-3">

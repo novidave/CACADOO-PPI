@@ -44,7 +44,7 @@ export default async function DeviceCount({ params }: PageProps<"/[lang]/zariade
         blind={count.blind}
         inScope={count.in_scope}
         counted={count.counted}
-        products={rows.map((r) => ({ id: r.id, name: r.name, code: r.code ?? null, ean: r.ean ?? null }))}
+        products={rows.filter((r) => r.tracked !== false).map((r) => ({ id: r.id, name: r.name, code: r.code ?? null, ean: r.ean ?? null }))}
         uncounted={count.uncounted}
         diffHref=""
         fixedName={device.name}

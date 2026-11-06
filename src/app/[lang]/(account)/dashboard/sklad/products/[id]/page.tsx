@@ -39,6 +39,11 @@ interface Card {
   margin_reports: boolean;
   total: number;
   public: boolean;
+  /** Update 86: false for a menu dish without "Sledovať zásobu" (not stock); sold out today; a food shop never expires. */
+  tracked?: boolean;
+  menu_item?: boolean;
+  sold_out_today?: boolean;
+  never_expires?: boolean;
   locations: { location_id: string; name: string; note: string | null; qty: number; sale_default: boolean; receipt_default: boolean }[];
   movements: { id: string; kind: SkladKind; qty: number; unit_cost: number | null; reason: string | null; ref: string | null; device_label: string | null; created_at: string; location: string; to_location: string | null }[];
   movement_count: number;
@@ -78,7 +83,8 @@ export default async function SkladProduct({ params, searchParams }: PageProps<"
   const kindText = (k: SkladKind) => (s as Record<string, string>)[`kind_${k}`] ?? k;
   const actText: Record<CardAction, string> = { receipt: s.act_receipt, sale: s.act_sale, writeoff: s.act_writeoff, transfer: s.act_transfer, correction: s.act_correction };
   const m = p.margin_reports ? margin(p.sale_price, p.vat_rate, p.avg_cost) : null;
-  const value = p.margin_reports ? stockValue(p.total, p.avg_cost) : null;
+  const untracked = p.tracked === false;
+  const value = p.margin_reports && !untracked ? stockValue(p.total, p.avg_cost) : null;
   const saleLoc = p.locations.find((l) => l.sale_default)?.location_id ?? p.locations[0]?.location_id;
   const receiptLoc = p.locations.find((l) => l.receipt_default)?.location_id ?? saleLoc;
   const otherLoc = p.locations.find((l) => l.location_id !== saleLoc)?.location_id;
@@ -180,18 +186,32 @@ export default async function SkladProduct({ params, searchParams }: PageProps<"
             <div className="flex flex-col gap-1.5">
               <h2 className="text-2xl font-bold leading-tight">{p.name}</h2>
               <span className="text-sm text-muted">{[t(s.code_line, { code: p.code }), p.ean ? t(s.ean_line, { ean: p.ean }) : ""].filter(Boolean).join(" · ")}</span>
-              <div className="mt-1 flex items-center gap-2">
-                <span
-                  role="img"
-                  aria-label={p.total > 0 ? dict.stock.dot_available : dict.stock.dot_sold_out}
-                  className={`size-3 flex-none rounded-full shadow-[0_0_0_1px_rgba(0,0,0,.25)] ${p.total > 0 ? "bg-[#22C55E]" : "bg-[#EF4444]"}`}
-                />
-                <strong className="text-xl">{p.total > 0 ? t(s.in_stock, { qty: q(p.total) }) : s.sold_out}</strong>
-              </div>
-              <span className="text-[13px] text-muted">
-                {p.public ? t(s.on_page, { text: p.total > 0 ? t(s.in_stock, { qty: q(p.total) }) : s.sold_out }) : s.no_price}
-              </span>
+              {untracked ? (
+                // update 86: a dish without "Sledovať zásobu" is not stock: no quantity, no movements
+                <>
+                  <strong className="mt-1 text-xl" data-sklad-untracked>{p.sold_out_today ? s.sale_sold_out_today : s.untracked}</strong>
+                  <span className="text-[13px] text-muted">{s.untracked_card}</span>
+                </>
+              ) : (
+                <>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span
+                      role="img"
+                      aria-label={p.total > 0 ? dict.stock.dot_available : dict.stock.dot_sold_out}
+                      className={`size-3 flex-none rounded-full shadow-[0_0_0_1px_rgba(0,0,0,.25)] ${p.total > 0 ? "bg-[#22C55E]" : "bg-[#EF4444]"}`}
+                    />
+                    <strong className="text-xl">{p.total > 0 ? t(s.in_stock, { qty: q(p.total) }) : s.sold_out}</strong>
+                  </div>
+                  <span className="text-[13px] text-muted">
+                    {p.public ? t(s.on_page, { text: p.total > 0 ? t(s.in_stock, { qty: q(p.total) }) : s.sold_out }) : s.no_price}
+                  </span>
+                  {p.never_expires && <span className="text-[13px] text-muted" data-sklad-never-expires>{s.never_expires}</span>}
+                </>
+              )}
             </div>
+
+            {!untracked && (
+            <>
 
             <div role="group" aria-label={s.moves_label} className="grid grid-cols-2 gap-2">
               {actionButton("receipt", <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>)}
@@ -227,6 +247,8 @@ export default async function SkladProduct({ params, searchParams }: PageProps<"
               </div>
               <span className="text-[13px] text-muted">{s.min_hint}</span>
             </section>
+            </>
+            )}
           </div>
 
           <div className="flex flex-col gap-4">

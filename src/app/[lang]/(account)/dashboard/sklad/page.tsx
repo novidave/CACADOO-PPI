@@ -23,7 +23,9 @@ interface Overview {
   confirmed_at: string | null;
   needs_check: boolean;
   fresh_until: string | null;
-  freshness_state: "current" | "recent" | "stale";
+  freshness_state: "current" | "recent" | "stale" | "never_expires";
+  /** Update 86: a food shop's stock never goes stale — no countdown, no "Stav je správny". */
+  never_expires?: boolean;
   yesterday: { sales: number; sold: number; receipts: number; received: number };
   low: { id: string; name: string; min_qty: number; unit: string; total: number }[];
   low_count: number;
@@ -79,6 +81,8 @@ export default async function SkladOverview({ params, searchParams }: PageProps<
             </form>
           )}
         </section>
+      ) : o.never_expires ? (
+        <p className="text-sm text-muted" data-sklad-never-expires>{s.never_expires}</p>
       ) : o.needs_check ? (
         <section className={`${card} border-2 border-[#F2B705] bg-[#FFFBEA]`} aria-labelledby="sk-fresh" data-sklad-check>
           <div className="flex items-center gap-2">

@@ -71,11 +71,17 @@ export function freshnessText(
   now: Date = new Date(),
 ): string {
   if (state === "stale" || !latestFileTime) return dict.stock.stale;
-  if (state === "current") return t(dict.stock.updated_ago, { n: ageMinutes ?? 0 });
+  if (state === "current" && (ageMinutes ?? 0) < 30) return t(dict.stock.updated_ago, { n: ageMinutes ?? 0 });
 
   const fileTime = new Date(latestFileTime);
   const time = formatTime(fileTime, timeZone);
-  return localDay(fileTime, timeZone) === localDay(now, timeZone)
-    ? t(dict.stock.confirmed_today, { time })
-    : t(dict.stock.confirmed_yesterday, { time });
+  const day = localDay(fileTime, timeZone);
+  if (day === localDay(now, timeZone)) return t(dict.stock.confirmed_today, { time });
+  // "recent" is under 24 h: today or yesterday. A restaurant's stock (update 86) is "current" at any age, so an older
+  // day gets its date ("Naposledy zmenené 3. 11. o 14:20"), never "pred 4320 min".
+  if (state === "recent" || day === localDay(new Date(now.getTime() - 86_400_000), timeZone)) {
+    return t(dict.stock.confirmed_yesterday, { time });
+  }
+  const [, month, date] = day.split("-");
+  return t(dict.stock.changed_on, { day: String(Number(date)), month: String(Number(month)), time });
 }

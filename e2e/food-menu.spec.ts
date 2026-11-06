@@ -12,7 +12,9 @@ import { expect, loginOwner, sk, test, watchConsole } from "./helpers";
  *                     pickup and cash, room for two more Sklad products
  *   E2E_FOOD_PHONE    a mobile number; the site must run with SMS_PROVIDER unset or "test" and BOOKING_TEST_CODES=on
  * plus the owner's login (E2E_OWNER_EMAIL + E2E_OWNER_PASSWORD, or E2E_OWNER_LOGIN_URL). The new dish is hidden again
- * at the end (Sklad products are never deleted).
+ * at the end (Sklad products are never deleted). Update 86: the dish (no "Sledovať zásobu") is then sold once in Predaj
+ * ("V ponuke", no stock warning) and Pohyby has no movement for it. That a restaurant's stock never goes stale (and a
+ * goods shop's still does after 24 h) is checked by the database tests (block "update 86"): a browser cannot age stock.
  */
 
 const SHOP = process.env.E2E_FOOD_SHOP ?? "";
@@ -93,6 +95,26 @@ test("a restaurant: import a menu, edit a price, the Jedlá box shows it, the di
     await panel.locator("[data-order-place]").click();
     await expect(pg.locator("[data-order-done]")).toBeVisible({ timeout: 20_000 });
     console.check();
+
+    // 4. update 86: the untracked dish is not stock — Predaj shows it "V ponuke" (never "Vypredané" or a stock warning),
+    //    the sale goes through, Pohyby has no movement for it, and the restaurant page still offers it
+    const sl = sk.sklad;
+    await page.goto(`/sk/dashboard/sklad/sale?shop=${SHOP}`);
+    await page.locator("[data-sklad-predaj] input[type='search']").first().fill(dish);
+    const tile = page.locator("[data-sklad-tile]", { hasText: dish }).first();
+    await expect(tile).toContainText(sl.sale_on_menu);
+    await expect(tile).not.toContainText(sl.sale_sold_out);
+    await tile.click();
+    const line = page.locator("[data-sklad-line]", { hasText: dish }).first();
+    await expect(line).toBeVisible();
+    await expect(line).not.toContainText(sl.sale_warn.split("{")[0]);
+    await page.locator('[data-sklad-pay="cash"]').click();
+    await page.locator("[data-sklad-confirm]").click();
+    await expect(page.locator("[data-sklad-done]")).toContainText(sl.sale_done_title, { timeout: 20_000 });
+    await page.goto(`/sk/dashboard/sklad/movements?shop=${SHOP}&kind=sale`);
+    await expect(page.locator("[data-sklad-mv]", { hasText: dish }), "no movement for an untracked dish").toHaveCount(0);
+    await pg.goto(`/sk/shops/${SHOP}?q=${encodeURIComponent(dish)}#items`);
+    await expect(pg.locator(`[data-product="${dishId}"] [data-stock-dot]`), "still offered after the sale").toHaveAttribute("data-stock-dot", "available");
     await shopper.close();
   } finally {
     // the test dish leaves the menu (its Sklad product stays, as every Sklad product)
