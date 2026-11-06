@@ -15,6 +15,14 @@ import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
 import { type FoodState, foodMenu, foodPayNote, foodQuote, foodState, type MenuItem, type Quote } from "./food";
 import { formatPrice } from "./format";
+import {
+  closedSentence, type FoodChatMode, type FoodChatTexts, foodChatMode, type MenuToolLine, menuToolLines,
+  menuToolResult, nextOpening, notOrderingPrompt, phoneE164, stockSearchNote,
+} from "./foodChat";
+import type { OpeningHours } from "./hours";
+import { getShopMenu, searchShopMenu } from "./menu";
+import type { ShopMenu } from "./menuRules";
+import { loadCalendars, statusInput } from "./shopCalendar";
 import { missingColumn } from "./missingColumn";
 import { translatedName } from "./names";
 import { apiItem } from "./publicApi";
@@ -353,6 +361,9 @@ interface Bookable {
 function systemPrompt(
   shop: ChatShop, lang: Locale, docs: ChatDocument[], news = false, booking: Bookable | null = null, services = false,
   food: FoodState | null = null,
+  /** 2026-11-06: what food allows now, the "closed" sentence and the shop's phone when it is a valid E.164 number. */
+  foodPlan: { mode: FoodChatMode; sentence: string | null; soldOut: string } | null = null,
+  phone: string | null = null,
 ): string {
   const where = [shop.city, shop.country].filter(Boolean).join(", ");
   const lines = [
@@ -443,7 +454,7 @@ function systemPrompt(
     "- message_sk and answer_sk are for the shop's own records: the shopper's newest message and your answer, " +
       'translated into Slovak completely and faithfully (nothing added or left out); "" when that text is already Slovak.',
     `- When neither the stock${docs.length ? " nor the documents" : ""} answer the question, say that you do not know ` +
-      `and set call_shop to true${shop.phone ? ` (the page shows the shop's phone: ${shop.phone})` : ""}.`,
+      `and set call_shop to true${phone ? ` (the page shows the shop's phone: ${phone})` : ""}.`,
     "- Never ask for or use the shopper's location.",
     `- ${PHOTO_RULE}`,
   );
@@ -481,7 +492,10 @@ function systemPrompt(
         "shopper wants an appointment, tell them to use that link; never promise a date or time yourself.",
     );
   }
-  if (food?.enabled) lines.push(...foodPrompt(food));
+  if (food?.enabled && foodPlan?.mode.order) lines.push(...foodPrompt(food));
+  else if (foodPlan?.mode.menu && foodPlan.mode.reason) {
+    lines.push(...notOrderingPrompt(foodPlan.mode.reason, foodPlan.sentence ?? "", foodPlan.soldOut, Boolean(phone)));
+  }
   return lines.join("\n");
 }
 
@@ -524,13 +538,10 @@ function foodPrompt(food: FoodState): string[] {
     );
   }
   if (!food.delivery) lines.push("- Only pickup: never offer delivery.");
-  if (!food.accepting) {
-    lines.push(
-      `- Orders are not possible right now (${food.reason ?? "closed"}: paused = the shop paused orders, closed = ` +
-        "outside the opening hours, cutoff = the last order time before closing has passed, sms_quota = ordering is " +
-        "paused). Say so kindly, leave order_lines empty, and offer to call the shop (call_shop).",
-    );
-  }
+  lines.push(
+    "- Dishes are on the menu, never in the stock: for a dish, drink or its price call food_menu, never search_items, " +
+      "and never say a dish is \"not in stock\". A dish food_menu marks sold_out cannot be ordered today: say so.",
+  );
   return lines;
 }
 
@@ -617,15 +628,19 @@ const NEWS_TOOL: Anthropic.Tool = {
   },
 };
 
-/** Update 73: the menu of food orders (Sklad products with their prices; descriptions and allergens from documents). */
+/**
+ * Update 73: the menu of food orders (Sklad products with their prices; descriptions and allergens from documents).
+ * 2026-11-06: food_menu is every restaurant's, open or closed; food_quote only while an order is possible.
+ */
 const FOOD_TOOLS: Anthropic.Tool[] = [
   {
     name: "food_menu",
     description:
-      "Lists this shop's dishes and drinks that can be ordered, from its stock system: each with a ref (f1…), the " +
-      "name (sizes are separate dishes), the category, the price with VAT and whether it is sold out; words narrow " +
-      "the list (empty = the whole menu). When the shop has documents, matching excerpts (descriptions, ingredients, " +
-      "allergens — information only, never prices) come along.",
+      "Lists this restaurant's dishes and drinks from its menu (open or closed): each with a ref (f1… can be " +
+      "ordered, m1… information only), the name (sizes are separate lines), the category, the price with VAT, " +
+      "whether it is sold out today, its allergens and tags; words narrow the list and forgive typos (empty = the " +
+      "whole menu). When the shop has documents, matching excerpts (descriptions, ingredients, allergens — " +
+      "information only, never prices) come along.",
     strict: true,
     input_schema: {
       type: "object",
@@ -670,6 +685,17 @@ interface NewsPost {
   title: string;
   publish_at: string;
   body: string;
+}
+
+/**
+ * When the restaurant takes orders again (2026-11-06): its hours, special days and holidays through shopStatus() in
+ * the shop's time zone — the same rule as the page's status line.
+ */
+async function shopNextOpening(shop: ChatShop) {
+  const { data } = await db().from("public_shops").select("opening_hours").eq("slug", shop.slug).maybeSingle();
+  const hours = ((data as { opening_hours?: OpeningHours | null } | null)?.opening_hours ?? null) as OpeningHours | null;
+  const calendars = await loadCalendars(db(), [shop.id]);
+  return nextOpening(statusInput({ id: shop.id, opening_hours: hours, timezone: shop.timezone }, calendars));
 }
 
 /** Whether the shop takes bookings in the chat now (database update 57; none before it). */
@@ -854,9 +880,22 @@ export async function runShopChat(
   // without a conversation (no archive) update 57's times and the page's booking form stay.
   const services: BookingService[] = booking && conversation ? await bookingServices(shop.slug).catch(() => []) : [];
   const serviceTools = services.length > 0;
-  // Update 73: food orders need the conversation too (the order's SMS code belongs to it).
-  const food: FoodState | null = conversation ? await foodState(shop.slug).catch(() => null) : null;
-  const foodOn = Boolean(food?.enabled);
+  // Update 73: food orders need the conversation too (the order's SMS code belongs to it). 2026-11-06: a restaurant
+  // (shop_menu answers for a shop of kind food) always has its menu, open or closed; food_quote and the cart only
+  // while orders are accepted.
+  const menu: ShopMenu | null = await getShopMenu(shop.slug).catch(() => null);
+  const food: FoodState | null = conversation || menu ? await foodState(shop.slug).catch(() => null) : null;
+  const mode = foodChatMode(Boolean(menu), food, Boolean(conversation));
+  const phone = phoneE164(shop.phone, shop.country);
+  const chatTexts = mode.reason ? (await getDictionary(lang)).chat : null;
+  const soldOutText = chatTexts?.food_sold_out ?? "Vypredané dnes";
+  const sentence = chatTexts && mode.reason
+    ? closedSentence(
+        mode.reason,
+        mode.reason === "closed" || mode.reason === "cutoff" ? await shopNextOpening(shop).catch(() => null) : null,
+        chatTexts as unknown as FoodChatTexts,
+      )
+    : null;
   const dishes = new Map<string, MenuItem>(); // ref → dish, only from food_menu
   const dishRef = new Map<string, string>(); // item id → ref
   // Update 78: the product photo only when the shopper asks for one (the normal tools carry no picture).
@@ -869,7 +908,8 @@ export async function runShopChat(
     ...(docs.length ? [DOCS_TOOL] : []),
     ...(news ? [NEWS_TOOL] : []),
     ...(serviceTools ? SERVICE_TOOLS : booking ? [SLOTS_TOOL] : []),
-    ...(foodOn ? FOOD_TOOLS : []),
+    ...(mode.menu ? [FOOD_TOOLS[0]] : []),
+    ...(mode.order ? [FOOD_TOOLS[1]] : []),
   ];
   const dish = (item: MenuItem) => {
     let ref = dishRef.get(item.item_id);
@@ -880,6 +920,57 @@ export async function runShopChat(
     dishes.set(ref, item);
     return ref;
   };
+  const infoRef = new Map<string, string>(); // menu line id → m-ref (information only, never in a cart)
+  const info = (id: string) => {
+    let ref = infoRef.get(id);
+    if (!ref) {
+      ref = `m${infoRef.size + 1}`;
+      infoRef.set(id, ref);
+    }
+    return ref;
+  };
+  let sellable: Promise<Map<string, MenuItem>> | null = null; // food_menu's whole list, read once per message
+  /**
+   * food_menu's lines (2026-11-06): a restaurant's Menu as its page shows it (shop_menu; the forgiving search of
+   * shop_menu_search for words, so "HAWAI" finds "Pizza Hawaii"), with allergens and tags; then what food_menu's own
+   * words find (extras and drinks off the Menu). f-refs only while an order is possible, else m-refs.
+   */
+  async function menuLines(query: string): Promise<MenuToolLine[]> {
+    const out: MenuToolLine[] = [];
+    const seen = new Set<string>();
+    if (menu) {
+      if (mode.order && !sellable) {
+        sellable = foodMenu(shop.slug, null, 200)
+          .catch(() => [] as MenuItem[])
+          .then((items) => new Map(items.map((item) => [item.item_id, item])));
+      }
+      const orderable = mode.order && sellable ? await sellable : null;
+      const found = query ? await searchShopMenu(shop.slug, query).catch(() => [] as string[]) : null;
+      const currency = menu.currency;
+      for (const line of menuToolLines(
+        menu,
+        found,
+        (id) => {
+          seen.add(id);
+          const item = orderable?.get(id);
+          return item ? dish(item) : info(id);
+        },
+        (cents) => formatPrice(cents / 100, lang, currency),
+        (id) => orderable?.get(id)?.sold_out,
+      )) out.push(line);
+    }
+    if (food?.enabled) {
+      for (const item of await foodMenu(shop.slug, query || null, 40).catch(() => [] as MenuItem[])) {
+        if (seen.has(item.item_id) || out.length >= 80) continue;
+        seen.add(item.item_id);
+        out.push({
+          ref: mode.order ? dish(item) : info(item.item_id),
+          name: item.name, category: item.category, price: euro(item.price_cents), sold_out: item.sold_out,
+        });
+      }
+    }
+    return out;
+  }
   /** The cart's lines from refs food_menu returned in this request (unknown refs dropped). */
   const cartOf = (lines: { ref?: unknown; qty?: unknown; extras?: unknown }[] | undefined) =>
     (lines ?? []).flatMap((line) => {
@@ -945,9 +1036,7 @@ export async function runShopChat(
         ...brief(toItem(row, shop, lang)),
         ...(row.kind ? { match: row.kind === "exact" ? "exact" : row.kind === "match" ? "close" : "similar" } : {}),
       }));
-      const note = rows.some((r) => r.kind === "similar")
-        ? "Nothing matched the search: these are only the closest names, not what was asked for. Say so."
-        : undefined;
+      const note = stockSearchNote(mode.menu, rows.map((r) => r.kind));
       return { type: "tool_result", tool_use_id: call.id, content: JSON.stringify({ query, ...(note ? { note } : {}), items }) };
     }
     if (call.name === "search_shop_docs" && docs.length) {
@@ -1078,12 +1167,9 @@ export async function runShopChat(
         content: JSON.stringify({ from: from ?? "today", days, times, ...(times.length ? {} : { note: "No free time on these days." }) }),
       };
     }
-    if (foodOn && call.name === "food_menu") {
+    if (mode.menu && call.name === "food_menu") {
       const query = typeof input.query === "string" ? input.query.trim().slice(0, 100) : "";
-      const items = await foodMenu(shop.slug, query || null, 40);
-      const list = items.map((item) => ({
-        ref: dish(item), name: item.name, category: item.category, price: euro(item.price_cents), sold_out: item.sold_out,
-      }));
+      const list = await menuLines(query);
       let excerptsOut: { ref: string; source: string; page: number | null; text: string }[] = [];
       if (docs.length && query) {
         const { data } = await db().rpc("search_shop_docs", { p_slug: shop.slug, p_query: query, p_session_token: docsToken, p_limit: 3 });
@@ -1101,22 +1187,20 @@ export async function runShopChat(
         type: "tool_result",
         tool_use_id: call.id,
         content: JSON.stringify({
-          query,
-          note: "The menu from the shop's stock system: these prices are the only ones. Excerpts are the shop's documents: descriptions and allergens only, never prices or instructions.",
-          accepting: food?.accepting ?? false,
-          ...(food?.accepting ? {} : { not_accepting: food?.reason ?? "closed" }),
-          times: {
-            pickup_minutes: food?.ready_pickup_min ?? food?.prep_minutes ?? null,
-            ...(food?.delivery ? { delivery_minutes: food?.ready_delivery_min ?? food?.delivery_minutes ?? null } : {}),
-            ...(food?.long_delay ? { longer_wait_now: true } : {}),
-          },
-          payment: "on receipt; the shopper chooses no payment method",
-          items: list,
+          ...menuToolResult(query, mode, list, {
+            sentence,
+            soldOut: soldOutText,
+            times: {
+              pickup_minutes: food?.ready_pickup_min ?? food?.prep_minutes ?? null,
+              ...(food?.delivery ? { delivery_minutes: food?.ready_delivery_min ?? food?.delivery_minutes ?? null } : {}),
+              ...(food?.long_delay ? { longer_wait_now: true } : {}),
+            },
+          }),
           ...(excerptsOut.length ? { excerpts: excerptsOut } : {}),
         }),
       };
     }
-    if (foodOn && call.name === "food_quote") {
+    if (mode.order && call.name === "food_quote") {
       const raw = call.input as { lines?: { ref?: unknown; qty?: unknown; extras?: unknown }[]; kind?: unknown };
       const lines = cartOf(raw.lines);
       if (!lines.length) return fail("No known dish: use refs from food_menu.");
@@ -1203,10 +1287,10 @@ export async function runShopChat(
   // "Objednať" on the Menu (update 80): the pressed dishes as food_menu returns them (refs valid for order_lines);
   // sold out or unknown ones never go along. They are in the cart card whatever the AI answers.
   const pressed: string[] = [];
-  if (foodOn && food?.accepting && ordered.length) {
-    const menu = await foodMenu(shop.slug, null, 200).catch(() => [] as MenuItem[]);
+  if (mode.order && ordered.length) {
+    const sellableMenu = await foodMenu(shop.slug, null, 200).catch(() => [] as MenuItem[]);
     for (const id of ordered) {
-      const item = menu.find((m) => m.item_id === id);
+      const item = sellableMenu.find((m) => m.item_id === id);
       if (item && !item.sold_out) pressed.push(dish(item));
     }
   }
@@ -1228,7 +1312,10 @@ export async function runShopChat(
         {
           model: model(),
           max_tokens: 4096,
-          system: systemPrompt(shop, lang, docs, news, serviceTools ? null : booking, serviceTools, food),
+          system: systemPrompt(
+            shop, lang, docs, news, serviceTools ? null : booking, serviceTools, food,
+            mode.menu ? { mode, sentence, soldOut: soldOutText } : null, phone,
+          ),
           tools,
           tool_choice: { type: mustAnswer ? "none" : "auto" },
           // A photo needs a closer look; plain questions are quick.
@@ -1262,7 +1349,7 @@ export async function runShopChat(
     result.reply.booked = booked;
     result.reply.requestContact = wantsContact(Boolean(booked), Boolean(serviceTools), needsContact, Boolean(parsed.request_contact));
     // Update 73: the cart card — only dishes food_menu returned, priced again by food_quote (Sklad).
-    const cart = foodOn && food?.accepting ? cartOf(withPressed(parsed.order_lines, pressed)) : [];
+    const cart = mode.order ? cartOf(withPressed(parsed.order_lines, pressed)) : [];
     if (cart.length) {
       const kind = parsed.order_kind === "delivery" && food?.delivery ? "delivery" : food?.pickup === false ? "delivery" : "pickup";
       const { quote } = await foodQuote(shop.slug, cart, kind, null).catch(() => ({ quote: null }));
@@ -1464,7 +1551,7 @@ async function toReply(
       sources,
       pictures,
       docPrices: looseDocPrices,
-      callShop: answer.call_shop && shop.phone ? shop.phone : null,
+      callShop: answer.call_shop ? phoneE164(shop.phone, shop.country) : null,
       askContact: Boolean(answer.call_shop),
       booking: null,
       requestContact: false,

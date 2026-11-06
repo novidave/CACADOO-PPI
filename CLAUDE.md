@@ -333,6 +333,25 @@ starší / zastaraný"; the Menu editor's switch says "Zásoba začne od 0, kaž
 Tests: DB block "update 86", `test:sklad`, `test:items`, e2e `food-menu.spec.ts` (Predaj "V ponuke", a sale, no
 movement in Pohyby).
 
+## A restaurant's assistant when it takes no order (2026-11-06, at the owner's request)
+
+`@/lib/foodChat` (no server imports; `foodChat_test.ts` in `npm run test:food`) + `@/lib/shopChat`. **A shop of kind food
+(`shop_menu()` answers) always has `food_menu`** — open or closed, ordering on or off, with or without a conversation:
+its Menu as the page shows it (`menuToolLines`: a dish or each size, the forgiving `shop_menu_search` for words, the
+price, "Vypredané dnes", allergens as number + English name, tags, the description) plus what `food_menu()`'s own words
+find (extras off the Menu). `food_quote`, f-refs, `order_lines` → the cart card and "Objednať" only while
+`foodChatMode().order` (food_state accepting + the conversation); otherwise m-refs (information only, never a cart).
+Dishes are never stock: the prompt sends every dish question to food_menu, never search_items, and search_items without
+a real hit in a menu shop answers "call food_menu" (`stockSearchNote`) — never "not in stock". **Not accepting**
+(`notOrderingPrompt`): the answer starts with the database's sentence in the page language (`closedSentence`, texts
+`chat.food_*`; translated only for a shopper writing in another language): closed → "Teraz máme zatvorené, objednávky
+prijímame znova <deň> od <čas>." / cutoff → "Dnes už objednávky neprijímame, znova <deň> od <čas>." (`nextOpening()` =
+shopStatus() in the shop's time zone: the next opening, a lunch break's end, or the opening after today's closing;
+without one the sentence has no time) / paused and a used-up SMS quota → "Momentálne neprijímame objednávky." / off →
+the menu only, never an order; then the dishes asked for with their prices as information only. **The call link**
+(`callShop`, the prompt's phone, "offer to call the shop") only for a valid E.164 number — `phoneE164()` = SQL's
+`crm_phone()` with the shop's country; the link carries that number.
+
 ## Objednávky jedla: the order feed (update 81, 2026-11-05)
 
 `supabase/sql/81_food_feed.sql` (design: canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 5a tablet, 5b
@@ -535,7 +554,8 @@ field starts with the question (≤ 300 characters; `ShopAssistant question`), n
 - `npm run test:food` — unit tests (Deno) of "Objednávky jedla" on the website (`src/lib/food_test.ts`): the change to
   give, the cash quick amounts, Slovak plurals, the step buttons = SQL's `food_step_allowed()`, the cart limits, the town
   sent to the geocoder, the map links, the courier cookie (`@/lib/courierKey`), words for every refusal and state in
-  sk/hu/en, OrderPanel only through `next/dynamic`; the SQL rules (quotes, zones, cutoff …) are DB blocks 73–75
+  sk/hu/en, OrderPanel only through `next/dynamic`; a restaurant's assistant when it takes no order (`foodChat_test.ts`:
+  closed / cutoff / paused / off, sold out, the E.164 call link); the SQL rules (quotes, zones, cutoff …) are DB blocks 73–75
 - `npm run test:telegram` — the Telegram bot's texts in `supabase/functions/telegram/index.ts` match the message
   files (`node scripts/telegram-texts.mjs` writes them), and the owner assistant core (`src/lib/ownerAssistantCore.ts`
   with the docs/help topics) is the same in the function (`node scripts/assistant-core.mjs` writes it)
