@@ -13251,7 +13251,7 @@ begin
   vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_pizza, 'qty', 2)), 'delivery', 'Hlavná 1, Košice');
   assert vj ->> 'problem' = 'outside_zone', vj::text;
   vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_cola, 'qty', 1)), 'delivery', 'Hlavná 5, 07101 Pavlovce');
-  assert (vj ->> 'orderable')::boolean and vj -> 'zone' ->> 'name' = 'PSČ 071 01' and (vj ->> 'total_cents')::int = 380, vj::text;
+  assert (vj ->> 'orderable')::boolean and vj -> 'zone' ->> 'name' = '071 01' /* update 87: the customer's label, never the internal name */ and (vj ->> 'total_cents')::int = 380, vj::text;
   vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_cola, 'qty', 1)), 'delivery', 'Okružná 2, Michalovce');
   assert vj ->> 'problem' = 'below_minimum' and (vj ->> 'minimum_cents')::int = 1200, vj::text;
   vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', v_cola, 'qty', 1)), 'delivery', null);
@@ -13284,7 +13284,7 @@ begin
   if v_lat is not null then
     vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', (select v from t73 where k = 'pizza'), 'qty', 3)),
                             'delivery', 'Niekde 1, Dedina', v_lat + 0.01, v_lng);
-    assert vj -> 'zone' ->> 'name' = 'Do 10 km' and (vj ->> 'delivery_cents')::int = 300, vj::text;
+    assert vj -> 'zone' ->> 'name' = 'do 10 km' /* update 87: the label */ and (vj ->> 'delivery_cents')::int = 300, vj::text;
     vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', (select v from t73 where k = 'pizza'), 'qty', 3)),
                             'delivery', 'Niekde 1, Dedina', v_lat + 1, v_lng);
     assert vj ->> 'problem' = 'outside_zone', vj::text;
@@ -16484,5 +16484,263 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 drop table t86;
+
+\echo '--- update 87: Donáška without zones (fee 0, no minimum), the zone the customer picks (required with zones, the shop''s own, fitting the address: town / postcode / kilometres; never another zone''s fee), the customer''s labels and order of zones, the order keeps the zone''s label'
+create temporary table t87 (k text primary key, v text);
+grant all on t87 to public;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_tz text := (select coalesce(timezone, 'UTC') from public.shops where id = v_a);
+  v_open jsonb;
+  v_pizza uuid := (select si.id from public.sklad_items i join public.shop_items si on si.id = i.shop_item_id
+                   where i.shop_id = v_a and si.name = 'Margherita 32 cm');
+begin
+  insert into t87 values ('shop', v_a::text), ('had_plan', public.shop_has_plan(v_a)::text),
+    ('sub', (select to_jsonb(x) from public.subscriptions x where x.shop_id = v_a)::text),
+    ('day', ((now() at time zone v_tz)::date)::text),
+    ('food', (select to_jsonb(f) from public.food_settings f where f.shop_id = v_a)::text),
+    ('zones', (select coalesce(jsonb_agg(to_jsonb(z)), '[]'::jsonb) from public.food_zones z where z.shop_id = v_a)::text);
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_a, 'active', 'pro', now() + interval '30 days', 'sub_test_87')
+  on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+  insert into public.shop_special_hours (shop_id, date, closed, ranges)
+  values (v_a, (now() at time zone v_tz)::date, false, '[["00:00","23:59"]]')
+  on conflict (shop_id, date) do update set closed = false, ranges = excluded.ranges;
+  insert into public.sklad_movements (id, shop_id, shop_item_id, location_id, kind, qty, ref, client_at)
+  values (gen_random_uuid(), v_a, v_pizza, public.sklad_default_location(v_a, false), 'receipt', 20, 'Test 87', now());
+  perform public.sklad_apply(v_a, array[v_pizza]);
+  update public.food_settings set enabled = true, paused = false, pickup_on = true, delivery_on = true, last_order_minutes = 0
+  where shop_id = v_a;
+  -- the test starts without zones (the old ones come back at the end)
+  delete from public.food_zones where shop_id = v_a;
+  v_open := public.assistant_open(v_a, 'sk', repeat('7', 32));
+  insert into t87 values ('pizza', v_pizza::text), ('conv', v_open ->> 'id'), ('token', v_open ->> 'token');
+
+  -- the pure rules (the same cases as foodRules_test: townOf / townFits / postcodeFits)
+  assert public.food_town_of('Okružná 14, 071 01 Michalovce') = 'Michalovce';
+  assert public.food_town_of('Hlavná 5, Veľké Kapušany 079 01') = 'Veľké Kapušany';
+  assert public.food_town_of('Váci utca 5, 1051 Budapest') = 'Budapest';
+  assert public.food_town_of('Košice') = 'Košice' and public.food_town_of('  ') is null and public.food_town_of('Ulica 5, 04001') is null;
+  assert public.food_town_fits('Hlavná 5, Veľké Kapušany', 'velke kapusany');
+  assert public.food_town_fits('Hlavná 5 Veľké Kapušany 079 01', 'Veľké Kapušany'), 'no comma: the address ends with the town';
+  assert not public.food_town_fits('Kapušanská 5, Michalovce', 'Kapušany');
+  assert not public.food_town_fits('Hlavná 5, Pavlovce', 'Michalovce');
+  assert not public.food_town_fits('Hlavná 5, 07901 Kapušany', '07901'), 'a postcode is not a town';
+  assert public.food_postcode_fits('Hlavná 5, 071 01 Michalovce', '07101') and public.food_postcode_fits('Hlavná 5, 07102 X', '071 01; 071 02');
+  assert not public.food_postcode_fits('Hlavná 5, 04001 Košice', '071 01');
+end $$;
+reset role;
+
+-- no zones: Donáška with its switch alone, fee 0, no minimum, no zone question; the switch off = refused; pickup as before
+set role anon;
+do $$
+declare
+  v_lines jsonb := jsonb_build_array(jsonb_build_object('item_id', (select v from t87 where k = 'pizza'), 'qty', 1));
+  vj jsonb;
+begin
+  vj := public.food_state('potraviny-centrum');
+  assert (vj ->> 'delivery')::boolean and (vj ->> 'zones_count')::int = 0 and jsonb_array_length(vj -> 'zone_list') = 0, vj::text;
+  vj := public.food_quote('potraviny-centrum', v_lines, 'delivery', 'Hocikde 1, Ďaleko', null, null, null);
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 0 and (vj ->> 'minimum_cents')::int = 0
+     and vj -> 'zone' = 'null'::jsonb and (vj ->> 'zones_count')::int = 0, vj::text;
+  -- a caller from before (no zone sent): the same
+  vj := public.food_quote('potraviny-centrum', v_lines, 'delivery', 'Hocikde 1, Ďaleko');
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 0, vj::text;
+  vj := public.food_quote('potraviny-centrum', v_lines, 'delivery', null, null, null, null);
+  assert vj ->> 'problem' = 'no_address', vj::text;
+  vj := public.food_quote('potraviny-centrum', v_lines, 'pickup', null, null, null, null);
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 0 and (vj ->> 'total_cents')::int = 790, vj::text;
+end $$;
+reset role;
+set role service_role;
+update public.food_settings set delivery_on = false where shop_id = (select v::uuid from t87 where k = 'shop');
+reset role;
+set role anon;
+do $$
+declare
+  vj jsonb;
+begin
+  assert not (public.food_state('potraviny-centrum') ->> 'delivery')::boolean, 'the switch off: no Donáška';
+  vj := public.food_quote('potraviny-centrum', jsonb_build_array(jsonb_build_object('item_id', (select v from t87 where k = 'pizza'), 'qty', 1)),
+                          'delivery', 'Hocikde 1, Ďaleko', null, null, null);
+  assert vj ->> 'problem' = 'kind_off', vj::text;
+end $$;
+reset role;
+set role service_role;
+update public.food_settings set delivery_on = true where shop_id = (select v::uuid from t87 where k = 'shop');
+reset role;
+
+-- the owner: two town zones and a kilometre zone, a customer's label, the order (▲ ▼)
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select v::uuid from t87 where k = 'shop');
+  v_mi uuid; v_kap uuid; v_km uuid;
+  vj jsonb;
+begin
+  v_mi := public.owner_food_save_zone(v_a, null, 'Michalovce mesto', 'town', 'Michalovce', 150, 1200, null, 'Michalovce – centrum');
+  v_kap := public.owner_food_save_zone(v_a, null, 'Kapušany', 'town', 'Veľké Kapušany', 250, 500, null, '');
+  v_km := public.owner_food_save_zone(v_a, null, 'Okolie', 'radius_km', '7,5', 400, 0);
+  begin perform public.owner_food_save_zone(v_a, null, 'Dlhý', 'town', 'X', 0, 0, null, repeat('a', 41)); raise exception 'a label over 40';
+  exception when invalid_parameter_value then assert sqlerrm = 'label', sqlerrm; end;
+  -- an edit from before (no label sent) keeps the label
+  perform public.owner_food_save_zone(v_a, v_mi, 'Michalovce mesto', 'town', 'Michalovce', 150, 1200);
+  assert (select z ->> 'label' from jsonb_array_elements(public.owner_food_settings(v_a) -> 'zones') z where z ->> 'id' = v_mi::text) = 'Michalovce – centrum';
+  -- a label is plain text
+  perform public.owner_food_save_zone(v_a, v_km, 'Okolie', 'radius_km', '7,5', 400, 0, null, '<b>Okolie</b> www.example.com');
+  assert (select z ->> 'label' from jsonb_array_elements(public.owner_food_settings(v_a) -> 'zones') z where z ->> 'id' = v_km::text) = 'Okolie', (select z ->> 'label' from jsonb_array_elements(public.owner_food_settings(v_a) -> 'zones') z where z ->> 'id' = v_km::text);
+  perform public.owner_food_save_zone(v_a, v_km, 'Okolie', 'radius_km', '7,5', 400, 0, null, '');
+  assert (select z ->> 'label' from jsonb_array_elements(public.owner_food_settings(v_a) -> 'zones') z where z ->> 'id' = v_km::text) is null, 'empty = no own label';
+  -- the order: Kapušany first
+  vj := public.owner_food_order_zones(v_a, array[v_kap, v_mi, v_km]);
+  assert vj -> 0 ->> 'id' = v_kap::text and vj -> 1 ->> 'id' = v_mi::text and vj -> 2 ->> 'id' = v_km::text, vj::text;
+  assert exists (select 1 from public.shop_activity where shop_id = v_a and action = 'food_zones_ordered');
+  -- another shop's zone id changes nothing
+  perform public.owner_food_order_zones(v_a, array[gen_random_uuid(), v_km]);
+  assert (select z ->> 'sort' from jsonb_array_elements(public.owner_food_settings(v_a) -> 'zones') z where z ->> 'id' = v_km::text)::int = 2, 'the given ones first';
+  perform public.owner_food_order_zones(v_a, array[v_kap, v_mi, v_km]);
+  -- "Nastavenie obchodu" no longer asks for zones
+  insert into t87 values ('mi', v_mi::text), ('kap', v_kap::text), ('km', v_km::text);
+end $$;
+reset role;
+
+-- the customer: the labels in the owner's order (no internal names, no coordinates); a zone is required and must fit
+set role anon;
+do $$
+declare
+  v_lines jsonb := jsonb_build_array(jsonb_build_object('item_id', (select v from t87 where k = 'pizza'), 'qty', 1));
+  v_two jsonb := jsonb_build_array(jsonb_build_object('item_id', (select v from t87 where k = 'pizza'), 'qty', 2));
+  v_mi uuid := (select v::uuid from t87 where k = 'mi');
+  v_kap uuid := (select v::uuid from t87 where k = 'kap');
+  v_km uuid := (select v::uuid from t87 where k = 'km');
+  vj jsonb;
+begin
+  vj := public.food_state('potraviny-centrum');
+  assert (vj ->> 'zones_count')::int = 3, vj::text;
+  assert vj -> 'zone_list' -> 0 ->> 'label' = 'Veľké Kapušany' and vj -> 'zone_list' -> 0 ->> 'value' = 'Veľké Kapušany'
+     and (vj -> 'zone_list' -> 0 ->> 'fee_cents')::int = 250 and (vj -> 'zone_list' -> 0 ->> 'min_cents')::int = 500, vj::text;
+  assert vj -> 'zone_list' -> 1 ->> 'label' = 'Michalovce – centrum' and (vj -> 'zone_list' -> 1 ->> 'own_label')::boolean, vj::text;
+  assert vj -> 'zone_list' -> 2 ->> 'label' = 'do 7,5 km' and (vj -> 'zone_list' -> 2 ->> 'km')::numeric = 7.5
+     and vj -> 'zone_list' -> 2 ->> 'value' is null, vj::text;
+  assert vj::text not like '%Michalovce mesto%' and vj::text not like '%Okolie%' and vj::text not like '%"lat"%', 'no internal names or places';
+  -- no zone picked
+  vj := public.food_quote('potraviny-centrum', v_lines, 'delivery', 'Hlavná 5, Michalovce', null, null, null);
+  assert vj ->> 'problem' = 'zone_required' and not (vj ->> 'orderable')::boolean, vj::text;
+  -- not one of the shop's zones
+  vj := public.food_quote('potraviny-centrum', v_lines, 'delivery', 'Hlavná 5, Michalovce', null, null, gen_random_uuid());
+  assert vj ->> 'problem' = 'zone_unknown', vj::text;
+  -- a town zone with another town: refused, never another zone's fee
+  vj := public.food_quote('potraviny-centrum', v_two, 'delivery', 'Hlavná 5, Michalovce', null, null, v_kap);
+  assert vj ->> 'problem' = 'zone_mismatch' and vj -> 'zone' ->> 'label' = 'Veľké Kapušany', vj::text;
+  -- the right zone: its fee and its minimum
+  vj := public.food_quote('potraviny-centrum', v_two, 'delivery', 'Hlavná 5, 079 01 Veľké Kapušany', null, null, v_kap);
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 250 and (vj ->> 'minimum_cents')::int = 500
+     and (vj ->> 'total_cents')::int = 1580 + 250, vj::text;
+  vj := public.food_quote('potraviny-centrum', v_lines, 'delivery', 'Okružná 2, Michalovce', null, null, v_mi);
+  assert vj ->> 'problem' = 'below_minimum' and (vj ->> 'minimum_cents')::int = 1200 and vj -> 'zone' ->> 'label' = 'Michalovce – centrum', vj::text;
+  vj := public.food_quote('potraviny-centrum', v_two, 'delivery', 'Okružná 2, Michalovce', null, null, v_mi);
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 150, vj::text;
+  -- a kilometre zone without the address's place: refused
+  vj := public.food_quote('potraviny-centrum', v_two, 'delivery', 'Niekde 1, Dedina', null, null, v_km);
+  assert vj ->> 'problem' = 'zone_mismatch', vj::text;
+  -- pickup unchanged (a zone sent along is ignored)
+  vj := public.food_quote('potraviny-centrum', v_lines, 'pickup', null, null, null, v_kap);
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 0 and vj -> 'zone' = 'null'::jsonb, vj::text;
+  -- a caller from before (no zone sent at all): the first zone that fits, as before
+  vj := public.food_quote('potraviny-centrum', v_two, 'delivery', 'Hlavná 5, Veľké Kapušany');
+  assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 250, vj::text;
+end $$;
+reset role;
+
+-- a kilometre zone with the address's place (the website geocodes the town)
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t87 where k = 'shop');
+  v_lat double precision := (select extensions.st_y(location::extensions.geometry) from public.shops where id = v_a);
+  v_lng double precision := (select extensions.st_x(location::extensions.geometry) from public.shops where id = v_a);
+  v_two jsonb := jsonb_build_array(jsonb_build_object('item_id', (select v from t87 where k = 'pizza'), 'qty', 2));
+  vj jsonb;
+begin
+  if v_lat is not null then
+    vj := public.food_quote('potraviny-centrum', v_two, 'delivery', 'Niekde 1, Dedina', v_lat + 0.01, v_lng, (select v::uuid from t87 where k = 'km'));
+    assert (vj ->> 'orderable')::boolean and (vj ->> 'delivery_cents')::int = 400 and vj -> 'zone' ->> 'label' = 'do 7,5 km', vj::text;
+    vj := public.food_quote('potraviny-centrum', v_two, 'delivery', 'Niekde 1, Dedina', v_lat + 1, v_lng, (select v::uuid from t87 where k = 'km'));
+    assert vj ->> 'problem' = 'zone_mismatch', vj::text;
+  end if;
+end $$;
+reset role;
+
+-- the order: the zone is checked again, the order keeps its id and label; no zone = refused, the code kept
+set role service_role;
+do $$
+declare
+  v_two jsonb := jsonb_build_array(jsonb_build_object('item_id', (select v from t87 where k = 'pizza'), 'qty', 2));
+  v_conv uuid := (select v::uuid from t87 where k = 'conv');
+  v_token text := (select v from t87 where k = 'token');
+  v_kap uuid := (select v::uuid from t87 where k = 'kap');
+  v_code jsonb;
+  v_order uuid := gen_random_uuid();
+  vj jsonb;
+begin
+  v_code := public.sms_code_start('potraviny-centrum', 'order', '0907 887 001', 'Zákazník 87', repeat('8', 32), v_conv, v_token);
+  begin perform public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', v_order, v_two, 'delivery', null,
+                                         'Hlavná 5, Veľké Kapušany', null, null, null, v_conv, v_token, 'sk', null);
+    raise exception 'placed without a zone';
+  exception when raise_exception then assert sqlerrm = 'zone_required', sqlerrm; end;
+  begin perform public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', v_order, v_two, 'delivery', null,
+                                         'Hlavná 5, Michalovce', null, null, null, v_conv, v_token, 'sk', v_kap);
+    raise exception 'placed in another zone';
+  exception when raise_exception then assert sqlerrm = 'zone_mismatch', sqlerrm; end;
+  assert (select used_at from public.sms_codes where id = (v_code ->> 'id')::uuid) is null, 'the code is kept';
+  vj := public.food_order_create((v_code ->> 'id')::uuid, v_code ->> 'code', v_order, v_two, 'delivery', null,
+                                 'Hlavná 5, Veľké Kapušany', null, null, null, v_conv, v_token, 'sk', v_kap);
+  assert (vj ->> 'ok')::boolean, vj::text;
+  assert (select zone_id = v_kap and zone_name = 'Veľké Kapušany' and delivery_cents = 250 and total_cents = 1830
+          from public.food_orders where id = v_order), (select to_jsonb(o) from public.food_orders o where id = v_order)::text;
+  assert public.food_order_json(v_order) ->> 'zone_name' = 'Veľké Kapušany';
+  assert exists (select 1 from public.food_alerts_due(100) d where d.order_id = v_order and d.zone = 'Veľké Kapušany')
+      or not exists (select 1 from public.food_order_alerts where order_id = v_order), 'the owner''s e-mail names the zone';
+end $$;
+reset role;
+
+-- "Nastavenie obchodu": Donáška without zones is fine
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_a uuid := (select v::uuid from t87 where k = 'shop');
+begin
+  assert not exists (select 1 from jsonb_array_elements(public.owner_setup_steps(v_a) -> 'steps') st,
+                     jsonb_array_elements_text(st -> 'missing') m where m = 'zones'), 'no zone step';
+  assert jsonb_array_length(public.owner_food_settings(v_a) -> 'zones') = 3
+     and exists (select 1 from jsonb_array_elements(public.owner_food_settings(v_a) -> 'zones') z where z ->> 'label' = 'Michalovce – centrum');
+end $$;
+reset role;
+
+-- tidy up: the zones, food ordering, the day's hours, the subscription
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t87 where k = 'shop');
+begin
+  delete from public.food_zones where shop_id = v_a;
+  insert into public.food_zones select * from jsonb_populate_recordset(null::public.food_zones, (select v::jsonb from t87 where k = 'zones'));
+  update public.food_settings f set enabled = coalesce((x ->> 'enabled')::boolean, false),
+         delivery_on = coalesce((x ->> 'delivery_on')::boolean, false), last_order_minutes = coalesce((x ->> 'last_order_minutes')::int, 30)
+  from (select (select v::jsonb from t87 where k = 'food') x) y where f.shop_id = v_a;
+  delete from public.shop_special_hours where shop_id = v_a and date = (select v::date from t87 where k = 'day');
+  delete from public.subscriptions where shop_id = v_a;
+  insert into public.subscriptions
+  select * from jsonb_populate_record(null::public.subscriptions, (select v::jsonb from t87 where k = 'sub'))
+  where (select v from t87 where k = 'sub') is not null;
+  assert public.shop_has_plan(v_a) = (select v::boolean from t87 where k = 'had_plan');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+drop table t87;
 
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -904,7 +904,15 @@
     "order_kind_pick": "Choose pickup or delivery.",
     "order_delivery_off": "This shop doesn't deliver yet – please choose pickup.",
     "order_pickup_off": "This shop doesn't offer pickup – please choose delivery.",
-    "order_err_no_kind": "Choose pickup or delivery."
+    "order_err_no_kind": "Choose pickup or delivery.",
+    "order_zone_question": "Where should we deliver?",
+    "order_zone_fee": "+ {fee}",
+    "order_zone_no_fee": "no fee",
+    "order_zone_min": "min. {min}",
+    "order_zone_km": "up to {n} km",
+    "order_err_zone_required": "Choose where we deliver.",
+    "order_err_zone_mismatch": "This address is not in the zone “{zone}” – choose another one or correct the address.",
+    "order_err_zone_unknown": "This zone is no longer available – choose another one."
   },
   "docs": {
     "title": "Documents for the assistant",
@@ -4901,10 +4909,10 @@
     "s_delivery_on": "Allow delivery",
     "s_eta": "Delivery estimate",
     "s_min": "{n} min",
-    "s_zone_hint": "The assistant refuses an address outside the zones and offers pickup instead.",
+    "s_zone_hint": "After typing the address the customer picks a zone – its fee and minimum apply. The address must be in the zone.",
     "s_zones_count": "Delivery zones: {n}",
     "s_zones": "Delivery zones",
-    "s_zones_none": "No zone yet – the assistant does not offer delivery.",
+    "s_zones_none": "No zone yet.",
     "s_zone_add": "+ Add a zone",
     "s_zone_name": "Name",
     "s_zone_kind": "By",
@@ -5134,7 +5142,14 @@
     "mod_feed_newest": "Newest on top",
     "mod_feed_oldest": "Oldest on top",
     "mod_feed_hint": "Finished orders go grey to the end of the feed; those older than today are hidden.",
-    "mod_min_unit": "min"
+    "mod_min_unit": "min",
+    "s_zones_free": "Without zones we deliver anywhere, with no fee.",
+    "s_zone_label": "Name for customers (optional)",
+    "s_zone_label_hint": "Shown on the zone's button, at most 40 characters. Empty = the town, postcode or “up to n km”.",
+    "s_zone_up": "Move up: {zone}",
+    "s_zone_down": "Move down: {zone}",
+    "err_label": "The name for customers can have at most 40 characters.",
+    "ok_zones_ordered": "The order of the zones is saved."
   },
   "nav": {
     "label": "Menu",

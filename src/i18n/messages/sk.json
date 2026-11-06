@@ -904,7 +904,15 @@
     "order_kind_pick": "Vyberte osobný odber alebo donášku.",
     "order_delivery_off": "Tento obchod zatiaľ nedonáša – vyberte osobný odber.",
     "order_pickup_off": "Tento obchod neponúka osobný odber – vyberte donášku.",
-    "order_err_no_kind": "Vyberte osobný odber alebo donášku."
+    "order_err_no_kind": "Vyberte osobný odber alebo donášku.",
+    "order_zone_question": "Kam doručujeme?",
+    "order_zone_fee": "+ {fee}",
+    "order_zone_no_fee": "bez poplatku",
+    "order_zone_min": "min. {min}",
+    "order_zone_km": "do {n} km",
+    "order_err_zone_required": "Vyberte, kam doručujeme.",
+    "order_err_zone_mismatch": "Táto adresa nie je v zóne „{zone}“ – vyberte inú alebo opravte adresu.",
+    "order_err_zone_unknown": "Táto zóna už neplatí – vyberte inú."
   },
   "docs": {
     "title": "Dokumenty pre asistenta",
@@ -4901,10 +4909,10 @@
     "s_delivery_on": "Povoliť donášku",
     "s_eta": "Odhad doručenia",
     "s_min": "{n} min",
-    "s_zone_hint": "Adresu mimo zón asistent odmietne a ponúkne osobný odber.",
+    "s_zone_hint": "Zákazník po zadaní adresy vyberie zónu – platí jej poplatok a minimum. Adresa musí do zóny patriť.",
     "s_zones_count": "Zóny donášky: {n}",
     "s_zones": "Zóny donášky",
-    "s_zones_none": "Zatiaľ žiadna zóna – donášku asistent neponúkne.",
+    "s_zones_none": "Zatiaľ žiadna zóna.",
     "s_zone_add": "+ Pridať zónu",
     "s_zone_name": "Názov",
     "s_zone_kind": "Podľa",
@@ -5134,7 +5142,14 @@
     "mod_feed_newest": "Najnovšie hore",
     "mod_feed_oldest": "Najstaršie hore",
     "mod_feed_hint": "Vybavené objednávky idú sivé na koniec feedu, staršie ako dnes sa skryjú.",
-    "mod_min_unit": "min"
+    "mod_min_unit": "min",
+    "s_zones_free": "Bez zón donášame kamkoľvek bez poplatku.",
+    "s_zone_label": "Názov pre zákazníka (nepovinné)",
+    "s_zone_label_hint": "Ukáže sa na tlačidle zóny, najviac 40 znakov. Prázdne = mesto, PSČ alebo „do n km“.",
+    "s_zone_up": "Posunúť vyššie: {zone}",
+    "s_zone_down": "Posunúť nižšie: {zone}",
+    "err_label": "Názov pre zákazníka môže mať najviac 40 znakov.",
+    "ok_zones_ordered": "Poradie zón je uložené."
   },
   "nav": {
     "label": "Menu",
