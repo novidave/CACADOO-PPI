@@ -11,16 +11,17 @@ import hu from "../i18n/messages/hu.json" with { type: "json" };
 import sk from "../i18n/messages/sk.json" with { type: "json" };
 import { COURIER_KEY, readCourierKey, signCourierKey } from "./courierKey.ts";
 import {
+  canContinue,
   cashChoices,
   changeCents,
   cleanCart,
   directionsTo,
-  firstKind,
   money,
   nextSteps,
   ORDER_PROBLEMS,
   type OrderKind,
   orderKinds,
+  pickKind,
   type OrderStatus,
   PAY_NOTE_NONE,
   payNoteLine,
@@ -211,27 +212,60 @@ Deno.test("first load: the order panel loads only after the first cart card", as
 
 // ------------------------------------------------------------------ update 85: the order panel
 
-Deno.test("order panel: Osobný odber and Donáška as two radio buttons, Donáška only while the shop uses it", async () => {
-  assertEquals(orderKinds({ pickup: true, delivery: true }), ["pickup", "delivery"]);
-  assertEquals(orderKinds({ pickup: true, delivery: false }), ["pickup"], "without Donáška only Osobný odber");
-  assertEquals(orderKinds({ pickup: true }), ["pickup"], "food_state without a zone has no delivery");
-  assertEquals(orderKinds({ pickup: false, delivery: true }), ["delivery"]);
-  assertEquals(orderKinds({ pickup: false, delivery: false }), ["pickup"], "never no way at all");
-  assertEquals(firstKind("delivery", ["pickup"]), "pickup", "one way = already chosen");
-  assertEquals(firstKind("delivery", ["pickup", "delivery"]), "delivery", "the way the answer named");
-  assertEquals(firstKind(null, ["pickup", "delivery"]), "pickup");
+Deno.test("order panel: Osobný odber and Donáška ALWAYS as two radio buttons, nothing chosen, a way not offered greyed", async () => {
+  const both = { pickup: true, delivery: true };
+  assertEquals(orderKinds(both), [{ kind: "pickup", available: true }, { kind: "delivery", available: true }]);
+  assertEquals(orderKinds({ pickup: true, delivery: false }), [{ kind: "pickup", available: true }, { kind: "delivery", available: false }],
+    "without Donáška both are shown, Donáška greyed");
+  assertEquals(orderKinds({ pickup: true }), [{ kind: "pickup", available: true }, { kind: "delivery", available: false }],
+    "food_state without a zone has no delivery");
+  assertEquals(orderKinds({ pickup: false, delivery: true }), [{ kind: "pickup", available: false }, { kind: "delivery", available: true }]);
+  assertEquals(orderKinds({ pickup: false, delivery: false }).map((k) => k.available), [true, false], "never no way at all");
+  // nothing preselected: "Pokračovať" only after the customer's own pick of an offered way
+  const noDelivery = orderKinds({ pickup: true, delivery: false });
+  assertEquals(canContinue(null, orderKinds(both), 2), false, "nothing chosen");
+  assertEquals(canContinue("pickup", orderKinds(both), 2), true);
+  assertEquals(canContinue("delivery", orderKinds(both), 2), true);
+  assertEquals(canContinue("delivery", noDelivery, 2), false, "a greyed way never counts");
+  assertEquals(canContinue("pickup", orderKinds(both), 0), false, "an empty cart");
+  assertEquals(pickKind(noDelivery, "delivery"), null, "a tap on greyed Donáška chooses nothing");
+  assertEquals(pickKind(noDelivery, "pickup"), "pickup");
   const panel = await read("src/components/OrderPanel.tsx");
+  assert(panel.includes("useState<OrderKind | null>(null)"), "nothing is chosen at first (never the AI's order_kind)");
+  assert(!panel.includes("order.kind"), "the answer's order_kind never preselects");
   assert(panel.includes('type="radio"') && panel.includes('className="sr-only"'), "real radio inputs, visually hidden");
   assert(panel.includes("min-h-[52px]") && panel.includes("grid grid-cols-2"), "≥ 52 px high, half the width each");
   assert(panel.includes("bg-foreground font-bold text-white") && panel.includes("border-[1.5px] border-[#E2E2E2] bg-white"),
     "the chosen one black with white bold text, the other white with a 1.5 px #E2E2E2 line");
   assert(panel.includes("rounded-xl"), "radius 12");
-  assert(panel.includes("{kinds.map((k) =>") && panel.includes("orderKinds(state)"), "only the ways food_state offers");
+  assert(panel.includes("{kinds.map(({ kind: k, available }) =>") && panel.includes("orderKinds(state)"), "both ways, always");
+  assert(panel.includes("aria-disabled={available ? undefined : true}"), "a greyed way is aria-disabled");
+  assert(panel.includes("labels.order_delivery_off") && panel.includes("setKindHint(k)"), "a tap shows why");
+  assert(/onKeyDown=\{\(e\) => \{\s*if \(e\.key === "Enter"\)/.test(panel), "Enter shows it too");
+  assert(panel.includes("disabled={busy || !canContinue(kind, kinds, quote.lines.length)}"), "Pokračovať waits for a choice");
+  assert(panel.includes("labels.order_kind_pick"), "the line under the buttons until a choice");
   assert(/kind === "delivery" && \(\s*<label[^]*name="address"/.test(panel), "the address field only with Donáška");
   assert(panel.includes("value={address}") && panel.includes("onChange={(e) => setAddress(e.target.value)}"),
     "the address is kept while Osobný odber hides the field");
   assert(/function chooseKind[^]*?requote\(\{ kind: k \}\)/.test(panel), "every change asks food_quote again");
-  assert(panel.includes("labels.order_delivery_by : labels.order_ready_at"), "the time line under the buttons");
+  assert(/\{kind \? \(\s*<p[^>]*data-order-time/.test(panel), "the time line once a way is chosen");
+  assert(panel.includes("...(k ? { kind: k } : {})"), "before a choice the quote carries no kind");
+  // the order route places nothing without the customer's own way
+  const route = await read("src/app/api/shops/[slug]/order/route.ts");
+  assert(route.includes('body.action === "place" && body.kind !== "pickup" && body.kind !== "delivery"'), "no_kind");
+  for (const [name, dict] of Object.entries({ sk, hu, en })) {
+    const chat = dict.chat as Record<string, string>;
+    for (const key of ["order_kind_pick", "order_delivery_off", "order_pickup_off", "order_err_no_kind"]) assert(chat[key], `${name}: ${key}`);
+  }
+  assertEquals(sk.chat.order_kind_pick, "Vyberte osobný odber alebo donášku.");
+  assertEquals(sk.chat.order_delivery_off, "Tento obchod zatiaľ nedonáša – vyberte osobný odber.");
+  assertEquals(hu.chat.order_delivery_off, "Ez az üzlet még nem szállít házhoz – válassza a személyes átvételt.");
+  assertEquals(en.chat.order_delivery_off, "This shop doesn't deliver yet – please choose pickup.");
+  // the assistant: the buttons ask, never the AI
+  const chat = await read("src/lib/shopChat.ts");
+  assert(chat.includes("Never ask in words whether the shopper wants pickup or ") && chat.includes("delivery: the buttons ask."));
+  assert(!chat.includes("ask about pickup or delivery and extras"));
+  assert(chat.includes("say kindly that delivery is not offered yet and pickup is"));
 });
 
 Deno.test("order panel: the time line comes from the database's minutes, in the shop's time zone", async () => {

@@ -2,7 +2,7 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
-import { type CartLine, firstKind, type OrderKind, orderKinds, payNoteLine, readyClock } from "@/lib/foodRules";
+import { canContinue, type CartLine, type OrderKind, orderKinds, payNoteLine, pickKind, readyClock } from "@/lib/foodRules";
 import type { ChatOrder } from "@/lib/shopChat";
 import type { Quote } from "@/lib/food";
 
@@ -28,7 +28,8 @@ const fill = (text: string, values: Record<string, string | number>) =>
 /**
  * A food order in the shop assistant (database update 73, boards 9 and 10): the cart card the answer offered (built
  * on the server from the menu's own results, priced by Sklad), "Osobný odber" / "Donáška" as two big radio buttons
- * (Donáška only while the shop uses it; the address field with it) and the time from the database, then this page's
+ * (2026-11-06: always both, nothing chosen at first, a way the shop does not offer greyed with its reason; the address
+ * field with Donáška) and the time from the database once a way is chosen, then this page's
  * own form — name, phone, a note for the courier, the consent — and the SMS code. The AI never sees any of it. The
  * customer chooses no payment method (update 85: the shop marks how it was paid at the handover); the "Objednané" box
  * carries the shop's payment note. Every price, zone, minimum and time is decided again on the server (food_quote);
@@ -56,9 +57,11 @@ export default function OrderPanel({
   const [cart, setCart] = useState<CartLine[]>(() =>
     order.quote.lines.map((l) => ({ item_id: l.item_id, qty: l.qty, extras: l.extras.map((x) => x.item_id) })),
   );
-  // update 85: Donáška only while the shop uses it; one way = already chosen
+  // 2026-11-06: both ways always, nothing chosen at first; a way the shop does not offer is greyed (aria-disabled)
   const kinds = orderKinds(state);
-  const [kind, setKind] = useState<OrderKind>(() => firstKind(order.kind, kinds));
+  const [kind, setKind] = useState<OrderKind | null>(null);
+  // the line under the buttons after a tap on a greyed way
+  const [kindHint, setKindHint] = useState<OrderKind | null>(null);
   // native radios: ← → move between them (and wrap), the checked one is announced
   const kindGroup = useId();
   // the moment the time line is counted from (again with every new quote)
@@ -88,7 +91,7 @@ export default function OrderPanel({
     return { ok: res.ok, data };
   }
 
-  /** The price rule again (only the newest answer counts). */
+  /** The price rule again (only the newest answer counts); before a choice without a kind (the price without a fee). */
   async function requote(next: { cart?: CartLine[]; kind?: "pickup" | "delivery"; address?: string }) {
     const lines = next.cart ?? cart;
     if (!lines.length) return;
@@ -96,7 +99,9 @@ export default function OrderPanel({
     setBusy(true);
     try {
       const k = next.kind ?? kind;
-      const { ok, data } = await post({ action: "quote", lines, kind: k, address: k === "delivery" ? (next.address ?? address) : null });
+      const { ok, data } = await post({
+        action: "quote", lines, ...(k ? { kind: k } : {}), address: k === "delivery" ? (next.address ?? address) : null,
+      });
       if (ticket !== latest.current) return;
       if (ok && data.quote) {
         const q = data.quote as Quote;
@@ -121,6 +126,11 @@ export default function OrderPanel({
   }
 
   function chooseKind(k: OrderKind) {
+    if (pickKind(kinds, k) !== k) {
+      setKindHint(k);
+      return;
+    }
+    setKindHint(null);
     if (k === kind) return;
     setKind(k);
     void requote({ kind: k });
@@ -130,6 +140,11 @@ export default function OrderPanel({
     const conv = conversation();
     if (!conv) {
       setError(errorText("conversation"));
+      return;
+    }
+    if (!kind) {
+      setError(labels.order_kind_pick);
+      setStep({ kind: "cart" });
       return;
     }
     if (form.get("consent") !== "on") {
@@ -189,6 +204,7 @@ export default function OrderPanel({
 
   async function place(form: FormData, s: Extract<Step, { kind: "code" }>) {
     const conv = conversation();
+    if (!kind) return; // never an order without the customer's own choice
     setBusy(true);
     setError(null);
     try {
@@ -220,10 +236,15 @@ export default function OrderPanel({
     }
   }
 
-  // update 85: the kind buttons — the chosen one black with white bold text, the other white with a 1.5 px line
-  const kindButton = (on: boolean) =>
-    `flex min-h-[52px] cursor-pointer items-center justify-center gap-1.5 rounded-xl px-2 text-center text-[15px] leading-tight min-[360px]:whitespace-nowrap has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#2563EB] ${
-      on ? "bg-foreground font-bold text-white" : "border-[1.5px] border-[#E2E2E2] bg-white font-semibold"
+  // update 85: the kind buttons — the chosen one black with white bold text, the other white with a 1.5 px line;
+  // 2026-11-06: a way the shop does not offer is greyed (never selectable)
+  const kindButton = (on: boolean, available: boolean) =>
+    `flex min-h-[52px] items-center justify-center gap-1.5 rounded-xl px-2 text-center text-[15px] leading-tight min-[360px]:whitespace-nowrap has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#2563EB] ${
+      !available
+        ? "cursor-not-allowed border-[1.5px] border-[#E2E2E2] bg-[#F4F4F4] font-semibold text-[#9A9A9A]"
+        : on
+          ? "cursor-pointer bg-foreground font-bold text-white"
+          : "cursor-pointer border-[1.5px] border-[#E2E2E2] bg-white font-semibold"
     }`;
   // the time from the database (food_quote's ready_minutes for this kind, else food_state's), as a clock time
   const minutes = quote.kind === kind && quote.ready_minutes ? quote.ready_minutes : kind === "delivery" ? deliveryMin : pickupMin;
@@ -306,7 +327,7 @@ export default function OrderPanel({
           </li>
         ))}
         {kind === "delivery" && quote.zone && (
-          <li className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-line py-2 text-[15px]">
+          <li className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-line py-2 text-[15px]" data-order-fee>
             <span>{fill(labels.order_delivery_line, { zone: quote.zone.name })}</span>
             <span className="text-right">{money(quote.delivery_cents)}</span>
           </li>
@@ -319,12 +340,12 @@ export default function OrderPanel({
       {quote.refused.length > 0 && (
         <p className="text-sm" role="status">{fill(labels.order_refused, { names: quote.refused.map((r) => r.name ?? "–").join(", ") })}</p>
       )}
-      {step.kind !== "cart" && (
+      {step.kind !== "cart" && kind && (
         <p className="text-[13px] text-muted" data-order-time>
           {fill(kind === "delivery" ? labels.order_delivery_by : labels.order_ready_at, { time: clock })}
         </p>
       )}
-      {state.long_delay && (
+      {state.long_delay && kind && (
         <p className="text-[13px] font-semibold" role="status" data-order-long-wait>
           {fill(kind === "delivery" ? labels.order_long_wait_delivery : labels.order_long_wait, { n: kind === "delivery" ? deliveryMin : pickupMin })}
         </p>
@@ -335,14 +356,26 @@ export default function OrderPanel({
           <fieldset className="flex flex-col gap-2" data-order-kinds>
             <legend className="sr-only">{labels.order_kind_label}</legend>
             <div className="grid grid-cols-2 gap-2">
-              {kinds.map((k) => (
-                <label key={k} className={kindButton(kind === k)} data-order-kind={k}>
+              {kinds.map(({ kind: k, available }) => (
+                <label key={k} className={kindButton(kind === k, available)} data-order-kind={k}
+                  data-order-kind-off={available ? undefined : ""}>
                   <input
                     type="radio"
                     name={kindGroup}
                     value={k}
                     checked={kind === k}
+                    aria-disabled={available ? undefined : true}
+                    aria-describedby={available ? undefined : `${kindGroup}-${k}-off`}
                     onChange={() => chooseKind(k)}
+                    onClick={() => {
+                      if (!available) setKindHint(k);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        chooseKind(k);
+                      }
+                    }}
                     className="sr-only"
                   />
                   {k === "pickup" ? <BagIcon /> : <ScooterIcon />}
@@ -350,9 +383,21 @@ export default function OrderPanel({
                 </label>
               ))}
             </div>
-            <p className="text-[14px] font-semibold" data-order-time>
-              {fill(kind === "delivery" ? labels.order_delivery_by : labels.order_ready_at, { time: clock })}
-            </p>
+            {kinds.filter((k) => !k.available).map(({ kind: k }) => (
+              <p key={k} id={`${kindGroup}-${k}-off`} role={kindHint === k ? "alert" : undefined}
+                className={kindHint === k ? "text-[14px] font-semibold" : "sr-only"} data-order-kind-off-line={k}>
+                {k === "delivery" ? labels.order_delivery_off : labels.order_pickup_off}
+              </p>
+            ))}
+            {kind ? (
+              <p className="text-[14px] font-semibold" data-order-time>
+                {fill(kind === "delivery" ? labels.order_delivery_by : labels.order_ready_at, { time: clock })}
+              </p>
+            ) : (
+              <p className="text-[14px] text-muted" data-order-kind-pick>
+                {labels.order_kind_pick}
+              </p>
+            )}
           </fieldset>
           {kind === "delivery" && (
             <label className="flex flex-col gap-1 text-[13px] font-semibold">
@@ -372,7 +417,7 @@ export default function OrderPanel({
             </label>
           )}
           {error && <p role="alert" className="text-sm font-semibold">{error}</p>}
-          <button type="button" className={primary} disabled={busy || !quote.lines.length}
+          <button type="button" className={primary} disabled={busy || !canContinue(kind, kinds, quote.lines.length)}
             onClick={() => {
               setError(null);
               setEditing(false);

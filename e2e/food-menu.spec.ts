@@ -82,7 +82,22 @@ test("a restaurant: import a menu, edit a price, the Jedlá box shows it, the di
     const panel = pg.locator("[data-order-panel]");
     await expect(panel, "the cart card with the dish").toBeVisible({ timeout: 90_000 });
     await expect(panel.locator("li").first()).toContainText(dish);
+    // 2026-11-06: both ways always, nothing chosen, "Pokračovať" disabled until the customer picks one
+    await expect(panel.locator("[data-order-kind]")).toHaveCount(2);
+    await expect(panel.locator("[data-order-continue]")).toBeDisabled();
+    await expect(panel.locator("[data-order-kind-pick]")).toHaveText(sk.chat.order_kind_pick);
+    // a restaurant without Donáška (off or no zone): the button greyed, a tap only says why
+    const off = panel.locator('[data-order-kind="delivery"][data-order-kind-off]');
+    if (await off.count()) {
+      await expect(off.locator("input")).toHaveAttribute("aria-disabled", "true");
+      await off.click({ force: true }); // aria-disabled: Playwright would wait for it to be enabled; a finger taps anyway
+      await expect(panel.locator('[data-order-kind-off-line="delivery"]')).toHaveText(sk.chat.order_delivery_off);
+      await expect(panel.getByRole("radio", { name: sk.chat.order_delivery, exact: true })).not.toBeChecked();
+      await expect(panel.locator('input[name="address"]')).toHaveCount(0);
+      await expect(panel.locator("[data-order-continue]")).toBeDisabled();
+    }
     await panel.locator('[data-order-kind="pickup"]').click();
+    await expect(panel.locator("[data-order-continue]")).toBeEnabled();
     await expect(panel.getByRole("button", { name: /hotovos|QR platba|kartou/i })).toHaveCount(0);
     await panel.locator("[data-order-continue]").click();
     await panel.locator('input[name="name"]').fill("E2E zákazník");

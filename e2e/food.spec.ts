@@ -52,12 +52,23 @@ async function orderInAssistant(browser: Browser): Promise<number> {
   const panel = page.locator("[data-order-panel]");
   await expect(panel, "the assistant offers the cart card").toBeVisible({ timeout: 90_000 });
   await expect(panel.locator("li").first()).toContainText(ITEM);
+  // 2026-11-06: both ways ALWAYS shown, nothing chosen, "Pokračovať" waits for the customer's own pick
+  await expect(panel.locator("[data-order-kind]")).toHaveCount(2);
+  await expect(panel.getByRole("radio", { name: c.order_pickup, exact: true })).not.toBeChecked();
+  await expect(panel.getByRole("radio", { name: c.order_delivery, exact: true })).not.toBeChecked();
+  await expect(panel.locator("[data-order-continue]")).toBeDisabled();
+  await expect(panel.locator("[data-order-kind-pick]")).toHaveText(c.order_kind_pick);
+  await expect(panel.locator("[data-order-time]")).toHaveCount(0);
   // update 85: "Donáška" shows the address field, "Osobný odber" hides it (what was typed stays)
   const delivery = panel.locator('[data-order-kind="delivery"]');
   await delivery.click();
   await expect(panel.getByRole("radio", { name: c.order_delivery, exact: true })).toBeChecked();
+  await expect(panel.locator("[data-order-continue]")).toBeEnabled();
   await expect(panel.locator("[data-order-time]")).toContainText(c.order_delivery_by.split(" {")[0]);
   await panel.locator('input[name="address"]').fill(ADDRESS);
+  // the shop's zone: the fee line after the address (food_quote again)
+  await panel.locator('input[name="address"]').blur();
+  await expect(panel.locator("[data-order-fee]"), "the zone's delivery fee").toBeVisible({ timeout: 20_000 });
   await panel.locator('[data-order-kind="pickup"]').click();
   await expect(panel.locator('input[name="address"]')).toHaveCount(0);
   await delivery.click();
