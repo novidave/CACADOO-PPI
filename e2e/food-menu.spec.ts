@@ -82,6 +82,37 @@ test("a restaurant: import a menu, edit a price, the Jedlá box shows it, the di
     const panel = pg.locator("[data-order-panel]");
     await expect(panel, "the cart card with the dish").toBeVisible({ timeout: 90_000 });
     await expect(panel.locator("li").first()).toContainText(dish);
+    // 2026-11-06: the round stepper on the line — +, −, the bin at 1, the total follows; held + stops at 50 with its tip
+    const cartLine = panel.locator("[data-order-line]").first();
+    const qty = cartLine.locator("[data-order-qty]");
+    const total = panel.locator("[data-order-total]");
+    await expect(panel.locator("[data-order-edit]")).toHaveCount(0);
+    await expect(qty).toHaveAttribute("data-order-qty", "1");
+    await expect(cartLine.locator('[data-order-minus="bin"]')).toHaveAttribute("aria-label", `${sk.chat.order_remove}: ${dish}`);
+    const one = (await total.innerText()).trim();
+    await cartLine.locator("[data-order-plus]").click();
+    await expect(qty).toHaveAttribute("data-order-qty", "2");
+    await expect(cartLine.locator('[data-order-minus="minus"]')).toHaveCount(1);
+    await expect(total).not.toHaveText(one, { timeout: 10_000 });
+    await cartLine.locator("[data-order-minus]").click();
+    await expect(qty).toHaveAttribute("data-order-qty", "1");
+    await expect(total).toHaveText(one, { timeout: 10_000 });
+    // held: repeats faster and faster up to 50, then the + is greyed and a tap shows "Najviac 50 ks na objednávku"
+    await cartLine.locator("[data-order-plus]").hover();
+    await pg.mouse.down();
+    await expect(qty).toHaveAttribute("data-order-qty", "50", { timeout: 15_000 });
+    await pg.mouse.up();
+    await expect(cartLine.locator("[data-order-plus]")).toHaveAttribute("aria-disabled", "true");
+    await cartLine.locator("[data-order-plus]").click({ force: true });
+    await expect(cartLine.locator("[data-order-max]")).toHaveText(sk.chat.order_max.replace("{n}", "50"));
+    // held −: back down, it stops at 1 (never removes the line)
+    await cartLine.locator("[data-order-minus]").hover();
+    await pg.mouse.down();
+    await expect(qty).toHaveAttribute("data-order-qty", "1", { timeout: 15_000 });
+    await pg.waitForTimeout(400);
+    await pg.mouse.up();
+    await expect(cartLine).toHaveCount(1);
+    await expect(total).toHaveText(one, { timeout: 10_000 });
     // 2026-11-06: both ways always, nothing chosen, "Pokračovať" disabled until the customer picks one
     await expect(panel.locator("[data-order-kind]")).toHaveCount(2);
     await expect(panel.locator("[data-order-continue]")).toBeDisabled();

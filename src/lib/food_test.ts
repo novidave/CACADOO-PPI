@@ -248,7 +248,7 @@ Deno.test("order panel: Osobný odber and Donáška ALWAYS as two radio buttons,
   assert(panel.includes("aria-disabled={available ? undefined : true}"), "a greyed way is aria-disabled");
   assert(panel.includes("labels.order_delivery_off") && panel.includes("setKindHint(k)"), "a tap shows why");
   assert(/onKeyDown=\{\(e\) => \{\s*if \(e\.key === "Enter"\)/.test(panel), "Enter shows it too");
-  assert(panel.includes("disabled={busy || !canContinue(kind, kinds, quote.lines.length, { needed: zones.length > 0, chosen: zone })}"),
+  assert(panel.includes("disabled={busy || !canContinue(kind, kinds, cart.length, { needed: zones.length > 0, chosen: zone })}"),
     "Pokračovať waits for a choice (update 87: and for a zone)");
   assert(panel.includes("labels.order_kind_pick"), "the line under the buttons until a choice");
   assert(/kind === "delivery" && \(\s*<label[^]*name="address"/.test(panel), "the address field only with Donáška");
@@ -410,7 +410,7 @@ Deno.test("zones: the panel — buttons after the address, one per zone, radios,
     "a long button ≥ 56 px, radius 12, 1.5 px #E2E2E2");
   assert(panel.includes("{on && <CheckIcon />}") && panel.includes("bg-foreground font-bold text-white"), "chosen = black, white bold, a check");
   assert(panel.includes("labels.order_zone_fee") && panel.includes("labels.order_zone_min") && panel.includes("labels.order_zone_question"));
-  assert(panel.includes("canContinue(kind, kinds, quote.lines.length, { needed: zones.length > 0, chosen: zone })"), "Pokračovať waits");
+  assert(panel.includes("canContinue(kind, kinds, cart.length, { needed: zones.length > 0, chosen: zone })"), "Pokračovať waits");
   assert(panel.includes('zone: k === "delivery" ? z : null') && panel.includes('zone: kind === "delivery" ? zone : null'),
     "every quote and the order carry the picked zone");
   const route = await read("src/app/api/shops/[slug]/order/route.ts");
@@ -432,4 +432,47 @@ Deno.test("zones: the panel — buttons after the address, one per zone, radios,
   const settings = await read("src/app/[lang]/(account)/dashboard/assistant/orders/settings/page.tsx");
   assert(settings.includes('name="label" maxLength={40}') && settings.includes("action={moveZone}") && settings.includes("f.s_zones_free"));
   assertEquals(sk.food.s_zones_free, "Bez zón donášame kamkoľvek bez poplatku.");
+});
+
+Deno.test("order card: the round stepper — the hold's timing, the maximum, a hold on − stops at 1 (2026-11-06)", async () => {
+  const { HOLD_DELAY, holdDelay, minusIcon, QTY_MAX, REQUOTE_AFTER, stepQty } = await import("./qtyStepper.ts");
+  assertEquals(QTY_MAX, 50, "the order maximum as food_quote allows");
+  assertEquals(holdDelay(0), HOLD_DELAY);
+  assertEquals(HOLD_DELAY, 380, "a press repeats after 380 ms");
+  assertEquals(holdDelay(1), 150, "then every 150 ms …");
+  assertEquals(holdDelay(2), 123, "… getting faster × 0.82");
+  for (let n = 1; n < 40; n++) assert(holdDelay(n + 1) <= holdDelay(n), "never slower");
+  assertEquals(holdDelay(30), 55, "down to 55 ms");
+  assertEquals(REQUOTE_AFTER, 300);
+  // + : one step, stops at the maximum (capped: greyed + the tooltip)
+  assertEquals(stepQty(1, 1), { qty: 2, capped: false, removed: false, stop: false });
+  assertEquals(stepQty(49, 1, true), { qty: 50, capped: false, removed: false, stop: true });
+  assertEquals(stepQty(50, 1), { qty: 50, capped: true, removed: false, stop: true });
+  // − : a tap at 1 removes the line, a hold stops at 1
+  assertEquals(stepQty(3, -1), { qty: 2, capped: false, removed: false, stop: false });
+  assertEquals(stepQty(2, -1, true), { qty: 1, capped: false, removed: false, stop: true });
+  assertEquals(stepQty(1, -1, true), { qty: 1, capped: false, removed: false, stop: true }, "a hold never removes");
+  assertEquals(stepQty(1, -1), { qty: 0, capped: false, removed: true, stop: true }, "the last piece is a tap of its own");
+  assertEquals(minusIcon(1), "bin");
+  assertEquals(minusIcon(2), "minus");
+
+  const panel = await read("src/components/OrderPanel.tsx");
+  assert(!panel.includes("order_edit") && !panel.includes("setEditing"), "no Upraviť / Hotovo");
+  assert(panel.includes("<QtyStepper") && panel.includes("useHold("), "every line has the stepper");
+  assert(panel.includes("touch-action") === false && /window\.setTimeout\(tick, holdDelay\(0\)\)/.test(panel), "a finger waits for the hold");
+  assert(panel.includes("if (e.detail === 0) stepRef.current(false)"), "Enter / Space = one step");
+  assert(panel.includes("REQUOTE_AFTER") && panel.includes("window.clearTimeout(requoteTimer.current)"), "one quote after the last change");
+  assert(panel.includes("labels.order_removed") && panel.includes('focusNext.current = next[at]?.key ?? "continue"'), "removal: said + focus");
+  for (const [name, dict] of [["sk", sk], ["hu", hu], ["en", en]] as const) {
+    const chat = dict.chat as Record<string, string>;
+    for (const key of ["order_max", "order_removed", "order_qty_live", "order_empty", "order_more", "order_less", "order_remove"]) {
+      assert(chat[key], `${name}: ${key}`);
+    }
+    assert(!("order_edit" in chat) && !("order_edit_done" in chat), `${name}: order_edit is gone`);
+  }
+  assertEquals(sk.chat.order_max, "Najviac {n} ks na objednávku");
+  assertEquals(sk.chat.order_empty, "Objednávka je prázdna");
+  const css = await read("src/components/shopPage.css");
+  assert(css.includes(".ppi-qty-btn {") && css.includes("touch-action: pan-y;"), "a scroll that starts on a circle stays a scroll");
+  assert(/\.ppi-qty-btn::before \{[^}]*inset: -3px/.test(css), "44 px touch areas");
 });

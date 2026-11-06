@@ -1603,6 +1603,376 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
   color: #9a3a0a;
   cursor: pointer;
 }
+/*
+ * The assistant's chat (2026-11-06, at the owner's request; the inline mockups "assistant branches", "assistant
+ * heights mobile", "order cart stepper circles"):
+ *  - Inter inside the body only (messages, cards, the panels, the field, the bar); the header stays Quicksand;
+ *  - two-colour bubbles: the shopper right (blue), the assistant left (orange); cards and panels full width under them;
+ *  - heights: "idle" (no question yet) = a taller field and only the welcome; "on" = the log takes the room (svh, never
+ *    dvh, so the keyboard never makes it jump), the field one line growing with the text;
+ *  - the branches' pencil, pager and header pill; the order card's round stepper and rolling numbers.
+ */
+.ppi-ai {
+  interpolate-size: allow-keywords;
+}
+.ppi-ai-body {
+  font-family: var(--font-chat), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.ppi-ai-log {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transition: height 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.ppi-ai[data-chat="on"] .ppi-ai-log {
+  /* the header (58 px), the chat bar's real height (measured: the field grows), 24 px of air */
+  height: clamp(320px, calc(100svh - 58px - var(--ppi-chat-bar, 140px) - 24px), 900px);
+}
+.ppi-ai[data-chat="idle"] .ppi-ai-input {
+  height: 128px;
+}
+.ppi-ai[data-chat="on"] .ppi-ai-input {
+  height: auto;
+  min-height: 48px;
+  max-height: 160px;
+  padding-block: 10px;
+  overflow-y: auto;
+  field-sizing: content;
+}
+.ppi-ai .ppi-ai-input {
+  line-height: 1.5;
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    height 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (min-width: 768px) {
+  .ppi-ai[data-chat="on"] .ppi-ai-log {
+    height: min(70vh, 720px);
+    min-height: 480px;
+  }
+  .ppi-ai[data-chat="idle"] .ppi-ai-input {
+    height: 112px;
+  }
+}
+.ppi-msg-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ppi-msg-col-user {
+  align-items: flex-end;
+}
+.ppi-msg-label {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.ppi-msg {
+  padding: 9px 13px;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.ppi-msg-user {
+  max-width: 85%;
+  border: 1px solid #bfd5fb;
+  border-radius: 16px 16px 6px 16px;
+  background: #eff5ff;
+  color: #0f172a;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+.ppi-msg-bot {
+  align-self: flex-start;
+  max-width: 92%;
+  border: 1px solid #fde3cc;
+  border-radius: 16px 16px 16px 6px;
+  background: #fff6ee;
+  color: #111;
+  line-height: 1.5;
+}
+.ppi-msg-edit {
+  display: flex;
+  width: 85%;
+  flex-direction: column;
+  gap: 6px;
+  white-space: normal;
+}
+.ppi-msg-edit:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+.ppi-msg-edit-field {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  max-height: 200px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+.ppi-msg-edit-hint {
+  color: #475569;
+  font-size: 12px;
+}
+.ppi-msg-edit-error {
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ppi-msg-edit-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ppi-msg-edit-cancel,
+.ppi-msg-edit-send {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+.ppi-msg-edit-cancel {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 500;
+}
+.ppi-msg-edit-send {
+  border: 1px solid #f57c20;
+  background: #f57c20;
+  color: #fff;
+  font-weight: 600;
+}
+.ppi-msg-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -2px;
+}
+.ppi-msg-pencil {
+  position: relative;
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #6b7280;
+}
+.ppi-msg-pencil::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+.ppi-msg-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+}
+.ppi-msg-pager button {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #334155;
+}
+.ppi-msg-pager button:disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+@media (hover: hover) {
+  .ppi-msg-pencil:hover,
+  .ppi-msg-pager button:not(:disabled):hover {
+    background: #f1f5f9;
+    color: #111;
+  }
+}
+.ppi-msg-pencil:focus-visible,
+.ppi-msg-pager button:focus-visible,
+.ppi-msg-edit-cancel:focus-visible,
+.ppi-msg-edit-send:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ppi-ai-branches {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #fff1e6;
+  color: #9a3a0a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+/* the order card's round stepper: − (a bin at 1) · the quantity · +, 116 px; 44 px touch areas through ::before */
+.ppi-qty {
+  display: inline-grid;
+  width: 116px;
+  flex-shrink: 0;
+  grid-template-columns: 38px 1fr 38px;
+  align-items: center;
+}
+.ppi-qty-btn {
+  position: relative;
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition:
+    background-color 150ms ease,
+    transform 120ms ease;
+}
+.ppi-qty-btn::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+}
+.ppi-qty-minus {
+  background: #fff1e6;
+  color: #ea580c;
+}
+.ppi-qty-plus {
+  background: #eef1f5;
+  color: #111;
+}
+.ppi-qty-plus[aria-disabled="true"] {
+  background: #f3f5f8;
+  color: #9aa5b1;
+  cursor: not-allowed;
+}
+@media (hover: hover) {
+  .ppi-qty-minus:hover {
+    background: #ffe4cc;
+  }
+  .ppi-qty-plus:not([aria-disabled="true"]):hover {
+    background: #e2e7ee;
+  }
+}
+.ppi-qty-btn:active {
+  transform: scale(0.92);
+}
+.ppi-qty-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ppi-qty-num {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ppi-qty-num[data-shake] {
+  animation: ppi-qty-shake 360ms ease;
+}
+.ppi-qty-pop {
+  display: inline-flex;
+  animation: ppi-qty-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.ppi-qty-tip {
+  position: absolute;
+  z-index: 2;
+  right: -6px;
+  bottom: calc(100% + 8px);
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: ppi-qty-tip 160ms ease-out;
+}
+.ppi-roll {
+  display: inline-flex;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.ppi-roll-in {
+  display: inline-block;
+}
+.ppi-roll-in[data-dir="up"] {
+  animation: ppi-roll-up 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.ppi-roll-in[data-dir="down"] {
+  animation: ppi-roll-down 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes ppi-roll-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+@keyframes ppi-roll-down {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+@keyframes ppi-qty-pop {
+  from {
+    transform: scale(0.6);
+  }
+}
+@keyframes ppi-qty-shake {
+  20%,
+  60% {
+    transform: translateX(-3px);
+  }
+  40%,
+  80% {
+    transform: translateX(3px);
+  }
+}
+@keyframes ppi-qty-tip {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-ai-log,
+  .ppi-ai .ppi-ai-input {
+    transition: none;
+  }
+  .ppi-qty-btn {
+    transition: none;
+  }
+  .ppi-qty-btn:active {
+    transform: none;
+  }
+  .ppi-qty-num[data-shake],
+  .ppi-qty-pop,
+  .ppi-qty-tip,
+  .ppi-roll-in[data-dir] {
+    animation: none;
+  }
+}
 @keyframes ppi-ai-in {
   from {
     opacity: 0;

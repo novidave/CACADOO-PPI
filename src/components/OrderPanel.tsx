@@ -1,12 +1,13 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import {
   canContinue, type CartLine, type OrderKind, orderKinds, payNoteLine, pickKind, preselectZone, readyClock, zoneLabel,
 } from "@/lib/foodRules";
 import type { ChatOrder } from "@/lib/shopChat";
-import type { Quote } from "@/lib/food";
+import type { Quote, QuoteLine } from "@/lib/food";
+import { holdDelay, MAX_TIP_MS, minusIcon, QTY_MAX, REQUOTE_AFTER, stepQty } from "@/lib/qtyStepper";
 
 type Labels = Dictionary["chat"];
 
@@ -20,6 +21,27 @@ type Step =
   | { kind: "form" }
   | { kind: "code"; id: string; phone: string; testCode: string | null; sentAt: number }
   | { kind: "done"; number: number; readyBy: string; timezone: string; total: number; address: string | null };
+
+/** One line of the card as the customer sets it (the item, its extras, the quantity; the name and price to show). */
+interface Row {
+  key: number;
+  item_id: string;
+  qty: number;
+  extras: string[];
+  name: string;
+  unit_cents: number;
+  extrasInfo: QuoteLine["extras"];
+}
+const rowOf = (l: QuoteLine, key: number): Row => ({
+  key,
+  item_id: l.item_id,
+  qty: l.qty,
+  extras: l.extras.map((x) => x.item_id),
+  name: l.name,
+  unit_cents: l.unit_cents,
+  extrasInfo: l.extras,
+});
+const cartLine = (r: Row): CartLine => ({ item_id: r.item_id, qty: r.qty, extras: r.extras });
 
 /** The moment the panel's time line counts from (taken when a quote arrives, never while drawing). */
 const clockNow = () => Date.now();
@@ -45,6 +67,7 @@ export default function OrderPanel({
   conversation,
   privacyHref,
   labels,
+  onDone,
 }: {
   base: string;
   lang: string;
@@ -53,12 +76,33 @@ export default function OrderPanel({
   conversation: () => Conversation | null;
   privacyHref: string;
   labels: Labels;
+  /** The order was placed (2026-11-06: the questions before it are no longer edited). */
+  onDone?: () => void;
 }) {
   const state = order.state;
   const [quote, setQuote] = useState<Quote>(order.quote);
-  const [cart, setCart] = useState<CartLine[]>(() =>
-    order.quote.lines.map((l) => ({ item_id: l.item_id, qty: l.qty, extras: l.extras.map((x) => x.item_id) })),
-  );
+  // 2026-11-06: the round stepper on every line — the lines as the customer set them (the names and prices of the card
+  // the answer brought, the newest quote's prices once it is back); the cart sent to food_quote is made from these
+  const [rows, setRows] = useState<Row[]>(() => order.quote.lines.map((l, i) => rowOf(l, i)));
+  const rowsRef = useRef(rows);
+  const putRows = (next: Row[]) => {
+    rowsRef.current = next;
+    setRows(next);
+  };
+  const cart: CartLine[] = rows.map(cartLine);
+  // "Najviac 50 ks na objednávku" over a line's + (1.6 s) and the number's shake; "Odstránené: …" for screen readers
+  const [tip, setTip] = useState<{ key: number; n: number } | null>(null);
+  const [said, setSaid] = useState("");
+  const tipTimer = useRef(0);
+  const requoteTimer = useRef(0);
+  const plusRefs = useRef(new Map<number, HTMLButtonElement>());
+  const continueRef = useRef<HTMLButtonElement>(null);
+  const emptyRef = useRef<HTMLParagraphElement>(null);
+  const focusNext = useRef<number | "continue" | null>(null);
+  useEffect(() => () => {
+    window.clearTimeout(tipTimer.current);
+    window.clearTimeout(requoteTimer.current);
+  }, []);
   // 2026-11-06: both ways always, nothing chosen at first; a way the shop does not offer is greyed (aria-disabled)
   const kinds = orderKinds(state);
   const [kind, setKind] = useState<OrderKind | null>(null);
@@ -80,7 +124,6 @@ export default function OrderPanel({
   const deliveryMin = state.ready_delivery_min ?? state.delivery_minutes ?? 45;
   const [address, setAddress] = useState("");
   const [step, setStep] = useState<Step>({ kind: "cart" });
-  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const latest = useRef(0);
@@ -135,12 +178,50 @@ export default function OrderPanel({
     }
   }
 
-  function changeQty(i: number, delta: number) {
-    const next = cart.map((l, j) => (j === i ? { ...l, qty: Math.min(50, l.qty + delta) } : l)).filter((l) => l.qty > 0);
-    setCart(next);
-    if (next.length) void requote({ cart: next });
-    else setQuote({ ...quote, lines: [], subtotal_cents: 0, total_cents: 0, delivery_cents: 0 });
+  /**
+   * One step of a line's stepper (a tap, Enter / Space, or a repeat of a held press); answers whether a hold should
+   * stop. The price is asked again 300 ms after the last change, not on every repeat.
+   */
+  function stepLine(key: number, delta: 1 | -1, hold: boolean): boolean {
+    const now = rowsRef.current;
+    const at = now.findIndex((r) => r.key === key);
+    if (at < 0) return true;
+    const row = now[at];
+    const s = stepQty(row.qty, delta, hold);
+    if (s.capped) {
+      window.clearTimeout(tipTimer.current);
+      setTip((t) => ({ key, n: (t?.n ?? 0) + 1 }));
+      tipTimer.current = window.setTimeout(() => setTip(null), MAX_TIP_MS);
+      return true;
+    }
+    if (s.qty === row.qty) return s.stop;
+    const next = s.removed ? now.filter((r) => r.key !== key) : now.map((r) => (r.key === key ? { ...r, qty: s.qty } : r));
+    putRows(next);
+    if (s.removed) {
+      setSaid(fill(labels.order_removed, { name: row.name }));
+      focusNext.current = next[at]?.key ?? "continue";
+    }
+    window.clearTimeout(requoteTimer.current);
+    if (!next.length) {
+      latest.current++;
+      setBusy(false);
+      setQuote({ ...quote, lines: [], subtotal_cents: 0, total_cents: 0, delivery_cents: 0 });
+    } else {
+      requoteTimer.current = window.setTimeout(() => void requote({ cart: rowsRef.current.map(cartLine) }), REQUOTE_AFTER);
+    }
+    return s.stop;
   }
+  // a removed line: the focus goes to the next line's "+", else "Pokračovať" (or the empty card's line)
+  useEffect(() => {
+    const target = focusNext.current;
+    if (target === null) return;
+    focusNext.current = null;
+    if (target === "continue") (continueRef.current && !continueRef.current.disabled ? continueRef.current : emptyRef.current)?.focus();
+    else plusRefs.current.get(target)?.focus();
+  }, [rows]);
+  /** A line's unit price: the newest quote's for the same item and extras, else the card's own. */
+  const unitOf = (row: Row) =>
+    quote.lines.find((l) => l.item_id === row.item_id && l.extras.map((x) => x.item_id).join() === row.extras.join())?.unit_cents ?? row.unit_cents;
 
   /** The address field left (or Enter): the zone question appears; one fitting town / postcode zone is chosen. */
   function addressLeft() {
@@ -232,7 +313,7 @@ export default function OrderPanel({
         id: String(data.id),
         phone: String(data.phone ?? ""),
         testCode: typeof data.test_code === "string" ? data.test_code : null,
-        sentAt: Date.now(),
+        sentAt: clockNow(),
       });
     } catch {
       setError(labels.order_err_failed);
@@ -263,6 +344,7 @@ export default function OrderPanel({
       if (ok && data.order) {
         const o = data.order as { number: number; ready_by: string; timezone: string; total_cents: number; address: string | null };
         setStep({ kind: "done", number: o.number, readyBy: o.ready_by, timezone: o.timezone, total: o.total_cents, address: o.address });
+        onDone?.();
         return;
       }
       setError(errorText(String(data.error ?? "failed"), typeof data.attempts_left === "number" ? data.attempts_left : null,
@@ -338,41 +420,39 @@ export default function OrderPanel({
 
   return (
     <section aria-label={labels.order_title} className="flex flex-col gap-2.5 rounded-[14px] border border-[#D6D6D6] p-3.5" data-order-panel>
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-[17px] font-bold">{labels.order_title}</h3>
-        {step.kind === "cart" && (
-          <button type="button" onClick={() => setEditing((e) => !e)} className="min-h-11 text-sm underline underline-offset-4" data-order-edit>
-            {editing ? labels.order_edit_done : labels.order_edit}
-          </button>
-        )}
-      </div>
+      <h3 className="text-[17px] font-bold">{labels.order_title}</h3>
+      <p className="sr-only" aria-live="polite" data-order-said>{said}</p>
       <ul className="flex flex-col border-t border-line">
-        {quote.lines.map((line, i) => (
-          <li key={`${line.item_id}-${i}`} className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-line py-2 text-[15px]">
-            <span>
-              {line.qty}× {line.name}
-              {line.extras.map((x) => (
-                <span key={x.item_id} className="block text-[13px] text-muted">
+        {rows.length === 0 && (
+          <li className="border-b border-line py-3 text-[15px] text-muted">
+            <p ref={emptyRef} tabIndex={-1} className="outline-none" data-order-empty>{labels.order_empty}</p>
+          </li>
+        )}
+        {rows.map((row) => (
+          <li key={row.key} className="flex items-center gap-3 border-b border-line py-2.5" data-order-line={row.item_id}>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] leading-snug font-semibold">{row.name}</span>
+              <span className="block text-[13px] text-[#5B6670] tabular-nums">{money(unitOf(row))}</span>
+              {row.extrasInfo.map((x) => (
+                <span key={x.item_id} className="block text-[13px] text-[#5B6670]">
                   {fill(labels.order_extra_line, { name: x.name, price: money(x.unit_cents) })}
                 </span>
               ))}
             </span>
-            <span className="text-right">{money(line.line_cents)}</span>
-            {editing && step.kind === "cart" && (
-              <span className="col-span-2 mt-1 flex items-center gap-2">
-                <button type="button" onClick={() => changeQty(i, -1)} aria-label={`${labels.order_less}: ${line.name}`}
-                  className="flex size-11 items-center justify-center rounded-[10px] border border-[#D6D6D6] text-lg font-bold">
-                  −
-                </button>
-                <span className="min-w-6 text-center font-semibold tabular-nums">{line.qty}</span>
-                <button type="button" onClick={() => changeQty(i, 1)} aria-label={`${labels.order_more}: ${line.name}`}
-                  className="flex size-11 items-center justify-center rounded-[10px] border border-[#D6D6D6] text-lg font-bold">
-                  +
-                </button>
-                <button type="button" onClick={() => changeQty(i, -line.qty)} className="ml-auto min-h-11 text-sm underline underline-offset-4">
-                  {labels.order_remove}
-                </button>
-              </span>
+            {step.kind === "cart" ? (
+              <QtyStepper
+                qty={row.qty}
+                name={row.name}
+                labels={labels}
+                tip={tip?.key === row.key ? tip.n : 0}
+                plusRef={(el) => {
+                  if (el) plusRefs.current.set(row.key, el);
+                  else plusRefs.current.delete(row.key);
+                }}
+                onStep={(delta, hold) => stepLine(row.key, delta, hold)}
+              />
+            ) : (
+              <span className="text-[15px] font-semibold tabular-nums">{row.qty}×</span>
             )}
           </li>
         ))}
@@ -384,7 +464,9 @@ export default function OrderPanel({
         )}
         <li className="grid grid-cols-[1fr_auto] gap-x-3 py-2 text-[17px] font-bold">
           <span>{labels.order_total}</span>
-          <span className="text-right" data-order-total>{money(quote.total_cents)}</span>
+          <span className="text-right tabular-nums" data-order-total>
+            <Roll value={quote.total_cents}>{money(quote.total_cents)}</Roll>
+          </span>
         </li>
       </ul>
       {quote.refused.length > 0 && (
@@ -507,11 +589,10 @@ export default function OrderPanel({
             </fieldset>
           )}
           {error && <p role="alert" className="text-sm font-semibold">{error}</p>}
-          <button type="button" className={primary}
-            disabled={busy || !canContinue(kind, kinds, quote.lines.length, { needed: zones.length > 0, chosen: zone })}
+          <button type="button" className={primary} ref={continueRef}
+            disabled={busy || !canContinue(kind, kinds, cart.length, { needed: zones.length > 0, chosen: zone })}
             onClick={() => {
               setError(null);
-              setEditing(false);
               setStep({ kind: "form" });
             }}
             data-order-continue>
@@ -618,5 +699,147 @@ function ScooterIcon() {
       <path d="M15 9l2-4h3" />
       <path d="M3 12h7" />
     </svg>
+  );
+}
+
+/**
+ * The round quantity stepper (2026-11-06, the inline mockup "order cart stepper circles"): − (a bin at 1) · the
+ * quantity · +, 116 px. A tap, Enter or Space = one step; holding repeats (`holdDelay`), a finger waits for the lift or
+ * the hold, so a scroll that starts on a circle changes nothing; at the maximum the + is greyed with its tooltip.
+ */
+function QtyStepper({
+  qty,
+  name,
+  labels,
+  tip,
+  plusRef,
+  onStep,
+}: {
+  qty: number;
+  name: string;
+  labels: Labels;
+  /** > 0 while "Najviac 50 ks na objednávku" shows over this line's + (its count replays the shake) */
+  tip: number;
+  plusRef: (el: HTMLButtonElement | null) => void;
+  onStep: (delta: 1 | -1, hold: boolean) => boolean;
+}) {
+  const icon = minusIcon(qty);
+  const max = qty >= QTY_MAX;
+  const minus = useHold((hold) => onStep(-1, hold));
+  const plus = useHold((hold) => onStep(1, hold));
+  return (
+    <span className="ppi-qty" data-order-stepper>
+      <button
+        type="button"
+        className="ppi-qty-btn ppi-qty-minus"
+        aria-label={`${icon === "bin" ? labels.order_remove : labels.order_less}: ${name}`}
+        data-order-minus={icon}
+        {...minus}
+      >
+        <span key={icon} className="ppi-qty-pop" aria-hidden="true">
+          {icon === "bin" ? (
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+              <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" focusable="false">
+              <path d="M5 12h14" />
+            </svg>
+          )}
+        </span>
+      </button>
+      <span className="ppi-qty-num" data-order-qty={qty} data-shake={tip > 0 ? tip : undefined} key={tip > 0 ? `s${tip}` : "n"}>
+        <Roll value={qty}>{qty}</Roll>
+        <output className="sr-only" aria-live="polite">
+          {fill(labels.order_qty_live, { n: qty, name })}
+        </output>
+      </span>
+      <button
+        type="button"
+        ref={plusRef}
+        className="ppi-qty-btn ppi-qty-plus"
+        aria-label={`${labels.order_more}: ${name}`}
+        aria-disabled={max || undefined}
+        data-order-plus
+        {...plus}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true" focusable="false">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        {tip > 0 && (
+          <span role="status" className="ppi-qty-tip" data-order-max>
+            {fill(labels.order_max, { n: QTY_MAX })}
+          </span>
+        )}
+      </button>
+    </span>
+  );
+}
+
+/**
+ * Press handling of one circle: a tap (lift without moving) or Enter / Space = one step; held 380 ms it repeats,
+ * faster and faster, until `step` answers stop or the finger lifts. A press that moves (a scroll) is cancelled.
+ */
+function useHold(step: (hold: boolean) => boolean) {
+  const timer = useRef(0);
+  const count = useRef(0);
+  const held = useRef(false);
+  const active = useRef(false);
+  const start = useRef({ x: 0, y: 0 });
+  const stepRef = useRef(step);
+  useEffect(() => {
+    stepRef.current = step;
+  });
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const stop = () => {
+    active.current = false;
+    window.clearTimeout(timer.current);
+  };
+  const tick = () => {
+    held.current = true;
+    const done = stepRef.current(true);
+    count.current++;
+    if (done || !active.current) return stop();
+    timer.current = window.setTimeout(tick, holdDelay(count.current));
+  };
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      active.current = true;
+      held.current = false;
+      count.current = 0;
+      start.current = { x: e.clientX, y: e.clientY };
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(tick, holdDelay(0));
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      if (active.current && !held.current && Math.hypot(e.clientX - start.current.x, e.clientY - start.current.y) > 10) stop();
+    },
+    onPointerUp: () => {
+      if (!active.current) return;
+      const wasHeld = held.current;
+      stop();
+      if (!wasHeld) stepRef.current(false);
+    },
+    onPointerCancel: stop,
+    onPointerLeave: stop,
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    // Enter / Space (a click without a pointer press: detail 0) = one step
+    onClick: (e: React.MouseEvent) => {
+      if (e.detail === 0) stepRef.current(false);
+    },
+  };
+}
+
+/** A number that rolls when it changes: the new value slides in 12 px from below (up) or above (down), 240 ms. */
+function Roll({ value, children }: { value: number; children: ReactNode }) {
+  const [seen, setSeen] = useState<{ value: number; dir: "" | "up" | "down" }>({ value, dir: "" });
+  if (seen.value !== value) setSeen({ value, dir: value > seen.value ? "up" : "down" });
+  return (
+    <span className="ppi-roll">
+      <span key={value} className="ppi-roll-in" data-dir={seen.dir || undefined}>
+        {children}
+      </span>
+    </span>
   );
 }

@@ -16,8 +16,11 @@ export function AssistantHeading({
   archive,
   labels,
   list,
+  badge,
 }: {
   list?: ReactNode;
+  /** "2 vetvy" (2026-11-06): only while the conversation has more than one branch; right after the title. */
+  badge?: ReactNode;
   title: string;
   lang: string;
   shopName: string;
@@ -36,6 +39,7 @@ export function AssistantHeading({
         <h2 id="assistant-heading" className="min-w-0 truncate text-base leading-tight font-bold" data-chat-title>
           {title}
         </h2>
+        {badge}
         {list}
       </div>
       <details data-chat-gdpr>

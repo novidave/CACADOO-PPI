@@ -1,4 +1,4 @@
-import { Noto_Sans, Quicksand } from "next/font/google";
+import { Inter, Noto_Sans, Quicksand } from "next/font/google";
 
 /**
  * The website's one typeface, at the owner's request: Quicksand (variable, 300–700), with the
@@ -31,3 +31,16 @@ export const notoFallback = Noto_Sans({
   variable: "--font-noto",
 });
 
+/**
+ * The shop assistant's chat (2026-11-06, at the owner's request — the one exception to "Quicksand everywhere"): Inter
+ * inside `.ppi-ai-body` only (the messages, cards, the order / booking / callback panels, the field and the chat bar;
+ * the assistant's header stays Quicksand). Self-hosted at build like Quicksand, never preloaded: a browser downloads
+ * it only when the assistant's box is drawn, so the shop page's first paint and LCP do not wait for it.
+ */
+export const inter = Inter({
+  subsets: ["latin", "latin-ext"],
+  display: "swap",
+  preload: false,
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-chat",
+});

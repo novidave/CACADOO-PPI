@@ -106,6 +106,12 @@ Sans / Roboto, `adjustFontFallback: false`: no line re-wraps when Quicksand arri
 (2026-11-04, below) Quicksand everywhere — the article text too (`.ppi-blog-body` 16 px, line height 1.65; **no Lora
 any more**, it was removed from `fonts.ts`). The
 conversation PDFs and the viewer's watermark keep DejaVu Sans (embedded).
+**The one exception: the shop assistant's chat uses Inter** (2026-11-06, at the owner's request): `inter` in
+`src/app/fonts.ts` (`next/font/google`, latin + latin-ext, 400–700, self-hosted at build, `preload: false`, variable
+`--font-chat` on `<html>` in both root layouts) and ONLY inside `.ppi-ai-body` (`shopPage.css`: everything in the
+assistant's box under its header — messages, cards, the order / booking / callback panels, the field, the chat bar;
+numbers tabular). The assistant's header (spark, title, list button, "2 vetvy", GDPR) and every other place keep
+Quicksand. No browser request to Google; the shop page's first load and LCP budget unchanged.
 **No colours** (only exceptions, at the owner's request: the Cacaduu PPI logo in the header, `public/brand/cacaduu-ppi.svg`
 (cacaduu.com, since 2026-10-20; browser and app icons `src/app/favicon.ico`, `icon.svg`, `apple-icon.png`, `public/icons/`),
 the **stock dot before every price** (`@/components/StockDot`, `@/lib/stockDot`: a solid fill with a darker ring of the
@@ -763,6 +769,33 @@ text of their first 5 pages (read in the browser), once; the files themselves ar
 (below), never logged; "found" without an item becomes "unsure". Every answer also returns `language`, `message_sk`,
 `answer_sk` for the archive. Access keys pasted into the chat become "[•••]" (`hideAccessKeys`). History: last 8
 messages, text only.
+**Bubbles, heights and branches (2026-11-06, at the owner's request; the inline mockups "assistant branches",
+"assistant heights mobile"):** `ShopChat` and the server's first view (`ShopAssistant`, drawn the same so nothing moves
+when the chat loads) + `@/lib/chatBranches` (no imports; `chatBranches_test.ts` in `npm run test:chat`) + `.ppi-msg*`,
+`.ppi-ai-log`, `.ppi-ai-branches` in `shopPage.css`. **Bubbles:** the shopper right (max 85 %, #EFF5FF, 1 px #BFD5FB,
+#0F172A, radius 16 16 6 16), the assistant left (max 92 %, #FFF6EE, 1 px #FDE3CC, #111, radius 16 16 16 6), 9 × 13 px,
+15 px; "Vy" / "Asistent" (12 px / 500, #6B7280) only on the first message of a run from the same side; cards, photos and
+the booking / callback / order panels full width under the assistant's bubble. **Heights:** `.ppi-ai[data-chat]` —
+`idle` (no question in this conversation; the server's first view too): the log holds only the welcome, no fixed
+height, the field 128 px (< 768 px) / 112 px; `on` (from the first sent question until "Nová konverzácia"): the log
+(which holds the welcome, so it scrolls away) takes the room — `clamp(320px, 100svh − 58 px − the chat bar's real
+height (--ppi-chat-bar, measured by a ResizeObserver) − 24 px, 900px)` below 768 px (svh, never dvh: the keyboard never
+makes it jump), `min(70vh, 720px)` min 480 px from 768 px —, the field one line (48 px) growing with the text
+(`field-sizing: content`, ≤ 160 px); the first sent question on a phone scrolls the box's top to the screen's top once
+per conversation (below a sticky `[data-site-header]`; smooth, instant with prefers-reduced-motion); after that the
+newest message stays in view by scrolling the log, never the page; heights animate 240 ms
+`cubic-bezier(.23,1,.32,1)`. **Branches (no rail, no tree drawing):** the conversation is a tree in this tab only (as
+the messages were before; nothing new stored); the pencil "Upraviť správu" under a shopper's text message (44 px touch
+area; not while an answer comes, not on a message with files or the list chip, not before an order placed, a booking
+confirmed or a callback sent — the panels' `onDone`) edits inside the bubble (16 px; "Odoslanie vytvorí novú vetvu";
+Zrušiť / Poslať; Enter sends, Shift+Enter a new line, Esc cancels, IME composing ignored; empty → "Napíšte otázku.",
+`aria-invalid`; the same text only closes); sending adds a SIBLING (the old branch and all after it untouched) whose
+history is the path before the edited question only; "‹ 1/2 ›" under it (30 px buttons "Predchádzajúca verzia" /
+"Ďalšia verzia", disabled at the ends) switches the whole path below; the header's pill "2 vetvy" (#FFF1E6 / #9A3A0A,
+12 px / 600; `branches_count_*` by Intl.PluralRules) only above one branch. Every message of every branch stays drawn
+(off-path ones `hidden`), so each branch keeps its own order / booking / callback panel state; switching sends nothing.
+The server gets only the shown path (`cleanHistory()` unchanged); the archive keeps every message in the order sent.
+e2e `e2e/assistant-branches.spec.ts` (Pixel 7 + the iPhone-sized project, chat stubbed).
 **The shopping list in the assistant (2026-11-04, at the owner's request):** `@/lib/chatList` (no imports;
 `chatList_test.ts` in `npm run test:list`) + `@/components/ListHeadButton` + `ListBubble` / `SentList` in `ShopChat` +
 `@/lib/listDrop` + `.ppi-ai-bubble`, `.ppi-ai-listhead`, `.ppi-ai-listbtn`, `.ppi-ai-listchip` in `shopPage.css`. The round
@@ -1258,7 +1291,18 @@ the search's Nominatim rule) + `@/lib/foodRules` (shared: `townOf`, `cleanCart`,
 `plural`, `nextSteps`) + `@/lib/shopChat` (only with food on and a conversation: tools `food_menu` (refs f1…, prices
 from Sklad, document excerpts for allergens) and `food_quote` (never an address); the answer's `order_lines` /
 `order_kind` → `reply.order` built on the server from food_menu's own results, unknown refs dropped, priced again by
-`food_quote`) + `@/components/OrderPanel` (loaded by `next/dynamic` only with the first cart card: Upraviť; **update
+`food_quote`) + `@/components/OrderPanel` (loaded by `next/dynamic` only with the first cart card; **the round
+stepper (2026-11-06, at the owner's request; no "Upraviť" / "Hotovo" / "Odstrániť")**: every line shows the name 15 px /
+600 with its unit price under it (13 px #5B6670) and a 116 px stepper — a 38 px #FFF1E6 circle with the orange bin at 1
+or "−" from 2 ("Odstrániť: …" / "O jeden menej: …", the icon pops), the quantity 16 px / 600 tabular rolling 12 px up /
+down in 240 ms (+ an sr-only "n ks … v objednávke" output), a 38 px #EEF1F5 "+" ("O jeden viac: …"); 44 px touch areas,
+focus 2 px #2563EB; holding repeats (`@/lib/qtyStepper`: 380 ms, then 150 ms × 0.82 down to 55 ms; a finger waits for the
+lift or the hold, `touch-action: pan-y`, so a scroll starting on a circle changes nothing; Enter / Space one step); a
+hold on − stops at 1 (removing is a tap of its own); at 50 the "+" is `aria-disabled` and greyed, "Najviac 50 ks na
+objednávku" 1.6 s and the number shakes; a removed line says "Odstránené: …" and the focus goes to the next line's "+"
+else "Pokračovať"; an empty card "Objednávka je prázdna" with "Pokračovať" disabled; `food_quote` again 300 ms after
+the last change (newest answer only), "Spolu" rolls; nothing moves with prefers-reduced-motion; tests in `npm run
+test:food`, e2e `food-menu.spec.ts`; **update
 85** (`supabase/sql/85_food_order_panel.sql`, `orderKinds` / `pickKind` / `canContinue` / `readyClock` / `payNoteLine` in
 `@/lib/foodRules`): "Osobný odber" (bag) and "Donáška" (scooter) as two big buttons side by side — real radio inputs,
 visually hidden (`sr-only`; ← → move between them natively, the checked one announced), ≥ 52 px, half the width each,
