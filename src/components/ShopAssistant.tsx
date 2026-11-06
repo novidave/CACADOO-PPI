@@ -16,7 +16,7 @@ export function ShopAssistant({ question = "", order = null, ...props }: Assista
   const intro = welcome?.trim() || labels.intro;
   return (
     <AssistantBoot props={props} order={order}>
-      <section id="assistant" className="ppi-ai scroll-mt-4" data-pop aria-labelledby="assistant-heading" data-assistant>
+      <section id="assistant" className="ppi-ai scroll-mt-4" data-pop aria-labelledby="assistant-heading" data-assistant data-chat="idle">
         <AssistantHeading
           title={title}
           lang={lang}
@@ -26,7 +26,9 @@ export function ShopAssistant({ question = "", order = null, ...props }: Assista
           // the header's list button: the same box as the chat's, an empty bubble (the number comes with the chat)
           list={listButton && shopId ? <ListHeadButton label={labels.list_attach} title={labels.list_attach} /> : undefined}
         />
-        <div className="flex flex-col px-[13px] py-[14px]">
+        <div className="ppi-ai-body flex flex-col px-[13px] py-[14px]">
+          {/* the log holds the welcome (2026-11-06): once a conversation runs, it scrolls away inside the log */}
+          <div className="ppi-ai-log" data-chat-log>
           <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
             {/* the owner's {zoznam}: the bubble's place, without a number (the list lives in the browser; ShopChat counts) */}
             {welcomePieces(intro).map((piece, i) =>
@@ -39,7 +41,7 @@ export function ShopAssistant({ question = "", order = null, ...props }: Assista
               ),
             )}
           </p>
-          <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log />
+          </div>
           <form className="flex flex-col">
             <label htmlFor="assistant-question" className="sr-only">
               {labels.placeholder}

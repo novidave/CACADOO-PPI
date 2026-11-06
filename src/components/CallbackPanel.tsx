@@ -23,12 +23,15 @@ export function CallbackPanel({
   conversation,
   privacyHref,
   labels,
+  onDone,
 }: {
   base: string;
   shopName: string;
   conversation: () => Conversation | null;
   privacyHref: string;
   labels: Labels;
+  /** The contact was sent (2026-11-06: the questions before it are no longer edited). */
+  onDone?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState(false);
@@ -53,6 +56,7 @@ export function CallbackPanel({
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (res.ok && data.ok) {
         setDone(true);
+        onDone?.();
         return;
       }
       const key = `callback_err_${data.error ?? "failed"}` as keyof Labels;

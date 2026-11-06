@@ -8,7 +8,7 @@ import { BookingPanel } from "./BookingPanel";
 import { CallbackPanel } from "./CallbackPanel";
 import { ContactCodePanel } from "./ContactCodePanel";
 import { ForgetDialog } from "./ForgetDialog";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { looksLikeKey } from "@/lib/accessKey";
 import { bubbleText, type ChatListLine, listLine, listPieces, toChatList, welcomePieces } from "@/lib/chatList";
@@ -20,6 +20,7 @@ import { FolderAccess, FolderViewer, type ViewTarget } from "./FolderAccess";
 import { KeyRow } from "./KeyRow";
 import { StockDot } from "./StockDot";
 import { MENU_ORDER_EVENT, type MenuOrderEvent } from "@/lib/menuOrder";
+import { addNode, branchCount, type Branches, choose as chooseBranch, emptyBranches, pathOf, pathUpTo, pluralKey, versionsOf } from "@/lib/chatBranches";
 
 /** The food order form (database update 73): loaded only when an answer brings its first cart card. */
 const OrderPanel = dynamic(() => import("./OrderPanel"), { ssr: false });
@@ -75,6 +76,13 @@ type Entry =
   | { role: "assistant"; reply: ChatReply }
   | { role: "error"; text: string }
   | { role: "notice"; text: string };
+
+/** Which side a message is on (a run of one side shows "Vy" / "Asistent" once); a notice breaks a run. */
+const sideOf = (entry: Entry): "user" | "assistant" | null =>
+  entry.role === "user" ? "user" : entry.role === "notice" ? null : "assistant";
+const isQuestion = (entry: Entry) => entry.role === "user";
+const fill = (text: string, values: Record<string, string | number>) =>
+  text.replace(/\{(\w+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all));
 
 const ACCEPT = "image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif,application/pdf,.pdf";
 
@@ -295,7 +303,28 @@ export function ShopChat({
   const listChip = useRef<HTMLLIElement>(null);
   const headBubble = useRef<HTMLSpanElement>(null);
   const dropFrom = useRef<{ el: Element | null; text: string } | null>(null);
-  const [entries, setEntries] = useState<Entry[]>([]);
+  // 2026-11-06: the conversation as branches (this tab only, as before); `shown` = the path on the screen
+  const [tree, setTree] = useState<Branches<Entry>>(emptyBranches);
+  const treeRef = useRef(tree);
+  const putTree = (next: Branches<Entry>) => {
+    treeRef.current = next;
+    setTree(next);
+  };
+  /** Adds a message after the shown path's last one, or after `parent` (an answer: its question; an edit). */
+  const add = (entry: Entry, parent?: number | null) => {
+    const r = addNode(treeRef.current, entry, parent);
+    putTree(r.tree);
+    return r.id;
+  };
+  const shown = pathOf(tree);
+  // "Upraviť správu": the question being edited in its bubble
+  const [editing, setEditing] = useState<number | null>(null);
+  // answers whose order was placed, booking confirmed or callback sent: the questions before them stay as they are
+  const [finished, setFinished] = useState<ReadonlySet<number>>(() => new Set());
+  const box = useRef<HTMLElement>(null);
+  const log = useRef<HTMLDivElement>(null);
+  /** The box went to the top of a phone's screen once in this conversation (the first sent message). */
+  const scrolled = useRef(false);
   const [text, setText] = useState(initialText);
   const [files, setFilesState] = useState<Attachment[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
@@ -311,7 +340,6 @@ export function ShopChat({
   const nextKey = useRef(1);
   const fileInput = useRef<HTMLInputElement>(null);
   const textInput = useRef<HTMLTextAreaElement>(null);
-  const end = useRef<HTMLDivElement>(null);
   // Loaded by a tap in ShopAssistant's first view: the cursor stays in the text field (after what was typed).
   useEffect(() => {
     const input = textInput.current;
@@ -411,9 +439,44 @@ export function ShopChat({
     };
   }, [archive, finish]);
 
+  // The newest message stays in view — the log scrolls, never the page: a long answer from its start, else the end.
+  const nodeCount = tree.nodes.length;
   useEffect(() => {
-    if (entries.length || busy) end.current?.scrollIntoView({ block: "nearest" });
-  }, [entries, busy]);
+    const el = log.current;
+    if (!el || (!nodeCount && !busy)) return;
+    const items = el.querySelectorAll<HTMLElement>("[data-chat-entry]:not([hidden])");
+    const last = items[items.length - 1];
+    const top = busy || !last || last.offsetHeight <= el.clientHeight ? el.scrollHeight : last.offsetTop - 8;
+    const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top, behavior: smooth ? "smooth" : "auto" });
+  }, [nodeCount, busy]);
+  // The chat bar's real height (the field grows with the text): the log takes the rest of a phone's screen.
+  useEffect(() => {
+    const section = box.current;
+    const bar = form.current;
+    if (!section || !bar || typeof ResizeObserver === "undefined") return;
+    const measure = () => section.style.setProperty("--ppi-chat-bar", `${Math.round(bar.offsetHeight)}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
+
+  /** The first sent message on a phone: the box's top goes to the top of the screen (below a sticky header), once. */
+  function toTopOnce() {
+    if (scrolled.current) return;
+    scrolled.current = true;
+    if (window.innerWidth >= 768) return;
+    window.requestAnimationFrame(() => {
+      const section = box.current;
+      if (!section) return;
+      const header = document.querySelector<HTMLElement>("[data-site-header]");
+      const position = header ? getComputedStyle(header).position : "";
+      const offset = header && (position === "sticky" || position === "fixed") ? header.getBoundingClientRect().height : 0;
+      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      window.scrollTo({ top: section.getBoundingClientRect().top + window.scrollY - offset, behavior: reduce ? "auto" : "smooth" });
+    });
+  }
 
   const showFolders = useCallback((next: OpenSession | null) => {
     foldersOpen.current = Boolean(next);
@@ -468,13 +531,10 @@ export function ShopChat({
         setKeyOpen(true);
         showFolders(data.open ?? { folders: data.folders ?? [], expires_at: data.expires_at, downloads_left: 20, open: [] });
         const names: string[] = data.folders ?? [];
-        setEntries((now) => [
-          ...now,
-          {
-            role: "notice",
-            text: (names.length > 1 ? labels.key_unlocked_many : labels.key_unlocked).replace("{name}", names.join(", ")),
-          },
-        ]);
+        add({
+          role: "notice",
+          text: (names.length > 1 ? labels.key_unlocked_many : labels.key_unlocked).replace("{name}", names.join(", ")),
+        });
         return true;
       }
       setKeyProblem(data.status === "wrong" ? labels.key_wrong : data.status === "too_many" ? labels.key_too_many : labels.key_unavailable);
@@ -549,7 +609,7 @@ export function ShopChat({
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
     } catch {
-      setEntries((now) => [...now, { role: "error", text: labels.conversation_pdf_failed }]);
+      add({ role: "error", text: labels.conversation_pdf_failed });
     } finally {
       setPdfBusy(false);
     }
@@ -563,7 +623,7 @@ export function ShopChat({
   };
 
   function reset() {
-    for (const entry of entries) {
+    for (const { entry } of treeRef.current.nodes) {
       if (entry.role === "user") for (const f of entry.files) if (f.preview) URL.revokeObjectURL(f.preview);
     }
     for (const f of filesRef.current) {
@@ -573,7 +633,10 @@ export function ShopChat({
     putFiles([]);
     setListSent(null);
     setListNote("");
-    setEntries([]);
+    putTree(emptyBranches());
+    setEditing(null);
+    setFinished(new Set());
+    scrolled.current = false;
     setProblem(null);
     setConversation(null);
   }
@@ -739,13 +802,17 @@ export function ShopChat({
     }
   }
 
-  async function send(event: React.FormEvent | null, override?: string, order: string[] = []) {
+  /**
+   * Sends a question. `edit` (2026-11-06, "Upraviť správu"): the edited text goes as a sibling of the old question —
+   * after the same message, with the history up to it only; the field, its files and the list are left as they are.
+   */
+  async function send(event: React.FormEvent | null, override?: string, order: string[] = [], edit?: { parent: number | null }) {
     event?.preventDefault();
     const message = (override ?? text).trim();
-    const ready = filesRef.current.filter((f) => f.ready);
+    const ready = edit ? [] : filesRef.current.filter((f) => f.ready);
     // the attached shopping list goes with a typed message only (an automatic message never takes it)
     const list = override === undefined ? (listSent ?? []) : [];
-    if (busy || filesRef.current.some((f) => !f.ready)) return;
+    if (busy || (!edit && filesRef.current.some((f) => !f.ready))) return;
     if (!message && ready.length === 0 && list.length === 0) {
       setEmptyAsk(true);
       textInput.current?.focus();
@@ -753,26 +820,34 @@ export function ShopChat({
     }
     setEmptyAsk(false);
     // A message that is nothing but an access key is checked as a key: never sent to the AI or kept.
-    if (keys && ready.length === 0 && list.length === 0 && looksLikeKey(message)) {
+    if (!edit && keys && ready.length === 0 && list.length === 0 && looksLikeKey(message)) {
       setText("");
       const ok = await unlockFolders(message);
-      if (!ok) setEntries((now) => [...now, { role: "error", text: labels.key_wrong }]);
+      if (!ok) add({ role: "error", text: labels.key_wrong });
       setKeyProblem(null);
       return;
     }
-    const history = toHistory(entries);
-    sendTimers.current.forEach((t) => window.clearTimeout(t));
-    setSendPhase("fly");
-    sendTimers.current = [
-      window.setTimeout(() => setSendPhase("ok"), 550),
-      window.setTimeout(() => setSendPhase(""), 2550),
-    ];
-    setEntries((now) => [
-      ...now,
+    // only the shown path goes along (an edit: the path before the edited question)
+    const before = edit ? pathUpTo(treeRef.current, edit.parent) : pathOf(treeRef.current);
+    const history = toHistory(before.map((n) => n.entry));
+    if (!edit) {
+      sendTimers.current.forEach((t) => window.clearTimeout(t));
+      setSendPhase("fly");
+      sendTimers.current = [
+        window.setTimeout(() => setSendPhase("ok"), 550),
+        window.setTimeout(() => setSendPhase(""), 2550),
+      ];
+    }
+    const asked = add(
       { role: "user", text: message, files: ready.map((f) => ({ name: f.name, kind: f.kind, preview: f.preview })), list },
-    ]);
-    setText("");
-    putFiles([]);
+      edit ? edit.parent : undefined,
+    );
+    setEditing(null);
+    toTopOnce();
+    if (!edit) {
+      setText("");
+      putFiles([]);
+    }
     if (list.length) {
       setListSent(null);
       setListNote("");
@@ -800,12 +875,12 @@ export function ShopChat({
       if (response.ok && !data.error) {
         if (archive) remember(isConversation(data.conversation) ? data.conversation : null);
         if (typeof data.upload === "string") uploadUrl.current = data.upload;
-        setEntries((now) => [...now, { role: "assistant", reply: data as ChatReply }]);
+        add({ role: "assistant", reply: data as ChatReply }, asked);
       } else {
-        setEntries((now) => [...now, { role: "error", text: `${errorText(data.error)}${data.reason ? ` (${data.reason})` : ""}` }]);
+        add({ role: "error", text: `${errorText(data.error)}${data.reason ? ` (${data.reason})` : ""}` }, asked);
       }
     } catch {
-      setEntries((now) => [...now, { role: "error", text: labels.error_failed }]);
+      add({ role: "error", text: labels.error_failed }, asked);
     } finally {
       setBusy(false);
     }
@@ -845,7 +920,7 @@ export function ShopChat({
       conv.current = null;
       used.current = 0;
       reset();
-      setEntries([{ role: "notice", text: labels.deleted }]);
+      add({ role: "notice", text: labels.deleted });
       return true;
     } catch {
       return false;
@@ -855,6 +930,15 @@ export function ShopChat({
   }
 
   const preparing = files.some((f) => !f.ready);
+  // a conversation is "on" from its first question; "2 vetvy" in the header only with more than one branch
+  const chatOn = tree.nodes.some((n) => n.entry.role === "user");
+  const forks = branchCount(tree);
+  const onPath = new Map(shown.map((n, i) => [n.id, i] as const));
+  // the questions before an order placed, a booking confirmed or a callback sent are never edited
+  const lockedAt = shown.reduce(
+    (last, n, i) => (finished.has(n.id) || (n.entry.role === "assistant" && n.entry.reply.booked) ? i : last),
+    -1,
+  );
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -870,12 +954,20 @@ export function ShopChat({
             conv.current = null;
             used.current = 0;
             reset();
-            setEntries([{ role: "notice", text: labels.forget_done }]);
+            add({ role: "notice", text: labels.forget_done });
           }}
           onClose={() => setForgetOpen(false)}
         />
       )}
-    <section id="assistant" className="ppi-ai scroll-mt-4" aria-labelledby="assistant-heading" data-assistant>
+    <section
+      ref={box}
+      id="assistant"
+      className="ppi-ai scroll-mt-4"
+      aria-labelledby="assistant-heading"
+      data-assistant
+      // 2026-11-06: "idle" until the first question of this conversation (a taller field), then "on" (the log takes the room)
+      data-chat={chatOn ? "on" : "idle"}
+    >
       <AssistantHeading
         title={title}
         lang={lang}
@@ -893,8 +985,16 @@ export function ShopChat({
             />
           ) : undefined
         }
+        badge={
+          forks > 1 ? (
+            <span className="ppi-ai-branches" data-chat-branches={forks}>
+              {fill(labels[`branches_count_${pluralKey(forks, lang)}`], { n: forks })}
+            </span>
+          ) : undefined
+        }
       />
-        <div className="flex flex-col px-[13px] py-[14px]">
+        <div className="ppi-ai-body flex flex-col px-[13px] py-[14px]">
+          <div ref={log} className="ppi-ai-log" data-chat-log>
           <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
             {welcomePieces(intro).map((piece, i) =>
               piece.kind === "text" ? (
@@ -904,50 +1004,89 @@ export function ShopChat({
               ),
             )}
           </p>
-          <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto overscroll-contain md:max-h-[65vh]" data-chat-log>
-          {entries.length > 0 && (
-            <ol className="mt-3 flex flex-col gap-4" aria-live="polite">
-              {entries.map((entry, i) => (
-                <li key={i} className="flex flex-col gap-2">
-                  {entry.role === "user" && (
-                    <>
-                      <span className="text-xs text-muted">{labels.you}</span>
-                      {entry.files.length > 0 && <FileList files={entry.files} labels={labels} />}
-                      {entry.list && entry.list.length > 0 && <SentList lines={entry.list} labels={labels} />}
-                      {entry.text && <p className="whitespace-pre-line">{entry.text}</p>}
-                    </>
-                  )}
-                  {entry.role === "assistant" && (
-                    <Answer
-                      reply={entry.reply}
-                      labels={labels}
-                      shopName={shopName}
-                      onView={folders ? setViewing : null}
-                      booking={{
-                        base,
-                        lang,
-                        conversation: () => (archive ? conv.current : null),
-                        // the number is checked: the assistant books the chosen time (the code never goes to it)
-                        verified: () => void send(null, labels.contact_verified_message),
-                      }}
-                    />
-                  )}
-                  {entry.role === "error" && <p className="border border-line p-2 text-sm">{entry.text}</p>}
-                  {entry.role === "notice" && (
-                    <p role="status" className="border border-foreground p-2 text-sm font-medium">
-                      {entry.text}
-                    </p>
-                  )}
-                </li>
-              ))}
+          {tree.nodes.length > 0 && (
+            <ol className="mt-3 flex flex-col gap-3" aria-live="polite">
+              {/* every message of every branch stays drawn (a branch keeps its panels' state); only the shown path is visible */}
+              {tree.nodes.map((node) => {
+                const at = onPath.get(node.id);
+                const entry = node.entry;
+                const side = sideOf(entry);
+                const label = at !== undefined && side !== null && (at === 0 || sideOf(shown[at - 1].entry) !== side);
+                return (
+                  <li key={node.id} hidden={at === undefined} className="flex flex-col gap-2" data-chat-entry={entry.role}>
+                    {entry.role === "user" && (
+                      <div className="ppi-msg-col ppi-msg-col-user">
+                        {label && <span className="ppi-msg-label">{labels.you}</span>}
+                        {entry.files.length > 0 && <FileList files={entry.files} labels={labels} />}
+                        {entry.list && entry.list.length > 0 && <SentList lines={entry.list} labels={labels} />}
+                        {editing === node.id ? (
+                          <EditBox
+                            initial={entry.text}
+                            labels={labels}
+                            onCancel={() => {
+                              setEditing(null);
+                              window.requestAnimationFrame(() =>
+                                log.current?.querySelector<HTMLElement>(`[data-chat-edit-open="${node.id}"]`)?.focus(),
+                              );
+                            }}
+                            onSend={(edited) => void send(null, edited, [], { parent: node.parent })}
+                          />
+                        ) : (
+                          entry.text && (
+                            <p className="ppi-msg ppi-msg-user" data-chat-bubble="user">
+                              {entry.text}
+                            </p>
+                          )
+                        )}
+                        {at !== undefined && editing !== node.id && (
+                          <MessageTools
+                            node={node.id}
+                            versions={versionsOf(tree, node, isQuestion).map((v) => v.id)}
+                            editable={!busy && at > lockedAt && entry.files.length === 0 && !entry.list?.length && Boolean(entry.text)}
+                            busy={busy}
+                            labels={labels}
+                            onEdit={() => setEditing(node.id)}
+                            onPick={(id) => {
+                              const pick = treeRef.current.nodes.find((n) => n.id === id);
+                              if (pick) putTree(chooseBranch(treeRef.current, pick));
+                            }}
+                          />
+                        )}
+                      </div>
+                    )}
+                    {entry.role === "assistant" && (
+                      <Answer
+                        reply={entry.reply}
+                        labels={labels}
+                        shopName={shopName}
+                        showLabel={label}
+                        onView={folders ? setViewing : null}
+                        onDone={() => setFinished((now) => new Set(now).add(node.id))}
+                        booking={{
+                          base,
+                          lang,
+                          conversation: () => (archive ? conv.current : null),
+                          // the number is checked: the assistant books the chosen time (the code never goes to it)
+                          verified: () => void send(null, labels.contact_verified_message),
+                        }}
+                      />
+                    )}
+                    {entry.role === "error" && <p className="border border-line p-2 text-sm">{entry.text}</p>}
+                    {entry.role === "notice" && (
+                      <p role="status" className="border border-foreground p-2 text-sm font-medium">
+                        {entry.text}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
           )}
           {busy && (
-            <p role="status" className="text-sm text-muted">
+            <p role="status" className="mt-3 text-sm text-muted">
               {labels.thinking}
             </p>
           )}
-          <div ref={end} />
           </div>
           <form ref={form} onSubmit={send} className="flex flex-col">
             <label htmlFor="assistant-question" className="sr-only">
@@ -1061,9 +1200,9 @@ export function ShopChat({
                 <PlaneIcon />
               </button>
             </div>
-            {(entries.length > 0 || (archive && conversation)) && (
+            {(tree.nodes.length > 0 || (archive && conversation)) && (
               <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                {entries.length > 0 && (
+                {tree.nodes.length > 0 && (
                   <button type="button" onClick={startOver} className="min-h-11 text-sm underline underline-offset-4">
                     {labels.clear}
                   </button>
@@ -1073,7 +1212,7 @@ export function ShopChat({
                     {labels.forget_open}
                   </button>
                 )}
-                {archive && shopperPdf && conversation && entries.some((e) => e.role === "assistant") && (
+                {archive && shopperPdf && conversation && tree.nodes.some((n) => n.entry.role === "assistant") && (
                   <button type="button" onClick={downloadConversation} disabled={pdfBusy} className="min-h-11 text-sm underline underline-offset-4 disabled:text-muted" data-conversation-pdf>
                     {pdfBusy ? labels.conversation_pdf_busy : labels.conversation_pdf}
                   </button>
@@ -1135,6 +1274,141 @@ export function PlaneIcon() {
   );
 }
 
+/**
+ * "Upraviť správu" (2026-11-06): the question edited inside its bubble. Enter sends (not while an IME composes),
+ * Shift+Enter makes a new line, Esc cancels; empty = "Napíšte otázku."; the same text only closes.
+ */
+function EditBox({ initial, labels, onCancel, onSend }: { initial: string; labels: Labels; onCancel: () => void; onSend: (text: string) => void }) {
+  const [value, setValue] = useState(initial);
+  const [empty, setEmpty] = useState(false);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const id = useId();
+  useEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+  const submit = () => {
+    const edited = value.trim();
+    if (!edited) {
+      setEmpty(true);
+      field.current?.focus();
+      return;
+    }
+    if (edited === initial.trim()) return onCancel();
+    onSend(edited);
+  };
+  return (
+    <form
+      className="ppi-msg ppi-msg-user ppi-msg-edit"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+      data-chat-edit
+    >
+      <label htmlFor={id} className="sr-only">
+        {labels.edit_label}
+      </label>
+      <textarea
+        id={id}
+        ref={field}
+        value={value}
+        rows={2}
+        maxLength={1500}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setEmpty(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        aria-invalid={empty || undefined}
+        aria-describedby={`${id}-hint${empty ? ` ${id}-empty` : ""}`}
+        className="ppi-msg-edit-field"
+        data-chat-edit-field
+      />
+      {empty && (
+        <p id={`${id}-empty`} role="alert" className="ppi-msg-edit-error" data-chat-edit-empty>
+          {labels.edit_empty}
+        </p>
+      )}
+      <p id={`${id}-hint`} className="ppi-msg-edit-hint">
+        {labels.edit_hint}
+      </p>
+      <div className="ppi-msg-edit-bar">
+        <button type="button" onClick={onCancel} className="ppi-msg-edit-cancel" data-chat-edit-cancel>
+          {labels.edit_cancel}
+        </button>
+        <button type="submit" className="ppi-msg-edit-send" data-chat-edit-send>
+          {labels.edit_send}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Under a question: "‹ 1/2 ›" when it has versions, and the pencil "Upraviť správu" when it may be edited. */
+function MessageTools({
+  node,
+  versions,
+  editable,
+  busy,
+  labels,
+  onEdit,
+  onPick,
+}: {
+  node: number;
+  versions: number[];
+  editable: boolean;
+  busy: boolean;
+  labels: Labels;
+  onEdit: () => void;
+  onPick: (id: number) => void;
+}) {
+  const at = versions.indexOf(node);
+  if (!editable && versions.length < 2) return null;
+  return (
+    <div className="ppi-msg-tools">
+      {versions.length > 1 && (
+        <span className="ppi-msg-pager" data-chat-pager>
+          <button type="button" aria-label={labels.branch_prev} title={labels.branch_prev} disabled={busy || at <= 0}
+            onClick={() => onPick(versions[at - 1])} data-chat-branch-prev>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+              <path d="M15 6l-6 6 6 6" />
+            </svg>
+          </button>
+          <span className="tabular-nums" data-chat-branch-pos>
+            {fill(labels.branch_pos, { n: at + 1, m: versions.length })}
+          </span>
+          <button type="button" aria-label={labels.branch_next} title={labels.branch_next} disabled={busy || at >= versions.length - 1}
+            onClick={() => onPick(versions[at + 1])} data-chat-branch-next>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </button>
+        </span>
+      )}
+      {editable && (
+        <button type="button" className="ppi-msg-pencil" aria-label={labels.edit_message} title={labels.edit_message} onClick={onEdit}
+          data-chat-edit-open={node}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <path d="M4 20h4L19 9l-4-4L4 16v4z" />
+            <path d="M13.5 6.5l4 4" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Files sent with a message: pictures as small previews, others by name. */
 function FileList({ files, labels }: { files: SentFile[]; labels: Labels }) {
   return (
@@ -1171,12 +1445,18 @@ function Answer({
   reply,
   labels,
   shopName,
+  showLabel,
   onView,
+  onDone,
   booking,
 }: {
   reply: ChatReply;
   labels: Labels;
   shopName: string;
+  /** "Asistent" above the bubble: only on the first message of a run from the assistant's side. */
+  showLabel: boolean;
+  /** An order placed, a booking confirmed or a callback sent from this answer's panel (the questions before it stay). */
+  onDone: () => void;
   /** Opens a private folder's document in the viewer (only while folders are open). */
   onView: ((target: ViewTarget) => void) | null;
   /** What the booking form needs (database update 57) and, update 63, what follows a checked number. */
@@ -1187,14 +1467,18 @@ function Answer({
     : null;
   return (
     <>
-      <span className="text-xs text-muted">{labels.assistant}</span>
-      {reply.photo && (
-        <p className="text-sm">
-          <span className="text-muted">{labels.photo_read} </span>
-          {reply.photo.read || "–"} · <strong>{match}</strong>
-        </p>
+      {showLabel && <span className="ppi-msg-label">{labels.assistant}</span>}
+      {(reply.photo || reply.answer) && (
+        <div className="ppi-msg ppi-msg-bot" data-chat-bubble="assistant">
+          {reply.photo && (
+            <p className="text-sm">
+              <span className="text-[#5B6670]">{labels.photo_read} </span>
+              {reply.photo.read || "–"} · <strong>{match}</strong>
+            </p>
+          )}
+          {reply.answer && <p className="whitespace-pre-line">{reply.answer}</p>}
+        </div>
       )}
-      {reply.answer && <p className="whitespace-pre-line">{reply.answer}</p>}
       {reply.cards.length > 0 && (
         <ul className="divide-y divide-line border-y border-line">
           {reply.cards.map((card) => (
@@ -1283,6 +1567,7 @@ function Answer({
           conversation={booking.conversation}
           privacyHref={`/${booking.lang}/sukromie-asistent#rezervacie`}
           labels={labels}
+          onDone={onDone}
         />
       )}
       {reply.order && booking.conversation() && (
@@ -1294,6 +1579,7 @@ function Answer({
           conversation={booking.conversation}
           privacyHref={`/${booking.lang}/sukromie-asistent`}
           labels={labels}
+          onDone={onDone}
         />
       )}
       {reply.callShop && (
@@ -1331,6 +1617,7 @@ function Answer({
           conversation={booking.conversation}
           privacyHref={`/${booking.lang}/sukromie-asistent#kontakt`}
           labels={labels}
+          onDone={onDone}
         />
       )}
     </>

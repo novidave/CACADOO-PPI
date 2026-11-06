@@ -40,6 +40,7 @@ export function BookingPanel({
   conversation,
   privacyHref,
   labels,
+  onDone,
 }: {
   base: string;
   lang: string;
@@ -50,6 +51,8 @@ export function BookingPanel({
   conversation: () => Conversation | null;
   privacyHref: string;
   labels: Labels;
+  /** The booking was confirmed (2026-11-06: the questions before it are no longer edited). */
+  onDone?: () => void;
 }) {
   const [step, setStep] = useState<Step>({ kind: "pick" });
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +116,7 @@ export function BookingPanel({
       const { ok, data } = await post({ action: "verify", id: s.id, token: s.token, code: form.get("code") });
       if (ok) {
         setStep({ kind: "done", slot: s.slot });
+        onDone?.();
         return;
       }
       setError(errorText(String(data.error ?? "failed"), typeof data.attempts_left === "number" ? data.attempts_left : null));

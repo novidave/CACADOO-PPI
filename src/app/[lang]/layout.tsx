@@ -8,7 +8,7 @@ import { Header } from "@/components/Header";
 import { SiteFooter } from "@/components/SiteFooter";
 import { TapFeedback } from "@/components/TapFeedback";
 import { siteUrl } from "@/lib/site";
-import { notoFallback, quicksand } from "../fonts";
+import { inter, notoFallback, quicksand } from "../fonts";
 import { VercelMetrics } from "@/components/VercelMetrics";
 import "../globals.css";
 
@@ -54,7 +54,7 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
       lang={lang}
       dir="ltr"
       data-script={languageOf(lang)?.script}
-      className={`${quicksand.variable} ${notoFallback.variable} h-full antialiased`}
+      className={`${quicksand.variable} ${notoFallback.variable} ${inter.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-white text-foreground">
