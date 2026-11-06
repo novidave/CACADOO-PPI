@@ -2,7 +2,9 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
-import { canContinue, type CartLine, type OrderKind, orderKinds, payNoteLine, pickKind, readyClock } from "@/lib/foodRules";
+import {
+  canContinue, type CartLine, type OrderKind, orderKinds, payNoteLine, pickKind, preselectZone, readyClock, zoneLabel,
+} from "@/lib/foodRules";
 import type { ChatOrder } from "@/lib/shopChat";
 import type { Quote } from "@/lib/food";
 
@@ -64,6 +66,13 @@ export default function OrderPanel({
   const [kindHint, setKindHint] = useState<OrderKind | null>(null);
   // native radios: ← → move between them (and wrap), the checked one is announced
   const kindGroup = useId();
+  // update 87: the shop's zones (none = Donáška anywhere without a fee); the zone is the customer's own pick, or the one
+  // town / postcode zone the typed address fits (never a kilometre zone, never two)
+  const zones = state.zone_list ?? [];
+  const zoneGroup = useId();
+  const [zone, setZone] = useState<string | null>(null);
+  const [zonePicked, setZonePicked] = useState(false);
+  const [addressDone, setAddressDone] = useState(false);
   // the moment the time line is counted from (again with every new quote)
   const [now, setNow] = useState(clockNow);
   // update 81: the same times the assistant and the owner's feed show (food_times: + today's delay)
@@ -79,10 +88,14 @@ export default function OrderPanel({
   const euro = useMemo(() => new Intl.NumberFormat(lang, { style: "currency", currency: "EUR" }), [lang]);
   const money = (cents: number) => euro.format(cents / 100);
 
-  const errorText = (reason: string | undefined, attempts?: number | null, min?: number | null) => {
+  const labelOf = (id: string | null | undefined) => {
+    const z = zones.find((x) => x.id === id);
+    return z ? zoneLabel(z, labels.order_zone_km, lang) : "";
+  };
+  const errorText = (reason: string | undefined, attempts?: number | null, min?: number | null, zoneId?: string | null) => {
     const key = `order_err_${reason ?? "failed"}` as keyof Labels;
     const text = (labels[key] as string | undefined) ?? labels.order_err_failed;
-    return fill(text, { n: attempts ?? 0, min: min ? money(min) : "" });
+    return fill(text, { n: attempts ?? 0, min: min ? money(min) : "", zone: labelOf(zoneId ?? zone) });
   };
 
   async function post(body: Record<string, unknown>) {
@@ -92,22 +105,26 @@ export default function OrderPanel({
   }
 
   /** The price rule again (only the newest answer counts); before a choice without a kind (the price without a fee). */
-  async function requote(next: { cart?: CartLine[]; kind?: "pickup" | "delivery"; address?: string }) {
+  async function requote(next: { cart?: CartLine[]; kind?: "pickup" | "delivery"; address?: string; zone?: string | null }) {
     const lines = next.cart ?? cart;
     if (!lines.length) return;
     const ticket = ++latest.current;
     setBusy(true);
     try {
       const k = next.kind ?? kind;
+      const z = next.zone !== undefined ? next.zone : zone;
       const { ok, data } = await post({
         action: "quote", lines, ...(k ? { kind: k } : {}), address: k === "delivery" ? (next.address ?? address) : null,
+        zone: k === "delivery" ? z : null,
       });
       if (ticket !== latest.current) return;
       if (ok && data.quote) {
         const q = data.quote as Quote;
         setQuote(q);
         setNow(clockNow());
-        setError(q.problem && !(q.problem === "no_address" && !(next.address ?? address)) ? errorText(q.problem, null, q.minimum_cents) : null);
+        // no address yet / no zone picked yet: the field and the zone question say it, not an error
+        const quiet = (q.problem === "no_address" && !(next.address ?? address)) || q.problem === "zone_required";
+        setError(q.problem && !quiet ? errorText(q.problem, null, q.minimum_cents, z) : null);
       } else {
         setError(errorText(String(data.error ?? "failed")));
       }
@@ -123,6 +140,22 @@ export default function OrderPanel({
     setCart(next);
     if (next.length) void requote({ cart: next });
     else setQuote({ ...quote, lines: [], subtotal_cents: 0, total_cents: 0, delivery_cents: 0 });
+  }
+
+  /** The address field left (or Enter): the zone question appears; one fitting town / postcode zone is chosen. */
+  function addressLeft() {
+    const typed = address.trim();
+    setAddressDone(Boolean(typed));
+    if (!typed) return;
+    const z = zonePicked ? zone : preselectZone(typed, zones);
+    if (!zonePicked) setZone(z);
+    void requote({ address: typed, zone: z });
+  }
+
+  function chooseZone(id: string) {
+    setZone(id);
+    setZonePicked(true);
+    void requote({ zone: id });
   }
 
   function chooseKind(k: OrderKind) {
@@ -160,7 +193,12 @@ export default function OrderPanel({
           setError(errorText("no_address"));
           return;
         }
-        const { ok, data } = await post({ action: "quote", lines: cart, kind, address: typed });
+        if (zones.length && !zone) {
+          setError(labels.order_err_zone_required);
+          setStep({ kind: "cart" });
+          return;
+        }
+        const { ok, data } = await post({ action: "quote", lines: cart, kind, address: typed, zone });
         const q = data.quote as Quote | undefined;
         if (!ok || !q) {
           setError(errorText(String(data.error ?? "failed")));
@@ -169,6 +207,7 @@ export default function OrderPanel({
         setQuote(q);
         if (!q.orderable) {
           setError(errorText(q.problem ?? "failed", null, q.minimum_cents));
+          if (q.problem?.startsWith("zone_")) setStep({ kind: "cart" });
           return;
         }
       } else if (!quote.orderable) {
@@ -216,6 +255,7 @@ export default function OrderPanel({
         lines: cart,
         kind,
         address: kind === "delivery" ? address.trim() : null,
+        zone: kind === "delivery" ? zone : null,
         note: noteRef.current,
         conversation: conv,
         lang,
@@ -227,6 +267,10 @@ export default function OrderPanel({
       }
       setError(errorText(String(data.error ?? "failed"), typeof data.attempts_left === "number" ? data.attempts_left : null,
         (data.quote as Quote | undefined)?.minimum_cents ?? null));
+      if (String(data.error ?? "").startsWith("zone_")) {
+        setStep({ kind: "cart" });
+        return;
+      }
       if (data.error === "expired" || data.error === "too_many_attempts" || data.error === "not_found") setStep({ kind: "form" });
       else if (data.error !== "wrong_code") setStep({ kind: "cart" });
     } catch {
@@ -246,6 +290,12 @@ export default function OrderPanel({
           ? "cursor-pointer bg-foreground font-bold text-white"
           : "cursor-pointer border-[1.5px] border-[#E2E2E2] bg-white font-semibold"
     }`;
+  // update 87: one long button per zone — the label left, the fee and the minimum right; chosen = black, a check
+  const zoneButton = (on: boolean) =>
+    `flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3.5 py-2 text-left text-[15px] leading-tight has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#2563EB] ${
+      on ? "bg-foreground font-bold text-white" : "border-[1.5px] border-[#E2E2E2] bg-white font-semibold"
+    }`;
+  const showZones = kind === "delivery" && zones.length > 0 && addressDone && address.trim() !== "";
   // the time from the database (food_quote's ready_minutes for this kind, else food_state's), as a clock time
   const minutes = quote.kind === kind && quote.ready_minutes ? quote.ready_minutes : kind === "delivery" ? deliveryMin : pickupMin;
   const clock = readyClock(now, minutes, lang, quote.state?.timezone ?? state.timezone);
@@ -326,7 +376,7 @@ export default function OrderPanel({
             )}
           </li>
         ))}
-        {kind === "delivery" && quote.zone && (
+        {kind === "delivery" && quote.zone && quote.problem !== "zone_mismatch" && (
           <li className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-line py-2 text-[15px]" data-order-fee>
             <span>{fill(labels.order_delivery_line, { zone: quote.zone.name })}</span>
             <span className="text-right">{money(quote.delivery_cents)}</span>
@@ -407,17 +457,58 @@ export default function OrderPanel({
                 maxLength={300}
                 autoComplete="street-address"
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                onBlur={() => {
-                  if (address.trim()) void requote({ address: address.trim() });
+                onChange={(e) => {
+                  setAddress(e.target.value);
+                  if (!e.target.value.trim()) setAddressDone(false);
+                }}
+                onBlur={addressLeft}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addressLeft();
+                  }
                 }}
                 className={field}
                 data-order-address
               />
             </label>
           )}
+          {showZones && (
+            <fieldset className="flex flex-col gap-2" data-order-zones>
+              <legend className="mb-1 text-[15px] font-bold">{labels.order_zone_question}</legend>
+              {zones.map((z) => {
+                const on = zone === z.id;
+                return (
+                  <label key={z.id} className={zoneButton(on)} data-order-zone={z.id} data-order-zone-on={on ? "" : undefined}>
+                    <input
+                      type="radio"
+                      name={zoneGroup}
+                      value={z.id}
+                      checked={on}
+                      onChange={() => chooseZone(z.id)}
+                      className="sr-only"
+                    />
+                    <span className="flex min-w-0 items-center gap-2">
+                      {on && <CheckIcon />}
+                      <span className="min-w-0 break-words">{zoneLabel(z, labels.order_zone_km, lang)}</span>
+                    </span>
+                    <span className="flex flex-none flex-col items-end text-right text-[13px] leading-tight">
+                      <span>{z.fee_cents > 0 ? fill(labels.order_zone_fee, { fee: money(z.fee_cents) }) : labels.order_zone_no_fee}</span>
+                      {z.min_cents > 0 && <span>{fill(labels.order_zone_min, { min: money(z.min_cents) })}</span>}
+                    </span>
+                  </label>
+                );
+              })}
+              {!zone && (
+                <p className="text-[14px] text-muted" data-order-zone-pick>
+                  {labels.order_err_zone_required}
+                </p>
+              )}
+            </fieldset>
+          )}
           {error && <p role="alert" className="text-sm font-semibold">{error}</p>}
-          <button type="button" className={primary} disabled={busy || !canContinue(kind, kinds, quote.lines.length)}
+          <button type="button" className={primary}
+            disabled={busy || !canContinue(kind, kinds, quote.lines.length, { needed: zones.length > 0, chosen: zone })}
             onClick={() => {
               setError(null);
               setEditing(false);
@@ -498,6 +589,14 @@ export default function OrderPanel({
         </form>
       )}
     </section>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="flex-none">
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
   );
 }
 

@@ -13,7 +13,7 @@ import { SaveBar } from "@/components/owner/SaveBar";
 import { cardClass, Segmented, Toggle } from "@/components/owner/ui";
 import { chooseShop } from "../../../contacts/parts";
 import { hiddenFields, inputClass, ProOnly, saveLabels } from "../../../shared";
-import { deleteZone, saveFoodSettings, saveZone } from "../actions";
+import { deleteZone, moveZone, saveFoodSettings, saveZone } from "../actions";
 import { btnGhost, FoodHead, FoodNotice } from "../parts";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/assistant/orders/settings">): Promise<Metadata> {
@@ -211,14 +211,35 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
       <section id="zones" className={`${cardClass} scroll-mt-4`} data-needs-delivery>
         <h2 className="text-[19px] font-bold">{f.s_zones}</h2>
         {s.zones.length === 0 && <p className="text-sm text-muted">{f.s_zones_none}</p>}
-        {s.zones.map((z) => (
+        {s.zones.map((z, i) => (
           <details key={z.id} className="rounded-lg border border-line p-3" data-food-zone={z.kind}>
             <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
-              <span className="font-semibold">{z.name}</span>
+              <span className="min-w-0">
+                <span className="font-semibold">{z.name}</span>
+                {z.label && <span className="block text-sm text-muted">{z.label}</span>}
+              </span>
               <span className="text-sm tabular-nums">
                 {money(z.fee_cents, lang)} · {f.s_minimum} {money(z.minimum_cents, lang)}
               </span>
             </summary>
+            {canWrite && s.zones.length > 1 && (
+              <div className="mt-2 flex gap-2" data-zone-move>
+                {(["up", "down"] as const).map((dir) => (
+                  <form key={dir} action={moveZone}>
+                    {hidden({ zone_id: z.id, dir })}
+                    <button
+                      type="submit"
+                      disabled={dir === "up" ? i === 0 : i === s.zones.length - 1}
+                      aria-label={t(dir === "up" ? f.s_zone_up : f.s_zone_down, { zone: z.name })}
+                      title={t(dir === "up" ? f.s_zone_up : f.s_zone_down, { zone: z.name })}
+                      className="flex size-11 items-center justify-center rounded-[10px] border border-line text-lg font-bold disabled:opacity-40"
+                    >
+                      {dir === "up" ? "▲" : "▼"}
+                    </button>
+                  </form>
+                ))}
+              </div>
+            )}
             <ZoneForm f={f} hidden={hidden} zone={z} kinds={kinds} kindText={kindText} canWrite={canWrite} />
             {canWrite && (
               <form action={deleteZone} className="mt-2">
@@ -236,6 +257,7 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
             <ZoneForm f={f} hidden={hidden} zone={null} kinds={kinds} kindText={kindText} canWrite={canWrite} />
           </details>
         )}
+        <p className="text-sm text-muted" data-zones-free>{f.s_zones_free}</p>
       </section>
       )}
       </div>
@@ -277,6 +299,11 @@ function ZoneForm({
       <label className="col-span-2 flex flex-col gap-1 text-sm">
         {f.s_zone_name}
         <input name="name" required maxLength={80} defaultValue={zone?.name ?? ""} className={inputClass} />
+      </label>
+      <label className="col-span-2 flex flex-col gap-1 text-sm">
+        {f.s_zone_label}
+        <input name="label" maxLength={40} defaultValue={zone?.label ?? ""} className={inputClass} data-zone-label />
+        <span className="text-xs text-muted">{f.s_zone_label_hint}</span>
       </label>
       <label className="flex flex-col gap-1 text-sm">
         {f.s_zone_kind}

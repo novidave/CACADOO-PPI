@@ -27,7 +27,7 @@
 //       book        {slug, conversation_id, conversation_token, ref, people?}  booking_assistant_book → booking_create
 //                    checks the slot again; confirmed at once (no confirmation SMS, no cancel link)
 //   - website, update 73 (food orders): code_start with purpose "order" (the order quota), then
-//       order_place {code_id, code, order_id, lines, kind, address?, note?, lat?, lng?, conversation_id,
+//       order_place {code_id, code, order_id, lines, kind, address?, zone?, note?, lat?, lng?, conversation_id,
 //                    conversation_token, lang}  food_order_create: the code and the order in one transaction (no pay
 //                    method since update 85: marked at the handover)
 //   - website, update 75 (couriers): courier_code {slug, phone, caller, lang}  the courier's login code
@@ -983,6 +983,8 @@ async function book(body: Record<string, unknown>, deps: Deps) {
 export const ORDER_REASONS = [
   "empty", "kind_off", "no_address", "outside_zone", "sold_out", "below_minimum", "not_accepting", "not_available",
   "pay_method", "qty", "lines", "extras", "kind", "conflict", "bad_request",
+  // update 87: the zone the customer picked
+  "zone_required", "zone_unknown", "zone_mismatch",
 ] as const;
 
 /** The cart as the page sends it: [{item_id, qty, extras: [item_id …]}] — no prices (SQL prices every line). */
@@ -1028,6 +1030,9 @@ async function orderPlace(body: Record<string, unknown>, deps: Deps) {
     p_lng: num(body.lng, -180, 180),
     ...conversationOf(body),
     p_lang: str(body, "lang", 12),
+    // update 87: the zone the customer picked (null = none); a website from before sends no key at all, and then the
+    // database keeps its old rule (the first zone that fits) until the new website is live
+    ...("zone" in body ? { p_zone: kind === "delivery" && typeof body.zone === "string" && UUID.test(body.zone) ? body.zone : null } : {}),
   });
   if (error) {
     const why = ORDER_REASONS.find((r) => r === error.message) ?? "failed";

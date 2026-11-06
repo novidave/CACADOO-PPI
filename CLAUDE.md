@@ -352,6 +352,41 @@ the menu only, never an order; then the dishes asked for with their prices as in
 (`callShop`, the prompt's phone, "offer to call the shop") only for a valid E.164 number — `phoneE164()` = SQL's
 `crm_phone()` with the shop's country; the link carries that number.
 
+## Donáška without zones, the zone the customer picks (update 87, 2026-11-06, at the owner's request)
+
+`supabase/sql/87_delivery_zones.sql` + `@/lib/foodRules` (`ZoneOption`, `townOf`, `townFits`, `postcodeFits`,
+`preselectZone`, `zoneLabel`, `canContinue(…, zone)`; tests in `food_test.ts`) + `@/components/OrderPanel` + `@/lib/food`
+(`foodQuote(…, zone)`, `quoteWithPlace(…, zone)`) + the order route + bookings `order_place` + the settings page.
+**Donáška needs only its switch** (`delivery_on`): `food_state.delivery` = the switch; `zones_count` and `zone_list`
+(`food_zone_list()`: `[{id, label, own_label, kind, value (town / postcodes), km, fee_cents, min_cents}]` in the owner's
+order; never the shop's coordinates or the zones' internal names — `food_state.zones` and food_quote's `zone.name` carry
+the label too). **label** = `food_zone_label()`: the owner's "Názov pre zákazníka" (`food_zones.label`, ≤ 40,
+`plain_text`), else the town, else the postcode(s), else "do <n> km" (the panel writes `chat.order_zone_km` in the page
+language). **No zones** → a delivery with fee 0 and no minimum (no question, no geocoding). **Zones** →
+`food_quote(…, p_zone)`: none picked = `zone_required`, not the shop's = `zone_unknown`, not fitting the address =
+`zone_mismatch` (never another zone's fee): a town zone = `food_town_fits()` (the address's town by `food_town_of()` =
+`townOf` — the last comma part without a 4–5 digit postcode — or the address ends with the town; accents and case
+ignored), a postcode zone = `food_postcode_fits()` (one of its postcodes, "071 01; 071 02", in the address, spaces
+ignored), a kilometre zone = the address's place within the radius (`quoteWithPlace` geocodes the town only then).
+`food_order_create(…, p_zone)` quotes again with the same zone and keeps `zone_id` + the label (`zone_name`): the feed
+card (`data-feed-zone`), the order page, the courier app and the owner's e-mail (`food_alerts_due().zone`) show it. A
+caller that sends no `p_zone` at all (the website and bookings before update 87) keeps the old rule (the first zone
+that fits) — only so the live site worked while the update went out; bookings sends `p_zone` whenever the request has
+a `zone` key and the route always sends one. **The panel:** Donáška → the address → on blur / Enter, only with zones,
+"Kam doručujeme?" and one LONG button per zone (`data-order-zone`; real radio inputs, ≥ 56 px, radius 12, 1.5 px
+#E2E2E2; the label left, "+ 1,50 €" / "bez poplatku" and "min. 10 €" right; chosen = black, white bold, a check);
+nothing chosen unless the typed address fits exactly ONE town / postcode zone (`preselectZone`; never a kilometre zone;
+a customer's own pick is never replaced); "Pokračovať" waits for a zone ("Vyberte, kam doručujeme." under the
+buttons); `zone_mismatch` → "Táto adresa nie je v zóne „<label>“ – vyberte inú alebo opravte adresu." (texts
+`chat.order_zone_*`, `chat.order_err_zone_*`). **The assistant** never chooses a zone or names a fee, a minimum or a
+total with delivery; asked where the shop delivers it may name the zones' labels (food_quote's tool data carry only
+`delivery_zones` labels). **Owners** (Objednávky jedla → Nastavenia → zones): "Názov pre zákazníka" per zone
+(`owner_food_save_zone(…, p_label)`: null = unchanged, '' = none, > 40 = `label`), ▲ ▼ (`owner_food_order_zones`,
+activity `food_zones_ordered`) and the line "Bez zón donášame kamkoľvek bez poplatku."; "Nastavenie obchodu" no longer
+asks for zones. Tests: DB block "update 87", `npm run test:food`, `test:functions` (bookings `order_place` zone,
+crm-messages e-mail), e2e `e2e/food-zones.spec.ts` (no zones → fee 0; two town zones → preselected, mismatch line,
+fixed → its fee, the feed's label; the zones deleted after) and `food.spec.ts`.
+
 ## Objednávky jedla: the order feed (update 81, 2026-11-05)
 
 `supabase/sql/81_food_feed.sql` (design: canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 5a tablet, 5b
@@ -1206,7 +1241,8 @@ The shared actions phones use (`sellBasket`, `lookupSaleProducts`, `terminalAct`
 in the shop assistant, **paid only on receipt** (PAY by square, cash, card on the shop's own terminal — Cacaduu only
 records how it was paid; never a card, a terminal or a bank). **Every rule in SQL:** prices only through
 `food_quote()` (Sklad's sale price with VAT, extras are Sklad products too, sold out = Sklad stock ≤ 0, zones town |
-postcode | radius_km with a fee and a minimum; the AI, a PDF or the browser never set a price); times only through
+postcode | radius_km with a fee and a minimum — **optional since update 87, the customer picks one**, see "Donáška
+without zones" below; the AI, a PDF or the browser never set a price); times only through
 `food_open_state()` (off · paused · sms_quota · closed · cutoff); the order SMS code = `sms_codes` purpose `order`
 (update 63's limits; the monthly quota `order`, default 100, `admin_save_sms_quota`); **an order only through
 `food_order_create()`** (the code + the order in one transaction; the client's UUID once = the same order; the contact
@@ -1230,13 +1266,13 @@ the chosen one black with white bold text, the other white with a 1.5 px #E2E2E2
 (the owner's request, 2026-11-06), whatever the shop's setup, and NOTHING chosen at first** (never the AI's
 `order_kind`): "Pokračovať" stays disabled until the customer picks one, with "Vyberte osobný odber alebo donášku."
 (`chat.order_kind_pick`) under the buttons; a way the shop does not offer is greyed (`aria-disabled`, never
-selectable; `orderKinds()` → `{kind, available}`: Donáška only while `food_state.delivery` = on + a zone, Osobný odber
-unless switched off while delivering) and a tap or Enter shows one line under it ("Tento obchod zatiaľ nedonáša –
+selectable; `orderKinds()` → `{kind, available}`: Donáška only while `food_state.delivery` = its switch alone (update
+87: zones are optional), Osobný odber unless switched off while delivering) and a tap or Enter shows one line under it ("Tento obchod zatiaľ nedonáša –
 vyberte osobný odber.", `chat.order_delivery_off` / `order_pickup_off`); before a choice the quote carries no kind
 (the price without a fee) and the route places no order without the customer's own kind (`no_kind`); food_order_create
 still refuses delivery when it is off (`delivery_off`) or outside a zone; Donáška shows the address field under the
-buttons (Osobný odber hides it, what was typed stays) and, with the address, the zone's fee line (`data-order-fee`),
-every change asks `food_quote` again; the assistant never asks "Osobný odber alebo donáška?" in words (the buttons
+buttons (Osobný odber hides it, what was typed stays) and, with zones, the zone buttons after the address (update 87,
+below) and the chosen zone's fee line (`data-order-fee`), every change asks `food_quote` again; the assistant never asks "Osobný odber alebo donáška?" in words (the buttons
 ask; without Donáška it says so only when the customer writes about delivery); once a way is chosen one line from the
 database's minutes ("Hotové o 18:40" / "Donáška do 19:10", `chat.order_ready_at` / `order_delivery_by`, the
 shop's time zone; never the assistant's estimate); **no payment choice** — the customer never picks a method, every

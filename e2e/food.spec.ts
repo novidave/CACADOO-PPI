@@ -66,9 +66,16 @@ async function orderInAssistant(browser: Browser): Promise<number> {
   await expect(panel.locator("[data-order-continue]")).toBeEnabled();
   await expect(panel.locator("[data-order-time]")).toContainText(c.order_delivery_by.split(" {")[0]);
   await panel.locator('input[name="address"]').fill(ADDRESS);
-  // the shop's zone: the fee line after the address (food_quote again)
   await panel.locator('input[name="address"]').blur();
-  await expect(panel.locator("[data-order-fee]"), "the zone's delivery fee").toBeVisible({ timeout: 20_000 });
+  // update 87: with zones the card asks "Kam doručujeme?" — the one zone the address fits is chosen, with its fee;
+  // without zones there is no question and no fee
+  if (await panel.locator("[data-order-zones]").count()) {
+    await expect(panel.locator("[data-order-zones] legend")).toHaveText(c.order_zone_question);
+    await expect(panel.locator("[data-order-zone-on]"), "the zone of E2E_FOOD_ADDRESS is chosen").toHaveCount(1);
+    await expect(panel.locator("[data-order-fee]"), "the zone's delivery fee").toBeVisible({ timeout: 20_000 });
+  } else {
+    await expect(panel.locator("[data-order-fee]"), "no zones: no fee").toHaveCount(0);
+  }
   await panel.locator('[data-order-kind="pickup"]').click();
   await expect(panel.locator('input[name="address"]')).toHaveCount(0);
   await delivery.click();

@@ -47,6 +47,8 @@ export interface FeedOrder {
   courier_id?: string | null;
   courier_name?: string | null;
   address: string | null;
+  /** update 87: the delivery zone's label the customer picked (null without zones) */
+  zone_name?: string | null;
 }
 
 /** Past this share of the card's width a swipe finishes (or reopens); less springs back. */

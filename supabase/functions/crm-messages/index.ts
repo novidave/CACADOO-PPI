@@ -462,6 +462,8 @@ export interface FoodAlertRow {
   timezone: string;
   items: string | null;
   recipients: { email: string; lang: string }[];
+  /** update 87: the delivery zone's label the customer picked (null without zones or for pickup) */
+  zone?: string | null;
 }
 
 const FOOD_TEXTS = {
@@ -514,7 +516,8 @@ export function foodAlertMail(row: FoodAlertRow, lang: string, siteUrl: string |
   const lines = [
     fillText(t.intro, { shop, n }),
     "",
-    fillText(row.kind === "delivery" ? t.delivery : t.pickup, { time }),
+    fillText(row.kind === "delivery" ? t.delivery : t.pickup, { time })
+      + (row.kind === "delivery" && row.zone ? ` · ${row.zone.replace(/[\r\n]/g, " ").trim().slice(0, 80)}` : ""),
     ...(row.items ? ["", t.items, row.items.slice(0, 600)] : []),
     "",
     // update 81: without a method (no payment in Cacaduu) only the total and "on receipt"
