@@ -2,7 +2,15 @@
 
 import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import {
   isBareScreen,
   MENU_GROUPS,
@@ -202,7 +210,8 @@ export function OwnerNav({
     html.style.overflow = "hidden";
     panel.current?.querySelector<HTMLElement>("a[href], button, summary")?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      // an Esc the shop switcher already used (it closed itself) leaves the panel open
+      if (e.key === "Escape" && !e.defaultPrevented) {
         setPanelOpen(false);
         opener.current?.focus();
       }
@@ -214,6 +223,18 @@ export function OwnerNav({
       document.removeEventListener("keydown", onKey);
     };
   }, [panelOpen]);
+
+  // the shop switcher (a <details>): a tap outside closes it (the menu is not drawn again on navigation, so it would
+  // otherwise stay open)
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      for (const d of document.querySelectorAll<HTMLDetailsElement>("details[data-shop-switcher][open]")) {
+        if (!d.contains(e.target as Node)) d.open = false;
+      }
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, []);
 
   if (isBareScreen(path)) return null;
 
@@ -244,6 +265,19 @@ export function OwnerNav({
     const inPanel = where === "panel";
     const attr = inPanel ? "data-panel-item" : "data-nav-item";
     const onNavigate = inPanel ? closePanel : undefined;
+    // picking a shop (or "Pridať obchod") closes the switcher, then whatever the menu's other links do
+    const onPick = (e: ReactMouseEvent<HTMLElement>) => {
+      const box = e.currentTarget.closest("details");
+      if (box) box.open = false;
+      onNavigate?.();
+    };
+    // Esc closes the open switcher first (the phone panel stays open), the focus back on it
+    const onSwitcherKey = (e: ReactKeyboardEvent<HTMLDetailsElement>) => {
+      if (e.key !== "Escape" || !e.currentTarget.open) return;
+      e.preventDefault();
+      e.currentTarget.open = false;
+      e.currentTarget.querySelector("summary")?.focus();
+    };
     const row = (m: MenuItem, big: boolean) => {
       const on = m.key === current?.key;
       const n = badgeOf(m);
@@ -336,7 +370,7 @@ export function OwnerNav({
     return (
       <>
         <div className="flex flex-none flex-col gap-1.5 pt-3.5">
-          <details className="group relative" data-shop-switcher>
+          <details className="group relative" data-shop-switcher onKeyDown={onSwitcherKey}>
             <summary
               aria-label={`${labels.shop}: ${shop?.name ?? ""}`}
               title={shop?.name ?? ""}
@@ -365,14 +399,14 @@ export function OwnerNav({
                 <Link
                   key={s.slug}
                   href={switchTo(s.slug)}
-                  onClick={onNavigate}
+                  onClick={onPick}
                   aria-current={s.slug === shop?.slug ? "true" : undefined}
                   className={`flex min-h-11 items-center rounded-lg px-3 text-base ${s.slug === shop?.slug ? "bg-[#F4F4F4] font-bold" : "font-semibold"}`}
                 >
                   {s.name}
                 </Link>
               ))}
-              <Link href={`/${lang}/dashboard?new=1`} onClick={onNavigate} className="flex min-h-11 items-center rounded-lg px-3 text-base font-semibold">
+              <Link href={`/${lang}/dashboard?new=1`} onClick={onPick} className="flex min-h-11 items-center rounded-lg px-3 text-base font-semibold">
                 {labels.add_shop}
               </Link>
             </div>

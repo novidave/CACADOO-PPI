@@ -135,6 +135,37 @@ for (const size of SIZES) {
       }
     });
 
+    test("the shop switcher closes after a shop is picked, on a tap outside and on Esc", async ({ page }) => {
+      const small = size.name !== "computer";
+      await page.goto(`/sk/dashboard${q}`);
+      const openMenu = async () => {
+        if (small) await page.locator("[data-owner-menu-button]").click();
+      };
+      const box = page.locator(small ? "[data-owner-panel] details[data-shop-switcher]" : "#owner-menu details[data-shop-switcher]");
+      await openMenu();
+      await box.locator("summary").click();
+      await expect(box).toHaveAttribute("open", "");
+      // Esc closes the switcher only (the phone panel stays open)
+      await page.keyboard.press("Escape");
+      await expect(box).not.toHaveAttribute("open", "");
+      if (small) await expect(page.locator("[data-owner-panel]")).toBeVisible();
+      // a tap outside it
+      await box.locator("summary").click();
+      await expect(box).toHaveAttribute("open", "");
+      if (small) await page.locator("[data-owner-panel]").click({ position: { x: 4, y: 4 } });
+      else await page.locator("[data-owner-page] h1").first().click();
+      await expect(box).not.toHaveAttribute("open", "");
+      // picking a shop: the list closes (the menu is not drawn again on navigation)
+      await box.locator("summary").click();
+      const pick = box.locator("[data-shop-list] a").first();
+      const href = (await pick.getAttribute("href")) ?? "";
+      await pick.click();
+      await page.waitForURL((u) => `${u.pathname}${u.search}` === href);
+      if (small) await openMenu();
+      await expect(box).not.toHaveAttribute("open", "");
+      await expect(box.locator("[data-shop-list]")).toBeHidden();
+    });
+
     test("the tab row stays in one place on every tab (Rezervácie, Sklad, Objednávky jedla, CRM)", async ({ page }) => {
       test.skip(!SHOP, "needs E2E_OWNER_SHOP");
       test.setTimeout(240_000);

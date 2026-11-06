@@ -144,7 +144,8 @@ the badges per shop (CRM = `owner_conversations_new` + waiting callbacks, Objedn
 `@/components/owner/OwnerNav` (client: a layout is not drawn again on navigation, so the current item and `?shop=` come
 from the address) draws: **≥ 1024 px the 256 px menu, open by default on EVERY page** (Predaj, the Príjemka editor,
 Inventúra counting and the food board too; no "work screens" any more): EVERY row is 52 px (`data-nav-cell`): the shop
-switcher, "Zobraziť moju stránku", Hlavné (17 px), the group heads (a thin line above, `aria-expanded`, one open at a
+switcher (a `<details>` that closes itself after a shop is picked, on a tap outside and on Esc — the menu is not drawn
+again on navigation; that Esc leaves the phone panel open), "Zobraziť moju stránku", Hlavné (17 px), the group heads (a thin line above, `aria-expanded`, one open at a
 time) and their rows (16 px), "AI pomocník" and at the bottom "Zbaliť menu" / "Rozbaliť menu" (`aria-expanded`,
 `aria-controls="owner-menu"`) folds it to the **76 px rail** and back, remembered in localStorage `ppi.owner.nav`
 (try/catch, default open; `NAV_BOOT`, an inline script before the menu, sets `<html data-owner-nav="collapsed">` before
@@ -188,7 +189,8 @@ identical (±0.5 px) on every tab of Rezervácie, Sklad (incl. Predaj, the Príj
 counting), Objednávky jedla, CRM and AI asistent; nothing tab-specific above it; SMS usage under the tabs on Kontakty;
 the menu open on Predaj, every icon's centre at 38 px, collapse keeps every icon's x/y (each item a 52 × 52 square
 12 px in) and survives a reload; the AI panel on the right keeps the tabs in place, Esc closes it; the menu button the
-same box open and closed, the panel under the top bar, Esc / outside / the button close it; the pomocník item opens
+same box open and closed, the panel under the top bar, Esc / outside / the button close it; the shop switcher closes
+after a pick, a tap outside and Esc (all three sizes); the pomocník item opens
 its page; `e2e/crm-messages.spec.ts` (the three sizes: search, "+ Nový kontakt" selects it, a tag, Náhľad, a test-mode
 send). **L2 (moves):** each item's tabs are
 `ITEM_TABS` (`tabHref()`), drawn by `@/components/owner/PageHead` (h1 28 px, tabs 56 px, active #111 + 3 px line, `data-item-tabs`):
