@@ -10,7 +10,8 @@ const LIMIT_KB = 150;
 const headers = { "x-vercel-skip-toolbar": "1" };
 if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) headers["x-vercel-protection-bypass"] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 
-const pages = ["/sk", "/sk?q=k%C3%A1va", `/sk/shops/${shop}`, `/sk/shops/${shop}/blog`, ...(item ? [`/sk/items/${item}`] : [])];
+// The main page and its AI search are left out on purpose until the owner turns them back on (2026-11-06; lighthouserc.cjs).
+const pages = [`/sk/shops/${shop}`, `/sk/shops/${shop}/blog`, ...(item ? [`/sk/items/${item}`] : [])];
 const sizes = new Map();
 let failed = false;
 for (const path of pages) {
