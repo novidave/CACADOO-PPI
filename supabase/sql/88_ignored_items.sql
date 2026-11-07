@@ -23,6 +23,20 @@
 -- Nothing is deleted from the database by this file itself; it only adds a table, columns and functions.
 -- =====================================================================================================================
 
+-- the activity log: the two new actions
+do $$
+declare
+  v_def text := (select pg_get_constraintdef(c.oid) from pg_constraint c
+                 where c.conrelid = 'public.shop_activity'::regclass and c.conname = 'shop_activity_action_check');
+begin
+  if v_def is not null and position('''items_ignored''' in v_def) = 0 then
+    alter table public.shop_activity drop constraint shop_activity_action_check;
+    execute 'alter table public.shop_activity add constraint shop_activity_action_check '
+            || replace(v_def, 'ARRAY[', 'ARRAY[''items_ignored''::text, ''items_unignored''::text, ');
+  end if;
+end;
+$$;
+
 -- ------------------------------------------------------------------ 1. the key and the table
 
 /** How a product of a stock source is recognised: its code, trimmed, ≤ 100 characters (shop_items.source_code). */
