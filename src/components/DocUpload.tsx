@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { functionFailure } from "@/lib/functionError";
 import { createClient } from "@/lib/supabase/client";
-import { canvasBlob, fitCanvas, openPdf, pagePicture, readPage, type PdfPicture } from "@/lib/pdfRead";
+import { canvasBlob, fitCanvas, openPdf, openPicture, pagePicture, readPage, type PdfPicture } from "@/lib/pdfRead";
 import { buttonClass, fieldClass } from "@/components/owner/ui";
 
 type Labels = Dictionary["docs"];
@@ -38,14 +38,14 @@ class IngestError extends Error {
   }
 }
 
-async function ingest<T>(supabase: Supabase, body: Record<string, unknown>): Promise<T> {
+export async function ingest<T>(supabase: Supabase, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke<T>("doc-ingest", { body });
   if (!error) return data as T;
   const failure = await functionFailure(error);
   throw new IngestError(failure.error ?? "failed", failure.error ? (failure.message ?? failure.error) : `doc-ingest ${failure.detail}`);
 }
 
-function errorText(labels: Labels, e: unknown): string {
+export function errorText(labels: Labels, e: unknown): string {
   if (e instanceof IngestError) {
     const known = (labels as Record<string, string>)[`error_${e.code}`];
     if (known && !known.includes("{message}")) return known;
@@ -96,7 +96,16 @@ async function sendPictures(
   where: { shop_id: string; folder_id?: string; document_id?: string; lang: string },
   items: { blob: Blob; page?: number; kind?: "picture" | "scan"; title?: string; caption?: string }[],
 ): Promise<number> {
-  if (items.length === 0) return 0;
+  return (await sendPictureIds(supabase, where, items)).length;
+}
+
+/** The same, answering the new pictures' ids (update 94: the PC folder marks each one as its file). */
+export async function sendPictureIds(
+  supabase: Supabase,
+  where: { shop_id: string; folder_id?: string; document_id?: string; lang: string },
+  items: { blob: Blob; page?: number; kind?: "picture" | "scan"; title?: string; caption?: string }[],
+): Promise<string[]> {
+  if (items.length === 0) return [];
   const { pictures } = await ingest<{ pictures: { idx: number; picture_id: string | null; path: string | null }[] }>(supabase, {
     action: "register_pictures",
     ...where,
@@ -117,7 +126,7 @@ async function sendPictures(
     done.push(row.picture_id);
   }
   if (done.length) await ingest(supabase, { action: "pictures_uploaded", shop_id: where.shop_id, picture_ids: done });
-  return done.length;
+  return done;
 }
 
 /**
@@ -125,7 +134,7 @@ async function sendPictures(
  * left (or the AI is not set up). Pictures not finished now are continued next time the
  * owner opens this page.
  */
-async function runWork(supabase: Supabase, shopId: string, progress: (left: number) => void): Promise<"done" | "ai_off"> {
+export async function runWork(supabase: Supabase, shopId: string, progress: (left: number) => void): Promise<"done" | "ai_off"> {
   let idle = 0;
   for (let round = 0; round < 500; round++) {
     const r = await ingest<{ done: number; failed: number; remaining: number; ai?: boolean; plan?: boolean }>(supabase, {
@@ -189,13 +198,13 @@ const fill = (text: string, values: Record<string, string | number>) => text.rep
  * One PDF: read here, uploaded unchanged, its text and pictures sent for the assistant, then its page pictures for
  * the viewer. Returns how many pictures it took; an upload stopped half-way is removed again (files and text).
  */
-async function sendPdf(
+export async function sendPdf(
   supabase: Supabase,
   file: File,
   where: { shopId: string; folderId: string; lang: string; name: string; description: string; picturesLeft: number },
   status: (text: string) => void,
   labels: Labels,
-): Promise<number> {
+): Promise<{ taken: number; documentId: string }> {
   let documentId: string | null = null;
   let pdf: Awaited<ReturnType<typeof openPdf>> | null = null;
   try {
@@ -249,8 +258,9 @@ async function sendPdf(
     await flushPictures();
     await sendPagePictures(supabase, documentId!, doc, (n, total) => status(fill(labels.preparing_pages, { n, total })));
     await ingest(supabase, { action: "document_done", document_id: documentId });
+    const done = documentId!;
     documentId = null;
-    return taken;
+    return { taken, documentId: done };
   } catch (e) {
     if (documentId) await ingest(supabase, { action: "delete", kind: "document", id: documentId }).catch(() => {});
     throw e;
@@ -260,8 +270,9 @@ async function sendPdf(
 }
 
 /** A picture made smaller here (at most 1568 px, WebP), never changed otherwise. */
-async function shrinkPicture(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+export async function shrinkPicture(file: File): Promise<Blob> {
+  // HEIC / HEIF too (update 94: photos from a PC folder), through pdfRead's openPicture
+  const bitmap = await openPicture(file);
   try {
     return await canvasBlob(fitCanvas(bitmap, bitmap.width, bitmap.height));
   } finally {
@@ -348,7 +359,7 @@ export function DocUpload({
       try {
         if (isPdf(file)) {
           await flush();
-          left -= await sendPdf(supabase, file, { shopId, folderId, lang, name: nameOf(file, i), description, picturesLeft: left }, step, labels);
+          left -= (await sendPdf(supabase, file, { shopId, folderId, lang, name: nameOf(file, i), description, picturesLeft: left }, step, labels)).taken;
           done++;
         } else {
           step(fill(labels.preparing, { n: i + 1, total: files.length }));

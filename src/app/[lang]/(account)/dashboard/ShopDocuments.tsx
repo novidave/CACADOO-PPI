@@ -4,6 +4,8 @@ import type { getSession } from "@/lib/auth";
 import { formatDate, formatDateTime, isPast } from "@/lib/format";
 import type { MyShop } from "@/lib/myShops";
 import { DocsWork, DocUpload, PreparePages, type FolderOption } from "@/components/DocUpload";
+import { KbFolderSync } from "@/components/KbFolderSync";
+import type { KbKnown } from "@/lib/kbFolder";
 import { FolderKeyForm } from "@/components/FolderKeyForm";
 import { FolderKeySetter } from "@/components/FolderKeySetter";
 import { PendingButton } from "@/components/PendingButton";
@@ -175,6 +177,15 @@ export async function loadShopDocs(supabase: Supabase, shopId: string): Promise<
 }
 
 /** "Open" for the owner: /api/owner/files redirects to a 10-minute signed address (owner only). */
+type PcState = { linked: boolean; synced_at: string | null; files: number | null; remove_missing: boolean; items: KbKnown[] };
+
+/** Each folder's "Priečinok na počítači" state (owner_kb_folder_files, update 94); null when the update is not there. */
+async function loadPcStates(supabase: Supabase, folderIds: string[]): Promise<Map<string, PcState> | null> {
+  const rows = await Promise.all(folderIds.map((id) => supabase.rpc("owner_kb_folder_files", { p_folder_id: id })));
+  if (rows.some((r) => r.error)) return null;
+  return new Map(folderIds.map((id, i) => [id, rows[i].data as PcState]));
+}
+
 export function ownerFileUrl(kind: "document" | "picture", id: string): string {
   return `/api/owner/files/${kind}/${id}`;
 }
@@ -262,6 +273,8 @@ export async function ShopDocuments({
     </>
   );
   const canUpload = hasPlan && termsAccepted && Boolean(limits);
+  // update 94: each folder's link to a folder on the shop's PC (null before the update: no section)
+  const pcStates = docsPart && canUpload ? await loadPcStates(supabase, folders.map((f) => f.id)) : null;
   const isPublic = (folderId: string) => folders.find((f) => f.id === folderId)?.is_public ?? true;
 
   return (
@@ -306,6 +319,28 @@ export async function ShopDocuments({
         <div id="upload" className="scroll-mt-4">
           <DocUpload shopId={shop.id} folders={options} lang={lang} picturesLeft={picturesLeft} labels={d} />
         </div>
+      )}
+      {canUpload && pcStates && (
+        <section id="pc-folder" className="flex scroll-mt-4 flex-col gap-3 rounded-2xl border border-line p-4" data-kb-section>
+          <h3 className="font-semibold">{dict.kbfolder.title}</h3>
+          <p className="text-sm text-muted">{dict.kbfolder.intro}</p>
+          <ul className="flex flex-col gap-4">
+            {folders.map((f) => (
+              <li key={f.id} className="flex flex-col gap-2 border-t border-line pt-3 first:border-t-0 first:pt-0">
+                <span className="font-medium">{f.is_public ? d.public_folder : f.name}</span>
+                <KbFolderSync
+                  shopId={shop.id}
+                  folderId={f.id}
+                  lang={lang}
+                  picturesLeft={picturesLeft}
+                  state={pcStates.get(f.id) ?? { linked: false, synced_at: null, files: null, remove_missing: false, items: [] }}
+                  labels={dict.kbfolder}
+                  docLabels={d}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
         </>
       )}

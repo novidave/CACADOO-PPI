@@ -923,6 +923,29 @@ signed URLs). Access keys: `owner_create_folder_key()` (shown once, SHA-256 only
 caller/shop/15 min) → session token in a signed HttpOnly cookie per shop (`@/lib/docsAccess`, `SESSION_COOKIE_SECRET`,
 path `/api/shops/<slug>/`, routes `access` and `files`); the key and token never reach the AI. Private content never in
 pages, JSON-LD, sitemap, llms.txt, public API, MCP or the main-page AI search.
+**"Priečinok na počítači" (update 94, 2026-11-07, at the owner's request; Pro):** `supabase/sql/94_kb_pc_folder.sql` +
+`@/lib/kbFolder` (no imports; `kbFolder_test.ts` in `npm run test:content`) + `@/components/KbFolderSync` (in
+`ShopDocuments`, AI asistent → Dokumenty, the section `#pc-folder` under the upload, one row per folder). Each documents
+folder (Public and private) can be linked to a folder on the shop's PC: Edge / Chrome File System Access, **read only**,
+the handle in IndexedDB `kbfolder:<shop>:<folder>` with what this browser last read (size, time, SHA-256 per file);
+never the stock folder (`folder:<shop>`) or the translations folder (`trfolder:<shop>`) — `isSameEntry` refused. One
+window per shop and folder checks it (Web Locks `ppi-kb-<shop>-<folder>`): on start, every 15 minutes, on "Skontrolovať
+teraz" and when the tab is shown again. Only the files directly in the folder (subfolders ignored), PDF / JPG / PNG /
+WebP / HEIC (others listed "nepodporovaný typ"; hidden and "~$" files ignored); a file written in the last 60 s waits;
+a new or changed file (size / time, then SHA-256) goes through the SAME upload as by hand (`DocUpload`'s `sendPdf` /
+`sendPictureIds` → doc-ingest; the shop's limits and errors per file) and is marked `owner_kb_mark_source` (source
+`pc_folder`, `source_name`, `source_hash` on `shop_documents` / `shop_pictures`); the same content is never sent twice;
+a changed file replaces its own document (the same name in that folder: the new one first, then doc-ingest `delete` of
+the old). A file gone from the PC = `missing_since` ("Chýba v priečinku", `owner_kb_folder_synced`), back when it
+returns; the document stays until the owner's "Odstrániť" — or, with "Odstrániť z asistenta aj súbory zmazané v
+priečinku" (`shop_folders.pc_remove_missing`, off by default, an inline confirmation before it is on,
+`owner_kb_folder_settings`), the next check removes it. "Synchronizované HH:MM · súbory: n" (`pc_synced_at`,
+`pc_files`), errors per file; "Odpojiť priečinok" removes only the link (`owner_kb_folder_link`). SQL (members + plan,
+`crm_owner_check`): `owner_kb_folder_link`, `_settings`, `_files` (members), `_mark_source`, `_folder_synced`,
+`owner_kb_removed`; activity `kb_folder_linked`, `kb_folder_synced` (only when something changed), `kb_doc_removed`
+(count + reason missing / replaced / owner) — **never a file name or text in a log**. Texts `kbfolder`. Tests: DB block
+"update 94", `test:content`, e2e `e2e/kb-folder.spec.ts` (an OPFS folder stands in; owner login + `E2E_OWNER_SHOP`;
+`window.__ppiKbSettleMs` shortens the 60 s wait).
 
 ## Assistant archive (paid, update 22)
 

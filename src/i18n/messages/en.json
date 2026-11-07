@@ -6093,5 +6093,33 @@
     "doc_private": "Private · key",
     "docs_all": "All documents ({n})",
     "err_telegram": "Telegram isn't linked for this shop."
+  },
+  "kbfolder": {
+    "title": "Folder on the computer",
+    "intro": "Link a folder on the shop's computer: the assistant gets its new and changed PDFs and photos by itself, every 15 minutes.",
+    "link": "Link a folder on the computer",
+    "unlink": "Unlink the folder",
+    "check_now": "Check now",
+    "allow": "Allow access to the folder",
+    "unsupported_browser": "Linking a folder works in Edge or Chrome on a computer.",
+    "same_folder": "This folder is already used for the stock or the translations – pick another one.",
+    "folder": "Folder: {name}",
+    "synced": "Synced {time} · files: {n}",
+    "not_synced": "Not synced yet",
+    "checking": "Checking the folder…",
+    "uploading": "Uploading {name}…",
+    "other_window": "Another Cacaduu window is checking the folder.",
+    "linked_elsewhere": "Linked on another computer or in another browser. Link the folder here too if this computer should check it.",
+    "missing": "Missing from the folder",
+    "remove": "Remove",
+    "unsupported": "unsupported type",
+    "waiting": "waiting until the file is written",
+    "errors_title": "These files could not be uploaded",
+    "remove_missing": "Also remove files deleted from the folder from the assistant",
+    "remove_missing_hint": "Off: a missing file stays in the assistant until you remove it.",
+    "remove_missing_confirm": "Switch on? A file deleted on the computer is removed from the assistant at the next check too.",
+    "confirm_yes": "Yes, switch on",
+    "cancel": "Cancel",
+    "error": "Something went wrong: {message}"
   }
 }
