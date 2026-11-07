@@ -6093,5 +6093,33 @@
     "doc_private": "Súkromný · kľúč",
     "docs_all": "Všetky dokumenty ({n})",
     "err_telegram": "Telegram nie je pre tento obchod prepojený."
+  },
+  "kbfolder": {
+    "title": "Priečinok na počítači",
+    "intro": "Prepojte priečinok na počítači v obchode: nové a zmenené PDF a fotky z neho asistent dostane sám, každých 15 minút.",
+    "link": "Prepojiť priečinok na počítači",
+    "unlink": "Odpojiť priečinok",
+    "check_now": "Skontrolovať teraz",
+    "allow": "Povoliť prístup k priečinku",
+    "unsupported_browser": "Prepojenie priečinka funguje v Edge alebo Chrome na počítači.",
+    "same_folder": "Tento priečinok už používa sklad alebo preklady – vyberte iný.",
+    "folder": "Priečinok: {name}",
+    "synced": "Synchronizované {time} · súbory: {n}",
+    "not_synced": "Ešte nesynchronizované",
+    "checking": "Kontrolujem priečinok…",
+    "uploading": "Nahrávam {name}…",
+    "other_window": "Priečinok práve kontroluje iné okno Cacaduu.",
+    "linked_elsewhere": "Prepojené na inom počítači alebo v inom prehliadači. Prepojte priečinok aj tu, ak ho má kontrolovať tento počítač.",
+    "missing": "Chýba v priečinku",
+    "remove": "Odstrániť",
+    "unsupported": "nepodporovaný typ",
+    "waiting": "čaká, kým sa súbor dopíše",
+    "errors_title": "Tieto súbory sa nepodarilo nahrať",
+    "remove_missing": "Odstrániť z asistenta aj súbory zmazané v priečinku",
+    "remove_missing_hint": "Vypnuté: chýbajúci súbor zostáva v asistentovi, kým ho neodstránite.",
+    "remove_missing_confirm": "Zapnúť? Súbor zmazaný na počítači sa pri ďalšej kontrole odstráni aj z asistenta.",
+    "confirm_yes": "Áno, zapnúť",
+    "cancel": "Zrušiť",
+    "error": "Niečo sa nepodarilo: {message}"
   }
 }

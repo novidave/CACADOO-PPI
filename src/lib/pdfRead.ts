@@ -344,7 +344,7 @@ const isHeic = (file: File) => /^image\/hei[cf]/i.test(file.type) || /\.(heic|he
  * The photo as the browser shows it, upright (EXIF orientation applied). HEIC/HEIF: Safari opens it itself, other
  * browsers through heic-to (libheif, loaded only now, only in Môj obchod).
  */
-async function openPicture(file: File): Promise<ImageBitmap> {
+export async function openPicture(file: File): Promise<ImageBitmap> {
   try {
     return await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {

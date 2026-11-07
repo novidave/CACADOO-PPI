@@ -6093,5 +6093,33 @@
     "doc_private": "Privát · kulcs",
     "docs_all": "Összes dokumentum ({n})",
     "err_telegram": "A Telegram nincs összekapcsolva ezzel az üzlettel."
+  },
+  "kbfolder": {
+    "title": "Mappa a számítógépen",
+    "intro": "Kapcsolja össze az üzlet számítógépén lévő mappát: az új és módosított PDF-eket és fotókat az asszisztens magától megkapja, 15 percenként.",
+    "link": "Mappa összekapcsolása a számítógépen",
+    "unlink": "Mappa leválasztása",
+    "check_now": "Ellenőrzés most",
+    "allow": "Hozzáférés engedélyezése a mappához",
+    "unsupported_browser": "A mappa összekapcsolása Edge vagy Chrome böngészőben működik számítógépen.",
+    "same_folder": "Ezt a mappát már a raktár vagy a fordítások használják – válasszon másikat.",
+    "folder": "Mappa: {name}",
+    "synced": "Szinkronizálva {time} · fájlok: {n}",
+    "not_synced": "Még nincs szinkronizálva",
+    "checking": "A mappa ellenőrzése…",
+    "uploading": "Feltöltés: {name}…",
+    "other_window": "A mappát éppen egy másik Cacaduu ablak ellenőrzi.",
+    "linked_elsewhere": "Másik számítógépen vagy böngészőben van összekapcsolva. Kapcsolja össze itt is, ha ez a számítógép ellenőrizze.",
+    "missing": "Hiányzik a mappából",
+    "remove": "Eltávolítás",
+    "unsupported": "nem támogatott típus",
+    "waiting": "vár, amíg a fájl íródik",
+    "errors_title": "Ezeket a fájlokat nem sikerült feltölteni",
+    "remove_missing": "A mappából törölt fájlok eltávolítása az asszisztensből is",
+    "remove_missing_hint": "Kikapcsolva: a hiányzó fájl az asszisztensben marad, amíg el nem távolítja.",
+    "remove_missing_confirm": "Bekapcsolja? A számítógépen törölt fájl a következő ellenőrzéskor az asszisztensből is eltűnik.",
+    "confirm_yes": "Igen, bekapcsolom",
+    "cancel": "Mégse",
+    "error": "Valami nem sikerült: {message}"
   }
 }

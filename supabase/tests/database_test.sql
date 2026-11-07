@@ -11254,7 +11254,8 @@ begin
   update public.shop_bookings set starts_at = now() + interval '90 minutes', ends_at = now() + interval '120 minutes' where id = v_b1;
   assert exists (select 1 from public.booking_reminders_due(200) where id = v_b1), 'within 2 hours';
   update public.crm_settings set reminder_offset = 'day_before_18' where shop_id = v_a;
-  update public.shop_bookings set starts_at = now() + interval '20 days', ends_at = now() + interval '20 days 30 minutes' where id = v_b1;
+  -- a fixed early hour (02:00 UTC): never on another test booking, whatever time the tests run
+  update public.shop_bookings set starts_at = date_trunc('day', now()) + interval '20 days 2 hours', ends_at = date_trunc('day', now()) + interval '20 days 2 hours 30 minutes' where id = v_b1;
   assert not exists (select 1 from public.booking_reminders_due(200) where id = v_b1), 'not yet';
   update public.crm_settings set reminder_on = false where shop_id = v_a;
   -- the queued owner-change SMS
@@ -17545,5 +17546,104 @@ begin
 end $$;
 reset role;
 drop table t93;
+
+
+\echo '--- update 94: the assistant''s documents from a PC folder — link (members + plan), a PC file marked with its name and hash, missing when gone from the folder and back when it returns, the activity without file names, another owner refused'
+create temporary table t94 (k text primary key, v text);
+grant all on t94 to public;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_folder uuid;
+  v_doc uuid;
+  v_pic uuid;
+  v_up uuid;
+begin
+  insert into public.shop_folders (shop_id, name) values (v_a, 'PC 94') returning id into v_folder;
+  insert into public.shop_documents (shop_id, folder_id, name, storage_path, bytes, pages, status, extracted)
+  values (v_a, v_folder, 'Cenník', 't94/cennik.pdf', 1000, 2, 'ready', true) returning id into v_doc;
+  insert into public.shop_documents (shop_id, folder_id, name, storage_path, bytes, pages, status, extracted)
+  values (v_a, v_folder, 'Ručne', 't94/rucne.pdf', 1000, 1, 'ready', true) returning id into v_up;
+  insert into public.shop_pictures (shop_id, folder_id, title, storage_path, bytes, status)
+  values (v_a, v_folder, 'Foto', 't94/foto.webp', 1000, 'ready') returning id into v_pic;
+  insert into t94 values ('shop', v_a), ('folder', v_folder), ('doc', v_doc), ('pic', v_pic), ('up', v_up);
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_folder uuid := (select v::uuid from t94 where k = 'folder');
+  v_doc uuid := (select v::uuid from t94 where k = 'doc');
+  v_pic uuid := (select v::uuid from t94 where k = 'pic');
+  v_up uuid := (select v::uuid from t94 where k = 'up');
+  v_hash text := repeat('ab', 32);
+  v_r jsonb;
+begin
+  -- not linked yet: no marks, no sync
+  begin perform public.owner_kb_mark_source('document', v_doc, 'cennik.pdf', v_hash); raise exception 'marked without a link';
+  exception when raise_exception then assert sqlerrm = 'not_linked', sqlerrm; end;
+  perform public.owner_kb_folder_link(v_folder, true);
+  assert (select pc_linked_at is not null from public.shop_folders where id = v_folder);
+  -- bad names and hashes refused
+  begin perform public.owner_kb_mark_source('document', v_doc, 'cennik.pdf', 'xyz'); raise exception 'a bad hash';
+  exception when invalid_parameter_value then assert sqlerrm = 'file'; end;
+  perform public.owner_kb_mark_source('document', v_doc, 'cennik.pdf', v_hash);
+  perform public.owner_kb_mark_source('picture', v_pic, 'foto.jpg', v_hash);
+  v_r := public.owner_kb_folder_files(v_folder);
+  assert (v_r ->> 'linked')::boolean and jsonb_array_length(v_r -> 'items') = 2, v_r::text;
+  -- a check with both files there: nothing missing; with the PDF gone: the PDF is missing, the hand upload never
+  v_r := public.owner_kb_folder_synced(v_folder, array['cennik.pdf', 'foto.jpg'], 2, 2);
+  assert jsonb_array_length(v_r -> 'missing') = 0 and not (v_r ->> 'remove_missing')::boolean, v_r::text;
+  v_r := public.owner_kb_folder_synced(v_folder, array['foto.jpg'], 1, 0);
+  assert jsonb_array_length(v_r -> 'missing') = 1 and (v_r -> 'missing' -> 0 ->> 'id')::uuid = v_doc, v_r::text;
+  assert (select missing_since is not null from public.shop_documents where id = v_doc);
+  assert (select missing_since is null and source = 'upload' from public.shop_documents where id = v_up), 'a hand upload is never missing';
+  -- the file is back: no longer missing
+  v_r := public.owner_kb_folder_synced(v_folder, array['cennik.pdf', 'foto.jpg'], 2, 0);
+  assert jsonb_array_length(v_r -> 'missing') = 0 and (select missing_since is null from public.shop_documents where id = v_doc);
+  -- the switch and the removal log
+  perform public.owner_kb_folder_settings(v_folder, true);
+  assert (select pc_remove_missing from public.shop_folders where id = v_folder);
+  assert public.owner_kb_removed(v_folder, 2, 'replaced');
+  begin perform public.owner_kb_removed(v_folder, 1, 'other'); raise exception 'a bad reason';
+  exception when invalid_parameter_value then null; end;
+  -- the activity: linked, synced (only when something changed: 2 of 3 checks), removed — never a file name
+  assert (select count(*) from public.shop_activity where action = 'kb_folder_synced' and details ->> 'folder_id' = v_folder::text) = 2;
+  assert (select count(*) from public.shop_activity where action in ('kb_folder_linked', 'kb_folder_synced', 'kb_doc_removed')
+            and (details::text like '%cennik%' or details::text like '%foto.jpg%')) = 0, 'no file names in the log';
+  -- unlinking keeps the documents and switches the removal off
+  perform public.owner_kb_folder_link(v_folder, false);
+  assert (select pc_linked_at is null and not pc_remove_missing from public.shop_folders where id = v_folder);
+  assert (select count(*) from public.shop_documents where folder_id = v_folder) = 2;
+end $$;
+reset role;
+
+-- another owner: nothing
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_folder uuid := (select v::uuid from t94 where k = 'folder');
+begin
+  begin perform public.owner_kb_folder_link(v_folder, true); raise exception 'another owner linked';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_kb_folder_files(v_folder); raise exception 'another owner read';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_kb_mark_source('document', (select v::uuid from t94 where k = 'doc'), 'x.pdf', repeat('ab', 32)); raise exception 'another owner marked';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+-- visitors: no door at all
+set role anon;
+do $$
+begin
+  begin perform public.owner_kb_folder_files((select v::uuid from t94 where k = 'folder')); raise exception 'anon read';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+drop table t94;
 
 \echo 'ALL DATABASE CHECKS PASSED'
