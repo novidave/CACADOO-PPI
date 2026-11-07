@@ -6025,5 +6025,32 @@
     "draft_saved": "✓ Koncept uložený {time}",
     "sms_left": "SMS: {left}/{limit}",
     "badge_new": "Nové: {n}"
+  },
+  "asst_page": {
+    "try": "Vyskúšať asistenta",
+    "on_page": "Na stránke obchodu",
+    "button_text": "Text tlačidla",
+    "welcome": "Uvítanie",
+    "unanswered": "Keď asistent nevie odpovedať",
+    "ask_contact": "Poprosiť zákazníka o kontakt",
+    "alert_email": "Upozorniť ma e-mailom",
+    "alert_telegram": "Upozorniť ma v Telegrame",
+    "telegram_link": "Prepojte Telegram v SMS a Telegram",
+    "unavailable": "Toto nastavenie sa zatiaľ nedá načítať.",
+    "does": "Čo asistent robí",
+    "does_stock": "Odpovedá na otázky o tovare a zásobe",
+    "does_bookings_before": "Ponúka voľné termíny z",
+    "does_bookings_link": "Rezervácií",
+    "does_food_before": "Prijíma",
+    "does_food_link": "objednávky jedla",
+    "crm_before": "Kontakty a konverzácie sa ukladajú do",
+    "crm_link": "CRM",
+    "docs": "Znalostná báza asistenta",
+    "docs_upload": "+ Nahrať",
+    "docs_none": "Zatiaľ žiadne dokumenty.",
+    "doc_public": "Verejný",
+    "doc_private": "Súkromný · kľúč",
+    "docs_all": "Všetky dokumenty ({n})",
+    "err_telegram": "Telegram nie je pre tento obchod prepojený."
   }
 }

@@ -303,7 +303,9 @@ export async function ShopDocuments({
       {hasPlan && waiting > 0 && <DocsWork shopId={shop.id} waiting={waiting} labels={d} />}
 
       {canUpload && (
-        <DocUpload shopId={shop.id} folders={options} lang={lang} picturesLeft={picturesLeft} labels={d} />
+        <div id="upload" className="scroll-mt-4">
+          <DocUpload shopId={shop.id} folders={options} lang={lang} picturesLeft={picturesLeft} labels={d} />
+        </div>
       )}
         </>
       )}

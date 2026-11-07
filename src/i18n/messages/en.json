@@ -6025,5 +6025,32 @@
     "draft_saved": "✓ Draft saved {time}",
     "sms_left": "SMS: {left}/{limit}",
     "badge_new": "New: {n}"
+  },
+  "asst_page": {
+    "try": "Try the assistant",
+    "on_page": "On the shop page",
+    "button_text": "Button text",
+    "welcome": "Welcome",
+    "unanswered": "When the assistant can't answer",
+    "ask_contact": "Ask the customer for a contact",
+    "alert_email": "Notify me by email",
+    "alert_telegram": "Notify me on Telegram",
+    "telegram_link": "Link Telegram under SMS and Telegram",
+    "unavailable": "This setting can't be loaded yet.",
+    "does": "What the assistant does",
+    "does_stock": "Answers questions about products and stock",
+    "does_bookings_before": "Offers free times from",
+    "does_bookings_link": "Bookings",
+    "does_food_before": "Takes",
+    "does_food_link": "food orders",
+    "crm_before": "Contacts and conversations are saved in the",
+    "crm_link": "CRM",
+    "docs": "The assistant's knowledge base",
+    "docs_upload": "+ Upload",
+    "docs_none": "No documents yet.",
+    "doc_public": "Public",
+    "doc_private": "Private · key",
+    "docs_all": "All documents ({n})",
+    "err_telegram": "Telegram isn't linked for this shop."
   }
 }

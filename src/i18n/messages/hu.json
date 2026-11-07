@@ -6025,5 +6025,32 @@
     "draft_saved": "✓ Piszkozat mentve {time}",
     "sms_left": "SMS: {left}/{limit}",
     "badge_new": "Új: {n}"
+  },
+  "asst_page": {
+    "try": "Asszisztens kipróbálása",
+    "on_page": "Az üzlet oldalán",
+    "button_text": "A gomb szövege",
+    "welcome": "Üdvözlés",
+    "unanswered": "Ha az asszisztens nem tud válaszolni",
+    "ask_contact": "Elérhetőség kérése a vásárlótól",
+    "alert_email": "Értesítés e-mailben",
+    "alert_telegram": "Értesítés Telegramon",
+    "telegram_link": "Kapcsolja össze a Telegramot az SMS és Telegram oldalon",
+    "unavailable": "Ez a beállítás még nem tölthető be.",
+    "does": "Mit csinál az asszisztens",
+    "does_stock": "Válaszol az árukkal és a készlettel kapcsolatos kérdésekre",
+    "does_bookings_before": "Szabad időpontokat kínál a",
+    "does_bookings_link": "Foglalásokból",
+    "does_food_before": "Fogad",
+    "does_food_link": "ételrendeléseket",
+    "crm_before": "A kapcsolatok és beszélgetések ide kerülnek:",
+    "crm_link": "CRM",
+    "docs": "Az asszisztens tudásbázisa",
+    "docs_upload": "+ Feltöltés",
+    "docs_none": "Még nincs dokumentum.",
+    "doc_public": "Nyilvános",
+    "doc_private": "Privát · kulcs",
+    "docs_all": "Összes dokumentum ({n})",
+    "err_telegram": "A Telegram nincs összekapcsolva ezzel az üzlettel."
   }
 }

@@ -4,7 +4,7 @@ import type { Page } from "@playwright/test";
 /**
  * The owner's "Stránka obchodu" pages in the canvas design (canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards
  * 9–13), at 1180×820, 820×1180 and 390×844: the designed parts are there, the save bar counts a change and "Zrušiť"
- * puts it back, nothing scrolls sideways. Phase 1 = artboard 9 "Môj obchod", phase 2 = artboard 10 "Obsah stránky", phase 3 = artboard 11 "Novinky / Blog". Nothing is saved. Needs an owner login and
+ * puts it back, nothing scrolls sideways. Phase 1 = artboard 9 "Môj obchod", phase 2 = artboard 10 "Obsah stránky", phase 3 = artboard 11 "Novinky / Blog", phase 4 = artboard 12 "AI asistent". Nothing is saved. Needs an owner login and
  * E2E_OWNER_SHOP; skipped otherwise.
  */
 const SIZES = [
@@ -170,6 +170,40 @@ for (const size of SIZES) {
       if (await fb.count()) {
         await expect(fb.getByRole("heading", { name: sk.owner_blog.fb_title })).toBeVisible();
         if (wide) expect((await fb.boundingBox())!.x).toBeGreaterThan((await page.locator("[data-blog-list]").boundingBox())!.x + 100);
+      }
+      await noSideways(page);
+    });
+
+    test("AI asistent → Nastavenia (artboard 12): the four cards, the switches, one save bar, Vyskúšať asistenta", async ({ page }) => {
+      await page.goto(`/sk/dashboard/assistant${q}`);
+      await expect(page.locator('[data-item-tabs="assistant"] [aria-current="page"]')).toHaveText(sk.nav.tabs.assistant_settings);
+      const x = sk.asst_page;
+      for (const sel of ["[data-assistant-texts]", "[data-assistant-unanswered]", "[data-assistant-does]", "[data-assistant-docs]"]) {
+        await expect(page.locator(sel)).toBeVisible();
+      }
+      await expect(page.locator("[data-assistant-unanswered]").getByRole("heading")).toHaveText(x.unanswered);
+      await expect(page.locator("[data-assistant-does]").getByRole("heading")).toHaveText(x.does);
+      // two columns from 1024 px
+      const left = (await page.locator("[data-assistant-texts]").boundingBox())!;
+      const right = (await page.locator("[data-assistant-does]").boundingBox())!;
+      if (wide) expect(right.x).toBeGreaterThan(left.x + left.width - 1);
+      else expect(right.y).toBeGreaterThan(left.y);
+      // the save bar counts a switch; Zrušiť puts it back (nothing is saved)
+      const unsaved = page.locator("[data-assistant-form] [data-unsaved]");
+      const ask = page.locator('[data-switch="ask_contact"]');
+      if (await ask.count()) {
+        await expect(unsaved).toHaveAttribute("data-unsaved", "0");
+        await ask.click();
+        await expect(unsaved).toHaveAttribute("data-unsaved", "1");
+        await page.locator("[data-assistant-form] [data-save-bar]").getByRole("button", { name: sk.owner.cancel_changes }).click();
+        await expect(unsaved).toHaveAttribute("data-unsaved", "0");
+      }
+      const docsAll = page.locator("[data-docs-all]");
+      if (await docsAll.count()) await expect(docsAll).toHaveAttribute("href", /\/dashboard\/assistant\/documents/);
+      const tryIt = page.locator("[data-try-assistant]");
+      if (await tryIt.count()) {
+        await expect(tryIt).toHaveAttribute("target", "_blank");
+        await expect(tryIt).toHaveAttribute("href", /#assistant$/);
       }
       await noSideways(page);
     });

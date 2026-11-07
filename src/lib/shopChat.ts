@@ -722,6 +722,15 @@ async function shopBooking(slug: string): Promise<Bookable | null> {
   return !error && row ? row : null;
 }
 
+/**
+ * Whether the page offers "Nechajte nám kontakt" after a question the assistant could not answer (database update 91,
+ * AI asistent → Nastavenia "Poprosiť zákazníka o kontakt"): on unless the owner switched it off, and on before the update.
+ */
+async function shopAsksContact(slug: string): Promise<boolean> {
+  const { data, error } = await db().rpc("shop_asks_contact", { p_slug: slug });
+  return error ? true : data !== false;
+}
+
 /** Whether the shop shows any news (none before database update 37). */
 async function shopHasNews(slug: string): Promise<boolean> {
   const { data, error } = await db().rpc("shop_blog_count", { p_slug: slug });
@@ -1433,7 +1442,11 @@ async function toReply(
   docsToken: string | null = null,
   newsPosts: Map<string, NewsPost> = new Map(),
 ): Promise<ChatResult> {
-  const [dict, ownerDict] = await Promise.all([getDictionary(lang), getDictionary(OWNER_LANG)]);
+  const [dict, ownerDict, asksContact] = await Promise.all([
+    getDictionary(lang),
+    getDictionary(OWNER_LANG),
+    answer.call_shop ? shopAsksContact(shop.slug).catch(() => true) : Promise.resolve(false),
+  ]);
   const docPrices = new Map<string, ChatDocPrice[]>(); // item id ("" = no item) → prices
   for (const entry of answer.document_prices ?? []) {
     const excerpt = excerpts.get(entry.source_ref);
@@ -1573,7 +1586,8 @@ async function toReply(
       pictures,
       docPrices: looseDocPrices,
       callShop: answer.call_shop ? phoneE164(shop.phone, shop.country) : null,
-      askContact: Boolean(answer.call_shop),
+      // update 91: the owner may switch "Poprosiť zákazníka o kontakt" off (the page then offers no callback form)
+      askContact: Boolean(answer.call_shop) && asksContact,
       booking: null,
       requestContact: false,
       booked: null,
