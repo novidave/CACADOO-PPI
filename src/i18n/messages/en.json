@@ -400,7 +400,14 @@
     "hours_to": "To",
     "hours_done": "Done",
     "hours_close": "Close",
-    "hours_edit": "Edit time"
+    "hours_edit": "Edit time",
+    "items_exact": "We show quantities exactly as in your file.",
+    "items_tap_hint": "Tap a product: its description and translations are edited on its page.",
+    "items_search_label": "Search products",
+    "items_note_no_description": "No description",
+    "items_note_missing": "Missing translation {langs}",
+    "items_note_missing_any": "Missing translation",
+    "items_open": "Open: {name}"
   },
   "items_bulk": {
     "pick": "Select",
@@ -469,7 +476,9 @@
     "upload_unknown": "{n} rows without a product (neither the code nor the EAN was found) – ignored.",
     "upload_save": "Save changes ({n})",
     "upload_saved": "{file}: changes saved: {n} – state \"Edited by hand\"",
-    "upload_none": "Nothing needed saving."
+    "upload_none": "Nothing needed saving.",
+    "select": "Select",
+    "select_done": "Done"
   },
   "sync": {
     "title": "Export folder",
@@ -5249,7 +5258,9 @@
       "assistant_folders": "Private folders",
       "crm_messages": "Messages",
       "smstg_sms": "SMS",
-      "smstg_telegram": "Telegram"
+      "smstg_telegram": "Telegram",
+      "translations_items": "Products",
+      "translations_texts": "Page texts"
     },
     "pomocnik": "AI helper",
     "food_menu": "Menu",

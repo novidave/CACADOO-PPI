@@ -4,7 +4,7 @@ import type { Page } from "@playwright/test";
 /**
  * The owner's "Stránka obchodu" pages in the canvas design (canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards
  * 9–13), at 1180×820, 820×1180 and 390×844: the designed parts are there, the save bar counts a change and "Zrušiť"
- * puts it back, nothing scrolls sideways. Phase 1 = artboard 9 "Môj obchod", phase 2 = artboard 10 "Obsah stránky", phase 3 = artboard 11 "Novinky / Blog", phase 4 = artboard 12 "AI asistent". Nothing is saved. Needs an owner login and
+ * puts it back, nothing scrolls sideways. Phase 1 = artboard 9 "Môj obchod", phase 2 = artboard 10 "Obsah stránky", phase 3 = artboard 11 "Novinky / Blog", phase 4 = artboard 12 "AI asistent", phase 5 = artboard 13 "Jazyky a inventár → Tovar". Nothing is saved. Needs an owner login and
  * E2E_OWNER_SHOP; skipped otherwise.
  */
 const SIZES = [
@@ -205,6 +205,51 @@ for (const size of SIZES) {
         await expect(tryIt).toHaveAttribute("target", "_blank");
         await expect(tryIt).toHaveAttribute("href", /#assistant$/);
       }
+      await noSideways(page);
+    });
+    test("Jazyky a inventár → Tovar (artboard 13): tabs, status strip, search, chips, toolbar, 76 px rows as links, Vybrať", async ({ page }) => {
+      await page.goto(`/sk/dashboard/translations${q}${q ? "&" : "?"}at=items`);
+      await expect(page.locator('[data-item-tabs="translations"] [data-tab]')).toHaveCount(2);
+      await expect(page.locator('[data-item-tabs="translations"] [aria-current="page"]')).toHaveText(sk.nav.tabs.translations_items);
+      const items = page.locator("#items");
+      await expect(items.locator("[data-file-status]")).toBeVisible();
+      await expect(items.locator("[data-items-exact]")).toHaveText(d.items_exact);
+      const search = items.locator('[data-items-search] input[name="q"]');
+      await expect(search).toHaveAttribute("placeholder", d.search);
+      expect((await search.locator("xpath=..").boundingBox())!.height).toBeGreaterThanOrEqual(51.5);
+      const chips = items.locator("[data-item-filters] [data-filter]");
+      if (await chips.count()) {
+        await expect(chips).toHaveCount(5);
+        for (const box of await chips.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) expect(box).toBeGreaterThanOrEqual(47.5);
+      }
+      await expect(items.locator("[data-items-hint]")).toHaveText(d.items_tap_hint);
+      const rows = items.locator("[data-item-row]");
+      if (await rows.count()) {
+        const first = rows.first();
+        expect((await first.boundingBox())!.height).toBeGreaterThanOrEqual(75.5);
+        // the whole row is the link to the product's page
+        const box = (await first.boundingBox())!;
+        const href = await first.locator("[data-item-detail]").getAttribute("href");
+        expect(href).toMatch(/\/dashboard\/items\//);
+        const linkAt = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("a")?.getAttribute("href") ?? null, { x: box.x + box.width - 30, y: box.y + box.height / 2 });
+        expect(linkAt).toBe(href);
+        // ticks only behind "Vybrať"; then a tap on the row ticks it, Esc leaves
+        const select = items.locator("[data-items-select]");
+        if (await select.count()) {
+          await expect(items.locator("[data-item-pick]").first()).toBeHidden();
+          await select.click();
+          await first.click({ position: { x: box.width / 2, y: box.height / 2 } });
+          await expect(items.locator("[data-item-pick]").first()).toBeChecked();
+          await expect(items.locator("[data-items-selected]")).toBeVisible();
+          await page.keyboard.press("Escape");
+          await expect(items.locator("[data-items-select]")).toBeVisible();
+          await expect(page).toHaveURL(/\/dashboard\/translations/);
+        }
+      }
+      // Texty stránky is the other tab
+      await page.locator('[data-item-tabs="translations"] [data-tab="texts"]').click();
+      await expect(page.locator('[data-item-tabs="translations"] [aria-current="page"]')).toHaveText(sk.nav.tabs.translations_texts);
+      await expect(page.locator("[data-texts-section]")).toBeVisible();
       await noSideways(page);
     });
   });

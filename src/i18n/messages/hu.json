@@ -400,7 +400,14 @@
     "hours_to": "Eddig",
     "hours_done": "Kész",
     "hours_close": "Bezárás",
-    "hours_edit": "Idő módosítása"
+    "hours_edit": "Idő módosítása",
+    "items_exact": "A mennyiségeket pontosan a fájlja szerint mutatjuk.",
+    "items_tap_hint": "Koppintson egy termékre: a leírást és a fordításokat az oldalán szerkesztheti.",
+    "items_search_label": "Termék keresése",
+    "items_note_no_description": "Nincs leírás",
+    "items_note_missing": "Hiányzó fordítás: {langs}",
+    "items_note_missing_any": "Hiányzó fordítás",
+    "items_open": "Megnyitás: {name}"
   },
   "items_bulk": {
     "pick": "Kijelölés",
@@ -469,7 +476,9 @@
     "upload_unknown": "{n} sor termék nélkül (sem a kód, sem az EAN nem található) – figyelmen kívül hagyva.",
     "upload_save": "Változások mentése ({n})",
     "upload_saved": "{file}: mentett változások: {n} – állapot „Kézzel módosítva”",
-    "upload_none": "Nem volt mit menteni."
+    "upload_none": "Nem volt mit menteni.",
+    "select": "Kiválasztás",
+    "select_done": "Kész"
   },
   "sync": {
     "title": "Exportmappa",
@@ -5249,7 +5258,9 @@
       "assistant_folders": "Privát mappák",
       "crm_messages": "Üzenetek",
       "smstg_sms": "SMS",
-      "smstg_telegram": "Telegram"
+      "smstg_telegram": "Telegram",
+      "translations_items": "Termékek",
+      "translations_texts": "Oldal szövegei"
     },
     "pomocnik": "MI-segéd",
     "food_menu": "Menü",
