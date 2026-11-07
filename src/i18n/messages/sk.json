@@ -400,7 +400,14 @@
     "hours_to": "Do",
     "hours_done": "Hotovo",
     "hours_close": "Zavrieť",
-    "hours_edit": "Upraviť čas"
+    "hours_edit": "Upraviť čas",
+    "items_exact": "Množstvá ukazujeme presne podľa vášho súboru.",
+    "items_tap_hint": "Ťuknite na tovar: popis a preklady sa upravujú na jeho stránke.",
+    "items_search_label": "Hľadať tovar",
+    "items_note_no_description": "Bez popisu",
+    "items_note_missing": "Chýba preklad {langs}",
+    "items_note_missing_any": "Chýba preklad",
+    "items_open": "Otvoriť: {name}"
   },
   "items_bulk": {
     "pick": "Označiť",
@@ -469,7 +476,9 @@
     "upload_unknown": "{n} riadkov bez produktu (kód ani EAN sa nenašli) – ignorované.",
     "upload_save": "Uložiť zmeny ({n})",
     "upload_saved": "{file}: uložené zmeny: {n} – stav „Upravené ručne“",
-    "upload_none": "Nič nebolo treba uložiť."
+    "upload_none": "Nič nebolo treba uložiť.",
+    "select": "Vybrať",
+    "select_done": "Hotovo"
   },
   "sync": {
     "title": "Priečinok s exportom",
@@ -5249,7 +5258,9 @@
       "assistant_folders": "Súkromné priečinky",
       "crm_messages": "Správy",
       "smstg_sms": "SMS",
-      "smstg_telegram": "Telegram"
+      "smstg_telegram": "Telegram",
+      "translations_items": "Tovar",
+      "translations_texts": "Texty stránky"
     },
     "pomocnik": "AI pomocník",
     "food_menu": "Menu",

@@ -83,6 +83,8 @@ export function ItemsBulk({
   const list = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [onPage, setOnPage] = useState(0);
+  // "Vybrať" (2026-11-07, artboard 13): the round ticks show only in this mode (the rows are links otherwise)
+  const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; all: number } | null>(null);
@@ -122,6 +124,19 @@ export function ItemsBulk({
     if (download) downloadDialog.current?.showModal();
     else downloadDialog.current?.close();
   }, [download]);
+
+  // Esc leaves "Vybrať" (not while a dialog is open: Esc closes that one first)
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || deleting || download || previews) return;
+      for (const box of list.current?.querySelectorAll<HTMLInputElement>("input[data-item-pick]") ?? []) box.checked = false;
+      setSelected([]);
+      setPicking(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [picking, deleting, download, previews]);
 
   const pickAll = (on: boolean) => {
     for (const box of list.current?.querySelectorAll<HTMLInputElement>("input[data-item-pick]") ?? []) box.checked = on;
@@ -323,14 +338,58 @@ export function ItemsBulk({
       router.refresh();
     });
 
-  const button = "min-h-11 rounded border border-foreground px-3 py-2 text-sm font-medium disabled:border-line disabled:text-muted";
+  const button =
+    "inline-flex min-h-12 flex-none items-center justify-center rounded-xl border border-[#D6D6D6] bg-white px-4 text-[15px] font-bold text-[#111] disabled:text-[#9A9A9A]";
   const link = "min-h-11 text-sm underline underline-offset-4 disabled:text-muted disabled:no-underline";
   const fieldName = (f: Edit["field"]) => labels[`field_${f}`] ?? f;
   const changes = previews?.reduce((n, p) => n + p.edits.length, 0) ?? 0;
+  const stopPicking = () => {
+    pickAll(false);
+    setPicking(false);
+  };
 
   return (
     <div className="flex flex-col gap-3" data-items-bulk aria-busy={busy !== null}>
-      <div className="flex flex-wrap items-center gap-2" data-items-tools>
+      {/* ONE toolbar row (artboard 13): "Vybrať" shows the round ticks; with ticks the bulk actions, else the tools */}
+      <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0" data-items-tools>
+        {picking ? (
+          <>
+            <label className={`${button} cursor-pointer gap-2`}>
+              <input
+                type="checkbox"
+                className="size-5 accent-[#2563EB]"
+                checked={onPage > 0 && selected.length === onPage}
+                onChange={(e) => pickAll(e.target.checked)}
+                data-items-pick-all
+              />
+              {labels.select_page}
+            </label>
+            {selected.length > 0 && (
+              <>
+                <span className="flex-none text-[15px] font-semibold" data-items-selected>
+                  {fill(labels.selected, { n: selected.length })}
+                  {itemLang ? ` · ${langName(itemLang)}` : ""}
+                </span>
+                <button type="button" className={button} onClick={translate} disabled={busy !== null || langs.length + (itemLang ? 1 : 0) === 0} data-bulk="translate">
+                  {labels.translate_missing}
+                </button>
+                <button type="button" className={button} onClick={retranslate} disabled={busy !== null} data-bulk="retranslate">
+                  {labels.retranslate}
+                </button>
+                <button type="button" className={button} onClick={() => setDeleting(true)} disabled={busy !== null} data-bulk="delete">
+                  {labels.delete}
+                </button>
+              </>
+            )}
+            <button type="button" className={`${button} border-[#111] bg-[#111] text-white`} onClick={stopPicking} data-items-select-done>
+              {labels.select_done}
+            </button>
+          </>
+        ) : (
+          <button type="button" className={button} onClick={() => setPicking(true)} aria-pressed="false" data-items-select>
+            {labels.select}
+          </button>
+        )}
         <button type="button" className={button} onClick={describe} disabled={busy !== null} data-items-describe>
           {busy === "describe" ? labels.describing : labels.describe}
         </button>
@@ -352,30 +411,6 @@ export function ItemsBulk({
         </button>
       </div>
       <p className="text-xs text-muted">{selected.length ? fill(labels.describe_selected, { n: Math.min(selected.length, 20) }) : labels.describe_hint}</p>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        <label className="flex min-h-11 items-center gap-2">
-          <input type="checkbox" checked={onPage > 0 && selected.length === onPage} onChange={(e) => pickAll(e.target.checked)} data-items-pick-all />
-          {labels.select_page}
-        </label>
-        {selected.length > 0 && (
-          <>
-            <span className="text-muted" data-items-selected>
-              {fill(labels.selected, { n: selected.length })}
-              {itemLang ? ` · ${langName(itemLang)}` : ""}
-            </span>
-            <button type="button" className={link} onClick={translate} disabled={busy !== null || langs.length + (itemLang ? 1 : 0) === 0} data-bulk="translate">
-              {labels.translate_missing}
-            </button>
-            <button type="button" className={link} onClick={retranslate} disabled={busy !== null} data-bulk="retranslate">
-              {labels.retranslate}
-            </button>
-            <button type="button" className={link} onClick={() => setDeleting(true)} disabled={busy !== null} data-bulk="delete">
-              {labels.delete}
-            </button>
-          </>
-        )}
-      </div>
 
       {progress && (
         <div className="flex flex-col gap-1" role="status" data-progress>
@@ -456,7 +491,9 @@ export function ItemsBulk({
         </section>
       )}
 
-      <div ref={list}>{children}</div>
+      <div ref={list} className="group/items" data-picking={picking ? "on" : "off"}>
+        {children}
+      </div>
 
       <dialog ref={deleteDialog} onClose={() => setDeleting(false)} className="ppi-sheet m-0 mt-auto w-full max-w-none rounded-t-lg border border-line bg-white p-0 backdrop:bg-black/30 sm:m-auto sm:max-w-md sm:rounded-lg" data-items-delete-dialog>
         <form

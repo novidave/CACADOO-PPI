@@ -212,7 +212,8 @@ test("Tovar (update 62): X z Y, Jazyk, ticks, translations downloaded, one fixed
   await items.locator('[data-select-submit="item-lang"]').selectOption(code!);
   await expect(page).toHaveURL(new RegExp(`tr=${code}`));
   await expect(page.locator('#items [data-filter="missing_translation"]')).toBeVisible();
-  // ticks: all on the page, then the bulk actions show
+  // ticks (behind "Vybrať", 2026-11-07): all on the page, then the bulk actions show
+  await page.locator("#items [data-items-select]").click();
   await page.locator("#items [data-items-pick-all]").check();
   await expect(page.locator("#items [data-items-selected]")).toBeVisible();
   for (const action of ["translate", "retranslate", "delete"]) await expect(page.locator(`#items [data-bulk="${action}"]`)).toBeVisible();

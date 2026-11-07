@@ -74,6 +74,11 @@ export const ITEM_TABS = {
     { key: "sms", path: "/dashboard/sms-telegram", query: { tab: "sms" } },
     { key: "telegram", path: "/dashboard/sms-telegram", query: { tab: "telegram" } },
   ],
+  // 2026-11-07 (artboard 13): "Jazyky a inventár" = Tovar · Texty stránky as tabs (a restaurant opens at Texty stránky)
+  translations: [
+    { key: "items", path: "/dashboard/translations", query: { at: "items" } },
+    { key: "texts", path: "/dashboard/translations", query: { at: "texts" } },
+  ],
 } satisfies Record<string, ItemTab[]>;
 export type TabbedItem = keyof typeof ITEM_TABS;
 

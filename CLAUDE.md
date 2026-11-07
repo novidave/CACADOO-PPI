@@ -243,8 +243,9 @@ black 52 px, `ghostClass`, `cardClass` 1 px #E4E4E4 / radius 16 / padding 18, `T
 `Segmented`, `Chip`, `StatusDot`) and `@/components/owner/SaveBar` (sticky "Neuložené zmeny: n" · Zrušiť · Uložiť ≥ 180
 px; `saveLabels()`), never its own copies (`inputClass`, `SubmitButton`, `PendingButton`, `DashboardSection`, the Sklad and
 food `btn`/`card` are these parts); `PageTitle` 28 px on every page and `PageHead` (28 px title, 56 px tabs) on every page with
-tabs — one look, no compact head. Môj obchod: artboard 9 (below, "Shop page and My shop"); its plan box lives on
-Predplatné a doména.
+tabs — one look, no compact head. "Stránka obchodu" pages in the canvas design (2026-11-07): Môj obchod = artboard 9
+(below, "Shop page and My shop"; its plan box lives on Predplatné a doména), Obsah stránky = 10, Novinky / Blog = 11,
+AI asistent → Nastavenia = 12, Jazyky a inventár → Tovar = 13 (each in its section below; e2e `owner-pages.spec.ts`).
 
 ## The kind of shop and "Nastavenie obchodu" (update 79, 2026-11-05, the owner's OK for the shop type rule)
 
@@ -1989,6 +1990,23 @@ Texty stránky: `owner_page_texts()` — one row per original with `cells` per l
 Clean-up `page_text_cleanup(false|true)` (SQL Editor only; log `page_text_cleanup_log`): orphaned page-text
 translations, the old label "Keresés Cacadoo Assistenssel", Cacadoo → Cacaduu in the assistant's texts — never a
 product's translation, never a hidden section's. Texts `items_bulk`, `owner_tr.texts*`.
+**The page = artboard 13** (2026-11-07, "Stránka obchodu" phase 5; only the look and the place changed — every RPC,
+filter and tool as before): `PageHead` "Jazyky a inventár" with the tabs `ITEM_TABS.translations` Tovar (`?at=items`) ·
+Texty stránky (`?at=texts`); a goods shop opens at Tovar, a restaurant at Texty stránky (its Tovar tab starts with
+`NotForFood`); the intro and "moved to Priečinok s exportom" lines sit under the content. **Tovar** (`ItemsSection`,
+`#items`): the status strip (1 px #E4E4E4, radius 14: "Posledný súbor: <time> · ● aktuálny / starší / zastaraný" — the dot
+#1E9E5A / #F2B705 / #D64545 next to the word —, "Žiadny nahraný súbor" / a restaurant's "Posledná zmena zásoby" as
+before; right: "Množstvá ukazujeme presne podľa vášho súboru."), the search (52 px, magnifier, "Hľadať názov, kód alebo
+EAN"; a plain GET form), the filter chips (48 px links with their counts, the open one black) + "Jazyk", ONE toolbar row
+(`ItemsBulk`: "Vybrať" · Vygenerovať popisy · Stiahnuť preklady · Nahrať opravené preklady; after "Vybrať" the round
+ticks of the Sklad design cover each row (a tap ticks it), "Vybrať všetko na stránke", "Označené: n", the three bulk
+actions and "Hotovo"; Esc leaves), the table "TOVAR | ČO VIDÍ ZÁKAZNÍK" (13 / 700 muted) with one row per product (min 76
+px; `ItemRow`): the name in the page language bold 16 (`itemNames()`), under it the shop's own name + code (muted 14) and
+the 24 px notes "Bez popisu" / "Chýba preklad HU" (update 62's X z Y stays as the row's `data-item-tr`), "Čo vidí
+zákazník" bold (220 px; on a phone under the names; the stale wording and its "Nahrať nový súbor" link above the row's
+link), a chevron — the whole row is the link to the product's page (`data-item-detail`, a stretched link); then "Ťuknite
+na tovar: popis a preklady sa upravujú na jeho stránke.", the pages, and as before the intro + "Viac" and the bulk photo
+link. Texts `dashboard.items_*`, `items_bulk.select*`, `nav.tabs.translations_*`.
 
 ## Product photos (update 78, 2026-11-04, at the owner's request)
 
