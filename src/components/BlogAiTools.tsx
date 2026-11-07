@@ -90,6 +90,7 @@ export function BlogAiTools({
   ai,
   labels,
   onApply,
+  onPhoto,
 }: {
   postId: string | null;
   /** Saves a new post first (the AI needs its id). */
@@ -102,6 +103,8 @@ export function BlogAiTools({
   ai: { enabled: boolean; plan: boolean };
   labels: Labels;
   onApply: (next: { title: string; body: string }) => void;
+  /** Update 93: a tap on a photo in the live preview opens the editor's photo toolbar. */
+  onPhoto?: { open: (id: string) => void; label: string };
 }) {
   const [style, setStyle] = useState<Style>("friendly");
   const [busy, setBusy] = useState<"" | "fix" | "beautify">("");
@@ -161,7 +164,9 @@ export function BlogAiTools({
     setNote(labels.ai_applied);
   };
 
-  const preview = (text: string, asFormatted: boolean) => <BlogText body={text} formatted={asFormatted} photos={photos} />;
+  const preview = (text: string, asFormatted: boolean, tools = false) => (
+    <BlogText body={text} formatted={asFormatted} photos={photos} onPhoto={tools ? onPhoto : undefined} />
+  );
   const styles: [Style, string][] = [
     ["short", labels.ai_style_short],
     ["friendly", labels.ai_style_friendly],
@@ -279,11 +284,11 @@ export function BlogAiTools({
           <div className="grid gap-3 md:grid-cols-[minmax(0,390px)_minmax(0,1fr)]">
             <Scaled width={390} label={labels.preview_phone}>
               <h3 className="ppi-blog-h2 mb-3">{title}</h3>
-              {preview(body, formatted)}
+              {preview(body, formatted, true)}
             </Scaled>
             <Scaled width={768} label={labels.preview_computer}>
               <h3 className="ppi-blog-h2 mb-3">{title}</h3>
-              {preview(body, formatted)}
+              {preview(body, formatted, true)}
             </Scaled>
           </div>
         </section>

@@ -1861,6 +1861,37 @@ makes its AI translations stale (they are made again). Texts `owner_blog.ai_*` /
 `photo_insert*`, `admin_owner_ai.blog_*`. Tests: `npm run test:blog`, `test:functions` (translate, shop-blog), DB block
 "update 77", e2e `e2e/blog-ai.spec.ts` (owner login; the AI stubbed).
 
+**Photos in the text, replace, the cover (update 93, 2026-11-07, at the owner's request; his OK for the Facebook sync
+rule):** `supabase/sql/93_blog_photos.sql`. **A photo line may carry options** (`@/lib/blogMarks`: `readPhotoLine`,
+`photoLine`, `rewritePhotoLines`, `cropLoss`, `orientationOf`): `[[foto:<id>]]` = the photo's own ratio (as before),
+`[[foto:<id>|16:9]]`, `[[foto:<id>|1:1|hore]]` — ratios orig · 1:1 · 4:5 · 3:4 · 16:9, crop hore · stred (default) ·
+dole; anything else is drawn as orig. `BlogText` draws the figure with `aspect-ratio` + `object-fit: cover` +
+`object-position`; the zoom viewer always shows the whole photo; `plainBody()` / `facebookBody()` / excerpts / RSS /
+JSON-LD drop the line as before, and translate's `sameMarks` keeps the options unchanged. **The editor** (also for an
+imported post): every photo has "Do textu" (when the text is editable) · "Vymeniť" · ← · "Odstrániť" and "Titulná
+fotka"; "Výrez titulnej fotky" hore / stred / dole (`owner_blog_set_cover(post, photo, focus)`: a ready photo of THIS
+post); an imported post shows "Po úprave fotiek ich už Facebook neprepíše." until its first photo change, which makes the
+photos the owner's (`blog_posts.photos_by_owner` via `owner_blog_photos_take` / `owner_blog_photo_order`, activity
+`blog_photos_owned`): `blog_import_post()` never changes that post's photos again (its text keeps update 77's rule;
+deleted on Facebook still hides it). **"Vymeniť"** = the same drawing as an upload → shop-blog
+`?action=photo&replace=1` → `blog_photo_swapped` puts the new file (a new name `<id>-1600-<8 letters>`, so no cache
+shows the old one) into the SAME row — the id and every `[[foto:<id>]]` stay — and the old file is deleted. Blog photos
+have no AI alt text, so nothing is made again. **The preview's toolbar** (a tap on a photo in the phone / computer
+preview; a `<dialog>`, a bottom sheet on a phone): Pomer (Pôvodný · 1:1 · 4:5 · 3:4 · 16:9), Výrez (hidden for Pôvodný),
+"Vymeniť fotku", "Odstrániť z textu" (only that line), "Odstrániť fotku" (confirm; the photo and every line of it);
+each choice rewrites the line in the text field at once as one typing step (Ctrl+Z, or the editor's "Späť").
+**The cover:** `blog_photo_list()` puts the cover (`cover_photo_id`, else the first photo) FIRST with `cover` and its
+`focus`, so every reader that takes the first photo (`shop_blog`, `shop_blog_post`, `shop_content`) gets it: the slider's
+post card (`crop` of its view), the blog list's hero and thumbnails and the "Ďalšie novinky" card use `object-position`
+from the focus; `PostGallery`'s big picture shows a photo in its own ratio (`object-contain`, never cropped) on a
+#F5F5F5 frame, max 260 px high. **"Skrášliť článok"** gets each photo's width × height and orientation (landscape ≥
+1.25, square 0.8–1.25, portrait < 0.8) and the rule "a line without a ratio unless a crop clearly helps; 16:9 only
+landscape, 1:1 square, 4:5 / 3:4 portrait; never more than 20 % cut away"; `checkBeautified` rewrites a photo line that
+would cut more than 20 % to the plain `[[foto:<id>]]`; the cover (update 93's, else the first) is never placed by the AI.
+Texts `owner_blog.photo_replace*`, `photos_owned_note`, `cover_*`, `crop_*`, `photo_tool_*`, `undo_photo`. Tests:
+`npm run test:blog`, `test:functions` (translate's ratio rule, shop-blog `photo_replace`), DB block "update 93", e2e
+`e2e/blog-photos.spec.ts` (owner login; the AI stubbed).
+
 ## "Obsah stránky": one slider of posts, PDFs and pictures (update 38)
 
 **Its look changed on 2026-10-31 (Screen 11, above):** no title, arrows, counter or caption under the frame — the

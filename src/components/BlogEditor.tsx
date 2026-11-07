@@ -15,8 +15,10 @@ import {
   saveBlogPost,
   saveOwnBlogText,
   setBlogChoice,
+  setBlogCover,
   setBlogPhotoOrder,
 } from "@/app/[lang]/(account)/dashboard/blog/actions";
+import { PHOTO_RATIOS, readPhotoLine, rewritePhotoLines, photoLine, type PhotoCrop, type PhotoRatio } from "@/lib/blogMarks";
 import { BlogAiTools } from "./BlogAiTools";
 import { PublishDialog, type FacebookState } from "./PublishDialog";
 import { buttonClass, fieldClass } from "@/components/owner/ui";
@@ -37,7 +39,35 @@ export interface EditorPost {
   fb_permalink: string | null;
   /** Update 77: an imported post with the owner's own text (the sync no longer changes it). */
   body_by_owner?: boolean;
-  photos: { id: string; src: string; kind: "photo" | "video" }[];
+  /** Update 93: an imported post whose photos the owner changed (Facebook no longer changes them); the cover and its crop. */
+  photos_by_owner?: boolean;
+  cover_photo_id?: string | null;
+  cover_focus?: "top" | "center" | "bottom";
+  photos: EditorPhoto[];
+}
+
+export interface EditorPhoto {
+  id: string;
+  src: string;
+  kind: "photo" | "video";
+  width?: number | null;
+  height?: number | null;
+}
+
+/** The whole text field replaced as one typing step (Ctrl+Z undoes it), else set directly. */
+function replaceFieldText(el: HTMLTextAreaElement, text: string) {
+  el.focus();
+  el.select();
+  let done = false;
+  try {
+    done = document.execCommand("insertText", false, text);
+  } catch {
+    done = false;
+  }
+  if (!done || el.value !== text) {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, text);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
 }
 
 interface Result {
@@ -110,6 +140,17 @@ export function BlogEditor({
   const [choice, setChoice] = useState(post?.fb_choice ?? null);
   const fileInput = useRef<HTMLInputElement>(null);
   const bodyField = useRef<HTMLTextAreaElement>(null);
+  // update 93: "Vymeniť" (one hidden file field), the cover and its crop, the preview's photo toolbar, "Späť"
+  const replaceInput = useRef<HTMLInputElement>(null);
+  const replaceFor = useRef<string | null>(null);
+  const [photosOwned, setPhotosOwned] = useState(Boolean(post?.photos_by_owner));
+  const [cover, setCover] = useState<{ id: string | null; focus: "top" | "center" | "bottom" }>({
+    id: post?.cover_photo_id ?? null,
+    focus: post?.cover_focus ?? "center",
+  });
+  const [tool, setTool] = useState<string | null>(null);
+  const toolDialog = useRef<HTMLDialogElement>(null);
+  const [undoBody, setUndoBody] = useState<string | null>(null);
 
   const imported = post?.source === "facebook";
   // an imported post whose text the owner took over (update 77): saved with owner_blog_own_text
@@ -187,7 +228,11 @@ export function BlogEditor({
           invoke(`shop-blog?action=photo&photo_id=${begun.photo_id}&size=${size}`, blob, { "Content-Type": blob.type });
         await send(1600, drawn.large);
         if (drawn.small) await send(800, drawn.small);
-        setPhotos((now) => [...now, { id: begun.photo_id, src: URL.createObjectURL(drawn.small ?? drawn.large), kind: "photo" }]);
+        setPhotos((now) => [
+          ...now,
+          { id: begun.photo_id, src: URL.createObjectURL(drawn.small ?? drawn.large), kind: "photo", width: drawn.width ?? null, height: drawn.height ?? null },
+        ]);
+        if (imported) setPhotosOwned(true);
       }
       if (files.length > room) setError(labels.photo_limit);
     } catch (e) {
@@ -205,6 +250,8 @@ export function BlogEditor({
     try {
       await invoke("shop-blog", { action: "photo_delete", photo_id: photoId });
       setPhotos((now) => now.filter((p) => p.id !== photoId));
+      if (imported) setPhotosOwned(true);
+      if (cover.id === photoId) setCover((c) => ({ ...c, id: null }));
     } catch (e) {
       setError(errorText(`failed:${e instanceof Error ? e.message : e}`));
     } finally {
@@ -219,6 +266,65 @@ export function BlogEditor({
     setPhotos(next);
     const r = await setBlogPhotoOrder({ postId, ids: next.map((p) => p.id) });
     if (r.error) setError(errorText(r.error));
+    else if (imported) setPhotosOwned(true);
+  };
+
+  /** "Vymeniť": the same drawing as an upload, sent into the SAME photo (its id and every [[foto:<id>]] stay). */
+  const replacePhoto = async (photoId: string, file: File) => {
+    setError(null);
+    setBusy(true);
+    try {
+      const drawn = await drawBlogPhoto(file);
+      const send = (size: number, blob: Blob) =>
+        invoke(`shop-blog?action=photo&photo_id=${photoId}&size=${size}&replace=1`, blob, { "Content-Type": blob.type });
+      await send(1600, drawn.large);
+      if (drawn.small) await send(800, drawn.small);
+      setPhotos((now) =>
+        now.map((p) => (p.id === photoId ? { ...p, src: URL.createObjectURL(drawn.small ?? drawn.large), width: drawn.width ?? null, height: drawn.height ?? null } : p)),
+      );
+      if (imported) setPhotosOwned(true);
+      setMessage(labels.photo_replaced);
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error && e.message === "picture" ? labels.photo_error.replace("{name}", file.name) : errorText(`failed:${e instanceof Error ? e.message : e}`));
+    } finally {
+      setBusy(false);
+      if (replaceInput.current) replaceInput.current.value = "";
+    }
+  };
+  const pickReplacement = (photoId: string) => {
+    replaceFor.current = photoId;
+    replaceInput.current?.click();
+  };
+
+  /** The cover ("Titulná fotka") and its crop, saved at once. */
+  const chooseCover = async (next: { id: string | null; focus: "top" | "center" | "bottom" }) => {
+    if (!postId) return;
+    const before = cover;
+    setCover(next);
+    const r = await setBlogCover({ postId, photoId: next.id, focus: next.focus });
+    if (r.error) {
+      setCover(before);
+      setError(errorText(r.error));
+    } else router.refresh();
+  };
+
+  /** The preview's photo toolbar: each choice rewrites that photo's line in the text field at once (Ctrl+Z / "Späť"). */
+  const textEditable = !imported || ownText;
+  const rewriteText = (next: string) => {
+    setUndoBody(body);
+    if (bodyField.current) replaceFieldText(bodyField.current, next);
+    else setBody(next);
+  };
+  const toolLine = tool ? body.split("\n").map(readPhotoLine).find((l) => l?.id === tool.toLowerCase()) ?? null : null;
+  const setLine = (ratio: PhotoRatio, crop: PhotoCrop) => tool && rewriteText(rewritePhotoLines(body, tool, { ratio, crop }));
+  const openTool = (id: string) => {
+    setTool(id);
+    window.requestAnimationFrame(() => toolDialog.current?.showModal());
+  };
+  const closeTool = () => {
+    toolDialog.current?.close();
+    setTool(null);
   };
 
   const onSave = async () => {
@@ -349,41 +455,112 @@ export function BlogEditor({
 
       <div className="flex flex-col gap-2">
         <span className="text-sm">{labels.photos_label}</span>
+        {imported && !photosOwned && photos.length > 0 && (
+          // update 93: said once, before the first change of an imported post's photos
+          <p className="text-sm text-muted" data-photos-owned-note>
+            {labels.photos_owned_note}
+          </p>
+        )}
         {photos.length > 0 && (
-          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5" data-editor-photos>
-            {photos.map((p, i) => (
-              <li key={p.id} className="flex flex-col gap-1">
-                {/* eslint-disable-next-line @next/next/no-img-element -- the owner's own photo (800 px copy) */}
-                <img src={p.src} alt="" className="aspect-square h-auto w-full border border-line object-cover" />
-                {!imported && (
-                  <span className="flex flex-wrap gap-x-2 text-xs">
-                    {p.kind === "photo" && (
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-editor-photos>
+            {photos.map((p, i) => {
+              const isCover = p.kind === "photo" && (cover.id ? cover.id === p.id : photos.find((x) => x.kind === "photo")?.id === p.id);
+              return (
+                <li key={p.id} className="flex flex-col gap-1.5" data-editor-photo={p.id}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- the owner's own photo (800 px copy) */}
+                  <img
+                    src={p.src}
+                    alt=""
+                    className="aspect-square h-auto w-full rounded-lg border border-line object-cover"
+                    style={isCover ? { objectPosition: cover.focus === "top" ? "50% 0%" : cover.focus === "bottom" ? "50% 100%" : undefined } : undefined}
+                  />
+                  <span className="flex flex-wrap gap-x-2.5 gap-y-1 text-[13px]">
+                    {p.kind === "photo" && textEditable && (
                       <button
                         type="button"
                         disabled={busy}
-                        className="underline underline-offset-2"
+                        className="min-h-8 underline underline-offset-2"
                         aria-label={labels.photo_insert_label}
-                        onClick={() => bodyField.current && insertIntoField(bodyField.current, `\n[[foto:${p.id}]]\n`)}
+                        onClick={() => bodyField.current && insertIntoField(bodyField.current, `\n${photoLine(p.id)}\n`)}
                         data-photo-insert
                       >
                         {labels.photo_insert}
                       </button>
                     )}
+                    {p.kind === "photo" && (
+                      <button type="button" disabled={busy} className="min-h-8 underline underline-offset-2" onClick={() => pickReplacement(p.id)} data-photo-replace>
+                        {labels.photo_replace}
+                      </button>
+                    )}
                     {i > 0 && (
-                      <button type="button" disabled={busy} className="underline underline-offset-2" onClick={() => void movePhoto(i)} aria-label={labels.photo_move_left}>
+                      <button type="button" disabled={busy} className="min-h-8 underline underline-offset-2" onClick={() => void movePhoto(i)} aria-label={labels.photo_move_left}>
                         ←
                       </button>
                     )}
-                    <button type="button" disabled={busy} className="underline underline-offset-2" onClick={() => void removePhoto(p.id)}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="min-h-8 underline underline-offset-2"
+                      onClick={() => {
+                        if (body.includes(p.id) && textEditable) rewriteText(rewritePhotoLines(body, p.id, null));
+                        void removePhoto(p.id);
+                      }}
+                      data-photo-remove
+                    >
                       {labels.photo_remove}
                     </button>
                   </span>
-                )}
-              </li>
-            ))}
+                  {p.kind === "photo" && postId && (
+                    <label className="flex min-h-8 items-center gap-1.5 text-[13px]">
+                      <input
+                        type="radio"
+                        name="blog-cover"
+                        checked={isCover}
+                        disabled={busy}
+                        onChange={() => void chooseCover({ id: p.id, focus: cover.focus })}
+                        data-photo-cover={p.id}
+                      />
+                      {labels.cover_this}
+                    </label>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
-        {!imported && photos.length < 10 && (
+        {postId && photos.some((p) => p.kind === "photo") && (
+          // the cover's crop: the slider's card, the blog list's pictures (never stretched)
+          <fieldset className="flex flex-wrap items-center gap-2" data-cover-focus>
+            <legend className="sr-only">{labels.cover_focus}</legend>
+            <span className="text-sm font-semibold">{labels.cover_focus}</span>
+            {(["top", "center", "bottom"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                disabled={busy}
+                aria-pressed={cover.focus === f}
+                onClick={() => void chooseCover({ id: cover.id, focus: f })}
+                className={`min-h-11 rounded-xl border px-4 text-[15px] font-bold ${cover.focus === f ? "border-[#111] bg-[#111] text-white" : "border-[#D6D6D6] bg-white"}`}
+                data-focus={f}
+              >
+                {labels[`crop_${f}`]}
+              </button>
+            ))}
+          </fieldset>
+        )}
+        <input
+          ref={replaceInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic"
+          className="sr-only"
+          tabIndex={-1}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file && replaceFor.current) void replacePhoto(replaceFor.current, file);
+          }}
+          data-photo-replace-input
+        />
+        {photos.length < 10 && (
           <label className="flex flex-col gap-1">
             <span className="cursor-pointer self-start font-medium underline underline-offset-4">{labels.photos_pick}</span>
             <input
@@ -398,7 +575,22 @@ export function BlogEditor({
             />
           </label>
         )}
-        {!imported && <span className="text-sm text-muted">{labels.photos_note}</span>}
+        <span className="text-sm text-muted">{labels.photos_note}</span>
+        {undoBody !== null && textEditable && (
+          <button
+            type="button"
+            className="self-start text-sm font-semibold underline underline-offset-4"
+            onClick={() => {
+              const back = undoBody;
+              setUndoBody(null);
+              if (bodyField.current) replaceFieldText(bodyField.current, back);
+              else setBody(back);
+            }}
+            data-photo-undo
+          >
+            {labels.undo_photo}
+          </button>
+        )}
       </div>
 
       <BlogAiTools
@@ -406,7 +598,8 @@ export function BlogEditor({
         ensurePost={save}
         title={title}
         body={body}
-        photos={photos.filter((p) => p.kind === "photo").map((p) => ({ id: p.id, small: p.src, large: p.src, width: null, height: null }))}
+        photos={photos.filter((p) => p.kind === "photo").map((p) => ({ id: p.id, small: p.src, large: p.src, width: p.width ?? null, height: p.height ?? null }))}
+        onPhoto={textEditable ? { open: openTool, label: labels.photo_tool_open } : undefined}
         formatted={!imported || ownText}
         imported={imported}
         ai={ai}
@@ -417,6 +610,92 @@ export function BlogEditor({
           if (imported) setOwnText(true);
         }}
       />
+
+      {/* update 93: a photo in the text (tapped in the preview): its ratio, crop, replace, remove */}
+      <dialog
+        ref={toolDialog}
+        onClose={() => setTool(null)}
+        className="ppi-sheet m-0 mt-auto w-full max-w-none rounded-t-2xl border border-line bg-white p-0 backdrop:bg-black/30 sm:m-auto sm:max-w-md sm:rounded-2xl"
+        aria-labelledby="photo-tool-title"
+        data-photo-tool
+      >
+        {tool && (
+          <div className="flex flex-col gap-4 p-5">
+            <h2 id="photo-tool-title" className="text-[19px] font-bold">
+              {labels.photo_tool_title}
+            </h2>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-1 text-sm font-semibold">{labels.photo_tool_ratio}</legend>
+              <div className="flex flex-wrap gap-2">
+                {PHOTO_RATIOS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    aria-pressed={(toolLine?.ratio ?? "orig") === r}
+                    onClick={() => setLine(r, toolLine?.crop ?? "center")}
+                    className={`min-h-11 rounded-xl border px-3.5 text-[15px] font-bold ${(toolLine?.ratio ?? "orig") === r ? "border-[#111] bg-[#111] text-white" : "border-[#D6D6D6] bg-white"}`}
+                    data-tool-ratio={r}
+                  >
+                    {r === "orig" ? labels.photo_tool_orig : r}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            {(toolLine?.ratio ?? "orig") !== "orig" && (
+              <fieldset className="flex flex-col gap-2">
+                <legend className="mb-1 text-sm font-semibold">{labels.photo_tool_crop}</legend>
+                <div className="flex flex-wrap gap-2">
+                  {(["top", "center", "bottom"] as const).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      aria-pressed={(toolLine?.crop ?? "center") === c}
+                      onClick={() => setLine(toolLine?.ratio ?? "orig", c)}
+                      className={`min-h-11 rounded-xl border px-4 text-[15px] font-bold ${(toolLine?.crop ?? "center") === c ? "border-[#111] bg-[#111] text-white" : "border-[#D6D6D6] bg-white"}`}
+                      data-tool-crop={c}
+                    >
+                      {labels[`crop_${c}`]}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+            <div className="flex flex-col gap-1 border-t border-line pt-3">
+              <button type="button" className="min-h-11 text-left text-[15px] font-semibold" onClick={() => pickReplacement(tool)} data-tool-replace>
+                {labels.photo_tool_replace}
+              </button>
+              <button
+                type="button"
+                className="min-h-11 text-left text-[15px] font-semibold"
+                onClick={() => {
+                  rewriteText(rewritePhotoLines(body, tool, null));
+                  closeTool();
+                }}
+                data-tool-unplace
+              >
+                {labels.photo_tool_unplace}
+              </button>
+              <button
+                type="button"
+                className="min-h-11 text-left text-[15px] font-semibold text-[#B91C1C]"
+                onClick={() => {
+                  if (!window.confirm(labels.photo_tool_delete_confirm)) return;
+                  const id = tool;
+                  rewriteText(rewritePhotoLines(body, id, null));
+                  closeTool();
+                  void removePhoto(id);
+                }}
+                data-tool-delete
+              >
+                {labels.photo_tool_delete}
+              </button>
+            </div>
+            <button type="button" className={`${buttonClass} w-full`} onClick={closeTool} data-tool-close>
+              {labels.photo_tool_close}
+            </button>
+          </div>
+        )}
+      </dialog>
 
       {canPublish && (
         <fieldset className="flex flex-col gap-2">

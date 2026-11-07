@@ -140,6 +140,15 @@ export async function setBlogPhotoOrder(input: { postId: string; ids: string[] }
   return error ? { error: code(error.message) } : {};
 }
 
+/** Update 93: the post's cover ("Titulná fotka": a photo of this post, null = the first) and its crop. */
+export async function setBlogCover(input: { postId: string; photoId: string | null; focus: "top" | "center" | "bottom" }): Promise<{ error?: string }> {
+  const s = await session();
+  if (!s) return { error: "login" };
+  if (!UUID.test(input.postId) || (input.photoId !== null && !UUID.test(input.photoId))) return { error: "bad_request" };
+  const { error } = await s.supabase.rpc("owner_blog_set_cover", { p_post_id: input.postId, p_photo_id: input.photoId, p_focus: input.focus });
+  return error ? { error: code(error.message) } : {};
+}
+
 /**
  * "Pripojiť Facebook stránku" (also from the publish dialog): Facebook's login page; afterwards the owner comes back
  * to `returnPath` (Novinky / Blog or the editor) and picks the Page there.

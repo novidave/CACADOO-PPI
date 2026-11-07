@@ -15,7 +15,7 @@ import {
   textBlocks,
   type BlogPost,
 } from "./blogFormat.ts";
-import { facebookBody, formatBlocks, placedPhotos, plainBody } from "./blogMarks.ts";
+import { cropLoss, facebookBody, formatBlocks, orientationOf, photoLine, placedPhotos, plainBody, readPhotoLine, rewritePhotoLines } from "./blogMarks.ts";
 import { cardExcerpt, readingMinutes } from "./pageContent.ts";
 import { localToUtc, utcToLocalInput } from "./format.ts";
 import { siteLlmsTxt } from "./siteFiles.ts";
@@ -210,4 +210,26 @@ Deno.test("every other use gets the text without marks: excerpts, cards, reading
     url: "https://x/a", blogUrl: "https://x", blogName: "B", shop: { name: "S", url: "https://x/s" }, images: [] }) as Record<string, unknown>;
   const article = JSON.stringify(ld);
   assert(!article.includes("**") && !article.includes("[[foto") && !article.includes("## "), "JSON-LD articleBody is plain");
+});
+
+Deno.test("photo lines with options (2026-11-07): parse, draw, strip, rewrite; anything else is orig", () => {
+  const body = `[[foto:${F1}|1:1|hore]]\n\n[[foto:${F2}|16:9]]\n\nKoniec`;
+  const blocks = formatBlocks(body, { formatted: true, photoIds: [F1, F2] });
+  eq(blocks.filter((b) => b.type === "photo").map((b) => [(b as { ratio: string }).ratio, (b as { crop: string }).crop]), [["1:1", "top"], ["16:9", "center"]], "ratio and crop");
+  eq(readPhotoLine(`[[foto:${F1}|7:3|hore]]`), { id: F1, ratio: "orig", crop: "center" }, "an unknown ratio is drawn as orig");
+  eq(readPhotoLine(`[[foto:${F1}|4:5|bokom]]`), { id: F1, ratio: "4:5", crop: "center" }, "an unknown crop is stred");
+  eq(readPhotoLine(`[[foto:${F1}]]`), { id: F1, ratio: "orig", crop: "center" }, "no options = orig");
+  eq(placedPhotos(body, [F1, F2]), [F1, F2], "placed with options too");
+  eq(plainBody(body), "Koniec", "stripped from excerpts");
+  eq(facebookBody(body), "Koniec", "and from the Facebook message");
+  eq(cardExcerpt(`Text [[foto:${F1}|1:1|hore]] a`), "Text a", "the slider's card");
+  eq(photoLine(F1, "3:4", "bottom"), `[[foto:${F1}|3:4|dole]]`, "a line with options");
+  eq(photoLine(F1, "16:9", "center"), `[[foto:${F1}|16:9]]`, "stred is the default");
+  eq(photoLine(F1, "orig", "top"), `[[foto:${F1}]]`, "orig has no crop");
+  eq(rewritePhotoLines(`A\n\n[[foto:${F1}]]\n\nB`, F1, { ratio: "1:1", crop: "top" }), `A\n\n[[foto:${F1}|1:1|hore]]\n\nB`, "a line rewritten");
+  eq(rewritePhotoLines(`A\n\n[[foto:${F1}|1:1]]\n\nB`, F1, null), "A\n\nB", "removed from the text");
+  eq(Math.round(cropLoss(800, 1200, "16:9") * 100), 63, "a portrait photo in 16:9 loses 63 %");
+  eq(cropLoss(1600, 900, "16:9"), 0, "nothing for a 16:9 photo");
+  eq(cropLoss(800, 1200, "orig"), 0, "orig never crops");
+  eq([orientationOf(1600, 900), orientationOf(1000, 1100), orientationOf(800, 1200)], ["landscape", "square", "portrait"], "orientation");
 });

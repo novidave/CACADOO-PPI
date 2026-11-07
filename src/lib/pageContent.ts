@@ -60,6 +60,8 @@ export interface PostPhoto {
   small: string;
   width: number | null;
   height: number | null;
+  /** Update 93: the cover's crop (the slider's post card fills its frame from there). */
+  focus?: "top" | "center" | "bottom";
 }
 
 export interface ContentPost {

@@ -64,6 +64,10 @@ const pageNumber = (sp: Record<string, string | string[] | undefined>) => Math.m
 
 const changed = (post: BlogPost) => Date.parse(post.modified_at) - Date.parse(post.publish_at) > 60_000;
 
+/** Update 93: the cover's crop ("Výrez") as an object-position (the first photo of a post is its cover). */
+const focusOf = (photo: { focus?: string } | undefined) =>
+  photo?.focus === "top" ? "50% 0%" : photo?.focus === "bottom" ? "50% 100%" : undefined;
+
 export async function blogListMetadata(lang: Locale, slug: string, page: number, onSite: boolean): Promise<Metadata> {
   const [dict, found] = await Promise.all([getDictionary(lang), load(slug, onSite)]);
   if (!found) return {};
@@ -144,7 +148,7 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
                   {heroPhoto && (
                     <span className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[14px]" data-blog-hero-photo>
                       {/* eslint-disable-next-line @next/next/no-img-element -- the stored 800 px WebP straight from the bucket */}
-                      <img src={photoSrc(heroPhoto.small)} alt="" width={112} height={112} decoding="async" className="h-full w-full object-cover" />
+                      <img src={photoSrc(heroPhoto.small)} alt="" width={112} height={112} decoding="async" className="h-full w-full object-cover" style={{ objectPosition: focusOf(heroPhoto) }} />
                       {hero.photos.some((p) => p.kind === "video") && (
                         <span className="absolute inset-0 flex items-center justify-center" data-blog-list-video aria-hidden="true">
                           <PlayMark size={36} />
@@ -166,7 +170,7 @@ export async function BlogListView({ lang, slug, sp, onSite }: { lang: Locale; s
                   {photo && (
                     <span className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl">
                       {/* eslint-disable-next-line @next/next/no-img-element -- the stored 800 px WebP */}
-                      <img src={photoSrc(photo.small)} alt="" width={96} height={96} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                      <img src={photoSrc(photo.small)} alt="" width={96} height={96} loading="lazy" decoding="async" className="h-full w-full object-cover" style={{ objectPosition: focusOf(photo) }} />
                       {post.photos.some((p) => p.kind === "video") && (
                         <span className="absolute inset-0 flex items-center justify-center" data-blog-list-video aria-hidden="true">
                           <PlayMark size={32} />
@@ -403,7 +407,7 @@ export async function BlogPostView({ lang, slug, postSlug, onSite, original = fa
             {nextPost.photos[0] && (
               <span className="h-20 w-20 shrink-0 overflow-hidden rounded-xl">
                 {/* eslint-disable-next-line @next/next/no-img-element -- the stored 800 px WebP */}
-                <img src={photoSrc(nextPost.photos[0].small)} alt="" width={80} height={80} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                <img src={photoSrc(nextPost.photos[0].small)} alt="" width={80} height={80} loading="lazy" decoding="async" className="h-full w-full object-cover" style={{ objectPosition: focusOf(nextPost.photos[0]) }} />
               </span>
             )}
             <span className="flex min-w-0 flex-col items-start gap-1.5 py-0.5">

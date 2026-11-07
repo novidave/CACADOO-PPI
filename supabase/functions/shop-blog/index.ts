@@ -1402,7 +1402,8 @@ async function ownerAction(action: string, req: Request, deps: Deps, body: Json)
   if (action === "photo_begin") {
     const post = await ownPost(deps, who.authorization, String(body.post_id ?? ""));
     if (!post) return reply(403, { error: "not_member" });
-    if (post.source !== "cacaduu") return reply(400, { error: "imported" });
+    // update 93: an imported post's photos become the owner's at the first change (Facebook never changes them again)
+    if (post.source !== "cacaduu") await takePhotos(deps, who.authorization, post.id);
     const { data, error } = await deps.db.rpc("blog_photo_add", { p_post_id: post.id, p_status: "uploading" });
     if (error) return reply(error.message === "photo_limit" ? 409 : 500, { error: error.message === "photo_limit" ? "photo_limit" : "failed" });
     return reply(200, { photo_id: data });
@@ -1412,7 +1413,9 @@ async function ownerAction(action: string, req: Request, deps: Deps, body: Json)
     const id = String(body.photo_id ?? "");
     if (!UUID.test(id)) return reply(400, { error: "bad_request" });
     const { data: photo } = await deps.db.from("blog_photos").select("id, post_id").eq("id", id).maybeSingle();
-    if (!photo || !(await ownPost(deps, who.authorization, String((photo as { post_id: string }).post_id)))) return reply(403, { error: "not_member" });
+    const owner = await ownPost(deps, who.authorization, String((photo as { post_id: string } | null)?.post_id ?? ""));
+    if (!photo || !owner) return reply(403, { error: "not_member" });
+    if (owner.source !== "cacaduu") await takePhotos(deps, who.authorization, owner.id);
     await removeFiles(deps, await rpc<string[]>(deps, "blog_photo_delete", { p_photo_id: id }));
     return reply(200, { deleted: true });
   }
@@ -1493,20 +1496,51 @@ async function ownerAction(action: string, req: Request, deps: Deps, body: Json)
   return reply(400, { error: "bad_request" });
 }
 
-/** POST ?action=photo&photo_id=&size=: one size of the owner's photo, checked by its bytes. */
+/** Update 93: an imported post's photos become the owner's (owner_blog_photos_take, with the owner's login). */
+async function takePhotos(deps: Deps, authorization: string, postId: string): Promise<void> {
+  const { error } = await deps.asCaller(authorization).rpc("owner_blog_photos_take", { p_post_id: postId });
+  if (error) throw new Error(error.message);
+}
+
+/** A replaced photo's new file name: the photo's own name plus 8 random letters (a new address: no cache shows the old). */
+export function replacedPath(shopId: string, postId: string, photoId: string, size: number, ext: string): string {
+  const letters = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+  return `${shopId}/${postId}/${photoId}-${size}-${letters}.${ext}`;
+}
+
+/**
+ * POST ?action=photo&photo_id=&size=: one size of the owner's photo, checked by its bytes. With &replace=1 (update 93,
+ * "Vymeniť"): a READY photo gets the new picture in the same row (the id and every [[foto:<id>]] stay) under a new
+ * file name; the old file is deleted after the swap.
+ */
 async function ownerPhoto(req: Request, deps: Deps, url: URL): Promise<Response> {
   const who = await caller(req, deps);
   if (!who) return reply(401, { error: "login" });
   const id = url.searchParams.get("photo_id") ?? "";
   const size = Number(url.searchParams.get("size"));
+  const replace = url.searchParams.get("replace") === "1";
   if (!UUID.test(id) || (size !== 1600 && size !== 800)) return reply(400, { error: "bad_request" });
-  const { data } = await deps.db.from("blog_photos").select("id, post_id, shop_id, status").eq("id", id).maybeSingle();
-  const photo = data as { id: string; post_id: string; shop_id: string; status: string } | null;
-  if (!photo || photo.status !== "uploading" || !(await ownPost(deps, who.authorization, photo.post_id))) return reply(403, { error: "not_member" });
+  const { data } = await deps.db.from("blog_photos").select("id, post_id, shop_id, status, kind").eq("id", id).maybeSingle();
+  const photo = data as { id: string; post_id: string; shop_id: string; status: string; kind?: string } | null;
+  const owner = photo ? await ownPost(deps, who.authorization, photo.post_id) : null;
+  if (!photo || !owner || photo.status !== (replace ? "ready" : "uploading") || (replace && photo.kind === "video")) {
+    return reply(403, { error: "not_member" });
+  }
   const bytes = new Uint8Array(await req.arrayBuffer());
   if (bytes.length > MAX_PHOTO_BYTES) return reply(413, { error: "too_big" });
   const info = sniffPicture(bytes);
   if (!info || info.width < 1 || info.height < 1 || info.width > size || info.height > 10_000) return reply(400, { error: "picture" });
+  if (replace) {
+    if (owner.source !== "cacaduu") await takePhotos(deps, who.authorization, owner.id);
+    const path = replacedPath(photo.shop_id, photo.post_id, photo.id, size, info.type);
+    await deps.storage.put(path, bytes, info.type === "webp" ? "image/webp" : "image/jpeg");
+    const old = await rpc<string>(deps, "blog_photo_swapped", {
+      p_photo_id: photo.id, p_size: size, p_path: path, p_ext: info.type, p_width: info.width, p_height: info.height,
+      p_last: size === 800 || info.width <= 800,
+    });
+    await removeFiles(deps, String(old ?? "").split("|").filter((x) => x && x !== path));
+    return reply(200, { stored: size, width: info.width, height: info.height, replaced: true });
+  }
   const path = `${photo.shop_id}/${photo.post_id}/${photo.id}-${size}.${info.type}`;
   await deps.storage.put(path, bytes, info.type === "webp" ? "image/webp" : "image/jpeg");
   await rpc(deps, "blog_photo_stored", {

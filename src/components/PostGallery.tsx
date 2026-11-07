@@ -38,7 +38,8 @@ export function PostGallery({ photos, group, title, labels }: { photos: GalleryP
   const current = photos[Math.min(at, photos.length - 1)];
   const total = photos.length;
   const firstVideo = photos.find((p) => p.kind === "video")?.id;
-  const frame = "relative block h-[260px] w-full overflow-hidden rounded-[18px] border border-[#ECE7DE] bg-white";
+  // update 93: the big picture in its own ratio (never cropped), max 260 px high, centred on a #F5F5F5 frame
+  const frame = "relative block h-[260px] w-full overflow-hidden rounded-[18px] border border-[#ECE7DE] bg-[#F5F5F5]";
   const picture = (p: GalleryPhoto, eager: boolean) => (
     // eslint-disable-next-line @next/next/no-img-element -- the stored 800 / 1600 px WebP straight from the bucket
     <img
@@ -51,7 +52,7 @@ export function PostGallery({ photos, group, title, labels }: { photos: GalleryP
       loading={eager ? "eager" : "lazy"}
       {...(eager ? { fetchPriority: "high" as const } : {})}
       decoding="async"
-      className="h-full w-full object-cover"
+      className="h-full w-full object-contain"
     />
   );
   return (
