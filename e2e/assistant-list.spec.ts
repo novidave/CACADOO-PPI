@@ -94,7 +94,10 @@ test("the shopping list goes into the assistant's message: live bubble, chip, ×
   await expect(assistant.locator("[data-chat-input]")).toHaveCount(1);
   const after = await titleBox();
   for (const k of ["x", "y", "width", "height"] as const) expect(Math.abs(after[k] - before[k]), `${k}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`).toBeLessThanOrEqual(0.5);
-  // the welcome does not move either when the chat's code takes over, and the idle log still has nothing to scroll
+  // the GDPR panel: the one-sentence note, no actions before a conversation (the first view draws the same)
+  await expect(assistant.locator("[data-chat-gdpr] [data-chat-gdpr-short]")).toHaveCount(1);
+  await expect(assistant.locator("[data-chat-gdpr] [data-chat-action]")).toHaveCount(0);
+    // the welcome does not move either when the chat's code takes over, and the idle log still has nothing to scroll
   const welcomeAfter = await welcomeBox();
   for (const k of ["x", "y", "width", "height"] as const) expect(Math.abs(welcomeAfter[k] - welcomeBefore[k]), `welcome ${k}`).toBeLessThanOrEqual(0.5);
   expect(await idleLog()).toEqual({ scroll: true, overflow: "visible" });

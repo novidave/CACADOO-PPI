@@ -1625,9 +1625,16 @@ PPI's sitemap leaves those pages out.
   kept in every pre-translated language (`languages.indexed`), the shop's preferred and asked-for languages **and the
   shop's own language** (the owner may write them in any language; source_lang `auto` → the translate function lets
   Claude see the language); the page shows them like its own texts (`PRESET_KINDS` in `@/lib/contentTranslations`, no
-  "Preložené automaticky" note). The small print (what is stored for the shop + "Viac", file limits, "Odpovede píše
-  AI") sits behind the blue "GDPR" link in the assistant heading's right corner (`@/components/AssistantHeading`,
-  `<details>`, closed by default).
+  "Preložené automaticky" note). The small print sits behind the blue "GDPR" link in the assistant heading's right
+  corner (`@/components/AssistantHeading`, `<details data-chat-gdpr>`, closed by default); since 2026-11-07 (at the
+  owner's request) it is, top to bottom: what is stored for the shop + "Viac" · ONE short sentence (`chat.gdpr_short`,
+  without the archive `chat.gdpr_short_nostore`; the old files_note / photo_note / note are gone) · a thin #F1EDE6 line ·
+  the conversation's actions as full-width rows (44 px, 15 px / 600, an icon on the left; `.ppi-gdpr-action`,
+  `data-chat-action`): "Nová konverzácia" (refresh icon) · "Stiahnuť túto konverzáciu (PDF)" (download icon; only with
+  `shopper_pdf` and an answer, busy state as before) · "Vymazať moje údaje" (shield; today's forget flow) — the same
+  conditions as before decide each row, and there is NO link row under the chat any more. An action closes the panel
+  and returns the focus to the pill; Esc closes it too. The server's first view (`ShopAssistant`) draws the panel with
+  the first two lines only (no actions before ShopChat), so nothing moves when the chat takes over.
 - The shop's company in Môj obchod's details (update 47, `supabase/sql/47_shop_company.sql`, at the owner's request):
   under the street the PSČ, then "Obchodné meno firmy", IČO (`shops.ico`, as before) and DIČ — no IČ DPH. PSČ, company
   name and DIČ live in `shop_company` (RLS: members read; no grants to visitors — anon reads every column of `shops`, so
