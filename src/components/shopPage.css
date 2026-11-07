@@ -1628,8 +1628,27 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
   transition: height 240ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 .ppi-ai[data-chat="on"] .ppi-ai-log {
-  /* the header (58 px), the chat bar's real height (measured: the field grows), 24 px of air */
-  height: clamp(320px, calc(100svh - 58px - var(--ppi-chat-bar, 140px) - 24px), 900px);
+  /* the header (58 px), the static welcome and the chat bar's real heights (measured), 24 px of air */
+  height: clamp(320px, calc(100svh - 58px - var(--ppi-chat-welcome, 0px) - var(--ppi-chat-bar, 140px) - 24px), 900px);
+  scrollbar-width: thin;
+}
+/* no question yet: nothing to scroll, so never a scrollbar (2026-11-07: no ▲▼ arrows next to the welcome) */
+.ppi-ai[data-chat="idle"] .ppi-ai-log {
+  height: auto;
+  overflow: visible;
+}
+.ppi-ai-log::-webkit-scrollbar-button {
+  display: none;
+}
+/* the welcome (2026-11-07): static above the log, as tall as its text; its {zoznam} bubble (ring, pop) never makes it
+   overflow — clipped a little outside its box, so the pop stays visible */
+.ppi-ai-welcome {
+  overflow: clip;
+  overflow-clip-margin: 14px;
+}
+.ppi-ai[data-chat="on"] .ppi-ai-welcome {
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1ede6;
 }
 .ppi-ai[data-chat="idle"] .ppi-ai-input {
   height: 128px;
@@ -1651,8 +1670,8 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
 }
 @media (min-width: 768px) {
   .ppi-ai[data-chat="on"] .ppi-ai-log {
-    height: min(70vh, 720px);
-    min-height: 480px;
+    height: calc(min(70vh, 720px) - var(--ppi-chat-welcome, 0px));
+    min-height: 420px;
   }
   .ppi-ai[data-chat="idle"] .ppi-ai-input {
     height: 112px;

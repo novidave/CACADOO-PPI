@@ -848,11 +848,17 @@ when the chat loads) + `@/lib/chatBranches` (no imports; `chatBranches_test.ts` 
 #0F172A, radius 16 16 6 16), the assistant left (max 92 %, #FFF6EE, 1 px #FDE3CC, #111, radius 16 16 16 6), 9 × 13 px,
 15 px; "Vy" / "Asistent" (12 px / 500, #6B7280) only on the first message of a run from the same side; cards, photos and
 the booking / callback / order panels full width under the assistant's bubble. **Heights:** `.ppi-ai[data-chat]` —
-`idle` (no question in this conversation; the server's first view too): the log holds only the welcome, no fixed
-height, the field 128 px (< 768 px) / 112 px; `on` (from the first sent question until "Nová konverzácia"): the log
-(which holds the welcome, so it scrolls away) takes the room — `clamp(320px, 100svh − 58 px − the chat bar's real
-height (--ppi-chat-bar, measured by a ResizeObserver) − 24 px, 900px)` below 768 px (svh, never dvh: the keyboard never
-makes it jump), `min(70vh, 720px)` min 480 px from 768 px —, the field one line (48 px) growing with the text
+**the welcome is static** (2026-11-07, at the owner's request: no ▲▼ scroll arrows next to it): `[data-chat-welcome]`
+(with its {zoznam} bubble) is the first block of `.ppi-ai-body`, ABOVE `[data-chat-log]`, in ShopChat and the server's
+first view alike — as tall as its text, never scrolled (`overflow: clip` + `overflow-clip-margin: 14px`, so the bubble's
+ring and pop never overflow and stay visible); in a running chat it stays at the top while the messages scroll under
+it, with a 1 px #F1EDE6 line under it. `idle` (no question in this conversation; the server's first view too): the log
+is empty, `height: auto` and `overflow: visible` (nothing to scroll, never a scrollbar), the field 128 px (< 768 px) /
+112 px; `on` (from the first sent question until "Nová konverzácia"): the log takes the room — `clamp(320px, 100svh −
+58 px − the welcome's and the chat bar's real heights (--ppi-chat-welcome, --ppi-chat-bar, measured by a
+ResizeObserver) − 24 px, 900px)` below 768 px (svh, never dvh: the keyboard never makes it jump), `min(70vh, 720px)`
+minus the welcome, min 420 px, from 768 px; `scrollbar-width: thin`, no scrollbar arrow buttons —, the field one line
+(48 px) growing with the text
 (`field-sizing: content`, ≤ 160 px); the first sent question on a phone scrolls the box's top to the screen's top once
 per conversation (below a sticky `[data-site-header]`; smooth, instant with prefers-reduced-motion); after that the
 newest message stays in view by scrolling the log, never the page; heights animate 240 ms

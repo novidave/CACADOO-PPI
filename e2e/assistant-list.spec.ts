@@ -62,6 +62,18 @@ test("the shopping list goes into the assistant's message: live bubble, chip, ×
   await expect.poll(async () => (await assistant.boundingBox())?.width ?? 0).toBeGreaterThan(300);
   await expect.poll(async () => assistant.evaluate((el) => el.getAnimations().filter((x) => x.playState === "running").length)).toBe(0);
   const before = await titleBox();
+  // 2026-11-07: the welcome is static, outside the log; idle = nothing to scroll (no scrollbar, no ▲▼ arrows)
+  const welcomeBox = () =>
+    assistant.locator("[data-chat-welcome]").evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const card = el.closest("[data-assistant]")!.getBoundingClientRect();
+      return { x: r.x - card.x, y: r.y - card.y, width: r.width, height: r.height };
+    });
+  await expect(assistant.locator("[data-chat-log] [data-chat-welcome]")).toHaveCount(0);
+  const idleLog = () =>
+    assistant.locator("[data-chat-log]").evaluate((el) => ({ scroll: el.scrollHeight === el.clientHeight, overflow: getComputedStyle(el).overflowY }));
+  expect(await idleLog()).toEqual({ scroll: true, overflow: "visible" });
+  const welcomeBefore = await welcomeBox();
   const [btn, pill] = [(await head.boundingBox())!, (await gdpr.boundingBox())!];
   expect(btn.width).toBeCloseTo(34, 0);
   expect(btn.height).toBeCloseTo(34, 0);
@@ -82,6 +94,11 @@ test("the shopping list goes into the assistant's message: live bubble, chip, ×
   await expect(assistant.locator("[data-chat-input]")).toHaveCount(1);
   const after = await titleBox();
   for (const k of ["x", "y", "width", "height"] as const) expect(Math.abs(after[k] - before[k]), `${k}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`).toBeLessThanOrEqual(0.5);
+  // the welcome does not move either when the chat's code takes over, and the idle log still has nothing to scroll
+  const welcomeAfter = await welcomeBox();
+  for (const k of ["x", "y", "width", "height"] as const) expect(Math.abs(welcomeAfter[k] - welcomeBefore[k]), `welcome ${k}`).toBeLessThanOrEqual(0.5);
+  expect(await idleLog()).toEqual({ scroll: true, overflow: "visible" });
+  await expect(assistant.locator("[data-chat-log] [data-chat-welcome]")).toHaveCount(0);
   const bubble = head.locator(".ppi-ai-bubble");
   await expect(bubble).toBeHidden();
   // the chat bar: only "Pridať fotku alebo súbor" and "Poslať", on one row
