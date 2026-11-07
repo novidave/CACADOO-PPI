@@ -652,6 +652,27 @@ export function ShopChat({
     reset();
   }
 
+  /** The GDPR panel (2026-11-07): an action closes it and returns the focus to the pill; Esc closes it too. */
+  const gdprPanel = () => (box.current?.querySelector("[data-chat-gdpr]") as HTMLDetailsElement | null | undefined) ?? null;
+  function fromPanel(action: () => void) {
+    const panel = gdprPanel();
+    if (panel) panel.open = false;
+    panel?.querySelector<HTMLElement>("summary")?.focus();
+    action();
+  }
+  useEffect(() => {
+    const panel = gdprPanel();
+    if (!panel) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !panel.open) return;
+      e.preventDefault();
+      panel.open = false;
+      panel.querySelector<HTMLElement>("summary")?.focus();
+    };
+    panel.addEventListener("keydown", onKey);
+    return () => panel.removeEventListener("keydown", onKey);
+  }, []);
+
   /** The conversation the files go into: started on the first file or message. */
   function ensureConversation(): Promise<Conversation | null> {
     if (conv.current) return Promise.resolve(conv.current);
@@ -991,6 +1012,39 @@ export function ShopChat({
             />
           ) : undefined
         }
+        actions={
+          // 2026-11-07: the conversation's actions live in the GDPR panel (no link row under the chat); the same
+          // conditions as before decide each row
+          tree.nodes.length > 0 || (archive && conversation) ? (
+            <>
+              {tree.nodes.length > 0 && (
+                <button type="button" onClick={() => fromPanel(startOver)} className="ppi-gdpr-action" data-chat-action="clear">
+                  <ActionIcon kind="clear" />
+                  {labels.clear}
+                </button>
+              )}
+              {archive && shopperPdf && conversation && tree.nodes.some((n) => n.entry.role === "assistant") && (
+                <button
+                  type="button"
+                  onClick={() => fromPanel(() => void downloadConversation())}
+                  disabled={pdfBusy}
+                  className="ppi-gdpr-action"
+                  data-chat-action="pdf"
+                  data-conversation-pdf
+                >
+                  <ActionIcon kind="pdf" />
+                  {pdfBusy ? labels.conversation_pdf_busy : labels.conversation_pdf}
+                </button>
+              )}
+              {archive && (
+                <button type="button" onClick={() => fromPanel(() => setForgetOpen(true))} className="ppi-gdpr-action" data-chat-action="forget" data-forget-open>
+                  <ActionIcon kind="forget" />
+                  {labels.forget_open}
+                </button>
+              )}
+            </>
+          ) : undefined
+        }
         badge={
           forks > 1 ? (
             <span className="ppi-ai-branches" data-chat-branches={forks}>
@@ -1207,25 +1261,6 @@ export function ShopChat({
                 <PlaneIcon />
               </button>
             </div>
-            {(tree.nodes.length > 0 || (archive && conversation)) && (
-              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                {tree.nodes.length > 0 && (
-                  <button type="button" onClick={startOver} className="min-h-11 text-sm underline underline-offset-4">
-                    {labels.clear}
-                  </button>
-                )}
-                {archive && (
-                  <button type="button" onClick={() => setForgetOpen(true)} className="min-h-11 text-sm underline underline-offset-4" data-forget-open>
-                    {labels.forget_open}
-                  </button>
-                )}
-                {archive && shopperPdf && conversation && tree.nodes.some((n) => n.entry.role === "assistant") && (
-                  <button type="button" onClick={downloadConversation} disabled={pdfBusy} className="min-h-11 text-sm underline underline-offset-4 disabled:text-muted" data-conversation-pdf>
-                    {pdfBusy ? labels.conversation_pdf_busy : labels.conversation_pdf}
-                  </button>
-                )}
-              </div>
-            )}
           </form>
         </div>
     </section>
@@ -1739,5 +1774,30 @@ function ShoppingList({ list, labels, shopName }: { list: ChatListItem[]; labels
         </button>
       </div>
     </div>
+  );
+}
+
+/** The GDPR panel's action icons (2026-11-07): refresh, download, shield; 20 px, stroke 2, currentColor. */
+function ActionIcon({ kind }: { kind: "clear" | "pdf" | "forget" }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      {kind === "clear" ? (
+        <>
+          <path d="M20 11a8 8 0 10-2.3 5.7" />
+          <path d="M20 4v7h-7" />
+        </>
+      ) : kind === "pdf" ? (
+        <>
+          <path d="M12 4v11" />
+          <path d="M7 10l5 5 5-5" />
+          <path d="M5 20h14" />
+        </>
+      ) : (
+        <>
+          <path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z" />
+          <path d="M9.5 12.5l2 2 3.5-4" />
+        </>
+      )}
+    </svg>
   );
 }

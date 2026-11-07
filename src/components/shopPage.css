@@ -1295,6 +1295,31 @@ details[open] > .ppi-gdpr-btn .ppi-gdpr-check {
   font-size: 13px;
   line-height: 1.5;
 }
+/* the conversation's actions in the GDPR panel (2026-11-07): full-width rows, 44 px, an icon on the left */
+.ppi-gdpr-action {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: #111;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.ppi-gdpr-action:disabled {
+  color: #5b6672;
+  cursor: default;
+}
+.ppi-gdpr-action:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
 .ppi-ai-input {
   display: block;
   width: 100%;

@@ -118,6 +118,29 @@ test("assistant: idle field, the log takes the screen, bubbles, an edit makes a 
   await expect(assistant.getByText("Odpoveď 3")).toBeHidden();
   await expect(assistant.locator("[data-chat-branch-prev]").first()).toBeDisabled();
 
+  // 2026-11-07: no link row under the chat; the GDPR panel holds the sentence and the conversation's actions
+  await expect(assistant.locator("form [data-chat-action]")).toHaveCount(0);
+  const panel = assistant.locator("[data-chat-gdpr]");
+  await panel.locator("summary").tap();
+  await expect(panel.locator("[data-chat-gdpr-short]")).toBeVisible();
+  const clear = panel.locator('[data-chat-action="clear"]');
+  await expect(clear).toHaveText(sk.chat.clear);
+  expect((await clear.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
+  // the PDF row only inside the panel (and only when the shop allows it)
+  await expect(assistant.locator("[data-conversation-pdf]:not([data-chat-gdpr] *)")).toHaveCount(0);
+  // Esc closes the panel and the focus goes back to the pill
+  await page.keyboard.press("Escape");
+  await expect(panel).not.toHaveAttribute("open", "");
+  await expect(panel.locator("summary")).toBeFocused();
+  // "Nová konverzácia" starts over and closes the panel
+  await panel.locator("summary").tap();
+  await clear.tap();
+  await expect(panel).not.toHaveAttribute("open", "");
+  await expect(assistant.getByText("Odpoveď 1")).toHaveCount(0);
+  await expect(assistant).toHaveAttribute("data-chat", "idle");
+  await panel.locator("summary").tap();
+  await expect(panel.locator('[data-chat-action="clear"]')).toHaveCount(0);
+
   // nothing scrolls sideways
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   c.check();
