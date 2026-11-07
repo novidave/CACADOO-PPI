@@ -817,6 +817,30 @@ and "Kontakty a konverzácie sa ukladajú do CRM."; d) "Znalostná báza asisten
 limits). The save action calls each function only for what changed (`was_*` / `has_*` fields). Under the columns as
 before: Objednávky jedla's card, the private folders. Tests: DB block "update 91", e2e `e2e/owner-pages.spec.ts`.
 
+**How it talks: ANSWER_VOICE and "Štýl asistenta" (update 92, 2026-11-07, at the owner's request):**
+`supabase/sql/92_assistant_style.sql` + `@/lib/assistantVoice` (no imports; `assistantVoice_test.ts` in `npm run
+test:chat`) + `scripts/voice-check.mjs` (run by hand with the AI key, never in CI: 10 sample questions on a test shop,
+fails on a `BANNED_WORDS` answer). `systemPrompt` ENDS with `voiceLines()` — after every rule about facts (prices,
+stock, the menu, times, refs, orders, the customer's language), so it can only change how things are said, never
+weaken a rule (the test checks the place): first `ANSWER_VOICE` (every style: the first words answer the question; a
+person in the shop, never the system — no "inventár / údaje / databáza / v systéme / k dispozícii", update times or data
+age, except "Či ju máme práve teraz, neviem povedať…" for availability null; at most 3 items in one sentence with their
+prices, the cards show the rest; a quantity only when asked or a few are left; no filler; at most 3 short sentences;
+BAD / GOOD examples in Slovak and English), then ONE fixed paragraph of `STYLE_PROMPTS` — `plain` "Vecný" (the
+default, today's behaviour), `friendly` "Priateľský", `waiter` "Čašník" (only with a Menu the assistant reads —
+`effectiveStyle`; recommends 1–2 dishes only from food_menu, never sold out; offers a drink or side once; repeats the
+order lines before the card; "Dobrú chuť!"; a "no" is final) — never free text, never anyone's instructions. The name
+(`cleanAssistantName`, data only) is said once in the first answer ("Som Marco, váš čašník"). SQL:
+`shop_assistant_settings.style` (NULL = the kind's default: a NEW restaurant = waiter, else plain; every restaurant
+that existed before update 92 was set to plain) and `assistant_name` (≤ 20, `plain_text`); `assistant_style_of()` = the
+one rule (waiter only for food); `owner_assistant_style` / `owner_set_assistant_style(shop, style, name)` (members + the
+plan; `not_food`, `name`; activity `assistant_style_changed`); `shop_assistant_persona(slug)` (anyone; {style, name};
+cached) — read by the chat route (`shopPersona`) and the shop page (the chat's header title = the name, never
+translated; else the owner's button text); `owner_set_shop_kind` sets a waiter to plain when the shop becomes goods.
+Owners: AI asistent → Nastavenia → "Na stránke obchodu" under Uvítanie: the segmented "Štýl asistenta" (Vecný ·
+Priateľský · Čašník — the last only for food) with its sample sentence and "Meno asistenta", saved by the card's save
+bar. The cart is built only by `cartFromRefs` (`@/lib/foodChat`): refs food_menu returned, never a price from the AI.
+Texts `asst.style_*`, `asst.name_*`, `asst.err_not_food`. e2e `e2e/assistant-style.spec.ts` (E2E_FOOD_SHOP).
 **Bubbles, heights and branches (2026-11-06, at the owner's request; the inline mockups "assistant branches",
 "assistant heights mobile"):** `ShopChat` and the server's first view (`ShopAssistant`, drawn the same so nothing moves
 when the chat loads) + `@/lib/chatBranches` (no imports; `chatBranches_test.ts` in `npm run test:chat`) + `.ppi-msg*`,

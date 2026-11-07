@@ -264,3 +264,29 @@ export function phoneE164(raw: string | null | undefined, country: string | null
   }
   return /^\+[1-9][0-9]{6,14}$/.test(v) ? v : null;
 }
+
+/**
+ * The order card's lines from the AI's order_lines (2026-11-07, moved here from `@/lib/shopChat` so it is tested):
+ * only refs that food_menu returned in this request (`dish(ref)`), the quantity 1–50, at most 10 extras that are menu
+ * dishes too, at most 30 lines. Whatever else the AI wrote — a price, a name, a dish of its own — is dropped: the card
+ * is priced by food_quote alone.
+ */
+export function cartFromRefs(
+  lines: { ref?: unknown; qty?: unknown; extras?: unknown }[] | undefined,
+  dish: (ref: string) => { item_id: string } | undefined,
+): { item_id: string; qty: number; extras: string[] }[] {
+  return (lines ?? [])
+    .flatMap((line) => {
+      const item = dish(String(line.ref ?? "").trim());
+      const qty = Math.min(Math.max(Math.floor(Number(line.qty) || 1), 1), 50);
+      if (!item) return [];
+      const extras = (Array.isArray(line.extras) ? line.extras : [])
+        .flatMap((ref) => {
+          const extra = dish(String(ref).trim());
+          return extra ? [extra.item_id] : [];
+        })
+        .slice(0, 10);
+      return [{ item_id: item.item_id, qty, extras }];
+    })
+    .slice(0, 30);
+}

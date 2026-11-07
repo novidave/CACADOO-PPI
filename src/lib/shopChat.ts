@@ -15,8 +15,9 @@ import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
 import { type FoodState, foodMenu, foodPayNote, foodQuote, foodState, type MenuItem, type Quote } from "./food";
 import { formatPrice } from "./format";
+import { assistantStyle, cleanAssistantName, voiceLines, type AssistantStyle } from "./assistantVoice";
 import {
-  closedSentence, type FoodChatMode, type FoodChatTexts, foodChatMode, type MenuToolLine, menuToolLines,
+  cartFromRefs, closedSentence, type FoodChatMode, type FoodChatTexts, foodChatMode, type MenuToolLine, menuToolLines,
   menuToolResult, nextOpening, notOrderingPrompt, phoneE164, stockSearchNote,
 } from "./foodChat";
 import type { OpeningHours } from "./hours";
@@ -364,6 +365,8 @@ function systemPrompt(
   /** 2026-11-06: what food allows now, the "closed" sentence and the shop's phone when it is a valid E.164 number. */
   foodPlan: { mode: FoodChatMode; sentence: string | null; soldOut: string } | null = null,
   phone: string | null = null,
+  /** Update 92: the owner's style preset and the assistant's name; firstAnswer = no answer in the history yet. */
+  persona: { style: AssistantStyle; name: string | null; firstAnswer: boolean } = { style: "plain", name: null, firstAnswer: true },
 ): string {
   const where = [shop.city, shop.country].filter(Boolean).join(", ");
   const lines = [
@@ -496,7 +499,9 @@ function systemPrompt(
   else if (foodPlan?.mode.menu && foodPlan.mode.reason) {
     lines.push(...notOrderingPrompt(foodPlan.mode.reason, foodPlan.sentence ?? "", foodPlan.soldOut, Boolean(phone)));
   }
-  return lines.join("\n");
+  // 2026-11-07: how every answer sounds, then the owner's style (update 92) — ALWAYS last, after every rule about
+  // facts, so it can never weaken them (assistantVoice_test.ts checks this place).
+  return [...lines, ...voiceLines(persona.style, persona.name, { menu: Boolean(foodPlan?.mode.menu), firstAnswer: persona.firstAnswer })].join("\n");
 }
 
 /** Update 73: the rules of food orders in the assistant (prices only from the shop's stock system, never personal data). */
@@ -732,6 +737,14 @@ async function shopAsksContact(slug: string): Promise<boolean> {
 }
 
 /** Whether the shop shows any news (none before database update 37). */
+/** Update 92: how the shop's assistant talks ({style, name}); before update 92 or on an error: plain, no name. */
+export async function shopPersona(slug: string): Promise<{ style: AssistantStyle; name: string | null }> {
+  const { data, error } = await db().rpc("shop_assistant_persona", { p_slug: slug });
+  if (error || !data) return { style: "plain", name: null };
+  const row = data as { style?: unknown; name?: unknown };
+  return { style: assistantStyle(row.style), name: cleanAssistantName(row.name) };
+}
+
 async function shopHasNews(slug: string): Promise<boolean> {
   const { data, error } = await db().rpc("shop_blog_count", { p_slug: slug });
   return !error && Number(data ?? 0) > 0;
@@ -897,11 +910,13 @@ export async function runShopChat(
   const excerptRef = new Map<number, string>(); // chunk id → ref
   const newsPosts = new Map<string, NewsPost>(); // ref → post, only from search_shop_news
   let toolCalls = 0;
-  const [docs, news, booking] = await Promise.all([
+  const [docs, news, booking, persona] = await Promise.all([
     shopDocuments(shop.slug, docsToken),
     shopHasNews(shop.slug).catch(() => false),
     shopBooking(shop.slug).catch(() => null),
+    shopPersona(shop.slug).catch(() => ({ style: "plain" as AssistantStyle, name: null })),
   ]);
+  const firstAnswer = !history.some((turn) => turn.role === "assistant");
   // Update 63: services, free times and booking in the conversation (needs the conversation: the refs belong to it);
   // without a conversation (no archive) update 57's times and the page's booking form stay.
   const services: BookingService[] = booking && conversation ? await bookingServices(shop.slug).catch(() => []) : [];
@@ -997,20 +1012,9 @@ export async function runShopChat(
     }
     return out;
   }
-  /** The cart's lines from refs food_menu returned in this request (unknown refs dropped). */
+  /** The cart's lines from refs food_menu returned in this request (unknown refs dropped; never a price). */
   const cartOf = (lines: { ref?: unknown; qty?: unknown; extras?: unknown }[] | undefined) =>
-    (lines ?? []).flatMap((line) => {
-      const item = dishes.get(String(line.ref ?? "").trim());
-      const qty = Math.min(Math.max(Math.floor(Number(line.qty) || 1), 1), 50);
-      if (!item) return [];
-      const extras = (Array.isArray(line.extras) ? line.extras : [])
-        .flatMap((ref) => {
-          const extra = dishes.get(String(ref).trim());
-          return extra ? [extra.item_id] : [];
-        })
-        .slice(0, 10);
-      return [{ item_id: item.item_id, qty, extras }];
-    }).slice(0, 30);
+    cartFromRefs(lines, (ref) => dishes.get(ref));
   /** The AI's order lines plus every dish pressed on the Menu that it left out (quantity 1). */
   const withPressed = (lines: Answer["order_lines"], refs: string[]) => {
     const given = lines ?? [];
@@ -1344,7 +1348,7 @@ export async function runShopChat(
           max_tokens: 4096,
           system: systemPrompt(
             shop, lang, docs, news, serviceTools ? null : booking, serviceTools, food,
-            mode.menu ? { mode, sentence, soldOut: soldOutText } : null, phone,
+            mode.menu ? { mode, sentence, soldOut: soldOutText } : null, phone, { ...persona, firstAnswer },
           ),
           tools,
           tool_choice: { type: mustAnswer ? "none" : "auto" },
