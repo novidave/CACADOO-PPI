@@ -796,6 +796,26 @@ text of their first 5 pages (read in the browser), once; the files themselves ar
 (below), never logged; "found" without an item becomes "unsure". Every answer also returns `language`, `message_sk`,
 `answer_sk` for the archive. Access keys pasted into the chat become "[•••]" (`hideAccessKeys`). History: last 8
 messages, text only.
+**The owner's settings = artboard 12** (2026-11-07, "Stránka obchodu" phase 4, update 91): AI asistent → Nastavenia
+(`/dashboard/assistant`) = PageHead "AI asistent" with the ghost "Vyskúšať asistenta" (the shop page `#assistant`, a new
+tab) and the tabs Nastavenia · Dokumenty · Súkromné priečinky; ONE form (`assistant/settingsActions.ts`
+`saveAssistantPage`, one `SaveBar`) in two columns from 1024 px: LEFT a) "Na stránke obchodu" (Text tlačidla, Uvítanie
+with {zoznam} — `owner_set_assistant_texts`; "Dostupné v Pro" without the plan) and b) "Keď asistent nevie odpovedať":
+"Poprosiť zákazníka o kontakt" and "Upozorniť ma e-mailom" (`supabase/sql/91_assistant_unanswered.sql`:
+`shop_assistant_settings.ask_contact` / `alert_email_on`, default on = the behaviour before; members through
+`owner_assistant_flags` / `owner_save_assistant_flags(shop, jsonb)`, only the keys given; a change of the e-mail switch
+closes the shop's unsent alerts; the chat reads `shop_asks_contact(slug)` and offers the callback form only while on;
+`crm_alerts_due()` leaves a shop with the e-mail off out) and "Upozorniť ma v Telegrame" (update 66's per-shop notice
+`callback`, `owner_telegram_save_prefs` with the rest of the prefs as they are; greyed with "Prepojte Telegram v SMS a
+Telegram" while not linked); RIGHT c) "Čo asistent robí": "Odpovedá na otázky o tovare a zásobe" (always on, disabled),
+"Ponúka voľné termíny z Rezervácií" (Rezervácie's "Prijímať rezervácie": `owner_save_booking_rules` with the other rules
+read again; only with the plan), "Prijíma objednávky jedla" (a restaurant: `owner_food_save_settings` {enabled}) — both
+are the same switches as on Rezervácie → Pravidlá and Objednávky jedla → Nastavenia (a shortcut, the same functions) —
+and "Kontakty a konverzácie sa ukladajú do CRM."; d) "Znalostná báza asistenta" (the 5 newest documents with "Verejný" /
+"Súkromný · kľúč", "+ Nahrať" and "Všetky dokumenty (n)" → the Dokumenty tab, its uploader `#upload` with the terms and
+limits). The save action calls each function only for what changed (`was_*` / `has_*` fields). Under the columns as
+before: Objednávky jedla's card, the private folders. Tests: DB block "update 91", e2e `e2e/owner-pages.spec.ts`.
+
 **Bubbles, heights and branches (2026-11-06, at the owner's request; the inline mockups "assistant branches",
 "assistant heights mobile"):** `ShopChat` and the server's first view (`ShopAssistant`, drawn the same so nothing moves
 when the chat loads) + `@/lib/chatBranches` (no imports; `chatBranches_test.ts` in `npm run test:chat`) + `.ppi-msg*`,

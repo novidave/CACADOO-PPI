@@ -17238,4 +17238,94 @@ delete from public.shop_members where user_id = '00000000-0000-0000-0000-0000000
   and shop_id not in (select id from public.shops);
 drop table inbox_test;
 
+\echo '--- update 91: "Keď asistent nevie odpovedať" — ask_contact and alert_email_on default on, members only, only the keys given, alerts closed on a change, crm_alerts_due skips a shop with e-mail off'
+create temporary table flags_test (k text primary key, v uuid);
+grant all on flags_test to public;
+do $$
+declare
+  v_shop uuid;
+  v_other uuid;
+  v_c uuid;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'flags-a', 'Flags A', address, city, 'SK', timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'flags-b', 'Flags B', address, city, 'SK', timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_other;
+  insert into public.assistant_conversations (shop_id, token_hash, message_count) values (v_shop, 'x', 2) returning id into v_c;
+  insert into public.shop_owner_alerts (shop_id, kind, conversation_id) values (v_shop, 'callback', v_c);
+  insert into flags_test values ('shop', v_shop), ('other', v_other);
+  -- before anything is saved: both on, the chat asks for a contact, the alert is due
+  assert public.shop_asks_contact('flags-a');
+  assert public.shop_asks_contact('no-such-shop'), 'an unknown shop reads the default';
+  assert exists (select 1 from public.crm_alerts_due(100) where shop_id = v_shop), 'the alert is due';
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select v from flags_test where k = 'shop');
+  v_other uuid := (select v from flags_test where k = 'other');
+  v jsonb;
+begin
+  assert public.owner_assistant_flags(v_shop) = '{"ask_contact": true, "alert_email_on": true}'::jsonb, public.owner_assistant_flags(v_shop)::text;
+  v := public.owner_save_assistant_flags(v_shop, '{"ask_contact": false}');
+  assert v = '{"ask_contact": false, "alert_email_on": true}'::jsonb, 'only the key given changes: ' || v::text;
+  v := public.owner_save_assistant_flags(v_shop, '{"alert_email_on": false, "other": 1}');
+  assert v = '{"ask_contact": false, "alert_email_on": false}'::jsonb, v::text;
+  begin perform public.owner_save_assistant_flags(v_shop, '{"ask_contact": "no"}'); raise exception 'a text accepted';
+  exception when invalid_parameter_value then null; end;
+  -- another shop: refused, read and write
+  begin perform public.owner_assistant_flags(v_other); raise exception 'read another shop';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_save_assistant_flags(v_other, '{"ask_contact": false}'); raise exception 'wrote another shop';
+  exception when insufficient_privilege then null; end;
+  -- the table itself is not written by owners
+  begin update public.shop_assistant_settings set ask_contact = true where shop_id = v_shop; raise exception 'wrote the table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+do $$
+declare
+  v_shop uuid := (select v from flags_test where k = 'shop');
+begin
+  assert not public.shop_asks_contact('flags-a'), 'the chat no longer asks';
+  -- switching the e-mail off closed the waiting alert; a new one while off is not due
+  assert not exists (select 1 from public.shop_owner_alerts where shop_id = v_shop and resolved_at is null), 'closed on the change';
+  insert into public.shop_owner_alerts (shop_id, kind) values (v_shop, 'callback');
+  assert not exists (select 1 from public.crm_alerts_due(100) where shop_id = v_shop), 'no e-mail while it is off';
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+select public.owner_save_assistant_flags((select v from flags_test where k = 'shop'), '{"alert_email_on": true}');
+reset role;
+reset request.jwt.claim.sub;
+do $$
+declare
+  v_shop uuid := (select v from flags_test where k = 'shop');
+begin
+  -- the alert that waited while it was off is never e-mailed later; a new one is
+  assert not exists (select 1 from public.crm_alerts_due(100) where shop_id = v_shop), 'old news stays unsent';
+  insert into public.shop_owner_alerts (shop_id, kind) values (v_shop, 'callback');
+  assert exists (select 1 from public.crm_alerts_due(100) where shop_id = v_shop), 'on again: the new alert is due';
+end $$;
+set role anon;
+do $$
+begin
+  assert public.shop_asks_contact('flags-b'), 'a visitor reads the switch';
+  begin perform public.owner_assistant_flags((select v from flags_test where k = 'shop')); raise exception 'a visitor read the flags';
+  exception when insufficient_privilege then null; end;
+  begin perform public.crm_alerts_due(1); raise exception 'a visitor read the alerts';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+delete from public.shops where slug in ('flags-a', 'flags-b');
+drop table flags_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'
