@@ -4,7 +4,7 @@ import type { Page } from "@playwright/test";
 /**
  * The owner's "Stránka obchodu" pages in the canvas design (canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards
  * 9–13), at 1180×820, 820×1180 and 390×844: the designed parts are there, the save bar counts a change and "Zrušiť"
- * puts it back, nothing scrolls sideways. Phase 1 = artboard 9 "Môj obchod", phase 2 = artboard 10 "Obsah stránky". Nothing is saved. Needs an owner login and
+ * puts it back, nothing scrolls sideways. Phase 1 = artboard 9 "Môj obchod", phase 2 = artboard 10 "Obsah stránky", phase 3 = artboard 11 "Novinky / Blog". Nothing is saved. Needs an owner login and
  * E2E_OWNER_SHOP; skipped otherwise.
  */
 const SIZES = [
@@ -136,6 +136,41 @@ for (const size of SIZES) {
       }
       await page.locator("[data-content-cancel]").click();
       await expect(unsaved).toHaveAttribute("data-unsaved", "0");
+      await noSideways(page);
+    });
+
+    test("Novinky / Blog (artboard 11): head, filter chips with counts, post rows, the Facebook card when set up", async ({ page }) => {
+      await page.goto(`/sk/dashboard/blog${q}`);
+      await expect(page.locator("h1").first()).toHaveText(sk.owner_blog.title);
+      if ((await page.locator("[data-blog-list]").count()) === 0) {
+        test.info().annotations.push({ type: "skipped", description: "database update 37 is not applied" });
+        return;
+      }
+      await expect(page.locator("[data-new-post]")).toBeVisible();
+      expect((await page.locator("[data-new-post]").boundingBox())!.height).toBeGreaterThanOrEqual(55.5);
+      await expect(page.locator("[data-blog-line]")).toBeVisible();
+      const chips = page.locator("[data-blog-filter]");
+      expect(await chips.count()).toBeGreaterThanOrEqual(4);
+      await expect(page.locator('[data-blog-filter="all"]')).toHaveAttribute("aria-current", "page");
+      const all = Number((await page.locator('[data-blog-filter="all"]').innerText()).replace(/\D+/g, ""));
+      expect(await page.locator("[data-post]").count()).toBe(all);
+      // a filter is a link; its rows are only that kind
+      await page.locator('[data-blog-filter="draft"]').click();
+      await expect(page).toHaveURL(/f=draft/);
+      for (const row of await page.locator("[data-post]").all()) await expect(row).toHaveAttribute("data-status", "draft");
+      await page.locator('[data-blog-filter="all"]').click();
+      const first = page.locator("[data-post]").first();
+      if (await first.count()) {
+        expect((await first.boundingBox())!.height).toBeGreaterThanOrEqual(103.5);
+        await expect(first.locator("[data-post-edit]")).toHaveAttribute("href", /\/dashboard\/blog\/[0-9a-f-]{36}/);
+        await first.locator("[data-post-menu] summary").click();
+        await expect(first.locator("[data-post-menu]")).toHaveAttribute("open", "");
+      }
+      const fb = page.locator("[data-facebook-card]");
+      if (await fb.count()) {
+        await expect(fb.getByRole("heading", { name: sk.owner_blog.fb_title })).toBeVisible();
+        if (wide) expect((await fb.boundingBox())!.x).toBeGreaterThan((await page.locator("[data-blog-list]").boundingBox())!.x + 100);
+      }
       await noSideways(page);
     });
   });

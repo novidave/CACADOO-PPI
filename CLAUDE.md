@@ -1755,6 +1755,22 @@ results "Zverejnené na webe ✓" / "Zverejnené na Facebooku ✓" / error + "Sk
 Expired token → banner + dialog + one Brevo e-mail (`facebook_alerts_due`). **No Facebook SDK, pixel, plugin or embedded
 widget on any public page.** Privacy draft `/[lang]/sukromie` + `/[lang]/sukromie/vymazanie-udajov` (the Meta app's
 URLs; TODO lines). Texts `blog`, `owner_blog`, `admin_blog`, `privacy`.
+**The owner's list = artboard 11** (2026-11-07, "Stránka obchodu" phase 3; only the look and the place changed — every
+action and RPC as before, no SQL): `/dashboard/blog` = the head "Novinky / Blog" + "14 článkov · Pro: zobrazujú sa všetky"
+(or "Free: zobrazuje sa najnovších 10", `owner_blog_posts().limit`) + the black "+ Nový článok" (56 px); two columns from
+1024 px (1fr | 320 px, one column below and without Facebook): LEFT the filter chips as links (`?f=` all · published ·
+scheduled · draft · pending — the last only when > 0; the counts from the same `owner_blog_posts` list) and one row per post
+(min 104 px; the whole row is the link to the editor: a 96 × 80 thumbnail, dashed without a photo, ▶ for a video (`blog_photos`
+kind video), the title 17 / 700, pills — "Publikované 28. 10." / "Naplánované 6. 11. 8:00" + "Na Facebook pôjde v čase
+zverejnenia" / "Koncept" + "upravené včera" / "Z Facebooku" + "Čaká na schválenie" / "Web + Facebook ✓" / "Len web" / "n fotky"
+/ "Pripnuté v slideri" (`shop_content_slots` pinned_post) / the free limit / deleted on Facebook —, a chevron; a pending
+post shows "Zverejniť" (the same `setBlogPostHidden` approve form); "⋯" keeps Upraviť, Zobraziť na webe, the Facebook
+post, Skryť / Zobraziť and Vymazať); RIGHT the card "Facebook stránka" (only when `facebookEnabled()`): the Page's picture
++ name + "Pripojená · sync dnes 6:10", the expired banner, the import progress, "Stiahnuť všetky príspevky", the switch
+"Publikovať importované automaticky" (`@/components/owner/ToggleSubmit`, sends `saveBlogSettings` when flipped; "Vypnuté:
+príspevky z Facebooku čakajú na vaše „Zverejniť“."), "Odpojiť", the privacy links; not connected = "Pripojiť Facebook
+stránku" + one line. The editor `/dashboard/blog/[id]` is unchanged. e2e `e2e/owner-pages.spec.ts`.
+
 **The safe text format and the editor's AI (update 77, 2026-11-04, at the owner's request; the owner's OK for the sync
 rule):** `supabase/sql/77_blog_ai.sql` + `@/lib/blogMarks` (no imports; `blog_test.ts`) + `BlogText` + `@/components/BlogAiTools`
 + translate `blog_fix` / `blog_beautify`. **Format** (drawn on the server, never raw HTML; every text stays text): "## "
