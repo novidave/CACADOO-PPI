@@ -323,6 +323,7 @@ export function ShopChat({
   const [finished, setFinished] = useState<ReadonlySet<number>>(() => new Set());
   const box = useRef<HTMLElement>(null);
   const log = useRef<HTMLDivElement>(null);
+  const welcomeRef = useRef<HTMLParagraphElement>(null);
   /** The box went to the top of a phone's screen once in this conversation (the first sent message). */
   const scrolled = useRef(false);
   const [text, setText] = useState(initialText);
@@ -450,15 +451,20 @@ export function ShopChat({
     const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     el.scrollTo({ top, behavior: smooth ? "smooth" : "auto" });
   }, [nodeCount, busy]);
-  // The chat bar's real height (the field grows with the text): the log takes the rest of a phone's screen.
+  // The chat bar's real height (the field grows with the text) and the static welcome's: the log takes the rest.
   useEffect(() => {
     const section = box.current;
     const bar = form.current;
+    const welcome = welcomeRef.current;
     if (!section || !bar || typeof ResizeObserver === "undefined") return;
-    const measure = () => section.style.setProperty("--ppi-chat-bar", `${Math.round(bar.offsetHeight)}px`);
+    const measure = () => {
+      section.style.setProperty("--ppi-chat-bar", `${Math.round(bar.offsetHeight)}px`);
+      if (welcome) section.style.setProperty("--ppi-chat-welcome", `${Math.round(welcome.offsetHeight)}px`);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(bar);
+    if (welcome) observer.observe(welcome);
     return () => observer.disconnect();
   }, []);
 
@@ -994,8 +1000,8 @@ export function ShopChat({
         }
       />
         <div className="ppi-ai-body flex flex-col px-[13px] py-[14px]">
-          <div ref={log} className="ppi-ai-log" data-chat-log>
-          <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
+          {/* 2026-11-07: the welcome is static — the first block, never in the scrolling log (the messages scroll under it) */}
+          <p ref={welcomeRef} className="ppi-ai-welcome text-sm leading-normal text-[#5B6472]" data-chat-welcome>
             {welcomePieces(intro).map((piece, i) =>
               piece.kind === "text" ? (
                 <span key={i}>{piece.text}</span>
@@ -1004,8 +1010,9 @@ export function ShopChat({
               ),
             )}
           </p>
+          <div ref={log} className="ppi-ai-log" data-chat-log>
           {tree.nodes.length > 0 && (
-            <ol className="mt-3 flex flex-col gap-3" aria-live="polite">
+            <ol className="flex flex-col gap-3 pt-3" aria-live="polite">
               {/* every message of every branch stays drawn (a branch keeps its panels' state); only the shown path is visible */}
               {tree.nodes.map((node) => {
                 const at = onPath.get(node.id);

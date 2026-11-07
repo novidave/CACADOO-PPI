@@ -57,6 +57,14 @@ test("assistant: idle field, the log takes the screen, bubbles, an edit makes a 
   await expect.poll(async () => (await assistant.locator("[data-chat-log]").boundingBox())!.height).toBeGreaterThanOrEqual(viewport.height * 0.6);
   await expect.poll(async () => Math.round((await field.boundingBox())!.height)).toBeLessThanOrEqual(49);
 
+  // 2026-11-07: the welcome stays at the top while the log scrolls under it (it is never inside the log)
+  const welcome = assistant.locator("[data-chat-welcome]");
+  await expect(assistant.locator("[data-chat-log] [data-chat-welcome]")).toHaveCount(0);
+  const welcomeTop = (await welcome.boundingBox())!.y;
+  await assistant.locator("[data-chat-log]").evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+  expect(Math.abs((await welcome.boundingBox())!.y - welcomeTop)).toBeLessThanOrEqual(0.5);
+  expect(await welcome.evaluate((el) => getComputedStyle(el).borderBottomWidth)).toBe("1px");
+
   // the bubbles: the shopper right (blue), the assistant left (orange); "Vy" / "Asistent" once per run
   const mine = assistant.locator('[data-chat-bubble="user"]').first();
   const theirs = assistant.locator('[data-chat-bubble="assistant"]').first();

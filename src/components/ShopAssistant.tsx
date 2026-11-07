@@ -27,9 +27,8 @@ export function ShopAssistant({ question = "", order = null, ...props }: Assista
           list={listButton && shopId ? <ListHeadButton label={labels.list_attach} title={labels.list_attach} /> : undefined}
         />
         <div className="ppi-ai-body flex flex-col px-[13px] py-[14px]">
-          {/* the log holds the welcome (2026-11-06): once a conversation runs, it scrolls away inside the log */}
-          <div className="ppi-ai-log" data-chat-log>
-          <p className="text-sm leading-normal text-[#5B6472]" data-chat-welcome>
+          {/* 2026-11-07: the welcome is static — the first block, never in the scrolling log; drawn as ShopChat draws it */}
+          <p className="ppi-ai-welcome text-sm leading-normal text-[#5B6472]" data-chat-welcome>
             {/* the owner's {zoznam}: the bubble's place, without a number (the list lives in the browser; ShopChat counts) */}
             {welcomePieces(intro).map((piece, i) =>
               piece.kind === "text" ? (
@@ -41,7 +40,7 @@ export function ShopAssistant({ question = "", order = null, ...props }: Assista
               ),
             )}
           </p>
-          </div>
+          <div className="ppi-ai-log" data-chat-log />
           <form className="flex flex-col">
             <label htmlFor="assistant-question" className="sr-only">
               {labels.placeholder}
