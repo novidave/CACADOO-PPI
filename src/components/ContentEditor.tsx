@@ -27,7 +27,7 @@ import {
 import { videoSlide, type PostVideo, type VideoTarget } from "@/lib/video";
 import { saveContent } from "@/app/[lang]/(account)/dashboard/sectionActions";
 import { ContentSlider } from "./ContentSlider";
-import { fieldClass } from "@/components/owner/ui";
+import { buttonClass, cardClass, fieldClass, ghostClass } from "@/components/owner/ui";
 
 type Text = Dictionary["content"];
 
@@ -140,7 +140,19 @@ export function ContentEditor({
   const [dragging, setDragging] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [openKey, setOpenKey] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
+  const list = useRef<HTMLOListElement>(null);
+  // the last saved state ("Zrušiť" goes back to it; the save bar counts against it)
+  const [base, setBase] = useState(() => ({
+    title: settings.title ?? "",
+    showTitle: settings.showTitle,
+    display: settings.display,
+    videoTarget: (settings.videoTarget ?? "post") as VideoTarget,
+    ratio: (settings.ratio ?? DEFAULT_RATIO) as SliderRatio,
+    rows: initialSlots as Slot[],
+  }));
 
   // A shop back on free keeps what it stored; it may keep it, never add (the database checks the same).
   const stored = useMemo(() => ({ total: initialSlots.length, pdfs: initialSlots.filter((s) => s.kind === "pdf").length }), [initialSlots]);
@@ -158,7 +170,6 @@ export function ContentEditor({
 
   const change = (next: Row[]) => {
     setRows(next);
-    setDirty(true);
     setMessage(null);
   };
   const add = (kind: SlotKind) => {
@@ -166,10 +177,6 @@ export function ContentEditor({
     const used = new Set(rows.map((r) => r.item_id ?? r.post_id));
     const item = kind === "pdf" || kind === "picture" ? items.find((i) => i.kind === kind && !used.has(i.id)) : undefined;
     change([...rows, withKey({ kind, item_id: item?.id ?? null, post_id: null })]);
-  };
-  const removeLast = (kind: SlotKind) => {
-    const at = rows.map((r) => r.kind).lastIndexOf(kind);
-    if (at >= 0) change(rows.filter((_, i) => i !== at));
   };
   const move = (from: number, to: number) => {
     if (to < 0 || to >= rows.length || from === to) return;
@@ -210,7 +217,7 @@ export function ContentEditor({
       setMessage({ ok: false, text: known ? fill(known, { max: limits.maxSlides, pdf: limits.maxPdfSlides }) : fill(text.save_failed, { message: result.error }) });
       return;
     }
-    setDirty(false);
+    setBase({ title, showTitle, display, videoTarget, ratio, rows: rows.map(({ kind, item_id, post_id, crop }) => ({ kind, item_id, post_id, crop })) });
     setMessage({ ok: true, text: text.saved });
     router.refresh();
   }
@@ -243,341 +250,446 @@ export function ContentEditor({
     return fill(text.not_shown, { reason: text.reason_limit });
   };
 
-  const counterLabel: Record<SlotKind, string> = {
-    auto_post: text.count_auto_post,
-    pdf: text.count_pdf,
-    pinned_post: text.count_pinned_post,
-    picture: text.count_picture,
-  };
   const kindLabel: Record<SlotKind, string> = {
     auto_post: text.kind_auto_post,
     pinned_post: text.kind_pinned_post,
     pdf: text.kind_pdf,
     picture: text.kind_picture,
   };
-  const leftForm = new Intl.PluralRules(lang).select(left);
-  const leftText = fill(leftForm === "one" ? text.left_one : leftForm === "few" ? text.left_few : text.left_other, { n: left });
+  const plural = (prefix: string, n: number) => {
+    const form = new Intl.PluralRules(lang).select(n);
+    const t = text as Record<string, string>;
+    return fill(t[`${prefix}_${form}`] ?? t[`${prefix}_other`], { n });
+  };
+  const leftText = plural("left", left);
   const input = fieldClass;
   const sliderTitle = title.trim() || text.default_title;
 
+  // what changed against the last saved state: the settings one by one, the slots as one change ("Poradie zmenené"
+  // when only their order moved)
+  const sig = (r: Slot) => `${r.kind}:${r.item_id ?? ""}:${r.post_id ?? ""}:${r.crop ?? "center"}`;
+  const nowSig = rows.map(sig);
+  const baseSig = base.rows.map(sig);
+  const slotsChanged = nowSig.join("|") !== baseSig.join("|");
+  const orderOnly = slotsChanged && [...nowSig].sort().join("|") === [...baseSig].sort().join("|");
+  const settingsChanged = [
+    title !== base.title,
+    showTitle !== base.showTitle,
+    display !== base.display,
+    hasRatio && ratio !== base.ratio,
+    Boolean(settings.videoTarget) && videoTarget !== base.videoTarget,
+  ].filter(Boolean).length;
+  const changes = settingsChanged + (slotsChanged ? 1 : 0);
+  const cancel = () => {
+    setTitle(base.title);
+    setShowTitle(base.showTitle);
+    setDisplay(base.display);
+    setRatio(base.ratio);
+    setVideoTarget(base.videoTarget);
+    setRows(base.rows.map(withKey));
+    setOpenKey(null);
+    setMessage(null);
+  };
+
+  // drag by the ⠿ handle (pointer events: a finger, a pen or a mouse); the order changes only in the browser until "Uložiť"
+  const startDrag = (e: React.PointerEvent<HTMLButtonElement>, key: number) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging(key);
+  };
+  const dragMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (dragging === null || !list.current) return;
+    const items = [...list.current.querySelectorAll<HTMLElement>("[data-slot-index]")];
+    const from = rows.findIndex((r) => r.key === dragging);
+    let to = items.findIndex((el) => {
+      const r = el.getBoundingClientRect();
+      return e.clientY < r.top + r.height / 2;
+    });
+    if (to < 0) to = items.length - 1;
+    else if (to > from) to -= 1;
+    if (from >= 0 && to !== from) move(from, to);
+  };
+  const endDrag = () => setDragging(null);
+
+  const segment = <T extends string>(label: string, value: T, options: { value: T; label: string }[], set: (v: T) => void, attr: string) => (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="text-sm font-semibold">{label}</span>
+      <div role="group" aria-label={label} className="flex gap-1 rounded-xl border border-[#D6D6D6] p-1" data-segment={attr}>
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={value === o.value}
+            onClick={() => set(o.value)}
+            className={`min-h-12 flex-1 rounded-[10px] px-2 text-[15px] font-bold ${value === o.value ? "bg-[#111] text-white" : "text-[#3D3D3D]"}`}
+            data-choice={o.value}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+  const iconButton = "flex size-12 flex-none items-center justify-center rounded-xl border border-[#D6D6D6] bg-white disabled:opacity-40";
+  const rowTitle = (row: Row, i: number): string => {
+    const current = row.kind === "pinned_post" ? row.post_id : row.item_id;
+    if (row.kind === "auto_post") {
+      const auto = autoFill.get(i);
+      return auto ? fill(text.auto_now, { title: auto.title }) : text.auto_empty;
+    }
+    if (row.kind === "pinned_post") return current ? (postMap.get(current)?.title ?? text.reason_post) : text.choose_post;
+    const item = current ? itemMap.get(current) : null;
+    if (!item) return row.kind === "pdf" ? text.choose_pdf : text.choose_picture;
+    if (row.kind === "pdf") return `${item.title} · ${plural("pages", Math.max(1, item.pages))}`;
+    const crop = row.crop ?? "center";
+    return hasRatio ? `${item.title} · ${fill(text.slot_crop, { crop: crop === "top" ? text.crop_top : crop === "bottom" ? text.crop_bottom : text.crop_center })}` : item.title;
+  };
+  const full = total >= allowed.maxSlides;
+
   return (
-    <div className="flex flex-col gap-6" data-content-editor>
-      {/* 1. The section's title and look */}
-      <section className="flex flex-col gap-3" aria-labelledby="content-settings">
-        <h3 id="content-settings" className="font-semibold">
-          {text.settings_title}
-        </h3>
-        <label className="flex flex-col gap-1">
-          <span className="text-sm">{text.section_title_label}</span>
-          <input
-            value={title}
-            maxLength={80}
-            placeholder={text.default_title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              setDirty(true);
-            }}
-            className={input}
-            data-content-title
-          />
-          <span className="text-sm text-muted">{text.section_title_hint}</span>
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={showTitle}
-            onChange={(e) => {
-              setShowTitle(e.target.checked);
-              setDirty(true);
-            }}
-            data-content-show-title
-          />
-          {text.show_title}
-        </label>
-        <fieldset className="flex flex-wrap gap-x-5 gap-y-1">
-          <legend className="text-sm">{text.display}</legend>
-          {(["open", "collapsed"] as const).map((d) => (
-            <label key={d} className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="content-display"
-                checked={display === d}
-                onChange={() => {
-                  setDisplay(d);
-                  setDirty(true);
-                }}
-                data-content-display={d}
-              />
-              {d === "open" ? text.display_open : text.display_collapsed}
+    <div className={`flex flex-col gap-[18px] ${dragging !== null ? "select-none" : ""}`} data-content-editor>
+      <div className="grid gap-[18px] lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* 1. "Nastavenia slidera": the look side by side, then the title and the video button */}
+          <section className={`${cardClass} min-w-0`} aria-labelledby="content-settings" data-content-settings>
+            <h2 id="content-settings" className="sr-only">
+              {text.settings_title}
+            </h2>
+            <div className="grid gap-3.5 sm:grid-cols-2">
+              {segment(
+                text.display,
+                display,
+                [
+                  { value: "open", label: text.display_open },
+                  { value: "collapsed", label: text.display_collapsed },
+                ],
+                setDisplay,
+                "display",
+              )}
+              {hasRatio &&
+                segment(
+                  text.ratio_short,
+                  ratio,
+                  SLIDER_RATIOS.map((r) => ({ value: r, label: r })),
+                  setRatio,
+                  "ratio",
+                )}
+            </div>
+            {hasRatio && <p className="text-sm text-muted">{fill(text.fill_hint, { ratio, size: ratioSize(ratio) })}</p>}
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-semibold">{text.section_title_label}</span>
+              <input value={title} maxLength={80} placeholder={text.default_title} onChange={(e) => setTitle(e.target.value)} className={input} data-content-title />
+              <span className="text-[13px] text-muted">{text.section_title_hint}</span>
             </label>
-          ))}
-        </fieldset>
-        {hasRatio && (
-          <fieldset className="flex flex-col gap-1" data-slider-ratio>
-            <legend className="text-sm">{text.ratio_title}</legend>
-            {SLIDER_RATIOS.map((r) => (
-              <label key={r} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="content-ratio"
-                  checked={ratio === r}
-                  onChange={() => {
-                    setRatio(r);
-                    setDirty(true);
-                  }}
-                  data-ratio-choice={r}
-                />
-                {r === "4:5" ? text.ratio_4_5 : r === "1:1" ? text.ratio_1_1 : text.ratio_16_9}
-              </label>
-            ))}
-            <span className="text-sm text-muted">{fill(text.fill_hint, { ratio, size: ratioSize(ratio) })}</span>
-          </fieldset>
-        )}
-        {settings.videoTarget && (
-          <fieldset className="flex flex-col gap-1" data-video-target>
-            <legend className="text-sm">{text.video_target}</legend>
-            {(["post", "facebook"] as const).map((v) => (
-              <label key={v} className="flex items-start gap-2">
-                <input
-                  type="radio"
-                  name="content-video-target"
-                  checked={videoTarget === v}
-                  onChange={() => {
-                    setVideoTarget(v);
-                    setDirty(true);
-                  }}
-                  className="mt-1"
-                  data-video-target-choice={v}
-                />
-                {v === "post" ? text.video_target_post : text.video_target_facebook}
-              </label>
-            ))}
-            <span className="text-sm text-muted">{text.video_target_hint}</span>
-          </fieldset>
-        )}
-      </section>
+            <label className="flex min-h-14 items-center justify-between gap-3 text-base font-semibold">
+              {text.show_title}
+              <input type="checkbox" checked={showTitle} onChange={(e) => setShowTitle(e.target.checked)} className="ppi-toggle" data-content-show-title />
+            </label>
+            {settings.videoTarget && (
+              <fieldset className="flex flex-col gap-1" data-video-target>
+                <legend className="mb-1 text-sm font-semibold">{text.video_target}</legend>
+                {(["post", "facebook"] as const).map((v) => (
+                  <label key={v} className="flex min-h-11 items-start gap-2.5 py-1">
+                    <input
+                      type="radio"
+                      name="content-video-target"
+                      checked={videoTarget === v}
+                      onChange={() => setVideoTarget(v)}
+                      className="mt-1 h-5 w-5 flex-none accent-[#111]"
+                      data-video-target-choice={v}
+                    />
+                    {v === "post" ? text.video_target_post : text.video_target_facebook}
+                  </label>
+                ))}
+                <span className="text-[13px] text-muted">{text.video_target_hint}</span>
+              </fieldset>
+            )}
+          </section>
 
-      {/* 2. Quick setup: how many slots of each kind */}
-      <section className="flex flex-col gap-3" aria-labelledby="content-quick">
-        <h3 id="content-quick" className="font-semibold">
-          {text.quick_title}
-        </h3>
-        <ul className="grid gap-2 sm:grid-cols-2">
-          {SLOT_KINDS.map((kind) => (
-            <li key={kind} className="flex items-center justify-between gap-3 border border-line px-3 py-2" data-counter={kind}>
-              <span>{counterLabel[kind]}</span>
-              <span className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => removeLast(kind)}
-                  disabled={counts[kind] === 0}
-                  aria-label={fill(text.remove_one, { kind: counterLabel[kind] })}
-                  className="h-8 w-8 rounded border border-foreground text-lg leading-none disabled:border-line disabled:text-line"
-                  data-counter-minus
-                >
-                  −
-                </button>
-                <span className="w-6 text-center font-semibold tabular-nums" data-counter-value>
-                  {counts[kind]}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => add(kind)}
-                  disabled={!canAdd(rows, kind, allowed)}
-                  aria-label={fill(text.add_one, { kind: counterLabel[kind] })}
-                  className="h-8 w-8 rounded border border-foreground text-lg leading-none disabled:border-line disabled:text-line"
-                  data-counter-plus
-                >
-                  +
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-sm" aria-live="polite" data-slots-left>
-          {fill(text.total, { total, max: allowed.maxSlides })} · <span className="font-semibold">{leftText}</span>
-        </p>
-        {limits.plan === "free" && (
-          <p className="text-sm text-muted" data-free-limits>
-            {fill(text.free_note, { max: limits.maxSlides, pdf: limits.maxPdfSlides })}{" "}
-            <Link href={planUrl} className="underline underline-offset-4">
-              {text.go_pro}
-            </Link>
-          </p>
-        )}
-        {stored.total > limits.maxSlides && <p className="border border-line p-3 text-sm" data-downgraded>{text.downgraded}</p>}
-      </section>
-
-      {/* 3. The order of every slot */}
-      <section className="flex flex-col gap-2" aria-labelledby="content-order">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 id="content-order" className="font-semibold">
-            {text.order_title}
-          </h3>
-          {counts.auto_post > 1 && (
-            <button type="button" onClick={groupAuto} className="text-sm underline underline-offset-4" data-group-auto>
-              {text.group_auto}
-            </button>
-          )}
-        </div>
-        <p className="text-sm text-muted">{text.order_hint}</p>
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted">{text.empty_slots}</p>
-        ) : (
-          <ol className="divide-y divide-line border-y border-line">
-            {rows.map((row, i) => {
-              const used = new Set(rows.filter((r) => r.key !== row.key).map((r) => r.item_id ?? r.post_id));
-              const note = reason(row, i);
-              const auto = autoFill.get(i);
-              const options =
-                row.kind === "pinned_post"
-                  ? posts.filter((p) => !used.has(p.id)).map((p) => ({ id: p.id, label: `${p.title} (${p.date})` }))
-                  : row.kind === "pdf" || row.kind === "picture"
-                    ? items.filter((it) => it.kind === row.kind && !used.has(it.id)).map((it) => ({ id: it.id, label: it.title }))
-                    : [];
-              const current = row.kind === "pinned_post" ? row.post_id : row.item_id;
-              return (
-                <li
-                  key={row.key}
-                  draggable
-                  onDragStart={() => setDragging(row.key)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const from = rows.findIndex((r) => r.key === dragging);
-                    setDragging(null);
-                    if (from >= 0) move(from, i);
-                  }}
-                  onDragEnd={() => setDragging(null)}
-                  className={`flex items-start gap-2 py-2 ${dragging === row.key ? "opacity-50" : ""}`}
-                  data-slot={row.kind}
-                  data-slot-index={i}
-                >
-                  <span className="cursor-grab select-none px-1 pt-1 text-muted" title={text.drag} aria-hidden="true">
-                    ⋮⋮
-                  </span>
-                  <span className="w-6 pt-1 text-right text-sm tabular-nums text-muted">{i + 1}.</span>
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="font-semibold">{kindLabel[row.kind]}</span>
-                    {row.kind === "auto_post" ? (
-                      <span className="text-sm text-muted" data-auto-now>
-                        {auto ? fill(text.auto_now, { title: auto.title }) : text.auto_empty}
-                      </span>
-                    ) : options.length || current ? (
-                      <select
-                        value={current ?? ""}
-                        onChange={(e) => setChoice(row.key, e.target.value)}
-                        className={`${input} max-w-full`}
-                        aria-label={`${i + 1}. ${kindLabel[row.kind]}`}
-                        data-slot-choice
-                      >
-                        <option value="">{row.kind === "pdf" ? text.choose_pdf : row.kind === "picture" ? text.choose_picture : text.choose_post}</option>
-                        {current && !options.some((o) => o.id === current) && (
-                          <option value={current}>
-                            {row.kind === "pinned_post" ? (postMap.get(current)?.title ?? text.reason_post) : (itemMap.get(current)?.title ?? "–")}
-                          </option>
-                        )}
-                        {options.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-sm text-muted">{row.kind === "pdf" ? text.none_pdf : row.kind === "picture" ? text.none_picture : text.none_post}</span>
-                    )}
-                    {hasRatio && (row.kind === "pdf" || row.kind === "picture") && current && (
-                      <label className="flex flex-wrap items-center gap-2 text-sm">
-                        <span>{text.crop_label}</span>
-                        <select
-                          value={row.crop ?? "center"}
-                          onChange={(e) => setCrop(row.key, e.target.value as Crop)}
-                          className="rounded border border-line px-2 py-1 outline-none focus:border-foreground"
-                          aria-label={`${i + 1}. ${text.crop_label}`}
-                          data-slot-crop
-                        >
-                          {CROPS.map((c) => (
-                            <option key={c} value={c}>
-                              {c === "top" ? text.crop_top : c === "bottom" ? text.crop_bottom : text.crop_center}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    {note && row.kind !== "auto_post" && (
-                      <span className="text-sm text-muted" data-slot-note>
-                        {note}
-                      </span>
-                    )}
-                  </div>
-                  <span className="flex flex-col text-sm">
-                    <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`${text.move_up}: ${i + 1}`} className="px-1 disabled:text-line">
-                      ↑
-                    </button>
-                    <button type="button" onClick={() => move(i, i + 1)} disabled={i === rows.length - 1} aria-label={`${text.move_down}: ${i + 1}`} className="px-1 disabled:text-line">
-                      ↓
-                    </button>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => change(rows.filter((r) => r.key !== row.key))}
-                    aria-label={`${text.remove}: ${i + 1}`}
-                    className="px-1 pt-1 text-lg leading-none"
-                    data-slot-remove
+          {/* 2. The slots: ⠿ · the kind · the title (a tap opens its editor) · ▲ ▼; "+ Pridať slot" */}
+          <section className={`${cardClass} min-w-0 gap-0 py-1.5`} aria-labelledby="content-order" data-content-slots>
+            <h2 id="content-order" className="sr-only">
+              {text.order_title}
+            </h2>
+            {rows.length === 0 && <p className="py-4 text-sm text-muted">{text.empty_slots_new}</p>}
+            <ol ref={list} className="flex flex-col">
+              {rows.map((row, i) => {
+                const used = new Set(rows.filter((r) => r.key !== row.key).map((r) => r.item_id ?? r.post_id));
+                const note = reason(row, i);
+                const options =
+                  row.kind === "pinned_post"
+                    ? posts.filter((p) => !used.has(p.id)).map((p) => ({ id: p.id, label: `${p.title} (${p.date})` }))
+                    : row.kind === "pdf" || row.kind === "picture"
+                      ? items.filter((it) => it.kind === row.kind && !used.has(it.id)).map((it) => ({ id: it.id, label: it.title }))
+                      : [];
+                const current = row.kind === "pinned_post" ? row.post_id : row.item_id;
+                const open = openKey === row.key;
+                return (
+                  <li
+                    key={row.key}
+                    className={`flex flex-col border-b border-[#E4E4E4] last:border-b-0 ${dragging === row.key ? "bg-[#F7F7F7]" : ""}`}
+                    data-slot={row.kind}
+                    data-slot-index={i}
                   >
-                    ×
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        )}
-      </section>
+                    <div className="flex min-h-[68px] items-center gap-2.5">
+                      <button
+                        type="button"
+                        aria-label={`${text.drag_handle}: ${i + 1}`}
+                        title={text.drag}
+                        onPointerDown={(e) => startDrag(e, row.key)}
+                        onPointerMove={dragMove}
+                        onPointerUp={endDrag}
+                        onPointerCancel={endDrag}
+                        className="flex size-12 flex-none cursor-grab touch-none items-center justify-center rounded-xl active:cursor-grabbing"
+                        data-slot-handle
+                      >
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="#5C5C5C" aria-hidden="true">
+                          <circle cx="9" cy="6" r="1.6" />
+                          <circle cx="15" cy="6" r="1.6" />
+                          <circle cx="9" cy="12" r="1.6" />
+                          <circle cx="15" cy="12" r="1.6" />
+                          <circle cx="9" cy="18" r="1.6" />
+                          <circle cx="15" cy="18" r="1.6" />
+                        </svg>
+                      </button>
+                      <span className="hidden h-[26px] flex-none items-center rounded-[13px] border border-[#D6D6D6] px-2.5 text-[13px] font-bold sm:inline-flex" data-slot-kind>
+                        {kindLabel[row.kind]}
+                      </span>
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-controls={`slot-edit-${row.key}`}
+                        onClick={() => setOpenKey(open ? null : row.key)}
+                        className="flex min-h-12 min-w-0 flex-1 flex-col items-start justify-center text-left"
+                        data-slot-title
+                      >
+                        <span className="text-[13px] font-bold text-[#5C5C5C] sm:hidden">{kindLabel[row.kind]}</span>
+                        <span className="w-full truncate text-base font-semibold">{rowTitle(row, i)}</span>
+                        {note && row.kind !== "auto_post" && (
+                          <span className="w-full truncate text-[13px] text-muted" data-slot-note>
+                            {note}
+                          </span>
+                        )}
+                      </button>
+                      <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`${text.move_up}: ${i + 1}`} className={iconButton} data-slot-up>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2.4" aria-hidden="true">
+                          <path d="M6 15l6-6 6 6" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => move(i, i + 1)}
+                        disabled={i === rows.length - 1}
+                        aria-label={`${text.move_down}: ${i + 1}`}
+                        className={iconButton}
+                        data-slot-down
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2.4" aria-hidden="true">
+                          <path d="M6 9l6 6 6-6" />
+                        </svg>
+                      </button>
+                    </div>
+                    {open && (
+                      <div id={`slot-edit-${row.key}`} className="flex flex-col gap-2.5 pb-3.5 pl-[58px] pr-1" data-slot-edit>
+                        {row.kind === "auto_post" ? (
+                          <p className="text-sm text-muted">{text.order_hint}</p>
+                        ) : options.length || current ? (
+                          <select
+                            value={current ?? ""}
+                            onChange={(e) => setChoice(row.key, e.target.value)}
+                            className={`${input} max-w-full bg-white`}
+                            aria-label={`${i + 1}. ${kindLabel[row.kind]}`}
+                            data-slot-choice
+                          >
+                            <option value="">{row.kind === "pdf" ? text.choose_pdf : row.kind === "picture" ? text.choose_picture : text.choose_post}</option>
+                            {current && !options.some((o) => o.id === current) && (
+                              <option value={current}>
+                                {row.kind === "pinned_post" ? (postMap.get(current)?.title ?? text.reason_post) : (itemMap.get(current)?.title ?? "–")}
+                              </option>
+                            )}
+                            {options.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-sm text-muted">{row.kind === "pdf" ? text.none_pdf : row.kind === "picture" ? text.none_picture : text.none_post}</span>
+                        )}
+                        {hasRatio && (row.kind === "pdf" || row.kind === "picture") && current && (
+                          <label className="flex flex-col gap-1.5">
+                            <span className="text-sm font-semibold">{text.crop_label}</span>
+                            <select
+                              value={row.crop ?? "center"}
+                              onChange={(e) => setCrop(row.key, e.target.value as Crop)}
+                              className={`${input} bg-white`}
+                              aria-label={`${i + 1}. ${text.crop_label}`}
+                              data-slot-crop
+                            >
+                              {CROPS.map((c) => (
+                                <option key={c} value={c}>
+                                  {c === "top" ? text.crop_top : c === "bottom" ? text.crop_bottom : text.crop_center}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            change(rows.filter((r) => r.key !== row.key));
+                            setOpenKey(null);
+                          }}
+                          className="min-h-11 self-start rounded-xl border border-[#D6D6D6] bg-white px-3.5 font-bold"
+                          data-slot-remove
+                        >
+                          {text.remove}
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="flex flex-col border-t border-[#E4E4E4]" data-slot-add>
+              <button
+                type="button"
+                onClick={() => setAdding(!adding)}
+                disabled={full}
+                aria-expanded={adding}
+                className="flex min-h-[60px] items-center justify-center text-base font-bold disabled:text-[#9A9A9A]"
+                data-slot-add-open
+              >
+                {text.add_slot}
+              </button>
+              {adding && !full && (
+                <div className="grid grid-cols-2 gap-2 pb-3" data-slot-add-kinds>
+                  {SLOT_KINDS.map((kind) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => {
+                        add(kind);
+                        setAdding(false);
+                      }}
+                      disabled={!canAdd(rows, kind, allowed)}
+                      className="min-h-12 rounded-xl border border-[#D6D6D6] bg-white px-2 text-[15px] font-bold disabled:opacity-40"
+                      data-slot-add-kind={kind}
+                    >
+                      {kindLabel[kind]}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {full && (
+                <p className="pb-3 text-center text-sm" data-slots-full>
+                  {leftText}
+                  {limits.plan === "free" && (
+                    <>
+                      {" · "}
+                      <Link href={planUrl} className="underline underline-offset-4">
+                        {text.go_pro}
+                      </Link>
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          </section>
+          <div className="flex flex-col gap-2 text-sm">
+            <p aria-live="polite" data-slots-left>
+              {fill(text.total, { total, max: allowed.maxSlides })} · <span className="font-semibold">{leftText}</span>
+            </p>
+            {counts.auto_post > 1 && (
+              <button type="button" onClick={groupAuto} className="min-h-11 self-start underline underline-offset-4" data-group-auto>
+                {text.group_auto}
+              </button>
+            )}
+            {limits.plan === "free" && (
+              <p className="text-muted" data-free-limits>
+                {fill(text.free_note, { max: limits.maxSlides, pdf: limits.maxPdfSlides })}{" "}
+                <Link href={planUrl} className="underline underline-offset-4">
+                  {text.go_pro}
+                </Link>
+              </p>
+            )}
+            {stored.total > limits.maxSlides && (
+              <p className="rounded-xl border border-line p-3" data-downgraded>
+                {text.downgraded}
+              </p>
+            )}
+          </div>
+        </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={save} disabled={busy} className="rounded border border-foreground bg-foreground px-4 py-2 font-medium text-white disabled:opacity-60" data-content-save>
-          {busy ? text.saving : text.save}
-        </button>
-        {dirty && !message && <span className="text-sm text-muted">{text.unsaved}</span>}
-        {message && (
-          <span role={message.ok ? "status" : "alert"} className={message.ok ? "font-medium" : ""} data-content-message={message.ok ? "ok" : "error"}>
-            {message.text}
-          </span>
-        )}
+        {/* 3. "Náhľad": the live slider on a phone or a computer, scaled to the card */}
+        <section className={`${cardClass} min-w-0`} aria-labelledby="content-preview" data-content-preview>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="content-preview" className="text-[17px] font-bold">
+              {text.preview_title}
+            </h2>
+            <div role="group" aria-label={text.preview_device} className="flex gap-1 rounded-xl border border-[#D6D6D6] p-1" data-preview-device>
+              {(["mobile", "desktop"] as const).map((dv) => (
+                <button
+                  key={dv}
+                  type="button"
+                  aria-pressed={device === dv}
+                  onClick={() => setDevice(dv)}
+                  className={`min-h-11 rounded-[10px] px-3 text-[15px] font-bold ${device === dv ? "bg-[#111] text-white" : "text-[#3D3D3D]"}`}
+                  data-device={dv}
+                >
+                  {dv === "mobile" ? text.preview_phone : text.preview_desktop}
+                </button>
+              ))}
+            </div>
+          </div>
+          {previewViews.length === 0 ? (
+            <p className="rounded-xl border border-line p-3 text-sm" data-preview-empty>
+              {text.preview_empty}
+            </p>
+          ) : (
+            <figure className="flex min-w-0 flex-col items-center" data-preview={device} inert>
+              <div className={`w-full overflow-hidden border border-[#D6D6D6] ${device === "mobile" ? "max-w-[260px] rounded-[20px]" : "rounded-xl"}`}>
+                {device === "mobile" ? (
+                  <ScaledPreview width={PHONE_WIDTH} padding={16}>
+                    <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} ratio={ratio} preview />
+                  </ScaledPreview>
+                ) : (
+                  <ScaledPreview width={DESKTOP_WIDTH} padding={0}>
+                    <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} ratio={ratio} preview />
+                  </ScaledPreview>
+                )}
+              </div>
+            </figure>
+          )}
+          <p className="text-center text-[13px] text-muted">{text.preview_drag_hint}</p>
+          <p className="text-[13px] text-muted">{text.preview_hint}</p>
+        </section>
       </div>
 
-      {/* 4. Live preview, as visitors would see it with these settings */}
-      <section className="flex flex-col gap-3" aria-labelledby="content-preview">
-        <h3 id="content-preview" className="font-semibold">
-          {text.preview_title}
-        </h3>
-        <p className="text-sm text-muted">{text.preview_hint}</p>
-        {previewViews.length === 0 ? (
-          <p className="border border-line p-3 text-sm" data-preview-empty>
-            {text.preview_empty}
-          </p>
-        ) : (
-          // Always one under the other: the phone first, then the computer (both at their real width, scaled to fit).
-          <div className="flex flex-col gap-4" data-previews>
-            <figure className="flex min-w-0 flex-col gap-1" data-preview="mobile">
-              <figcaption className="text-xs uppercase tracking-wide text-muted">{text.preview_mobile}</figcaption>
-              <div className="w-fit max-w-full border border-line">
-                <ScaledPreview width={PHONE_WIDTH} padding={16}>
-                  <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} ratio={ratio} preview />
-                </ScaledPreview>
-              </div>
-            </figure>
-            <figure className="flex min-w-0 flex-col gap-1" data-preview="desktop">
-              <figcaption className="text-xs uppercase tracking-wide text-muted">{text.preview_desktop}</figcaption>
-              <div className="w-full border border-line">
-                <ScaledPreview width={DESKTOP_WIDTH} padding={0}>
-                  <ContentSlider views={previewViews} title={sliderTitle} showTitle={showTitle} display={display} allNews={null} labels={text} lang={lang} ratio={ratio} preview />
-                </ScaledPreview>
-              </div>
-            </figure>
-          </div>
-        )}
-      </section>
+      {/* the save bar (one call: owner_save_content) */}
+      <div className="sticky bottom-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#E4E4E4] bg-white px-4 py-3 md:mx-0 md:px-0" data-save-bar>
+        <span className="text-[15px] font-semibold" aria-live="polite" data-unsaved={changes}>
+          {message && changes === 0 ? (
+            <span role={message.ok ? "status" : "alert"} className={message.ok ? "" : "font-normal"} data-content-message={message.ok ? "ok" : "error"}>
+              {message.text}
+            </span>
+          ) : changes === 0 ? (
+            ""
+          ) : settingsChanged === 0 && orderOnly ? (
+            text.order_changed
+          ) : (
+            fill(text.unsaved_n, { n: changes })
+          )}
+        </span>
+        <div className="flex gap-2.5">
+          <button type="button" onClick={cancel} disabled={changes === 0 || busy} className={ghostClass} data-content-cancel>
+            {text.cancel}
+          </button>
+          <button type="button" onClick={save} disabled={busy} aria-busy={busy} className={`${buttonClass} min-w-[180px]`} data-content-save>
+            {busy ? text.saving : text.save}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

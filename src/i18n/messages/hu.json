@@ -2440,7 +2440,19 @@
     "close_article": "Cikk bezárása",
     "article": "Cikk",
     "all_news_done": "Megnyitva",
-    "slide_of": "{n}. dia / {total}"
+    "slide_of": "{n}. dia / {total}",
+    "ratio_short": "Képarány",
+    "drag_handle": "Áthelyezés húzással",
+    "slot_crop": "kivágás: {crop}",
+    "empty_slots_new": "Még nincs hely. Adja hozzá az elsőt a „+ Hely hozzáadása” gombbal.",
+    "add_slot": "+ Hely hozzáadása",
+    "preview_device": "Eszköz",
+    "preview_phone": "Telefon",
+    "preview_drag_hint": "Húzza a helyeket a ⠿ jelnél, vagy használja a nyilakat.",
+    "order_changed": "A sorrend megváltozott",
+    "unsaved_n": "Nem mentett változások: {n}",
+    "slots_of": "{n} / {max} hely",
+    "upload_button": "+ PDF vagy kép feltöltése"
   },
   "languages": {
     "button": "Nyelv",

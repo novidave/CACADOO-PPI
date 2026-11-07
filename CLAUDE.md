@@ -1831,6 +1831,23 @@ sideways; the upload hint names the ratio's size (`ratioSize()`).
 Downloads only `/api/shops/[slug]/sections/[id]/download` → shop-files (10-minute signed URL, only when allowed; the
 old `/pdf` address re-exports it). Texts `content` (sk/hu/en). Tests: `npm run test:content`.
 
+**The owner's page = artboard 10** (2026-11-07, "Stránka obchodu" phase 2; only the look and the place changed — every
+rule, limit and `owner_save_content` as before): the head "Obsah stránky" + the line "Slider na stránke obchodu · 6 z 10
+slotov · zostávajú 4" (the stored slots against the plan's `max_slides`) + the ghost "+ Nahrať PDF alebo obrázok" (→ the
+library's uploader, `?at=library#item-add`); `@/components/ContentEditor` in two columns from 1024 px (1fr | 340 px; one
+column below): LEFT the card "Nastavenia slidera" (two segmented rows side by side, `aria-pressed` buttons: Zobrazenie
+Vždy otvorené | Rozbaľovacie, Pomer strán 4:5 | 1:1 | 16:9; then the fill hint, Názov sekcie, "Zobraziť názov sekcie",
+"Tlačidlo ▶ pri videách otvorí") and the card of slots (one 68 px row each: the ⠿ handle — 48 px, "Presunúť ťahaním",
+pointer events so a finger, a pen or a mouse drags it, `touch-none` —, the kind pill, the title on one line — "Teraz: <post>"
+for an automatic one, "Leták november · 4 strany", "Vzorkovník odtieňov · výrez: stred" — a tap opens the slot's editor
+(the post or file, Výrez, "Odstrániť zo slidera"), ▲ ▼ 48 px; "+ Pridať slot" 60 px → the four kinds, each disabled by
+`canAdd`, the whole button disabled at the plan's limit with "Pre viac prejdite na Pro"); under it the totals,
+"Dať automatické články k sebe", the free plan's line; RIGHT the card "Náhľad" with Telefón | Počítač (the same
+`ContentSlider` at 390 px or the 768 px column, scaled, `inert`) and "Ťahajte sloty za ⠿ alebo použite šípky."; ONE save
+bar (sticky: "Poradie zmenené" when only the order moved, else "Neuložené zmeny: n"; Zrušiť = back to the last saved
+state; Uložiť = one `saveContent` call). Drag and ▲ ▼ change the order only in the browser until Uložiť. "Knižnica súborov"
+stays under it as before. e2e `e2e/owner-pages.spec.ts`.
+
 ## Videos in the blog and the slider (update 39)
 
 `supabase/sql/39_video_posts.sql` + `@/lib/video` (shared: `youtubeId()`, `videoHref()`, `videoSlide()`) +
