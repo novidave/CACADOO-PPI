@@ -130,10 +130,10 @@ test("two town zones: the matching one chosen, another → the line, fixed → t
     const number = Number(await done.getAttribute("data-order-done"));
     console.check();
     await shopper.close();
-    // the owner's feed names the zone
-    await page.goto(`/sk/dashboard/assistant/orders?shop=${SHOP}&view=feed`);
-    const card = page.locator(`[data-feed-active] [data-feed-number="${number}"]`).first();
-    await expect(card.locator("[data-feed-zone]")).toContainText(LABEL_A);
+    // the owner's board names the zone (Nové)
+    await page.goto(`/sk/dashboard/assistant/orders?shop=${SHOP}&col=new`);
+    const card = page.locator(`[data-board-col="new"] [data-food-order="${number}"]`).first();
+    await expect(card.locator("[data-food-zone]")).toContainText(LABEL_A);
   } finally {
     await deleteZone(page, "E2E zóna A");
     await deleteZone(page, "E2E zóna B");

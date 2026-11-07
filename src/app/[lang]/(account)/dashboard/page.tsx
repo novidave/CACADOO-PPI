@@ -204,7 +204,7 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
         <DashboardSection {...section("holidays")} title={dict.holidays.title} summary={summaries.holidays}>
           <p className="text-sm">
             {dict.hours_sms.dashboard_link}{" "}
-            <Link href={`/${lang}/dashboard/hours-sms?shop=${shop.slug}`} className="underline underline-offset-4" data-hours-sms-link>
+            <Link href={`/${lang}/dashboard/sms-telegram?${new URLSearchParams({ shop: shop.slug, tab: "sms" })}#hours-sms`} className="underline underline-offset-4" data-hours-sms-link>
               {dict.account.hours_sms_page}
             </Link>
           </p>

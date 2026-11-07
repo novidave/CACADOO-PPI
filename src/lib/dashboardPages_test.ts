@@ -7,6 +7,7 @@ import {
   assistantTabUrl,
   bookingPartUrl,
   forwardUrl,
+  hoursSmsForward,
   isBareScreen,
   ITEM_TABS,
   menuHref,
@@ -15,7 +16,9 @@ import {
   movedFrom,
   OWNER_MENU,
   sectionUrl,
+  smsTelegramTab,
   tabHref,
+  telegramForwardScript,
   withoutLang,
 } from "./dashboardPages.ts";
 
@@ -75,6 +78,8 @@ Deno.test("addresses to items (Hlavné, Stránka obchodu, Účet a nastavenia)",
     ["/dashboard/legal", "", "legal"],
     ["/password", "", "password"],
     ["/dashboard/ai", "", "ai"],
+    ["/dashboard/sms-telegram", "", "sms_tg"],
+    ["/dashboard/hours-sms", "", "sms_tg"],
     ["/admin/domains", "", "admin"],
   ];
   for (const [path, at, key] of cases) assertEquals(menuItemFor(path, at)?.key, key, `${path}?at=${at}`);
@@ -163,9 +168,11 @@ Deno.test("the items' tabs (L2): Rezervácie's booking parts, CRM, AI asistent, 
       const href = new URL(tabHref("sk", item as keyof typeof ITEM_TABS, tab.key, "davide"), "https://x");
       const path = withoutLang(href.pathname);
       const at = href.searchParams.get("at") ?? "";
-      const own = item === "food" && tab.key === "menu" ? "food_menu" : item;
+      // the tab group "smstg" is the menu item "sms_tg" (SMS a Telegram, 2026-11-07)
+      const key = item === "smstg" ? "sms_tg" : item;
+      const own = item === "food" && tab.key === "menu" ? "food_menu" : key;
       assertEquals(menuItemFor(path, at)?.key, own, `${item} → ${tab.key}`);
-      assertEquals(menuItemFor(path, at, "goods")?.key, item, `${item} → ${tab.key} (goods)`);
+      assertEquals(menuItemFor(path, at, "goods")?.key, key, `${item} → ${tab.key} (goods)`);
     }
   }
 });
@@ -195,4 +202,38 @@ Deno.test("the menu by kind of shop (update 79): a restaurant sees Menu and Obje
   assertEquals(menuItemFor("/dashboard/assistant/orders/menu", "", "food")?.key, "food_menu");
   assertEquals(menuItemFor("/dashboard/assistant/orders/menu", "", "goods")?.key, "food");
   assertEquals(menuItemFor("/dashboard/assistant/orders", "", "food")?.key, "food");
+});
+
+Deno.test("SMS a Telegram (2026-11-07): one item, two tabs, the old addresses forward with their query", () => {
+  const item = OWNER_MENU.find((m) => m.key === "sms_tg")!;
+  assertEquals(item.group, "account");
+  assertEquals(item.path, "/dashboard/sms-telegram");
+  assert(item.shop, "the page works on one shop");
+  assert(!OWNER_MENU.some((m) => (m.key as string) === "hours_sms"), "no separate hours item any more");
+  assertEquals(ITEM_TABS.smstg.map((t) => t.key), ["sms", "telegram"]);
+  assertEquals(tabHref("sk", "smstg", "sms", "davide"), "/sk/dashboard/sms-telegram?shop=davide&tab=sms");
+  assertEquals(tabHref("sk", "smstg", "telegram", "davide"), "/sk/dashboard/sms-telegram?shop=davide&tab=telegram");
+  assertEquals(smsTelegramTab(undefined), "sms");
+  assertEquals(smsTelegramTab("telegram"), "telegram");
+  assertEquals(smsTelegramTab("nonsense"), "sms");
+  // /dashboard/hours-sms?shop=x → /dashboard/sms-telegram?shop=x (the Google sign-in's ?ok= along)
+  const hours = new URL(hoursSmsForward("sk", { shop: "x" }), "https://x");
+  assertEquals(hours.pathname, "/sk/dashboard/sms-telegram");
+  assertEquals(hours.searchParams.get("shop"), "x");
+  assertEquals(hours.searchParams.get("tab"), "sms");
+  assertEquals(hours.hash, "#hours-sms");
+  const google = new URL(hoursSmsForward("hu", { shop: "x", ok: "google_connected", pick: "1", tab: "telegram" }), "https://x");
+  assertEquals(google.searchParams.get("ok"), "google_connected");
+  assertEquals(google.searchParams.get("pick"), "1");
+  assertEquals(google.searchParams.getAll("tab"), ["sms"], "always the SMS tab");
+  // /dashboard/ai#telegram → ?tab=telegram (a script: the anchor never reaches the server)
+  const script = telegramForwardScript("sk");
+  assert(script.startsWith("(function(){try{") && script.endsWith("}catch(e){}})();"));
+  assert(script.includes('"/sk/dashboard/sms-telegram"') && script.includes('q.set("tab","telegram")') && script.includes("#telegram"));
+});
+
+Deno.test("Súkromné priečinky a MCP keeps /dashboard/ai and its item", () => {
+  const item = OWNER_MENU.find((m) => m.key === "ai")!;
+  assertEquals(item.path, "/dashboard/ai");
+  assertEquals(menuItemFor("/dashboard/ai")?.key, "ai");
 });

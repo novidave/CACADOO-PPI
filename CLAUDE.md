@@ -193,11 +193,12 @@ AI asistent and Rezervácie their `PageHead`; each page = an outer `w-full` colu
 **Nothing that differs between tabs sits above the tabs** (messages after a save, plan boxes, banners, state strips,
 "Pozastaviť", filters, the kitchen board, SMS usage) and every tab passes the same badges. "SMS tento mesiac"
 (`@/components/SmsUsage`) only on CRM → Kontakty (right under the tabs, above "Nový kontakt", owner quota), CRM → Správy
-(under the tabs), a contact's Správy (under its own tabs) and Rezervácie → Nastavenia (booking quota) — plus Hodiny cez
-SMS, which has no tabs.
+(under the tabs), a contact's Správy (under its own tabs), Rezervácie → Nastavenia (booking quota) and SMS a Telegram →
+SMS (every quota of the shop, under the tabs; since 2026-11-07 in place of Hodiny cez SMS).
 e2e `e2e/owner-shell.spec.ts` (1180×820, 820×1180, 390×844; needs an owner login + `E2E_OWNER_SHOP`): the tab row's box
 identical (±0.5 px) on every tab of Rezervácie, Sklad (incl. Predaj, the Príjemka editor, a product card, Inventúra
-counting), Objednávky jedla, CRM and AI asistent; nothing tab-specific above it; SMS usage under the tabs on Kontakty;
+counting), Objednávky jedla, CRM, AI asistent and SMS a Telegram; nothing tab-specific above it; the menu names "SMS a
+Telegram" / "Súkromné priečinky a MCP" and their pages; SMS usage under the tabs on Kontakty;
 the menu open on Predaj, every icon's centre at 38 px, collapse keeps every icon's x/y (each item a 52 × 52 square
 12 px in) and survives a reload; the AI panel on the right keeps the tabs in place, Esc closes it; the menu button the
 same box open and closed, the panel under the top bar, Esc / outside / the button close it; the shop switcher closes
@@ -217,7 +218,24 @@ menu editor since update 80 and the menu check; `back=menu`) · Nastavenia (the 
 (`/dashboard/legal`) = Firma (company name, IČO, DIČ — moved out of Údaje obchodu, whose form now carries them hidden;
 `saveCompany` re-saves the shop's row with the new IČO) + Údaje pre vlastnú doménu (`shop_legal`, `saveOperator`, only the
 fields sent; the domain wizard still asks for missing ones) + the legal texts. Old `?at=` names: overview / conversations /
-cloud → CRM, docs → Dokumenty, private / folders → Súkromné priečinky.
+cloud → CRM, docs → Dokumenty, private / folders → Súkromné priečinky. **SMS a Telegram** (2026-11-07, at the owner's
+request: every SMS and Telegram setting on ONE page; the item `sms_tg`, `nav.sms_tg`, in "Účet a nastavenia" where
+"Otváracie hodiny cez SMS" was, icon a chat bubble + a paper plane) = `/dashboard/sms-telegram` with `ITEM_TABS.smstg`
+SMS (`?tab=sms`, the default) · Telegram (`?tab=telegram`): SMS = "SMS tento mesiac" (every quota: owner, booking and,
+for a restaurant taking orders, `order`) · "Otváracie hodiny cez SMS" (the whole old page, `sms-telegram/HoursSms.tsx`
++ `hoursActions.ts`) · "SMS pri rezerváciách" (MOVED from Rezervácie → Nastavenia: the reminder 2 h before / the day
+before from 18:00, the SMS when the owner moves or cancels, "Overovací kód SMS" always on — `smsActions.ts`
+`saveBookingSms` sends only those keys to update 89's `owner_save_crm_settings(shop, jsonb)`) · "SMS pri objednávkach
+jedla" (MOVED from Objednávky jedla → Nastavenia: `sms_on_the_way`, its hint and the order quota; `saveFoodSms` sends
+only that key); Telegram = everything of the old `/dashboard/ai#telegram` (`TelegramPart.tsx` + `telegramActions.ts`,
+the way back `?tab=telegram`). A setting MOVES, never on two screens: Rezervácie → Nastavenia keeps the calendar and the
+alert e-mail (`saveCrmSettings` sends only `alert_email`) with the line "… Nastavuje sa v SMS a Telegram"
+(`data-moved-sms`), Objednávky jedla → Nastavenia the same line. Old addresses: `/dashboard/hours-sms` forwards with its
+query (`hoursSmsForward`; the hours-sms function still returns the Google sign-in there — its `cleanReturnUrl`), and
+`/dashboard/ai#telegram` (the bot's links) or its old `?tg_ok=` / `?tg_err=` go on by `telegramForwardScript` (the
+anchor never reaches the server; a plain link line without JavaScript). **Súkromné priečinky a MCP** (`nav.ai`, still
+`/dashboard/ai`): a card "Súkromné priečinky" (one line + "Otvoriť súkromné priečinky" → AI asistent → Súkromné
+priečinky of the open shop), then the owner MCP part as before; no Telegram there.
 **L3 (one look):** every owner page uses `@/components/owner/ui` (`fieldClass` 52 px / radius 12 / 17 px, `buttonClass`
 black 52 px, `ghostClass`, `cardClass` 1 px #E4E4E4 / radius 16 / padding 18, `Toggle` = `.ppi-toggle` 56×32 checkbox,
 `Segmented`, `Chip`, `StatusDot`) and `@/components/owner/SaveBar` (sticky "Neuložené zmeny: n" · Zrušiť · Uložiť ≥ 180
@@ -396,7 +414,7 @@ asks for zones. Tests: DB block "update 87", `npm run test:food`, `test:function
 crm-messages e-mail), e2e `e2e/food-zones.spec.ts` (no zones → fee 0; two town zones → preselected, mismatch line,
 fixed → its fee, the feed's label; the zones deleted after) and `food.spec.ts`.
 
-## Objednávky jedla: the order feed (update 81, 2026-11-05)
+## Objednávky jedla: the order board (update 81, 2026-11-05; no feed since 2026-11-07)
 
 `supabase/sql/81_food_feed.sql` (design: canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 5a tablet, 5b
 Nastavenia, 5c phone, 5 = the kitchen board as the "Stĺpce" view). Every F1–F4 rule stays. **The parts a shop uses**
@@ -437,46 +455,49 @@ Donáška), then "Potvrdiť". Telegram (live with TODO 23's deploy): a restauran
 "Vypredané dnes" (`m:delay` → the delay now and the assistant's times, buttons `dl:<n>` with the current one marked;
 only the five values), texts `telegram.b_delay` / `delay_*` / `sum_delay*`; an order notice without a pay method reads
 as before. Tests: DB block "update 82", `test:functions` (telegram "Meškanie"), `test:telegram`.
-**The feed screen (F5b)** = Objednávky by default: `@/components/owner/FoodFeed` (client) + `@/lib/foodFeed` (pure
-rules, no imports; `foodFeed_test.ts` in `npm run test:food`: order and grouping, the labels "o n min" / "teraz" /
-"pred n min", the tags per part, the 30 % swipe, what a finish opens first, the steppers, `FEED_KEYS` in sk/hu/en) +
-`orders/feedActions.ts` (server actions; every write answers with `owner_food_feed` again, so the screen never guesses;
-"on the way" with `sms_on_the_way` sends that SMS) + `@/components/owner/FoodViewSwitch`. "Feed | Stĺpce" from 1024 px
-(the kitchen board of boards 11–13 = Stĺpce), per device: localStorage `ppi.food.view` / `?view=` → `<html
-data-food-view>` before the first paint (`FOOD_VIEW_BOOT`), CSS in globals.css; a phone shows only the feed (no phone
-filter list any more). The bar: Príprava / Donáška − n min + (steps of 5, saved after 0.5 s), Meškanie 0 · +10 · +20 ·
-+30 · +45 (one tap), the box "Asistent zákazníkom hovorí … · Synchronizované s asistentom" from `food_times` (now +
-minutes, the shop's time zone), "Pozastaviť príjem" (paused = the yellow card). Cards: arrival + "pred n min", number
-+ name (link to the order), "Nová" + 2 px black border while new, "Odber o … · o n min" / "Donáška do …" + address,
-items, note, total, the pay tag only with payments, the courier only with the courier app, "Vybavené" (≥ 44 px).
-**Swipe** (pointer events, `touch-action: pan-y`, never from a button / link / field): past 30 % of the width it flies
-out (0.23 s), else springs back; the pale green #E3F4EA "Vybavené" layer under it; with payments and no mark the
-payment choice opens first (only the methods on, cash with Presne + the quick amounts + the change, "Ukázať QR" to the
-order's page with the QR terminal), with the courier app and no courier "Prideliť" (assign + finish). "Vybavené dnes ·
-n": grey rows (time, number + name, pickup / address, "vybavené HH:MM" / "u kuriéra od", total, "Vrátiť"; cancelled =
-"Zrušená"), a swipe on a grey row (#E4E4E4 "Vrátiť" layer) reopens, "Zobraziť staršie (n)" (7 days). The toast
-"Objednávka #n vybavená · Späť" 5 s. While a finger is on a card the list waits (`held`); cards newer than the page
-slide in (`ppi-feed-in`); `prefers-reduced-motion`: no fly-out or slide-in. `FoodOrdersLive` draws the page again on a
-new order (with the sound) and on any change (`owner_food_tab().changed`). e2e `e2e/food-feed.spec.ts` (1180×820,
-390×844; a test restaurant: a short drag springs back, a swipe → the payment → grey, Späť → back, the delay → the box).
-**The remaining feed items (2026-11-05):** the bar is a container query (`@container`, `data-feed-bar`): ONE row from
-56 rem of its own width (the 1180 tablet with the menu as the rail: Príprava · Donáška · Meškanie · the "Asistent
-zákazníkom hovorí" box with "Pozastaviť príjem" in it — nothing tab-specific above the tabs), rows with the label left and
-the control right on a phone (artboard 5c; chips 44 px there). The payment dialog shows the order's PAY by square code
-itself (`feedOrderQr` in `orders/feedActions.ts` = `owner_food_order` + `payBySquareSvg`, drawn on the server once per
-open dialog; no IBAN / paid → "QR kód tu nie je…"; "QR na celú obrazovku" = the order's page). "Stĺpce": a card whose
-next step is a plain step (not picked up / delivered — those need the payment) follows the finger
-(`@/components/owner/BoardSwipe`, the feed's `swipeOutcome` 30 %) and past it sends the card's OWN step form
-(`requestSubmit`, the same step UUID); shorter springs back; the button stays. FoodHead no longer repeats the shop's
-name under the switcher.
+**Objednávky = the kitchen board, no feed (2026-11-07, at the owner's request; the feed of F5b, its "Feed | Stĺpce"
+switch, `FOOD_VIEW_BOOT`, localStorage `ppi.food.view`, `<html data-food-view>` and their CSS are gone; an old `?view=`
+forwards to the plain address):** `orders/page.tsx` reads `owner_food_feed` (its cards are whole orders) + `@/lib/foodFeed`
+(pure rules, no imports; `foodFeed_test.ts` in `npm run test:food`: the card order, the 30 % swipe, what a finish opens
+first, the steppers, `firstColumn`, `BOARD_KEYS` in sk/hu/en, that FoodFeed / FoodViewSwitch / the view CSS are gone) +
+`orders/feedActions.ts` (server actions; every write answers with `owner_food_feed` again; "on the way" with
+`sms_on_the_way` sends that SMS). **THE GREEN BAR** = `@/components/owner/FoodBar` (client), the FIRST block under the
+tabs, a container query (`@container`, `data-food-bar`): from 56 rem of its own width ONE row (the 1180 tablet with the
+menu as the rail) — the status dot + words · "Príprava" − n min + (5–120) · "Donáška" − n min + (10–180, only with
+Donáška; steps of 5, saved 0.5 s after the last tap through `setFeedTime` = `owner_food_save_settings` with that one
+field) · "Meškanie" 0 · +10 · +20 · +30 · +45 (`aria-pressed`, one tap, `owner_food_set_delay`) · the box "Asistent
+zákazníkom hovorí: odber o 18:40 · donáška do 19:10" (`food_times` + now in the shop's time zone, "Synchronizované s
+asistentom", the long-delay line) · "Uzavrieť objednávky" (`setFeedPaused` = `owner_food_pause`); narrower: rows with
+the label left and the control right (chips 44 px), the button full width last. Paused = yellow #FFF6D6 / the #F2B705
+dot, "Objednávky sú uzavreté" + "Otvoriť objednávky"; closed by the hours / the cutoff / the SMS quota = grey with the
+state's words, the times and the delay still editable; off = the off card (no bar). After every answer the page is drawn
+again (`router.refresh`). **The board**: from 1024 px four columns — Nové · V príprave · Na ceste / na odber (ready, on
+the way — with the courier app SQL counts an order on the way as done, the board still shows it here) · Doručené (today's
+totals, the finished cards grey with "Vrátiť" = `owner_food_order_reopen`, the same day only, `too_late`; cancelled =
+"Zrušená"; "Zobraziť staršie (n)" = the last 7 days); the cards in `feed_order` (Nastavenia "Poradie objednávok":
+newest / oldest on top). Below 1024 px one column at a time: a segmented row "Nové n · V príprave n · Na ceste n ·
+Doručené n" of real radio inputs (44 px; Nové first, when Nové is empty the next column with orders — `firstColumn`,
+`?col=` picks one), CSS only (`[data-food-board-wrap]:has(...)` in globals.css), so it works without JavaScript. Each
+card's plain step is its own form with its own step UUID (`BoardSwipe`: past 30 % a swipe sends the same form, shorter
+springs back); "Vyzdvihnuté" / "Doručené" = `@/components/owner/FoodFinish` `FinishButton`: what the finish needs first
+(`finishNeeds`: "Prideliť" with the courier app and no courier, else the payment choice while Platby are on and the
+order is unpaid — only the methods on, cash with Presne + the quick amounts + the change, QR with the order's PAY by
+square code drawn on the server by `feedOrderQr`, "QR na celú obrazovku" = the order's page) → `food_order_finish` (ONE
+transaction); `BoardToast` "Objednávka #n vybavená · Späť" 5 s (Späť = reopen). The card shows the delivery zone's label
+(`data-food-zone`). `FoodOrdersLive` draws the page again on a new order (with the sound) and on any change
+(`owner_food_tab().changed`). e2e `e2e/food-board.spec.ts` (1180×820, 390×844; a test restaurant: the bar on one row /
+in rows, a delay tap changes the assistant's line, Uzavrieť → yellow → Otvoriť, a card through its steps and the
+payment dialog to Doručené, Vrátiť, the phone's segmented columns, no sideways scroll; "Len objednávky": no Kuriéri tab,
+finished without a payment step).
 **Nastavenia + the assistant's times (F5c):** Objednávky jedla → Nastavenia starts with "Čo používate"
 (`@/components/owner/FoodSettingsParts` `FoodPartsCard`: Donáška · Aplikácia kuriéra · Platby v Cacaduu · Pokladňa · QR
-terminál, each with its line; "Len feed" / "Zapnúť všetko"; Aplikácia kuriéra greyed without Donáška, QR terminál
-without Platby — `saveFoodSettings` sends a greyed switch not at all, so its own choice stays; the status line "Len feed
-objednávok" / "… · s donáškou" / "Zapnuté n z 5" = `partsSummary`), "Časy pre asistenta" (`FoodTimesCard`: Príprava jedla
+terminál, each with its line; "Len objednávky" / "Zapnúť všetko"; Aplikácia kuriéra greyed without Donáška, QR terminál
+without Platby — `saveFoodSettings` sends a greyed switch not at all, so its own choice stays; the status line "Len
+tabuľa objednávok" / "… · s donáškou" / "Zapnuté n z 5" = `partsSummary`), "Časy pre asistenta" (`FoodTimesCard`: Príprava jedla
 5–120, Čas donášky 10–180 only with Donáška, − / + steps of 5 as real number fields, "Vynulovať meškanie" close /
-midnight / never, the long-delay switch, the assistant's sentence as a live preview) and "Feed" (Najnovšie / Najstaršie
-hore); the cards below as before — Donáška and the zones only with Donáška, the payment methods only with Platby (live:
+midnight / never, the long-delay switch, the assistant's sentence as a live preview) and "Poradie objednávok" (Najnovšie /
+Najstaršie hore in the board's columns); "Objednávka je na ceste" is NOT here since 2026-11-07 (a link line to "SMS a
+Telegram", whose form sends only `sms_on_the_way`; `saveFoodSettings` never sends it); the cards below as before — Donáška and the zones only with Donáška, the payment methods only with Platby (live:
 `[data-needs-delivery]` / `[data-needs-payments]` hidden by CSS `:has()`) — and the SaveBar (texts `food.mod_*`).
 Switched off = hidden: without the courier app no Kuriéri tab (`FoodHead couriers`, from `owner_food_tab().parts`);
 without Platby no pay chip on the board, no payment section, step or QR on an order's page (finishing needs no mark),
@@ -484,8 +505,8 @@ no method in the owner's e-mail (crm-messages); without the QR terminal no "Uká
 `food_menu` / `food_quote` results): the times from `food_state` (`ready_pickup_min` / `ready_delivery_min`, never its own
 estimate), a long delay said BEFORE the order, never a payment choice (update 85), without Donáška only pickup; the order
 panel shows the same minutes and, with a long delay, "Teraz čakáme dlhšie …" (`chat.order_long_wait*`). e2e
-`food-feed.spec.ts` "Len feed" (both sizes): the Kuriéri tab and the pay tags go, finished without a payment step; the
-shop's own switches restored after.
+`food-board.spec.ts` "Len objednávky" (both sizes): the Kuriéri tab goes, finished without a payment step; the shop's
+own switches restored after.
 
 ## Shop page "Screen 11" (2026-10-31, at the owner's request)
 
@@ -945,8 +966,8 @@ every SMS in the log except `failed` (queued, sent and test count), in the **sho
 `booking_sms_claim()` (queued, code masked "••••••", `sms_quota` → the time is released, 429) → send →
 `booking_sms_settle()` once. At the booking limit `shop_takes_bookings()` offers nothing, `booking_resend()` refuses
 (old code kept) and `booking_reminders_due()` waits. Owners see "SMS tento mesiac" (`owner_sms_usage()`, members) on
-Kontakty, the contact's Správy (owner quota) and Rezervácie → Nastavenia (booking quota) + a banner when bookings
-pause. Providers by `SMS_PROVIDER`: unset/`test` (written down, never sent), `brevo` (POST
+Kontakty, the contact's Správy (owner quota), Rezervácie → Nastavenia (booking quota) and SMS a Telegram → SMS (every
+quota) + a banner when bookings pause. Providers by `SMS_PROVIDER`: unset/`test` (written down, never sent), `brevo` (POST
 `https://api.brevo.com/v3/transactionalSMS/send`, `BREVO_API_KEY`, `type: transactional`, `unicodeEnabled` only for
 non-GSM text, 402 = no credits), `twilio` (`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` or
 `TWILIO_MESSAGING_SERVICE_SID`), `infobip` (2026-11-05, TODO 33: POST `<INFOBIP_BASE_URL>/sms/3/messages` — only an
@@ -982,7 +1003,8 @@ or test owner message to that contact marks its waiting conversations answered (
 ## Opening hours by SMS (paid, update 60, CRM phase 6)
 
 `supabase/sql/60_hours_sms.sql` + `supabase/functions/hours-sms` (one file, Verify JWT off; `index_test.ts`) +
-`dashboard/hours-sms` ("Hodiny cez SMS": `page.tsx`, `actions.ts`; menu after Rezervácie, a link in "Sviatky"). An SMS
+"SMS a Telegram" → SMS → "Otváracie hodiny cez SMS" (`dashboard/sms-telegram/HoursSms.tsx`, `hoursActions.ts`; since
+2026-11-07 — `/dashboard/hours-sms` forwards there with its query; a link in "Sviatky"). An SMS
 **changes only opening hours** — never prices, stock, messages or anything else. **Only from an owner's verified phone**
 (`shop_owner_phones`, one per shop and number, E.164 by `crm_phone`): the code comes only from the function
 (`hours_phone_start`, service role, the caller's login + member + `shop_has_plan`; 6 digits from `booking_new_code()`,
@@ -1020,7 +1042,7 @@ SMS texts, codes or tokens. Texts `hours_sms`.
 `supabase/sql/61_owner_mcp.sql` + `src/app/mcp/owner/route.ts` + `@/lib/ownerMcp` (server) / `@/lib/ownerMcpRules` (shared,
 `ownerMcpRules_test.ts`, `npm run test:mcp`) + `/.well-known/oauth-protected-resource[/mcp/owner]`,
 `/.well-known/oauth-authorization-server`, `/api/oauth/{register,authorize,token,revoke}` + the consent page
-`/[lang]/oauth/authorize` + `dashboard/ai` ("AI asistenti": address, how to connect Claude / ChatGPT / Gemini / Grok,
+`/[lang]/oauth/authorize` + `dashboard/ai` ("Súkromné priečinky a MCP" since 2026-11-07, "AI asistenti" before: address, how to connect Claude / ChatGPT / Gemini / Grok,
 connected grants with "Odpojiť", personal keys via `@/components/McpKeyForm`) + crm-messages `mcp_send`. **The shopper
 MCP (`/mcp`) is unchanged.** Access: OAuth 2.1 — dynamic client registration (public clients, redirect https or
 http://localhost only, 10/caller/hour), code + PKCE **S256 only**, code once (a second use revokes its grant), access
@@ -1064,7 +1086,9 @@ conversation (role owner; in the PDF, TXT and CSV); one `sms_codes` table (conta
 hash only, 10 min, 5 tries, 3/number/hour, 10/caller/hour — since update 85 a code whose SMS failed at the provider
 does not count (`sms_codes.message_id` → its message's status; `sms_codes_counted()`), and the limit reached while
 the number's last SMS failed answers `sms_failed`, not `too_many`); templates for SMS and/or e-mail with {meno} {obchod}
-{produkt} {datum} {cas}; `crm_settings` (reminders, alert address, the customer's SMS when the owner moves or cancels);
+{produkt} {datum} {cas}; `crm_settings` (reminders, alert address, the customer's SMS when the owner moves or cancels;
+since update 89 saved key by key — `owner_save_crm_settings(shop, settings jsonb)` changes only the keys it gets, the SMS
+switches on "SMS a Telegram", the alert e-mail on Rezervácie → Nastavenia; update 63's five-argument function stays);
 conversations are kept until the owner deletes them (no keep-time choice). The shop assistant books **only for a
 contact verified with the page's own SMS code field** (the AI never sees the code); "Vymazať moje údaje" = "Všetko o
 mne" + a verified code → every conversation of that number forgotten. A read-only calendar feed per shop
@@ -1080,8 +1104,9 @@ move / cancel answer before → after until `confirm: true`) in `owner_mcp_call(
 
 ## Telegram bot for owners (Pro, update 66, phase T1)
 
-`supabase/sql/66_telegram.sql` + `supabase/functions/telegram` (one file, Verify JWT off; `index_test.ts`) + `dashboard/ai`
-section `#telegram` (`@/components/TelegramLinkForm`, actions `startTelegramLink` / `saveTelegramConsent` /
+`supabase/sql/66_telegram.sql` + `supabase/functions/telegram` (one file, Verify JWT off; `index_test.ts`) + "SMS a
+Telegram" → Telegram (`dashboard/sms-telegram?tab=telegram`, `TelegramPart.tsx` + `telegramActions.ts`; the old
+`/dashboard/ai#telegram` forwards there, 2026-11-07) (`@/components/TelegramLinkForm`, actions `startTelegramLink` / `saveTelegramConsent` /
 `unlinkTelegram`, `@/lib/telegram`) + admin `TelegramAdmin.tsx`. **The bot is another client of the owner MCP's one door
 — never a second write path:** linking = a one-time code (`owner_telegram_link_start()`: `tg` + 40 hex, hash only, 10
 minutes, once, ≤ 5/hour) in `t.me/<TELEGRAM_BOT_USERNAME>?start=<code>` (button + QR code, `qrcode` on the server) →

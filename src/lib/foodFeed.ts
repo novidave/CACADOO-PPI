@@ -1,7 +1,8 @@
 /**
- * The order feed of Objednávky jedla (database update 81): the pure rules the feed screen draws with — the order and
- * the grouping of the cards, the time labels ("o 20 min", "teraz", "pred 5 min"), which tags a card shows for the
- * parts a shop uses, the swipe threshold, what a finish needs first, the steppers and the "Čo používate" summary.
+ * Objednávky jedla (database update 81; since 2026-11-07 the kitchen board is the only view — no feed): the pure rules
+ * the board and its green bar draw with — the order and the grouping of the cards, the time labels, which tags a card
+ * shows for the parts a shop uses, the swipe threshold, what a finish needs first, the steppers, the phone's first
+ * column and the "Čo používate" summary.
  * No imports (the Deno tests read it). Every decision about an order stays in SQL (owner_food_feed, food_order_finish,
  * food_order_reopen, food_times); this file only draws what they return.
  */
@@ -91,37 +92,6 @@ export function sortDone<T extends Pick<FeedOrder, "done_at" | "number">>(list: 
   return [...list].sort((a, b) => time(b.done_at) - time(a.done_at) || b.number - a.number);
 }
 
-/** Active (no done_at) and done (finished, handed to the courier, cancelled), each in its own order. */
-export function splitFeed<T extends FeedOrder>(list: T[], order: "newest" | "oldest"): { active: T[]; done: T[] } {
-  return { active: sortActive(list.filter((o) => !o.done_at), order), done: sortDone(list.filter((o) => Boolean(o.done_at))) };
-}
-
-/** "o 20 min" until the order should be ready, or "teraz" once that time came. */
-export function dueLabel(readyBy: string, now: number): { kind: "in"; n: number } | { kind: "now" } {
-  const ms = time(readyBy) - now;
-  if (!Number.isFinite(ms) || ms <= 0) return { kind: "now" };
-  return { kind: "in", n: Math.ceil(ms / 60_000) };
-}
-
-/** "pred 5 min" since the order came, or "teraz" in its first minute. */
-export function agoLabel(createdAt: string, now: number): { kind: "ago"; n: number } | { kind: "now" } {
-  const ms = now - time(createdAt);
-  if (!Number.isFinite(ms) || ms < 60_000) return { kind: "now" };
-  return { kind: "ago", n: Math.floor(ms / 60_000) };
-}
-
-/**
- * Which tags a card shows: the payment only with "Platby v Cacaduu", the courier's name only with the courier app,
- * the address only for a delivery that has one.
- */
-export function cardTags(o: Pick<FeedOrder, "kind" | "address" | "courier_name" | "pay_method">, parts: Pick<FeedParts, "payments" | "courier_app">) {
-  return {
-    pay: parts.payments && o.pay_method !== null,
-    courier: parts.courier_app && Boolean(o.courier_name),
-    address: o.kind === "delivery" && Boolean(o.address),
-  };
-}
-
 /**
  * What "Vybavené" opens first: the courier ("Prideliť") when the order goes on the way without one, else the payment
  * choice while the shop takes payments and the order has no payment mark yet; null = it finishes at once.
@@ -155,11 +125,6 @@ export function stepMinutes(value: number, delta: number, range: { min: number; 
   return Math.min(range.max, Math.max(range.min, next));
 }
 
-/** The cards that were not there before (they slide in, with the sound for new orders). */
-export function freshIds(seen: ReadonlySet<string>, list: Pick<FeedOrder, "id">[]): string[] {
-  return list.filter((o) => !seen.has(o.id)).map((o) => o.id);
-}
-
 /**
  * "Čo používate" in one line: only the feed ("Len feed objednávok"), the feed with delivery only, or "Zapnuté n z 5".
  */
@@ -169,27 +134,35 @@ export function partsSummary(parts: FeedParts): { kind: "feed_only" } | { kind: 
   return { kind: "some", n: parts.on };
 }
 
-/** The texts the feed screen needs (the page picks them from the message files' `food` namespace). */
-export const FEED_KEYS = [
-  "feed_prep", "feed_delivery", "feed_delay", "feed_minutes", "feed_less", "feed_more", "feed_delay_chip", "feed_says",
-  "feed_says_pickup", "feed_says_delivery", "feed_says_long", "feed_synced", "feed_paused_title", "feed_paused_text",
-  "feed_pause", "feed_resume", "feed_active", "feed_hint", "feed_finish", "feed_finish_label", "feed_new", "feed_pickup_at",
-  "feed_delivery_by", "feed_in", "feed_now", "feed_ago", "feed_note", "feed_courier", "feed_not_paid", "feed_empty_title",
-  "feed_empty_text", "feed_done_today", "feed_done_hint", "feed_reopen", "feed_reopen_label", "feed_done_at",
+/**
+ * The texts the board's client parts need (the green bar, the finish / payment / courier dialogs, Vrátiť, the toast,
+ * the older orders); the page picks them from the message files' `food` namespace (2026-11-07: the feed is gone).
+ */
+export const BOARD_KEYS = [
+  "bar_label", "bar_says", "bar_says_pickup", "bar_says_delivery", "bar_close", "bar_open", "bar_closed_title",
+  "feed_prep", "feed_delivery", "feed_delay", "feed_minutes", "feed_less", "feed_more", "feed_delay_chip",
+  "feed_says_long", "feed_synced", "feed_paused_text", "feed_reopen", "feed_reopen_label", "feed_done_at",
   "feed_on_way_at", "feed_cancelled", "feed_older", "feed_older_title", "feed_pickup_short", "feed_delivery_short",
   "feed_toast_done", "feed_toast_on_way", "feed_toast_back", "feed_undo", "feed_pay_title", "feed_pay_finish",
-  "feed_show_qr", "feed_qr_loading", "feed_qr_none", "feed_qr_line", "feed_qr_alt", "feed_qr_full", "feed_assign_title", "feed_assign_finish", "feed_no_couriers", "feed_close", "feed_saved", "feed_failed",
+  "feed_show_qr", "feed_qr_loading", "feed_qr_none", "feed_qr_line", "feed_qr_alt", "feed_qr_full", "feed_assign_title",
+  "feed_assign_finish", "feed_no_couriers", "feed_close", "feed_saved", "feed_failed",
   "pay_qr", "pay_cash", "pay_card", "paid_short", "cash_title", "cash_exact", "cash_other", "cash_change", "cash_hint",
   "accepting", "not_accepting_off", "not_accepting_paused", "not_accepting_closed", "not_accepting_cutoff",
   "not_accepting_sms_quota", "ok_sms", "err_sms_failed", "err_failed", "err_step", "err_not_paid", "err_cash",
   "err_already_paid", "err_pay_method", "err_no_plan", "err_not_found", "err_conflict", "err_courier", "err_courier_app",
   "err_too_late", "err_delay", "err_settings", "detail",
 ] as const;
-export type FeedLabels = Record<(typeof FEED_KEYS)[number], string>;
+export type BoardLabelsOf = Record<(typeof BOARD_KEYS)[number], string>;
 
-/** "Feed | Stĺpce" per device (localStorage); the page sets <html data-food-view> with this before the first paint. */
-export const FOOD_VIEW_KEY = "ppi.food.view";
-export const FOOD_VIEW_BOOT = `(function(){try{var q=new URLSearchParams(location.search).get('view');var v=q==='columns'||q==='feed'?q:null;if(v){localStorage.setItem('${FOOD_VIEW_KEY}',v)}else{v=localStorage.getItem('${FOOD_VIEW_KEY}')}if(v==='columns'||v==='feed'){document.documentElement.setAttribute('data-food-view',v)}}catch(e){}})();`;
+/**
+ * The kitchen board on a phone or a tablet (< 1024 px): one column at a time. The segmented row starts on Nové; when
+ * Nové is empty, on the next column that has orders (else Nové).
+ */
+export type BoardColumn = "new" | "preparing" | "on_the_way" | "done";
+export const BOARD_COLUMNS: BoardColumn[] = ["new", "preparing", "on_the_way", "done"];
+export function firstColumn(counts: Record<BoardColumn, number>): BoardColumn {
+  return BOARD_COLUMNS.find((c) => counts[c] > 0) ?? "new";
+}
 
-/** The moment the server drew the page (the feed's first labels use it, so the first paint matches the server's). */
+/** The moment the server drew the page (the bar's first labels use it, so the first paint matches the server's). */
 export const drawnAt = () => Date.now();

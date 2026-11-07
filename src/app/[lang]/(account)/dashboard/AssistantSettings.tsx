@@ -150,33 +150,10 @@ export function AssistantSettings({
           {/* Automatické správy */}
           {show("messages") && (
 <section id="messages" className={card} data-settings-part="messages">
-            <h2 className="text-[17px] font-bold">{a.auto_title}</h2>
+            <h2 className="text-[17px] font-bold">{a.auto_alert_title}</h2>
             {notice("messages")}
-            <div className="flex items-center justify-between gap-3 text-[15px]">
-              <span>
-                {a.auto_code}
-                <br />
-                <span className="text-[13px] text-muted">{a.auto_code_hint}</span>
-              </span>
-              <input type="checkbox" checked disabled aria-label={a.auto_code} className={toggle} />
-            </div>
             <form action={saveCrmSettings} className="flex flex-col gap-3">
               {hidden({ part: "messages" })}
-              <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
-                {a.auto_reminder}
-                <input type="checkbox" name="reminder_on" defaultChecked={setup.crm.reminder_on} disabled={ro} className={toggle} />
-              </label>
-              <label className="flex flex-col gap-1 text-[13px] text-muted">
-                {a.auto_when}
-                <select name="reminder_offset" defaultValue={setup.crm.reminder_offset} disabled={ro} className={`${inputClass} min-h-11 bg-white text-[15px] text-foreground`}>
-                  <option value="2h">{a.auto_2h}</option>
-                  <option value="day_before_18">{a.auto_day_before}</option>
-                </select>
-              </label>
-              <label className="flex min-h-14 items-center justify-between gap-3 text-[15px] font-semibold">
-                {a.auto_owner_change}
-                <input type="checkbox" name="notify_on_owner_change" defaultChecked={setup.crm.notify_on_owner_change} disabled={ro} className={toggle} />
-              </label>
               <label className="flex flex-col gap-1 text-[15px]">
                 {a.auto_alert_email}
                 <input type="email" name="alert_email" maxLength={254} defaultValue={setup.crm.alert_email ?? ""} placeholder={a.auto_alert_placeholder} disabled={ro} className={inputClass} />
@@ -184,6 +161,13 @@ export function AssistantSettings({
               </label>
               {planActive && <PendingButton pending={dict.owner.saving}>{dict.account.save}</PendingButton>}
             </form>
+            {/* 2026-11-07: the booking SMS (reminder, a move or cancel, the code) moved to "SMS a Telegram" */}
+            <p className="text-sm text-muted" data-moved-sms>
+              {a.auto_sms_moved}{" "}
+              <Link href={`/${lang}/dashboard/sms-telegram?${new URLSearchParams({ shop: shop.slug, tab: "sms" })}#booking-sms`} className="font-semibold underline underline-offset-4">
+                {dict.smstg.moved_link}
+              </Link>
+            </p>
           </section>
 )}
 

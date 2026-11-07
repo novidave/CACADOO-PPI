@@ -17033,4 +17033,69 @@ reset role;
 reset request.jwt.claim.sub;
 delete from public.shops where slug = 'farby-ignore';
 
+\echo '--- update 89: crm settings saved key by key — the booking SMS switches (SMS a Telegram) never touch the alert e-mail (Rezervácie) and back; members only'
+do $$
+declare
+  v_shop uuid;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'crm-keys', 'CRM Keys', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+  values (v_shop, 'active', 'pro', now() + interval '20 days', 'sub_test_crm_keys');
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'crm-keys');
+  v_before timestamptz;
+begin
+  -- the alert e-mail alone (Rezervácie → Nastavenia): the defaults stay
+  perform public.owner_save_crm_settings(v_shop, '{"alert_email": "Alerts@Example.invalid"}'::jsonb);
+  assert (select alert_email = 'alerts@example.invalid' and not reminder_on and reminder_offset = 'day_before_18'
+                 and notify_on_owner_change from public.crm_settings where shop_id = v_shop), 'e-mail alone';
+  -- the SMS switches alone (SMS a Telegram): the e-mail stays
+  perform public.owner_save_crm_settings(v_shop,
+    '{"reminder_on": true, "reminder_offset": "2h", "notify_on_owner_change": false}'::jsonb);
+  assert (select alert_email = 'alerts@example.invalid' and reminder_on and reminder_offset = '2h'
+                 and not notify_on_owner_change from public.crm_settings where shop_id = v_shop), 'switches alone';
+  -- the e-mail cleared alone: the switches stay
+  perform public.owner_save_crm_settings(v_shop, '{"alert_email": ""}'::jsonb);
+  assert (select alert_email is null and reminder_on and reminder_offset = '2h' and not notify_on_owner_change
+          from public.crm_settings where shop_id = v_shop), 'e-mail cleared alone';
+  -- unknown keys and an empty object change nothing (and log nothing)
+  select updated_at into v_before from public.crm_settings where shop_id = v_shop;
+  perform public.owner_save_crm_settings(v_shop, '{"something": 1}'::jsonb);
+  assert (select updated_at = v_before from public.crm_settings where shop_id = v_shop), 'nothing given';
+  -- the checks as before
+  begin perform public.owner_save_crm_settings(v_shop, '{"reminder_offset": "3h"}'::jsonb); raise exception 'offset';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.owner_save_crm_settings(v_shop, '{"alert_email": "nope"}'::jsonb); raise exception 'email';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.owner_save_crm_settings(v_shop, '{"reminder_on": "yes"}'::jsonb); raise exception 'not a boolean';
+  exception when invalid_parameter_value then null; end;
+  assert (select count(*) from public.shop_activity where shop_id = v_shop and action = 'crm_settings_saved') = 3;
+end $$;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  perform public.owner_save_crm_settings((select id from public.shops where slug = 'crm-keys'), '{"reminder_on": true}'::jsonb);
+  raise exception 'another owner saved';
+exception when insufficient_privilege then null;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$
+begin
+  perform public.owner_save_crm_settings((select id from public.shops where slug = 'crm-keys'), '{"reminder_on": true}'::jsonb);
+  raise exception 'a visitor saved';
+exception when insufficient_privilege then null;
+end $$;
+reset role;
+delete from public.shops where slug = 'crm-keys';
+
 \echo 'ALL DATABASE CHECKS PASSED'

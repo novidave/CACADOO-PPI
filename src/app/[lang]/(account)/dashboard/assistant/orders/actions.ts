@@ -125,19 +125,9 @@ export async function orderSms(formData: FormData) {
   page(res ? { err: res } : { ok: "ok_sms" });
 }
 
-/** "Pozastaviť objednávky" / "Spustiť": the assistant stops (or starts) offering orders at once. */
-export async function pauseOrders(formData: FormData) {
-  const { session, shopId, slug, page } = await start(formData);
-  const paused = formData.get("paused") === "1";
-  const { error } = await session.supabase.rpc("owner_food_pause", { p_shop_id: shopId, p_paused: paused });
-  if (error) page({ err: reason(error.message) });
-  if (slug) refreshShop(slug);
-  page({ ok: paused ? "ok_paused" : "ok_resumed" });
-}
-
 const BOOLEANS = [
   "enabled", "pickup_on", "delivery_on", "pay_qr", "pay_cash", "pay_card", "deduct_on_delivery", "alert_sound",
-  "alert_email", "alert_telegram", "sms_on_the_way", "payments_on", "warn_long_delay",
+  "alert_email", "alert_telegram", "payments_on", "warn_long_delay",
 ] as const;
 const NUMBERS = { prep_minutes: [5, 240], delivery_minutes: [10, 300], last_order_minutes: [0, 240] } as const;
 const CHOICES = { delay_reset: ["close", "midnight", "never"], feed_order: ["newest", "oldest"] } as const;
@@ -145,7 +135,9 @@ const CHOICES = { delay_reset: ["close", "midnight", "never"], feed_order: ["new
 /**
  * "Uložiť" on Nastavenia objednávok: every switch on the form (an unticked box = off), the times and the two choices.
  * Update 81: Aplikácia kuriéra is sent only while Donáška is on and QR terminál only while Platby are on — a greyed
- * switch keeps its own choice for later (switched off = not used, nothing changed).
+ * switch keeps its own choice for later (switched off = not used, nothing changed). "Objednávka je na ceste" is NOT on
+ * this form since 2026-11-07 (it is set on "SMS a Telegram"), so it is never sent from here: owner_food_save_settings
+ * changes only the keys it gets.
  */
 export async function saveFoodSettings(formData: FormData) {
   const { session, shopId, slug, page } = await start(formData);

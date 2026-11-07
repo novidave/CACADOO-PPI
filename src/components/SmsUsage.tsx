@@ -14,15 +14,19 @@ export function SmsUsage({
   timeZone,
   dict,
   only,
+  order,
 }: {
   usage: Usage;
   lang: Locale;
   timeZone: string;
   dict: Dictionary;
   only?: "booking" | "owner";
+  /** A restaurant taking orders: the food orders' own monthly quota (update 73, the codes and "na ceste" SMS). */
+  order?: SmsQuota | null;
 }) {
   const s = dict.sms_usage;
-  const row = (key: "booking" | "owner", label: string, q: SmsQuota) => {
+  const fullText = { booking: s.full_booking, owner: s.full_owner, order: s.full_order };
+  const row = (key: "booking" | "owner" | "order", label: string, q: SmsQuota) => {
     const full = quotaLeft(q) === 0;
     const width = q.limit > 0 ? Math.min(100, Math.round((q.used / q.limit) * 100)) : 100;
     return (
@@ -34,7 +38,7 @@ export function SmsUsage({
         <span className="h-1.5 w-full overflow-hidden rounded bg-line" aria-hidden="true">
           <span className="block h-full bg-foreground" style={{ width: `${width}%` }} />
         </span>
-        {full && <span className="text-xs font-semibold">{key === "booking" ? s.full_booking : s.full_owner}</span>}
+        {full && <span className="text-xs font-semibold">{fullText[key]}</span>}
       </li>
     );
   };
@@ -46,6 +50,7 @@ export function SmsUsage({
       <ul className="flex flex-col gap-3">
         {only !== "owner" && row("booking", s.booking, usage.booking)}
         {only !== "booking" && row("owner", s.owner, usage.owner)}
+        {!only && order && row("order", s.order, order)}
       </ul>
       <p className="text-xs text-muted">
         {t(s.resets, { date: formatDate(usage.resets_at, lang, timeZone) })} {s.parts_hint}

@@ -20,9 +20,10 @@ export const NAV_ICONS: Record<MenuKey | "signout" | "menu" | "close" | "open" |
   plan: "M5 6h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM3 10h18",
   legal: "M6 3h9l4 4v14H6zM9 12h7M9 16h7",
   password: "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM8 11V8a4 4 0 0 1 8 0v3",
-  hours_sms: "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 7v5l3 2",
-  // not on the canvas: the AI assistants and Telegram (a paper plane), the admin pages (a shield)
-  ai: "M22 2L11 13M22 2l-7 20-4-9-9-4z",
+  // a chat bubble and a paper plane (SMS a Telegram)
+  sms_tg: "M4 5h11a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM22 9l-3 11-3-4M22 9l-6 7M22 9l-7 2",
+  // not on the canvas: "Súkromné priečinky a MCP" (a folder with a key), the admin pages (a shield)
+  ai: "M3 6h6l2 2h10v11H3zM13 14.5a1.8 1.8 0 1 0-3.6 0a1.8 1.8 0 1 0 3.6 0M13 14.5h4.5M16 14.5v2",
   // the AI pomocník (a speech bubble with a spark)
   pomocnik: "M4 5h16v11H9l-5 4zM12 7.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z",
   plus: "M12 5v14M5 12h14",

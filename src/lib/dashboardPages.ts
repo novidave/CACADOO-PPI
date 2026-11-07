@@ -68,6 +68,11 @@ export const ITEM_TABS = {
     { key: "documents", path: "/dashboard/assistant/documents" },
     { key: "folders", path: "/dashboard/assistant/folders" },
   ],
+  // 2026-11-07: every SMS and Telegram setting on one page (was "Otváracie hodiny cez SMS" and AI asistenti's Telegram)
+  smstg: [
+    { key: "sms", path: "/dashboard/sms-telegram", query: { tab: "sms" } },
+    { key: "telegram", path: "/dashboard/sms-telegram", query: { tab: "telegram" } },
+  ],
 } satisfies Record<string, ItemTab[]>;
 export type TabbedItem = keyof typeof ITEM_TABS;
 
@@ -210,7 +215,7 @@ export type MenuKey =
   | "plan"
   | "legal"
   | "password"
-  | "hours_sms"
+  | "sms_tg"
   | "ai"
   | "admin";
 
@@ -264,7 +269,14 @@ export const OWNER_MENU: MenuItem[] = [
   { key: "plan", group: "account", path: "/dashboard/plan", owns: [{ path: "/dashboard/plan" }], shop: true },
   { key: "legal", group: "account", path: "/dashboard/legal", owns: [{ path: "/dashboard/legal" }], shop: true },
   { key: "password", group: "account", path: "/password", owns: [{ path: "/password" }], shop: false },
-  { key: "hours_sms", group: "account", path: "/dashboard/hours-sms", owns: [{ path: "/dashboard/hours-sms" }], shop: true },
+  // 2026-11-07: "SMS a Telegram" (was "Otváracie hodiny cez SMS"; the old address forwards here with its query)
+  {
+    key: "sms_tg",
+    group: "account",
+    path: "/dashboard/sms-telegram",
+    owns: [{ path: "/dashboard/sms-telegram" }, { path: "/dashboard/hours-sms" }],
+    shop: true,
+  },
   { key: "ai", group: "account", path: "/dashboard/ai", owns: [{ path: "/dashboard/ai" }], shop: false },
   // the admin area (2026-11-05): its own shell and menu (@/lib/adminPages); here only the way in, for is_admin
   { key: "admin", group: "account", path: "/admin", owns: [{ path: "/admin" }], shop: false, admin: true },
@@ -335,6 +347,35 @@ export function menuHref(item: MenuItem, lang: string, shop: string | null, kind
   const query = new URLSearchParams({ ...(item.shop && shop ? { shop } : {}), ...(itemQueryFor(item, kind) ?? {}) });
   const q = query.toString();
   return `/${lang}${item.path}${q ? `?${q}` : ""}`;
+}
+
+/** "SMS a Telegram"'s tab from ?tab= (anything else = SMS, the first tab). */
+export function smsTelegramTab(tab: string | undefined): "sms" | "telegram" {
+  return tab === "telegram" ? "telegram" : "sms";
+}
+
+/**
+ * The old "Otváracie hodiny cez SMS" address on "SMS a Telegram" (2026-11-07): every query parameter kept (?shop=, the
+ * Google sign-in's ?ok= / ?err=, ?pick=, ?verify=), the SMS tab, the hours' anchor.
+ */
+export function hoursSmsForward(lang: string, sp: Record<string, string | string[] | undefined>): string {
+  const query = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (k === "tab") continue;
+    for (const one of [v].flat()) if (typeof one === "string") query.append(k, one);
+  }
+  query.set("tab", "sms");
+  return `/${lang}/dashboard/sms-telegram?${query}#hours-sms`;
+}
+
+/**
+ * The Telegram part that left "AI asistenti" (2026-11-07): `/dashboard/ai#telegram` (the bot's own links) and the old
+ * forms' `?tg_ok=` / `?tg_err=` land on "SMS a Telegram" → Telegram. The anchor never reaches the server, so the page
+ * carries this tiny script (its query along); without JavaScript a plain link line says where Telegram went.
+ */
+export function telegramForwardScript(lang: string): string {
+  const target = JSON.stringify(`/${lang}/dashboard/sms-telegram`);
+  return `(function(){try{var l=location;var q=new URLSearchParams(l.search);if(l.hash!=="#telegram"&&!q.has("tg_ok")&&!q.has("tg_err"))return;q.set("tab","telegram");l.replace(${target}+"?"+q.toString()+"#telegram")}catch(e){}})();`;
 }
 
 /**

@@ -16,7 +16,9 @@ async function start(formData: FormData) {
   if (!session) redirect(`/${lang}/login`);
   const shopId = String(formData.get("shop_id") ?? "");
   const slug = String(formData.get("shop_slug") ?? "");
-  const page = (query: Record<string, string>) => `/${lang}/dashboard/hours-sms?${new URLSearchParams({ ...(slug ? { shop: slug } : {}), ...query })}`;
+  // "SMS a Telegram" → SMS → "Otváracie hodiny cez SMS" (2026-11-07; the old /dashboard/hours-sms forwards there)
+  const page = (query: Record<string, string>) =>
+    `/${lang}/dashboard/sms-telegram?${new URLSearchParams({ ...(slug ? { shop: slug } : {}), tab: "sms", ...query })}#hours-sms`;
   return { lang, session, shopId, slug, page };
 }
 
@@ -66,6 +68,8 @@ export async function removePhone(formData: FormData) {
 /** "Pripojiť Google profil firmy": the function returns Google's consent page (PKCE, business.manage only). */
 export async function connectBusiness(formData: FormData) {
   const { lang, session, shopId, slug, page } = await start(formData);
+  // The hours-sms function accepts only a way back under /dashboard/hours-sms (its cleanReturnUrl); that address
+  // forwards to "SMS a Telegram" with the function's ?ok= / ?err= (hoursSmsForward in @/lib/dashboardPages).
   const back = `${siteUrl()}/${lang}/dashboard/hours-sms?${new URLSearchParams({ shop: slug })}`;
   const { data, error } = await session.supabase.functions.invoke<{ url?: string }>("hours-sms", {
     body: { action: "google_connect", shop_id: shopId, return_url: back },
