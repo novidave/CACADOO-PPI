@@ -359,6 +359,53 @@ Deno.test("courier_code: a courier gets the SMS; an unknown number the same answ
   eq((await handle(website({ ...body, caller: "short" }), deps)).status, 400, "caller");
 });
 
+// ---------------------------------------------------------------- update 95: customer projects
+
+Deno.test("project_code: a project's contact gets the SMS (owner quota); any other number the same answer and nothing sent", async () => {
+  const conv = { conversation_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", conversation_token: "t".repeat(32) };
+  const body = { action: "project_code", slug: "kuchyne", phone: "0905950001", caller: "c".repeat(32), lang: "sk", ...conv };
+  const real = { data: { id: CODE, send: true, code: "445566", phone: "+421905950001", shop_name: "Kuchyne", expires_at: "x" } };
+  const { deps, log } = await setup({ rpc: { project_code_start: real, project_code_claim: { data: "msg-p" } } });
+  const res = await (await handle(website(body), deps)).json();
+  eq([res.id, res.phone, "test_code" in res], [CODE, "+421 ••• ••• 001", false], "sent; the code never goes back");
+  eq(log.find((l) => l.startsWith("db project_code_start"))!.includes(`"p_conversation_id":"${conv.conversation_id}"`), true, "the conversation");
+  eq(log.find((l) => l.startsWith("db project_code_claim"))!.includes("kód na zobrazenie vášho projektu je 445566"), true, "the SMS text");
+  eq(log.some((l) => l.startsWith("db booking_sms_settle") && l.includes('"p_id":"msg-p"')), true, "settled once");
+  let sent = false;
+  const fake = { data: { id: CODE, send: false, phone: "+421905950999", shop_name: "Kuchyne", expires_at: "x" } };
+  const unknown = await setup({ showTestCodes: true, rpc: { project_code_start: fake },
+    sms: { name: "brevo", live: true, send: () => { sent = true; return Promise.resolve({ ok: true }); } } });
+  const u = await handle(website({ ...body, phone: "0905950999" }), unknown.deps);
+  eq([u.status, Object.keys(await u.json()).sort(), sent], [200, ["expires_at", "id", "phone"], false], "the same shape, nothing sent");
+  eq(unknown.log.some((l) => l.startsWith("db project_code_claim")), false, "nothing claimed");
+  // a provider failure for a real number is not told apart from an unknown one
+  const failing = await setup({ rpc: { project_code_start: real, project_code_claim: { data: "msg-p" } },
+    sms: { name: "brevo", live: true, send: () => Promise.resolve({ ok: false, error: "x" }) } });
+  const f = await handle(website(body), failing.deps);
+  eq([f.status, Object.keys(await f.json()).sort()], [200, ["expires_at", "id", "phone"]], "the same answer");
+  const conversation = await setup({ rpc: { project_code_start: { error: { message: "conversation", code: "22023" } } } });
+  eq((await handle(website(body), conversation.deps)).status, 400, "another conversation");
+  eq((await handle(website({ ...body, caller: "short" }), deps)).status, 400, "caller");
+  eq(log.some((l) => l.includes("0905950001") && !l.startsWith("db project_code_start")), false, "the number only goes to SQL");
+});
+
+Deno.test("contact_verify_code: only with the owner's login; the code only in the SMS, never in the answer", async () => {
+  const owner = (body: unknown, jwt = "owner-jwt") =>
+    new Request("https://x/functions/v1/bookings", { method: "POST", headers: { Authorization: `Bearer ${jwt}` }, body: JSON.stringify(body) });
+  const CONTACT = "16fd2706-8baf-433b-82eb-8c7fada847da";
+  const started = { data: { id: CODE, code: "778899", phone: "+421905950002", shop_name: "Kuchyne", expires_at: "x" } };
+  const { deps, log } = await setup({ rpc: { project_verify_code_start: started, project_code_claim: { data: "msg-v" } } });
+  eq((await handle(owner({ action: "contact_verify_code", contact_id: CONTACT }, "nobody"), deps)).status, 401, "a login");
+  const res = await handle(owner({ action: "contact_verify_code", contact_id: CONTACT, lang: "sk" }), deps);
+  const answer = await res.json();
+  eq([res.status, answer.id, "test_code" in answer, JSON.stringify(answer).includes("778899")], [200, CODE, false, false], "no code back");
+  eq(log.find((l) => l.startsWith("db project_verify_code_start"))!.includes('"p_user_id":"u1"'), true, "the caller's own id");
+  eq(log.find((l) => l.startsWith("db project_code_claim"))!.includes("povedzte ho obchodu"), true, "the SMS text");
+  const other = await setup({ rpc: { project_verify_code_start: { error: { message: "Not your shop", code: "42501" } } } });
+  eq((await handle(owner({ action: "contact_verify_code", contact_id: CONTACT }), other.deps)).status, 403, "another shop's contact");
+  eq((await handle(owner({ action: "contact_verify_code", contact_id: "x" }), deps)).status, 400, "a contact id");
+});
+
 // ---------------------------------------------------------------- update 87: the zone the customer picked
 
 Deno.test("order_place: the picked zone goes to food_order_create; a website from before (no zone key) keeps the old rule; zone refusals pass on", async () => {

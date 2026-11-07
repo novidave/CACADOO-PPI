@@ -947,6 +947,46 @@ priečinku" (`shop_folders.pc_remove_missing`, off by default, an inline confirm
 "update 94", `test:content`, e2e `e2e/kb-folder.spec.ts` (an OPFS folder stands in; owner login + `E2E_OWNER_SHOP`;
 `window.__ppiKbSettleMs` shortens the 60 s wait).
 
+## Customer projects (Pro, update 95, 2026-11-07, at the owner's request and with his OK for the SMS path)
+
+`supabase/sql/95_contact_projects.sql` + `@/components/owner/ProjectTab` (CRM → a contact → "Projekt") +
+`@/components/owner/DetachedProjects` (CRM → Kontakty) + doc-ingest `project_register` / `project_text` /
+`project_delete` / `project_purge` + bookings `project_code` (website) and `contact_verify_code` (owner login) +
+`@/lib/projectChat` (no imports; `projectChat_test.ts` in `npm run test:chat`) + `@/lib/projectAccess` +
+`/api/shops/[slug]/project` + `@/components/ProjectPanel` (in `ShopChat`). **A verified customer's own project:** the tab
+works only for a contact with `phone_verified_at`; otherwise "Projekt sa dá prepojiť až po overení čísla zákazníka – …"
+and "Poslať zákazníkovi overovací kód" (`project_verify_code_start`, service only: purpose `verify`, update 63/85's
+limits, the OWNER quota, kind `phone_code` masked; the code only in the SMS — the owner types what the customer reads
+out, `owner_contact_verify`, members; the one other place that sets `phone_verified_at`). The tab: "Stav projektu"
+(`owner_project_save`, `plain_text` ≤ 1000), "Zákazník sa môže pýtať asistenta na svoj projekt" (`owner_project_toggle`,
+default off; off ends every open session), "Prepojiť priečinok na počítači" (File System Access, read only, IndexedDB
+`projfolder:<shop>:<contact>`, Web Locks `ppi-proj-<shop>-<contact>`; never the stock or translations folder; the same
+check rules as update 94 — `planCheck(…, projectFileKind)`: PDF, pictures (HEIC too), .txt / .md; a changed file
+replaces its own; missing = "Chýba v priečinku", removed only by the owner's "Odstrániť" after a confirmation) and the
+files. Tables `contact_projects` / `contact_project_docs` / `contact_project_chunks` / `contact_project_sessions` — **no
+grants**; owners only through `owner_project*`, doc-ingest through `project_doc_register` (≤ 200 files and 50 MB per
+contact, decided in SQL) / `project_doc_text` / `project_doc_delete` / `project_delete`; private bucket `contact-docs`
+(`<shop>/<contact>/<doc>.<ext>`, no storage policies; the browser uploads with a signed upload token). **The shopper:**
+`my_project` only while `shop_has_projects(slug)` and there is a conversation (`projectTools`); without an open session
+it answers `verify` → `reply.verifyProject` → the page's own form (number → "Poslať kód" → 6 digits): bookings
+`project_code` → `project_code_start` (an unknown, unverified or not enabled number gets the SAME answer, a code row that
+can never be right and NO SMS; a provider failure is not told apart either) → `project_unlock(code, conversation)` (anon;
+the contact still checked, the project on, the plan) → a session for THIS conversation (24 h, `cps_…`, SHA-256 only,
+the conversation linked to the contact) in the signed HttpOnly cookie `ppi_proj_<slug>` (path `/api/shops/<slug>/`,
+`SESSION_COOKIE_SECRET`) → the question goes again. `search_contact_project(token, conversation, q)` never takes a
+contact id; only the status, the time, the number of files and the excerpts (source, page, text) reach the AI
+(`projectToolResult`), the file named as the source (no link). Activity `project_viewed` once per session (never the
+question). Locked by "Nová konverzácia", the chat closing or the page left (`project_lock`, beacon), by the switch off,
+a changed number or a deleted contact. **"Vymazať moje údaje" / a deleted contact** (trigger `contact_projects_forget`):
+the project is switched off, its sessions end, `forgotten_reason` forget_all | contact_deleted, the contact link goes;
+the files stay until the owner's "Odstrániť projekt a jeho súbory" on CRM → Kontakty (`owner_project_purge` →
+doc-ingest `project_purge`). Never: a phone number, a code, a file name or a file's text in a log; a contact's files in
+pages, JSON-LD, sitemap, llms.txt, the public API / MCP, the main AI search or another contact's conversation; the AI
+seeing a code, a phone number or a session token. Texts `project`, `chat.project_*`. Tests: DB block "update 95",
+`test:chat`, `test:content` (`projectFileKind`), `test:functions` (bookings `project_code` / `contact_verify_code`,
+doc-ingest `project_*`), e2e `e2e/customer-project.spec.ts` (owner login + `E2E_OWNER_SHOP`, `E2E_PROJECT_CONTACT`,
+`E2E_PROJECT_PHONE`, test SMS codes).
+
 ## Assistant archive (paid, update 22)
 
 `supabase/sql/22_assistant_archive.sql` + `supabase/functions/assistant-archive` (one file, Verify JWT off) +

@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { cleanChatList, type ChatListLine, LIST_QUESTION, listAttachmentText } from "@/lib/chatList";
 import { getDictionary } from "@/i18n/dictionaries";
 import { docsToken } from "@/lib/docsAccess";
+import { projectToken } from "@/lib/projectAccess";
 import { cleanOrderItems } from "@/lib/menuRules";
 import {
   type ChatAttachment,
@@ -79,12 +80,14 @@ export async function POST(request: Request, ctx: RouteContext<"/api/shops/[slug
         : "Please look at the attached file: which of these things does this shop have?");
     // The access-key session (cookie) goes only to the database, never to the AI.
     const token = await docsToken(shop.slug);
+    // Update 95: this conversation's project session (cookie) goes only to the database too.
+    const project = await projectToken(shop.slug);
     const given = archiveEnabled() ? cleanConversation(body?.conversation) : null;
     // Update 63: the conversation first — the assistant's booking refs and the checked contact belong to it.
     const opened = archiveEnabled() && !given ? await openConversation(shop.id, lang, callerHash(request)) : null;
     const conversation = given ?? opened?.data ?? null;
     const result = await runShopChat(shop, lang, cleanHistory(body?.history), question, attachments, token,
-      conversation ? { id: conversation.id, token: conversation.token } : null, list, order);
+      conversation ? { id: conversation.id, token: conversation.token } : null, list, order, project);
     const kept = conversation
       ? await archive(request, shop.id, lang, conversation, result, { message, receivedAt, attachments, list })
       : null;

@@ -10,6 +10,7 @@ import { plainBody } from "./blogMarks";
 import { type ChatListLine, listForAi } from "./chatList";
 import { type ChatProductPhoto, PHOTO_RULE, PHOTO_TOOL, PHOTO_TOOL_NAME, photoCard, shownPhotos, type StoredPhoto } from "./chatPhoto";
 import { productPhotoUrl } from "./productPhotos";
+import { projectToolResult, projectTools, type ProjectRpc, wantsProjectForm } from "./projectChat";
 import { SERVICE_TOOLS, serviceIndex, slotWindow, toolDays, toolPeople, wantsContact } from "./bookingTools";
 import { signedPageUrl } from "./docsAccess";
 import type { ArchiveCard } from "./assistantArchive";
@@ -186,6 +187,11 @@ export interface ChatReply {
    * built on the server from item_photo — the 800 px picture and the product page, or "no photo yet".
    */
   productPhotos?: ChatProductPhoto[];
+  /**
+   * Update 95: my_project needs this conversation's checked number: the page shows its own form (number → SMS code);
+   * the AI never sees the number, the code or the session.
+   */
+  verifyProject?: boolean;
 }
 
 export interface ChatOrder {
@@ -856,6 +862,12 @@ interface Excerpt {
   is_public: boolean;
 }
 
+/** Update 95: whether the shop has an enabled customer project (false before the update). */
+async function shopHasProjects(slug: string): Promise<boolean> {
+  const { data, error } = await db().rpc("shop_has_projects", { p_slug: slug });
+  return !error && data === true;
+}
+
 /** The documents this shopper may ask about; none when the database has no documents part yet. */
 export async function shopDocuments(slug: string, token: string | null): Promise<ChatDocument[]> {
   const { data, error } = await db().rpc("shop_docs_list", { p_slug: slug, p_session_token: token });
@@ -899,6 +911,8 @@ export async function runShopChat(
   list: ChatListLine[] = [],
   /** "Objednať" on a restaurant's Menu (update 80): menu line ids; only dishes food_menu returns go into the cart. */
   ordered: string[] = [],
+  /** Update 95: this conversation's project session (the HttpOnly cookie's token; never shown to the AI). */
+  projectToken: string | null = null,
 ): Promise<ChatResult> {
   const photo = attachments.some((a) => a.image);
   const client = new Anthropic({ maxRetries: 1, timeout: 20_000 });
@@ -910,12 +924,16 @@ export async function runShopChat(
   const excerptRef = new Map<number, string>(); // chunk id → ref
   const newsPosts = new Map<string, NewsPost>(); // ref → post, only from search_shop_news
   let toolCalls = 0;
-  const [docs, news, booking, persona] = await Promise.all([
+  const [docs, news, booking, persona, projects] = await Promise.all([
     shopDocuments(shop.slug, docsToken),
     shopHasNews(shop.slug).catch(() => false),
     shopBooking(shop.slug).catch(() => null),
     shopPersona(shop.slug).catch(() => ({ style: "plain" as AssistantStyle, name: null })),
+    conversation ? shopHasProjects(shop.slug).catch(() => false) : Promise.resolve(false),
   ]);
+  // Update 95: my_project — the tool only with an enabled project and a conversation; "verify" → the page's form.
+  let projectVerify = false;
+  let projectRefs = 0;
   const firstAnswer = !history.some((turn) => turn.role === "assistant");
   // Update 63: services, free times and booking in the conversation (needs the conversation: the refs belong to it);
   // without a conversation (no archive) update 57's times and the page's booking form stay.
@@ -951,6 +969,7 @@ export async function runShopChat(
     ...(serviceTools ? SERVICE_TOOLS : booking ? [SLOTS_TOOL] : []),
     ...(mode.menu ? [FOOD_TOOLS[0]] : []),
     ...(mode.order ? [FOOD_TOOLS[1]] : []),
+    ...(projectTools(projects, Boolean(conversation)) as Anthropic.Tool[]),
   ];
   const dish = (item: MenuItem) => {
     let ref = dishRef.get(item.item_id);
@@ -1068,6 +1087,32 @@ export async function runShopChat(
       }));
       const note = stockSearchNote(mode.menu, rows.map((r) => r.kind));
       return { type: "tool_result", tool_use_id: call.id, content: JSON.stringify({ query, ...(note ? { note } : {}), items }) };
+    }
+    if (call.name === "my_project" && projects && conversation) {
+      const query = typeof input.query === "string" ? input.query.trim().slice(0, 200) : "";
+      let data: ProjectRpc | null = null;
+      if (projectToken) {
+        const { data: found, error } = await db().rpc("search_contact_project", {
+          p_token: projectToken,
+          p_conversation_id: conversation.id,
+          p_query: query,
+          p_limit: EXCERPTS_PER_SEARCH,
+        });
+        if (error) return fail("The project cannot be read now.");
+        data = found as ProjectRpc;
+      }
+      const result = projectToolResult(projectToken, data, () => `j${++projectRefs}`);
+      if ("verify" in result) projectVerify = true;
+      else {
+        for (const e of result.excerpts) {
+          // the project's excerpts can be cited as sources (the file's name, no link)
+          excerpts.set(e.ref, {
+            chunk_id: -1, type: "text", document_id: null, picture_id: null, source: e.source, page: e.page,
+            lang: null, text: e.text, downloadable: false, is_public: false,
+          });
+        }
+      }
+      return { type: "tool_result", tool_use_id: call.id, content: JSON.stringify(result) };
     }
     if (call.name === "search_shop_docs" && docs.length) {
       const query = typeof input.query === "string" ? input.query.trim().slice(0, 200) : "";
@@ -1382,6 +1427,7 @@ export async function runShopChat(
     // Update 63: the form only while nothing was booked and book_slot itself asked for the checked number.
     result.reply.booked = booked;
     result.reply.requestContact = wantsContact(Boolean(booked), Boolean(serviceTools), needsContact, Boolean(parsed.request_contact));
+    result.reply.verifyProject = wantsProjectForm(projectVerify, Boolean(conversation));
     // Update 73: the cart card — only dishes food_menu returned, priced again by food_quote (Sklad).
     const cart = mode.order ? cartOf(withPressed(parsed.order_lines, pressed)) : [];
     if (cart.length) {

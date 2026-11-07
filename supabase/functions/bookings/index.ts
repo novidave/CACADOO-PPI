@@ -33,6 +33,12 @@
 //   - website, update 75 (couriers): courier_code {slug, phone, caller, lang}  the courier's login code
 //                    (food_courier_code_start: only an active courier of the shop gets an SMS — an unknown number gets
 //                    the same answer and nothing is sent; the owner's monthly SMS quota; kind phone_code, masked)
+//   - website, update 95 (customer projects): project_code {slug, phone, caller, conversation_id, conversation_token,
+//                    lang}  the customer's project code (project_code_start: only a contact with a checked number and
+//                    an enabled project gets an SMS — any other number gets the same answer and nothing is sent; the
+//                    owner quota; kind phone_code, masked); the code is checked by project_unlock (the website)
+//   - owners, update 95: contact_verify_code {contact_id, lang} with the owner's login — a code to the contact's number
+//                    (project_verify_code_start, the owner quota); the owner types what the customer reads out
 //   - the job every 5 minutes (x-ppi-cron = Vault ppi_bookings_cron): tick → reminders (2 h before, or the day before
 //     from 18:00 — crm_settings), the customer's SMS when the owner moved or cancelled (3 tries), the calendar pushes
 //     (only events Cacaduu made: create / update / delete by google_event_id; 3 tries; a failure never blocks a
@@ -299,7 +305,18 @@ export function smsProvider(name: string | undefined, env: SmsEnv = () => undefi
 
 /** The texts the shopper gets by SMS, in the booking's language (Slovak, Hungarian, else English). */
 export function smsText(
-  kind: "code" | "reminder" | "contact_code" | "forget_code" | "order_code" | "courier_code" | "moved" | "cancelled" | "reminder_at",
+  kind:
+    | "code"
+    | "reminder"
+    | "contact_code"
+    | "forget_code"
+    | "order_code"
+    | "courier_code"
+    | "project_code"
+    | "verify_code"
+    | "moved"
+    | "cancelled"
+    | "reminder_at",
   lang: string | null,
   v: { shop: string; code?: string; time?: string; day?: string; service?: string | null; phone?: string | null },
 ) {
@@ -321,6 +338,16 @@ export function smsText(
     if (l === "sk") return `${shop}: váš kód na prihlásenie kuriéra je ${v.code}. Platí 10 minút. Nikomu ho neposielajte.`;
     if (l === "hu") return `${shop}: a futár belépési kódja ${v.code}. 10 percig érvényes. Ne adja tovább senkinek.`;
     return `${shop}: your courier sign-in code is ${v.code}. Valid for 10 minutes. Do not share it.`;
+  }
+  if (kind === "project_code") {
+    if (l === "sk") return `${shop}: kód na zobrazenie vášho projektu je ${v.code}. Platí 10 minút. Nikomu ho neposielajte.`;
+    if (l === "hu") return `${shop}: a projektje megtekintésének kódja ${v.code}. 10 percig érvényes. Ne adja tovább senkinek.`;
+    return `${shop}: your project code is ${v.code}. Valid for 10 minutes. Do not share it.`;
+  }
+  if (kind === "verify_code") {
+    if (l === "sk") return `${shop}: váš overovací kód je ${v.code}. Ak ste oň požiadali v obchode, povedzte ho obchodu. Platí 10 minút.`;
+    if (l === "hu") return `${shop}: az ellenőrző kódja ${v.code}. Ha az üzletben kérte, mondja meg az üzletnek. 10 percig érvényes.`;
+    return `${shop}: your verification code is ${v.code}. If you asked for it at the shop, tell it to the shop. Valid for 10 minutes.`;
   }
   if (kind === "forget_code") {
     if (l === "sk") return `${shop}: kód na vymazanie vašich údajov je ${v.code}. Platí 10 minút.`;
@@ -711,6 +738,7 @@ async function owner(req: Request, body: Record<string, unknown>, deps: Deps) {
   const { data: auth } = await caller.auth.getUser(token);
   const user = auth?.user;
   if (!user) return reply(401, { error: "login" });
+  if (body.action === "contact_verify_code") return await contactVerifyCode(body, user.id, deps);
   const shopId = String(body.shop_id ?? "");
   if (!UUID.test(shopId)) return reply(400, { error: "bad_request" });
 
@@ -895,6 +923,80 @@ async function courierCode(body: Record<string, unknown>, deps: Deps) {
     expires_at: c.expires_at,
     phone: maskPhone(c.phone),
     // test mode only (no SMS provider and BOOKING_TEST_CODES=on): the code goes back to the page
+    ...(status === "test" && deps.showTestCodes ? { test_code: c.code } : {}),
+  });
+}
+
+export const PROJECT_REASONS = ["not_available", "phone", "conversation", "too_many", "sms_failed", "sms_quota"] as const;
+
+/**
+ * Update 95: the customer's project code in the shop assistant. Only a contact of the shop with a checked number and
+ * an enabled project gets the SMS (owner quota); any other number gets the same answer and nothing is sent, so nobody
+ * can find out whose project exists. The code never reaches the AI.
+ */
+async function projectCode(body: Record<string, unknown>, deps: Deps) {
+  const slug = String(body.slug ?? "");
+  const caller = String(body.caller ?? "");
+  if (!SLUG.test(slug) || caller.length < 16 || caller.length > 128) return reply(400, { error: "bad_request" });
+  const conv = conversationOf(body);
+  const started = await deps.db.rpc("project_code_start", {
+    p_slug: slug,
+    p_phone: str(body, "phone", 40),
+    p_caller_hash: caller,
+    p_conversation_id: conv.p_conversation_id,
+    p_conversation_token: conv.p_conversation_token,
+  });
+  if (started.error) {
+    const why = PROJECT_REASONS.find((r) => r === started.error!.message) ?? "failed";
+    return reply(why === "failed" ? 500 : why === "too_many" || why === "sms_quota" ? 429 : why === "sms_failed" ? 502 : 400, { error: why });
+  }
+  const c = started.data as { id: string; send: boolean; code?: string; phone: string; shop_name: string; expires_at: string };
+  let status: "sent" | "test" | "failed" | "quota" | "none" = "none";
+  if (c.send && c.code) {
+    const text = smsText("project_code", str(body, "lang", 12), { shop: c.shop_name, code: c.code });
+    const claim = await deps.db.rpc("project_code_claim", { p_code_id: c.id, p_body: text });
+    status = await sendClaimed(deps, claim as RpcResult, c.phone, text);
+    // the same answer as for any other number: a quota or provider failure is not told apart
+    if (status === "failed" || status === "quota") status = "none";
+  }
+  return reply(200, {
+    id: c.id,
+    expires_at: c.expires_at,
+    phone: maskPhone(c.phone),
+    // test mode only (no SMS provider and BOOKING_TEST_CODES=on): the code goes back to the page, never to the AI
+    ...(status === "test" && deps.showTestCodes ? { test_code: c.code } : {}),
+  });
+}
+
+/**
+ * Update 95: "Poslať zákazníkovi overovací kód" on a contact's Projekt tab (the owner's login; membership and the plan
+ * are checked again in SQL). The code goes only into the SMS; the owner types what the customer reads out.
+ */
+async function contactVerifyCode(body: Record<string, unknown>, userId: string, deps: Deps) {
+  const contactId = String(body.contact_id ?? "");
+  if (!UUID.test(contactId)) return reply(400, { error: "bad_request" });
+  const started = await deps.db.rpc("project_verify_code_start", {
+    p_contact_id: contactId,
+    p_user_id: userId,
+    p_caller_hash: await hashText(`owner:${userId}`),
+  });
+  if (started.error) {
+    const m = started.error.message;
+    const why = m === "Not your shop" ? "forbidden" : ["no_plan", "phone", "too_many", "sms_failed", "sms_quota"].includes(m) ? m : "failed";
+    return reply(why === "forbidden" ? 403 : why === "failed" ? 500 : why === "too_many" || why === "sms_quota" ? 429 : why === "sms_failed" ? 502 : 400, {
+      error: why,
+    });
+  }
+  const c = started.data as { id: string; code: string; phone: string; shop_name: string; expires_at: string };
+  const text = smsText("verify_code", str(body, "lang", 12), { shop: c.shop_name, code: c.code });
+  const claim = await deps.db.rpc("project_code_claim", { p_code_id: c.id, p_body: text });
+  const status = await sendClaimed(deps, claim as RpcResult, c.phone, text);
+  if (status === "quota") return reply(429, { error: "sms_quota" });
+  if (status === "failed") return reply(502, { error: "sms_failed" });
+  return reply(200, {
+    id: c.id,
+    expires_at: c.expires_at,
+    phone: maskPhone(c.phone),
     ...(status === "test" && deps.showTestCodes ? { test_code: c.code } : {}),
   });
 }
@@ -1213,9 +1315,12 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
       if (action === "book") return await book(body, deps);
       if (action === "order_place") return await orderPlace(body, deps);
       if (action === "courier_code") return await courierCode(body, deps);
+      if (action === "project_code") return await projectCode(body, deps);
       return reply(400, { error: "bad_request" });
     }
-    if (action === "google_connect" || action === "google_disconnect") return await owner(req, body, deps);
+    if (action === "google_connect" || action === "google_disconnect" || action === "contact_verify_code") {
+      return await owner(req, body, deps);
+    }
     return reply(400, { error: "bad_request" });
   } catch (e) {
     console.error("bookings:", action, (e instanceof Error ? e.message : String(e)).slice(0, 200));

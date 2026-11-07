@@ -7,6 +7,7 @@ import { ListHeadButton } from "./ListHeadButton";
 import { BookingPanel } from "./BookingPanel";
 import { CallbackPanel } from "./CallbackPanel";
 import { ContactCodePanel } from "./ContactCodePanel";
+import { ProjectPanel } from "./ProjectPanel";
 import { ForgetDialog } from "./ForgetDialog";
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
@@ -410,9 +411,29 @@ export function ShopChat({
     setConversation(next);
   }, []);
 
+  /**
+   * Update 95: ends this conversation's project session (the HttpOnly cookie): "Nová konverzácia", the chat closes or
+   * the page is left — the next question about the project needs the SMS code again.
+   */
+  const projectOpen = useRef(false);
+  const lockProject = useCallback(
+    (beacon = false) => {
+      if (!projectOpen.current) return;
+      projectOpen.current = false;
+      const body = JSON.stringify({ action: "lock" });
+      if (beacon && typeof navigator.sendBeacon === "function") {
+        navigator.sendBeacon(`${base}/project`, new Blob([body], { type: "application/json" }));
+      } else {
+        fetch(`${base}/project`, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+      }
+    },
+    [base],
+  );
+
   /** Ends the conversation on the server (its PDF is made there); a beacon when the page is going away. */
   const finish = useCallback(
     (reason: "closed" | "new", beacon = false) => {
+      lockProject(beacon);
       const current = conv.current;
       conv.current = null;
       used.current = 0;
@@ -426,7 +447,7 @@ export function ShopChat({
         );
       }
     },
-    [base],
+    [base, lockProject],
   );
 
   // Leaving the page (or this box going away) closes the chat.
@@ -1129,6 +1150,11 @@ export function ShopChat({
                           conversation: () => (archive ? conv.current : null),
                           // the number is checked: the assistant books the chosen time (the code never goes to it)
                           verified: () => void send(null, labels.contact_verified_message),
+                          // update 95: the project is open in this conversation — the question goes again
+                          projectUnlocked: () => {
+                            projectOpen.current = true;
+                            void send(null, labels.project_again);
+                          },
                         }}
                       />
                     )}
@@ -1502,7 +1528,7 @@ function Answer({
   /** Opens a private folder's document in the viewer (only while folders are open). */
   onView: ((target: ViewTarget) => void) | null;
   /** What the booking form needs (database update 57) and, update 63, what follows a checked number. */
-  booking: { base: string; lang: string; conversation: () => Conversation | null; verified: () => void };
+  booking: { base: string; lang: string; conversation: () => Conversation | null; verified: () => void; projectUnlocked: () => void };
 }) {
   const match = reply.photo
     ? { found: labels.match_found, not_found: labels.match_not_found, unsure: labels.match_unsure }[reply.photo.match]
@@ -1651,6 +1677,9 @@ function Answer({
           labels={labels}
           onVerified={booking.verified}
         />
+      )}
+      {reply.verifyProject && booking.conversation() && (
+        <ProjectPanel base={booking.base} lang={booking.lang} conversation={booking.conversation} labels={labels} onUnlocked={booking.projectUnlocked} />
       )}
       {reply.askContact && booking.conversation() && (
         <CallbackPanel

@@ -17646,4 +17646,261 @@ end $$;
 reset role;
 drop table t94;
 
+\echo '--- update 95: customer projects — only a verified contact, the owner''s code check, files per contact, the shopper''s SMS unlock (unknown or not enabled numbers: the same answer and no code), a session reads only its own contact in its own conversation, lock / off / deleted contact end it, no grants'
+create temporary table t95 (k text primary key, v text);
+grant all on t95 to public;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_b uuid := (select id from public.shops where slug = 'drogeria-kostolne');
+  v_c1 uuid; v_c2 uuid; v_cb uuid; v_conv1 uuid; v_conv2 uuid;
+begin
+  insert into public.shop_contacts (shop_id, name, phone, phone_verified_at, source)
+  values (v_a, 'Projekt Jeden', '+421905950001', now(), 'owner') returning id into v_c1;
+  insert into public.shop_contacts (shop_id, name, phone, source)
+  values (v_a, 'Projekt Dva', '+421905950002', 'owner') returning id into v_c2;
+  insert into public.shop_contacts (shop_id, name, phone, phone_verified_at, source)
+  values (v_b, 'Projekt B', '+421905950003', now(), 'owner') returning id into v_cb;
+  insert into public.assistant_conversations (shop_id, token_hash, message_count)
+  values (v_a, public.assistant_token_hash('tok95a'), 1) returning id into v_conv1;
+  insert into public.assistant_conversations (shop_id, token_hash, message_count)
+  values (v_a, public.assistant_token_hash('tok95b'), 1) returning id into v_conv2;
+  insert into t95 values ('a', v_a), ('b', v_b), ('c1', v_c1), ('c2', v_c2), ('cb', v_cb), ('conv1', v_conv1), ('conv2', v_conv2);
+end $$;
+reset role;
+
+-- the owner: only a verified contact gets a project
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_c1 uuid := (select v::uuid from t95 where k = 'c1');
+  v_c2 uuid := (select v::uuid from t95 where k = 'c2');
+  r jsonb;
+begin
+  r := public.owner_project(v_c2);
+  assert not (r ->> 'verified')::boolean and r -> 'project' = 'null'::jsonb, r::text;
+  begin perform public.owner_project_save(v_c2, 'Nič'); raise exception 'a project for an unverified number';
+  exception when raise_exception then assert sqlerrm = 'not_verified', sqlerrm; end;
+  r := public.owner_project_save(v_c1, '<b>Kuchyňa</b>: montáž v piatok, www.example.com');
+  assert r -> 'project' ->> 'status_text' = 'Kuchyňa : montáž v piatok,' or r -> 'project' ->> 'status_text' like 'Kuchyňa%montáž v piatok%', r::text;
+  assert r -> 'project' ->> 'status_text' not like '%<b>%' and r -> 'project' ->> 'status_text' not like '%example%';
+  assert not (r -> 'project' ->> 'enabled')::boolean, 'off by default';
+  r := public.owner_project_toggle(v_c1, true);
+  assert (r -> 'project' ->> 'enabled')::boolean;
+  r := public.owner_project_link(v_c1, true);
+  assert r -> 'project' ->> 'folder_linked_at' is not null;
+  insert into t95 values ('project', r -> 'project' ->> 'id');
+end $$;
+reset role;
+
+-- another owner: nothing of this contact
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_project((select v::uuid from t95 where k = 'c1')); raise exception 'another owner read';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_project_toggle((select v::uuid from t95 where k = 'c1'), false); raise exception 'another owner changed';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the files (doc-ingest): members only, limits per contact
+set role service_role;
+do $$
+declare
+  v_c1 uuid := (select v::uuid from t95 where k = 'c1');
+  r jsonb; r2 jsonb; r3 jsonb;
+begin
+  begin perform public.project_doc_register(v_c1, '00000000-0000-0000-0000-00000000000b', 'pdf', 'x.pdf', repeat('ab', 32), 1000, 1);
+    raise exception 'another owner registered'; exception when insufficient_privilege then null; end;
+  begin perform public.project_doc_register(v_c1, '00000000-0000-0000-0000-00000000000a', 'pdf', 'a/b.pdf', repeat('ab', 32), 1000, 1);
+    raise exception 'a path as a name'; exception when invalid_parameter_value then null; end;
+  r := public.project_doc_register(v_c1, '00000000-0000-0000-0000-00000000000a', 'pdf', 'navrh.pdf', repeat('ab', 32), 1000, 2);
+  assert r ->> 'path' like (select v from t95 where k = 'a') || '/' || v_c1::text || '/%.pdf', r::text;
+  assert public.project_doc_text((r ->> 'doc_id')::uuid,
+    '[{"page": 1, "text": "Pracovná doska dub, termín montáže piatok 14. 11."}, {"page": 2, "text": "  "}]'::jsonb) = 1;
+  begin perform public.project_doc_text((r ->> 'doc_id')::uuid, '[]'::jsonb); raise exception 'text twice';
+  exception when raise_exception then null; end;
+  insert into t95 values ('doc', r ->> 'doc_id');
+  -- 50 MB per contact
+  r2 := public.project_doc_register(v_c1, '00000000-0000-0000-0000-00000000000a', 'pdf', 'velky1.pdf', repeat('cd', 32), 20000000, 1);
+  r3 := public.project_doc_register(v_c1, '00000000-0000-0000-0000-00000000000a', 'pdf', 'velky2.pdf', repeat('cd', 32), 20000000, 1);
+  begin perform public.project_doc_register(v_c1, '00000000-0000-0000-0000-00000000000a', 'pdf', 'velky3.pdf', repeat('cd', 32), 20000000, 1);
+    raise exception 'over 50 MB'; exception when raise_exception then assert sqlerrm = 'limit_bytes', sqlerrm; end;
+  assert public.project_doc_delete((r2 ->> 'doc_id')::uuid) and public.project_doc_delete((r3 ->> 'doc_id')::uuid);
+end $$;
+reset role;
+
+-- the shopper: the same answer for every number, a code only for the verified contact with an enabled project
+set role service_role;
+do $$
+declare
+  v_conv1 uuid := (select v::uuid from t95 where k = 'conv1');
+  v_conv2 uuid := (select v::uuid from t95 where k = 'conv2');
+  u jsonb; n jsonb; c jsonb; r jsonb;
+begin
+  assert public.shop_has_projects('potraviny-centrum') and not public.shop_has_projects('drogeria-kostolne');
+  begin perform public.project_code_start('potraviny-centrum', '0905 950 001', repeat('p', 32), v_conv1, 'wrong');
+    raise exception 'another conversation''s token'; exception when invalid_parameter_value then assert sqlerrm = 'conversation'; end;
+  u := public.project_code_start('potraviny-centrum', '0905 950 999', repeat('p', 32), v_conv1, 'tok95a');
+  n := public.project_code_start('potraviny-centrum', '0905 950 002', repeat('p', 32), v_conv1, 'tok95a');
+  c := public.project_code_start('potraviny-centrum', '0905 950 001', repeat('p', 32), v_conv1, 'tok95a');
+  assert not (u ->> 'send')::boolean and u -> 'code' is null, 'an unknown number: no code';
+  assert not (n ->> 'send')::boolean and n -> 'code' is null, 'an unverified number: no code';
+  assert (c ->> 'send')::boolean and c ->> 'code' ~ '^\d{6}$';
+  assert (select array_agg(distinct k) from jsonb_object_keys(u) k) = (select array_agg(distinct k) from jsonb_object_keys(n) k);
+  assert (select phone is null and code_hash is null from public.sms_codes where id = (u ->> 'id')::uuid), 'nothing kept of an unknown number';
+  assert public.project_code_claim((c ->> 'id')::uuid, 'Kód ' || (c ->> 'code')) is not null;
+  assert (select body not like '%' || (c ->> 'code') || '%' and kind = 'phone_code' from public.shop_outgoing_messages
+          where id = (select message_id from public.sms_codes where id = (c ->> 'id')::uuid));
+  -- an unknown number's code is never right; another conversation cannot use the code
+  r := public.project_unlock((u ->> 'id')::uuid, '123456', v_conv1, 'tok95a');
+  assert not (r ->> 'ok')::boolean and r ->> 'reason' = 'wrong_code', r::text;
+  r := public.project_unlock((c ->> 'id')::uuid, c ->> 'code', v_conv2, 'tok95b');
+  assert not (r ->> 'ok')::boolean and r ->> 'reason' = 'not_found', r::text;
+  r := public.project_unlock((c ->> 'id')::uuid, '000000', v_conv1, 'tok95a');
+  assert r ->> 'reason' = 'wrong_code' or c ->> 'code' = '000000';
+  insert into t95 values ('code_id', c ->> 'id'), ('code', c ->> 'code');
+end $$;
+reset role;
+
+set role anon;
+do $$
+declare
+  v_conv1 uuid := (select v::uuid from t95 where k = 'conv1');
+  v_conv2 uuid := (select v::uuid from t95 where k = 'conv2');
+  r jsonb;
+  v_token text;
+begin
+  r := public.project_unlock((select v::uuid from t95 where k = 'code_id'), (select v from t95 where k = 'code'), v_conv1, 'tok95a');
+  assert (r ->> 'ok')::boolean and r ->> 'token' like 'cps_%', r::text;
+  v_token := r ->> 'token';
+  -- the code is used once
+  r := public.project_unlock((select v::uuid from t95 where k = 'code_id'), (select v from t95 where k = 'code'), v_conv1, 'tok95a');
+  assert not (r ->> 'ok')::boolean;
+  r := public.search_contact_project(v_token, v_conv1, 'pracovna doska');
+  assert (r ->> 'ok')::boolean and r ->> 'status' like 'Kuchyňa%', r::text;
+  assert jsonb_array_length(r -> 'excerpts') = 1 and r -> 'excerpts' -> 0 ->> 'source' = 'navrh.pdf', r::text;
+  r := public.search_contact_project(v_token, v_conv1, 'termin');
+  assert (r ->> 'ok')::boolean;
+  -- only in its own conversation; a made-up token reads nothing
+  assert not (public.search_contact_project(v_token, v_conv2, 'doska') ->> 'ok')::boolean;
+  assert not (public.search_contact_project('cps_' || repeat('0', 64), v_conv1, 'doska') ->> 'ok')::boolean;
+  -- "Nová konverzácia": locked
+  assert public.project_lock(v_token);
+  assert not (public.search_contact_project(v_token, v_conv1, 'doska') ->> 'ok')::boolean;
+  -- no direct access
+  begin perform 1 from public.contact_projects; raise exception 'anon read the projects';
+  exception when insufficient_privilege then null; end;
+  begin perform 1 from public.contact_project_chunks; raise exception 'anon read the excerpts';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_project((select v::uuid from t95 where k = 'c1')); raise exception 'anon owner door';
+  exception when insufficient_privilege then null; end;
+  begin perform public.project_code_start('potraviny-centrum', '0905 950 001', repeat('q', 32), v_conv1, 'tok95a'); raise exception 'anon started a code';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- the activity: one "viewed" per session, never a phone, a code, a file name or the question
+do $$
+begin
+  assert (select count(*) from public.shop_activity where action = 'project_viewed'
+            and details ->> 'contact' = (select v from t95 where k = 'c1')) = 1;
+  assert (select count(*) from public.shop_activity where action like 'project_%'
+            and (details::text like '%navrh%' or details::text like '%950001%' or details::text like '%doska%')) = 0;
+  assert (select count(*) from public.contact_project_sessions where token_hash like 'cps_%') = 0, 'only hashes are kept';
+end $$;
+
+-- the owner's code check of a number ("tu"), and the switch off ends a session
+set role service_role;
+do $$
+declare
+  v_c2 uuid := (select v::uuid from t95 where k = 'c2');
+  c jsonb;
+begin
+  begin perform public.project_verify_code_start(v_c2, '00000000-0000-0000-0000-00000000000b', repeat('v', 32));
+    raise exception 'another owner sent a code'; exception when insufficient_privilege then null; end;
+  c := public.project_verify_code_start(v_c2, '00000000-0000-0000-0000-00000000000a', repeat('v', 32));
+  assert c ->> 'code' ~ '^\d{6}$';
+  perform public.project_code_claim((c ->> 'id')::uuid, 'Kód ' || (c ->> 'code'));
+  insert into t95 values ('vid', c ->> 'id'), ('vcode', c ->> 'code');
+  -- a second session for the toggle test
+  c := public.project_code_start('potraviny-centrum', '0905 950 001', repeat('p', 32),
+                                 (select v::uuid from t95 where k = 'conv2'), 'tok95b');
+  assert (public.project_unlock((c ->> 'id')::uuid, c ->> 'code', (select v::uuid from t95 where k = 'conv2'), 'tok95b') ->> 'ok')::boolean;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_contact_verify((select v::uuid from t95 where k = 'c2'), (select v::uuid from t95 where k = 'vid'), '1');
+    raise exception 'another owner verified'; exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_c1 uuid := (select v::uuid from t95 where k = 'c1');
+  v_c2 uuid := (select v::uuid from t95 where k = 'c2');
+  r jsonb;
+begin
+  r := public.owner_contact_verify(v_c2, (select v::uuid from t95 where k = 'vid'),
+                                   case when (select v from t95 where k = 'vcode') = '111111' then '222222' else '111111' end);
+  assert r ->> 'reason' = 'wrong_code', r::text;
+  r := public.owner_contact_verify(v_c2, (select v::uuid from t95 where k = 'vid'), (select v from t95 where k = 'vcode'));
+  assert (r ->> 'ok')::boolean, r::text;
+  assert (public.owner_project(v_c2) ->> 'verified')::boolean;
+  assert (public.owner_project(v_c1) -> 'project' ->> 'sessions_open')::integer = 1;
+  perform public.owner_project_toggle(v_c1, false);
+  assert (public.owner_project(v_c1) -> 'project' ->> 'sessions_open')::integer = 0, 'switched off: the session ended';
+  perform public.owner_project_toggle(v_c1, true);
+end $$;
+reset role;
+
+-- "Vymazať moje údaje": the contact goes, the project is off and waits (files stay) for the owner's "Odstrániť"
+set role service_role;
+do $$
+declare
+  v_c1 uuid := (select v::uuid from t95 where k = 'c1');
+  v_project uuid := (select v::uuid from t95 where k = 'project');
+begin
+  insert into public.sms_codes (shop_id, purpose, phone_hash, caller_hash, verified_at, expires_at)
+  values ((select v::uuid from t95 where k = 'a'), 'delete_all', public.booking_hash('+421905950001'), repeat('d', 32), now(),
+          now() + interval '10 minutes');
+  delete from public.shop_contacts where id = v_c1;
+  assert (select contact_id is null and not enabled and forgotten_reason = 'forget_all' from public.contact_projects where id = v_project);
+  assert (select count(*) from public.contact_project_docs where project_id = v_project) = 1, 'the files stay';
+  assert not public.shop_has_projects('potraviny-centrum') or exists (
+    select 1 from public.contact_projects p where p.enabled and p.contact_id is not null
+      and p.shop_id = (select v::uuid from t95 where k = 'a'));
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_project uuid := (select v::uuid from t95 where k = 'project');
+  r jsonb;
+begin
+  r := public.owner_projects_detached((select v::uuid from t95 where k = 'a'));
+  assert exists (select 1 from jsonb_array_elements(r) x where (x ->> 'id')::uuid = v_project and (x ->> 'files')::integer = 1), r::text;
+  r := public.owner_project_purge(v_project);
+  assert jsonb_array_length(r -> 'paths') = 1, r::text;
+  begin perform public.project_delete(v_project); raise exception 'the owner deleted rows directly';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set role service_role;
+do $$
+begin
+  assert public.project_delete((select v::uuid from t95 where k = 'project'));
+end $$;
+reset role;
+drop table t95;
+
 \echo 'ALL DATABASE CHECKS PASSED'

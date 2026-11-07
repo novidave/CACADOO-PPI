@@ -1,7 +1,7 @@
 // "Priečinok na počítači" (update 94): which files of the PC folder the assistant reads, which wait, and what a
 // check does with each. Run with `npm run test:content`.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { kbAction, kbDocName, kbFileKind, planCheck } from "./kbFolder.ts";
+import { kbAction, kbDocName, kbFileKind, planCheck, projectFileKind } from "./kbFolder.ts";
 
 Deno.test("the types: PDF and pictures (HEIC too); others listed as unsupported; hidden and Office lock files ignored", () => {
   assertEquals(kbFileKind("Cenník 2026.PDF"), "pdf");
@@ -52,4 +52,20 @@ Deno.test("the hash decides: the same content = nothing, new name = new document
 Deno.test("a document's name is the file name without its extension", () => {
   assertEquals(kbDocName("Cenník 2026.pdf"), "Cenník 2026");
   assertEquals(kbDocName("foto.heic"), "foto");
+});
+
+Deno.test("a customer's project folder (update 95) also takes text notes; the check uses its own kinds", () => {
+  assertEquals(projectFileKind("poznamky.txt"), "text");
+  assertEquals(projectFileKind("README.md"), "text");
+  assertEquals(projectFileKind("navrh.pdf"), "pdf");
+  assertEquals(projectFileKind("foto.HEIC"), "picture");
+  assertEquals(projectFileKind("tabulka.xlsx"), null);
+  assertEquals(projectFileKind("~$navrh.docx"), undefined);
+  const now = 10_000_000;
+  const entries = [
+    { name: "poznamky.txt", size: 10, mtime: now - 120_000 },
+    { name: "tabulka.xlsx", size: 10, mtime: now - 120_000 },
+  ];
+  assertEquals(planCheck(entries, {}, now, 60_000, projectFileKind).read, ["poznamky.txt"]);
+  assertEquals(planCheck(entries, {}, now).unsupported, ["poznamky.txt", "tabulka.xlsx"], "the documents folder keeps its own kinds");
 });
