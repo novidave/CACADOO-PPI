@@ -9,21 +9,21 @@ import { ShopSwitcher } from "./shared";
  * CRM's head.
  */
 
-/** How many shoppers wait for an answer in this shop (database update 59), for the tab's badge. */
-export async function waitingCount(
-  supabase: { rpc: (name: string) => PromiseLike<{ data: unknown; error: unknown }> },
+/**
+ * Konverzácie's badge (2026-11-07): how many conversations are new (owner_conversations_new, database update 55; 0
+ * before it). The menu's CRM badge keeps new + waiting callbacks.
+ */
+export async function crmBadgeCount(
+  supabase: { rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }> },
   shopId: string,
 ): Promise<number> {
-  const { data, error } = await supabase.rpc("owner_callbacks_waiting");
-  if (error) return 0;
-  return ((data ?? []) as { shop_id?: string; waiting: number }[])
-    .filter((r) => !r.shop_id || r.shop_id === shopId)
-    .reduce((n, r) => n + Number(r.waiting), 0);
+  const { data, error } = await supabase.rpc("owner_conversations_new", { p_shop_id: shopId });
+  return error ? 0 : Math.max(0, Number(data ?? 0));
 }
 
 /**
- * CRM's head on every tab (Prehľad · Konverzácie · Kontakty · Šablóny) and on the pages under them (a contact, a
- * conversation): the title, the shop switcher and the tabs with the waiting shoppers' badge — one block, the same
+ * CRM's head on every tab (Konverzácie · Kontakty · Šablóny · Správy · Prehľad) and on the pages under them (a
+ * contact): the title, the shop switcher and the tabs with Konverzácie's badge (new conversations) — one block, the same
  * everywhere (back-end layout: the tabs never move). Messages, the plan box and "SMS tento mesiac" go under it.
  */
 export function CrmHead({
@@ -32,7 +32,7 @@ export function CrmHead({
   shops,
   shop,
   current,
-  waiting,
+  badge,
   switchHref,
 }: {
   dict: Dictionary;
@@ -40,11 +40,11 @@ export function CrmHead({
   shops: MyShop[];
   shop: MyShop;
   current: "overview" | "conversations" | "contacts" | "templates" | "messages";
-  waiting: number;
+  badge: number;
   switchHref: (slug: string) => string;
 }) {
-  const tabs = itemTabs(dict, lang, "crm", shop.slug, { conversations: waiting }).map((x) =>
-    x.key === "conversations" && waiting > 0 ? { ...x, badgeLabel: t(dict.asst.waiting_badge, { n: waiting }) } : x,
+  const tabs = itemTabs(dict, lang, "crm", shop.slug, { conversations: badge }).map((x) =>
+    x.key === "conversations" && badge > 0 ? { ...x, badgeLabel: t((dict.crm_inbox as Record<string, string>).badge_new, { n: badge }) } : x,
   );
   return (
     <PageHead title={dict.nav.crm} item="crm" tabs={tabs} current={current} tabsLabel={dict.nav.tabs_label}>

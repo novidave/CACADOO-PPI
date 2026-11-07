@@ -22,7 +22,7 @@ export const FOLDER_SECTIONS = ["folders"];
  * The tabs of a menu item, in their order (the back-end layout): plain links under the page's heading. Sklad: Prehľad ·
  * Predaj · Produkty · Príjemky · Inventúra · Pohyby · Nastavenia; Objednávky jedla: Objednávky · Menu · Nastavenia
  * ("Kuriéri" comes with the courier app); Rezervácie: Kalendár · Služby · Zdroje · Pravidlá · Blokované časy · Nastavenia;
- * CRM: Prehľad · Konverzácie · Kontakty · Šablóny · Správy; AI asistent: Nastavenia · Dokumenty · Súkromné priečinky.
+ * CRM: Konverzácie · Kontakty · Šablóny · Správy · Prehľad (2026-11-07); AI asistent: Nastavenia · Dokumenty · Súkromné priečinky.
  */
 export interface ItemTab {
   key: string;
@@ -55,13 +55,14 @@ export const ITEM_TABS = {
     { key: "blocks", path: "/dashboard/bookings", query: { tab: "blocks" } },
     { key: "settings", path: "/dashboard/bookings", query: { tab: "settings" } },
   ],
+  // 2026-11-07: CRM opens on Konverzácie (the two-pane inbox); Prehľad last, with the cloud folder
   crm: [
-    { key: "overview", path: "/dashboard/crm" },
-    { key: "conversations", path: "/dashboard/crm", query: { at: "conversations" } },
+    { key: "conversations", path: "/dashboard/crm" },
     { key: "contacts", path: "/dashboard/contacts" },
     { key: "templates", path: "/dashboard/contacts", query: { view: "templates" } },
     // 2026-11-04: one place to write to any contact (recipient search, the composer, every sent message)
     { key: "messages", path: "/dashboard/crm/messages" },
+    { key: "overview", path: "/dashboard/crm", query: { at: "overview" } },
   ],
   assistant: [
     { key: "settings", path: "/dashboard/assistant" },
@@ -157,6 +158,9 @@ export function sectionPath(lang: string, name: string): string {
 /** The page of a section with its query and anchor: "/sk/dashboard/assistant?shop=x&at=cloud#cloud". */
 export function sectionUrl(lang: string, at: string, query: Record<string, string>): string {
   const id = sectionId(at);
+  // 2026-11-07: CRM opens on Konverzácie (no `at`); the cloud folder is Prehľad's last card
+  if (id === "conversations") return `/${lang}/dashboard/crm?${new URLSearchParams(query)}`;
+  if (id === "cloud" || id === "overview") return `/${lang}/dashboard/crm?${new URLSearchParams({ ...query, at: "overview" })}#${id}`;
   const params = new URLSearchParams({ ...query, ...(id ? { at: id } : {}) });
   return `${sectionPath(lang, at)}?${params}${id ? `#${id}` : ""}`;
 }
@@ -347,6 +351,41 @@ export function menuHref(item: MenuItem, lang: string, shop: string | null, kind
   const query = new URLSearchParams({ ...(item.shop && shop ? { shop } : {}), ...(itemQueryFor(item, kind) ?? {}) });
   const q = query.toString();
   return `/${lang}${item.path}${q ? `?${q}` : ""}`;
+}
+
+/**
+ * CRM's own old addresses (2026-11-07): `?at=conversations` is Konverzácie itself (the address without `at`),
+ * `?at=cloud` is the cloud folder's card on Prehľad. null = nothing to forward.
+ */
+export function crmForward(lang: string, sp: Record<string, string | string[] | undefined>): string | null {
+  const at = [sp.at].flat()[0];
+  if (at !== "conversations" && at !== "cloud") return null;
+  const query = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (k === "at") continue;
+    for (const one of [v].flat()) if (typeof one === "string") query.append(k, one);
+  }
+  if (at === "cloud") query.set("at", "overview");
+  const q = query.toString();
+  return `/${lang}/dashboard/crm${q ? `?${q}` : ""}${at === "cloud" ? "#cloud" : ""}`;
+}
+
+/**
+ * One conversation in CRM → Konverzácie (2026-11-07): the inbox with `c` (the old /dashboard/conversations/<id> forwards
+ * here with its query). Without a shop slug the old address, which finds the shop itself.
+ */
+export function conversationHref(lang: string, shop: string, id: string, query: Record<string, string> = {}): string {
+  if (!shop) {
+    const q = new URLSearchParams(query).toString();
+    return `/${lang}/dashboard/conversations/${id}${q ? `?${q}` : ""}`;
+  }
+  return `/${lang}/dashboard/crm?${new URLSearchParams({ shop, ...query, c: id })}`;
+}
+
+/** The inbox's `#cloud` (the anchor never reaches the server): on to Prehľad's cloud card, the query along. */
+export function crmCloudScript(lang: string): string {
+  const target = JSON.stringify(`/${lang}/dashboard/crm`);
+  return `(function(){try{if(location.hash!=="#cloud")return;var q=new URLSearchParams(location.search);q.set("at","overview");location.replace(${target}+"?"+q.toString()+"#cloud")}catch(e){}})();`;
 }
 
 /** "SMS a Telegram"'s tab from ?tab= (anything else = SMS, the first tab). */

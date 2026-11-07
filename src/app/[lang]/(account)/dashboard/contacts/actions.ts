@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 import { contactError, messageError, splitTags } from "@/lib/crm";
+import { conversationHref } from "@/lib/dashboardPages";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -96,7 +97,7 @@ export async function linkConversation(formData: FormData) {
     p_conversation_id: conversation,
     p_contact_id: UUID.test(contactId) ? contactId : null,
   });
-  redirect(`/${lang}/dashboard/conversations/${conversation}?${error ? `err=${contactError(error.message)}` : "ok=linked"}#contact`);
+  redirect(conversationHref(lang, String(formData.get("shop_slug") ?? ""), conversation, error ? { err: contactError(error.message) } : { ok: "linked" }));
 }
 
 /** What the message composer shows after "Náhľad" / "Odoslať". */
@@ -160,7 +161,7 @@ export async function sendMessage(_state: ComposeState, formData: FormData): Pro
     return { step: "edit", message: messageError(reason) };
   }
   revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/contacts/${input.p_contact_id}`);
-  if (inConversation) revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/conversations/${conversation}`);
+  if (inConversation) revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/crm`);
   // CRM → Správy shows every sent message under its composer
   revalidatePath(`/${String(formData.get("lang") ?? "sk")}/dashboard/crm/messages`);
   return { step: "done", message: data.status === "sent" ? "sent" : data.status === "test" ? "sent_test" : "sent_failed" };

@@ -7,6 +7,7 @@ import { wordDiff } from "@/lib/messageTags";
 import { createClient } from "@/lib/supabase/client";
 import { BlogText, type TextPhoto } from "./BlogText";
 import { ghostClass } from "./owner/ui";
+import { GrammarVortex } from "./owner/GrammarVortex";
 
 type Labels = Dictionary["owner_blog"];
 type Style = "short" | "friendly" | "sales";
@@ -183,7 +184,15 @@ export function BlogAiTools({
               <p className="text-sm text-muted">{labels.ai_note}</p>
               {imported && <p className="border border-line p-3 text-sm" data-blog-ai-imported>{labels.ai_imported_note}</p>}
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" disabled={Boolean(busy)} onClick={() => void ask("fix")} className={ghostClass} data-blog-ai-fix>
+                <button
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => void ask("fix")}
+                  className={`${ghostClass} ppi-gv`}
+                  {...(busy === "fix" ? { "data-busy": "" } : {})}
+                  data-blog-ai-fix
+                >
+                  <GrammarVortex />
                   {busy === "fix" ? labels.ai_working : labels.ai_fix}
                 </button>
                 <button type="button" disabled={Boolean(busy)} onClick={() => void ask("beautify")} className={ghostClass} data-blog-ai-beautify>

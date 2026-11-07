@@ -120,16 +120,18 @@ test("contact buttons: short / long saved in Môj obchod shows on the shop page 
   c.check();
 });
 
-test("CRM tabs and Konverzácie (update 55, back-end layout L2): filters, bulk actions, CSV export, old addresses", async ({ page }) => {
+test("CRM tabs and Konverzácie (update 55; the inbox of 2026-11-07): filters, CSV export, old addresses", async ({ page }) => {
+  // the old address of Konverzácie is the CRM address itself now
   await page.goto(`/sk/dashboard/crm?shop=${SHOP}&at=conversations`);
-  // CRM's four tabs as plain links; the open one is marked.
-  await expect(page.locator('[data-item-tabs="crm"] [data-tab]')).toHaveCount(4);
+  await expect(page).not.toHaveURL(/at=conversations/);
+  // CRM's five tabs as plain links; Konverzácie first and open.
+  await expect(page.locator('[data-item-tabs="crm"] [data-tab]')).toHaveCount(5);
+  await expect(page.locator('[data-item-tabs="crm"] [data-tab]').first()).toHaveAttribute("data-tab", "conversations");
   await expect(page.locator('[data-tab="conversations"]')).toHaveAttribute("aria-current", "page");
-  await expect(page.locator('[data-tab-panel="conversations"]')).toBeVisible();
-  // Old Asistent addresses land on their new tabs.
+  // Old Asistent addresses land on their new tabs (the cloud folder = Prehľad's last card).
   await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=cloud`);
-  await expect(page).toHaveURL(/\/dashboard\/crm\?.*at=cloud/);
-  await expect(page.locator('[data-tab="conversations"]')).toHaveAttribute("aria-current", "page");
+  await expect(page).toHaveURL(/\/dashboard\/crm\?.*at=overview/);
+  await expect(page.locator('[data-tab="overview"]')).toHaveAttribute("aria-current", "page");
   await page.goto(`/sk/dashboard/assistant?shop=${SHOP}&at=private`);
   await expect(page).toHaveURL(/\/dashboard\/assistant\/folders\?.*at=folders/);
   await expect(page.locator('[data-item-tabs="assistant"] [data-tab="folders"]')).toHaveAttribute("aria-current", "page");
@@ -137,21 +139,16 @@ test("CRM tabs and Konverzácie (update 55, back-end layout L2): filters, bulk a
   await expect(page).toHaveURL(/\/dashboard\/bookings\?.*tab=rules/);
   await expect(page.locator('[data-item-tabs="bookings"] [data-tab="rules"]')).toHaveAttribute("aria-current", "page");
 
-  await page.goto(`/sk/dashboard/crm?shop=${SHOP}&at=conversations`);
-  test.skip((await page.locator("[data-filter-status]").count()) === 0, "database update 55 is not applied or the shop has no conversations");
-  // "Neobmedzene" is offered and the filters keep their values in the address.
-  await expect(page.locator('[data-retention] option[value=""]')).toHaveText(sk.conversations.retention_unlimited);
+  await page.goto(`/sk/dashboard/crm?shop=${SHOP}`);
+  test.skip((await page.locator("[data-filter-status]").count()) === 0, "database update 90 is not applied or the shop has no conversations");
+  // "Filtre": the filters keep their values in the address.
+  await page.locator("[data-inbox-more-filters] summary").click();
   await page.selectOption("[data-filter-status]", "all");
   await page.check("[data-filter-unanswered]");
   await page.locator("[data-conversation-filter] button[type=submit]").click();
   await expect(page).toHaveURL(/cstatus=all/);
   await expect(page).toHaveURL(/cna=1/);
   await expect(page.locator("[data-filter-status]")).toHaveValue("all");
-  // Bulk actions without a tick say so instead of changing anything.
-  if ((await page.locator("[data-bulk]").count()) > 0) {
-    await page.locator('[data-bulk] button[value="read"]').click();
-    await expect(page.getByText(sk.conversations.bulk_none)).toBeVisible();
-  }
   // CSV of today: a file with the header row.
   const today = new Date().toISOString().slice(0, 10);
   await page.fill('[data-conversation-export] input[name="from"]', today);

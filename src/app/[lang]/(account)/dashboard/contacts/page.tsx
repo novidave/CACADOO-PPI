@@ -9,7 +9,7 @@ import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { SmsUsage } from "@/components/SmsUsage";
 import { loadSmsUsage } from "@/lib/smsUsage";
-import { CrmHead, waitingCount } from "../AssistantTabs";
+import { CrmHead, crmBadgeCount } from "../AssistantTabs";
 import { countText } from "../Conversations";
 import { hiddenFields, inputClass, ProOnly } from "../shared";
 import { deleteTemplate, saveContact, saveTemplate } from "./actions";
@@ -69,7 +69,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
       : Promise.resolve({ data: [], error: null }),
     // "SMS tento mesiac" (database update 58; none before it).
     loadSmsUsage(supabase, shop.id),
-    waitingCount(supabase, shop.id),
+    crmBadgeCount(supabase, shop.id),
   ]);
   const hasPlan = !plan.error && plan.data === true;
   const unavailable = Boolean(list.error || templates.error);
@@ -90,7 +90,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
         shops={chosen.shops}
         shop={shop}
         current={view}
-        waiting={waiting}
+        badge={waiting}
         switchHref={(slug) => `/${lang}/dashboard/contacts?shop=${slug}${view === "templates" ? "&view=templates" : ""}`}
       />
       <div className="flex max-w-3xl flex-col gap-5">

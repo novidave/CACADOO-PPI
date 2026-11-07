@@ -12,11 +12,12 @@ import { ownerAiReady } from "@/lib/grammar";
 import { PendingButton } from "@/components/PendingButton";
 import { SmsUsage } from "@/components/SmsUsage";
 import { loadSmsUsage } from "@/lib/smsUsage";
-import { CrmHead, waitingCount } from "../../AssistantTabs";
+import { CrmHead, crmBadgeCount } from "../../AssistantTabs";
 import { countText, languageName } from "../../Conversations";
 import { hiddenFields } from "../../shared";
 import { deleteContact, saveContact } from "../actions";
 import { ContactFields, Notice } from "../parts";
+import { conversationHref } from "@/lib/dashboardPages";
 
 export const metadata: Metadata = { robots: { index: false } };
 
@@ -102,8 +103,8 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       .limit(100),
     // The owner's SMS this month (database update 58).
     tab === "messages" ? loadSmsUsage(supabase, contact.shop_id) : Promise.resolve(null),
-    // CRM's head: the waiting shoppers' badge on Konverzácie, as on every CRM tab
-    waitingCount(supabase, contact.shop_id),
+    // CRM's head: the new conversations badge on Konverzácie, as on every CRM tab
+    crmBadgeCount(supabase, contact.shop_id),
   ]);
   const shops = (shopsRes.data ?? []) as MyShop[];
   const shop = shops.find((s) => s.id === contact.shop_id);
@@ -128,7 +129,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
         shops={shops}
         shop={shop}
         current="contacts"
-        waiting={waiting}
+        badge={waiting}
         switchHref={(slug) => `/${lang}/dashboard/contacts?shop=${slug}`}
       />
     <div className="flex max-w-3xl flex-col gap-6">
@@ -201,7 +202,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
             <ul className="flex flex-col divide-y divide-line border-y border-line">
               {convRows.map((row) => (
                 <li key={row.id}>
-                  <Link href={`/${lang}/dashboard/conversations/${row.id}`} className="group flex flex-col gap-1 py-3" data-contact-conversation={row.id}>
+                  <Link href={conversationHref(lang, shop.slug, row.id)} className="group flex flex-col gap-1 py-3" data-contact-conversation={row.id}>
                     <span className="flex flex-wrap gap-x-3 text-sm">
                       <span className="font-semibold">{formatDateTime(row.started_at, lang as Locale, tz)}</span>
                       <span>{languageName(row.shopper_lang ?? row.page_lang, lang as Locale, dict.conversations.unknown)}</span>

@@ -5,7 +5,7 @@ import { isLocale, type Locale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { localMidnight, shopToday } from "@/lib/bookingTools";
-import { BOOKING_TAB_OF_PART, bookingPartUrl } from "@/lib/dashboardPages";
+import { BOOKING_TAB_OF_PART, bookingPartUrl, conversationHref } from "@/lib/dashboardPages";
 import { formatDate, utcToLocalInput } from "@/lib/format";
 import { addDays, displayTime, rangesFor, validRanges, weekdayOf } from "@/lib/hours";
 import { loadSmsUsage, quotaLeft } from "@/lib/smsUsage";
@@ -364,7 +364,7 @@ export default async function BookingsPage({ params, searchParams }: PageProps<"
                       {!live && <span className="inline-flex h-[22px] items-center rounded-md border border-foreground px-2 text-xs font-bold">{texts[`status_${x.status}`] ?? x.status}</span>}
                       {x.google_status === "failed" && <span className="inline-flex h-[22px] items-center rounded-md border border-line px-2 text-xs font-semibold">{dict.bookings.google_failed}</span>}
                       {x.conversation_id && (
-                        <Link href={`/${lang}/dashboard/conversations/${x.conversation_id}`} className="inline-flex h-[22px] items-center text-xs underline underline-offset-4">
+                        <Link href={conversationHref(lang, shop.slug, x.conversation_id)} className="inline-flex h-[22px] items-center text-xs underline underline-offset-4">
                           {dict.bookings.conversation}
                         </Link>
                       )}

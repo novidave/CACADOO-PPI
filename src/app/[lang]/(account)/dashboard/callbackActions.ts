@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
-import { sectionUrl } from "@/lib/dashboardPages";
+import { conversationHref, sectionUrl } from "@/lib/dashboardPages";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -21,6 +21,6 @@ export async function markCallback(formData: FormData) {
   if (UUID.test(id)) {
     await session.supabase.rpc("owner_callback_done", { p_conversation_id: id, p_done: formData.get("done") === "1" });
   }
-  if (formData.get("from") === "conversation" && UUID.test(id)) redirect(`/${lang}/dashboard/conversations/${id}`);
+  if (formData.get("from") === "conversation" && UUID.test(id)) redirect(conversationHref(lang, slug, id));
   redirect(sectionUrl(lang, "conversations", { shop: slug }));
 }
