@@ -1,34 +1,28 @@
-// `npm run test:food` — the order feed of Objednávky jedla (database update 81). SQL decides every order (DB block
-// "update 81": finish in one step, payment first, stock once, reopen the same day, the parts, the times); these tests
-// check what the feed screen draws with: the order and the grouping of the cards, the time labels, which tags show for
-// the parts a shop uses, the swipe threshold, what a finish opens first, the steppers, the "Čo používate" line, and that
-// every text the feed needs exists in sk / hu / en.
+// `npm run test:food` — Objednávky jedla's board and green bar (database update 81; no feed since 2026-11-07). SQL
+// decides every order (DB block "update 81": finish in one step, payment first, stock once, reopen the same day, the
+// parts, the times); these tests check what the board draws with: the order of the cards, the swipe threshold, what a
+// finish opens first, the steppers, the phone's first column, the "Čo používate" line, that every text the board needs
+// exists in sk / hu / en, and that the feed and its view switch are gone.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import en from "../i18n/messages/en.json" with { type: "json" };
 import hu from "../i18n/messages/hu.json" with { type: "json" };
 import sk from "../i18n/messages/sk.json" with { type: "json" };
 import {
-  agoLabel,
-  cardTags,
+  BOARD_KEYS,
   DELAYS,
   DELIVERY_RANGE,
-  dueLabel,
-  FEED_KEYS,
   type FeedOrder,
   type FeedParts,
   fill,
   finishNeeds,
   finishTarget,
-  FOOD_VIEW_BOOT,
-  FOOD_VIEW_KEY,
-  freshIds,
+  firstColumn,
   partsSummary,
   payMethods,
   PREP_RANGE,
   reopenable,
   sortActive,
   sortDone,
-  splitFeed,
   stepMinutes,
   SWIPE_FLING,
   swipeOutcome,
@@ -63,36 +57,22 @@ Deno.test("order and grouping: newest on top (or oldest), the same minute by the
   const d1 = order({ number: 4, done_at: at(-5), status: "picked_up" });
   const d2 = order({ number: 5, done_at: at(-1), status: "delivered" });
   assertEquals(sortDone([d1, d2]).map((o) => o.number), [5, 4]);
-  const split = splitFeed([a, d1, b, d2, c], "newest");
-  assertEquals(split.active.map((o) => o.number), [3, 2, 1]);
-  assertEquals(split.done.map((o) => o.number), [5, 4]);
   // the lists are copies (React state stays as it was)
   const list = [a, b];
   sortActive(list, "newest");
   assertEquals(list[0], a);
 });
 
-Deno.test("labels: 'o n min' until ready, 'teraz' after, 'pred n min' since it came", () => {
-  assertEquals(dueLabel(at(20), T0), { kind: "in", n: 20 });
-  assertEquals(dueLabel(at(0.5), T0), { kind: "in", n: 1 }, "part of a minute counts as a minute");
-  assertEquals(dueLabel(at(0), T0), { kind: "now" });
-  assertEquals(dueLabel(at(-3), T0), { kind: "now" });
-  assertEquals(dueLabel("not a time", T0), { kind: "now" });
-  assertEquals(agoLabel(at(-7.9), T0), { kind: "ago", n: 7 });
-  assertEquals(agoLabel(at(-0.5), T0), { kind: "now" }, "its first minute");
-  assertEquals(fill(sk.food.feed_in, { n: 20 }), "o 20 min");
-  assertEquals(fill(sk.food.feed_ago, { n: 5 }), "pred 5 min");
-  assertEquals(sk.food.feed_now, "teraz");
-  assertEquals(fill("{a} {b}", { a: 1 }), "1 {b}", "an unknown name stays as written");
+Deno.test("fill: the names in a text, an unknown one stays as written", () => {
+  assertEquals(fill(sk.food.bar_says_pickup, { time: "18:40" }), "odber o 18:40");
+  assertEquals(fill("{a} {b}", { a: 1 }), "1 {b}");
 });
 
-Deno.test("tags: payment only with Platby, the courier only with the courier app, the address only for a delivery", () => {
-  const pickup = order({ kind: "pickup", pay_method: "cash", courier_name: "Michal" });
-  assertEquals(cardTags(pickup, ALL), { pay: true, courier: true, address: false });
-  assertEquals(cardTags(pickup, FEED_ONLY), { pay: false, courier: false, address: false });
-  const delivery = order({ kind: "delivery", address: "Hlavná 8", pay_method: null });
-  assertEquals(cardTags(delivery, ALL), { pay: false, courier: false, address: true }, "no pay method, no courier yet");
-  assertEquals(cardTags(order({ kind: "delivery", address: null }), ALL).address, false);
+Deno.test("the phone's board: Nové first; when Nové is empty, the next column with orders", () => {
+  assertEquals(firstColumn({ new: 2, preparing: 1, on_the_way: 0, done: 4 }), "new");
+  assertEquals(firstColumn({ new: 0, preparing: 0, on_the_way: 3, done: 4 }), "on_the_way");
+  assertEquals(firstColumn({ new: 0, preparing: 0, on_the_way: 0, done: 1 }), "done");
+  assertEquals(firstColumn({ new: 0, preparing: 0, on_the_way: 0, done: 0 }), "new");
 });
 
 Deno.test("the swipe: past 30 % of the card's width it flies out (either way), less springs back", () => {
@@ -128,11 +108,9 @@ Deno.test("the payment choice offers only the methods that are on (QR needs the 
   assertEquals(payMethods(s, FEED_ONLY), []);
 });
 
-Deno.test("grey rows go back unless cancelled; new cards are the ones not seen", () => {
+Deno.test("Doručené cards go back unless cancelled", () => {
   assert(reopenable({ status: "picked_up" }) && reopenable({ status: "delivered" }) && reopenable({ status: "on_the_way" }));
   assert(!reopenable({ status: "cancelled" }) && !reopenable({ status: "new" }));
-  const a = order({}), b = order({});
-  assertEquals(freshIds(new Set([a.id]), [a, b]), [b.id]);
 });
 
 Deno.test("the steppers: steps of 5 inside their range; the delay chips", () => {
@@ -152,35 +130,41 @@ Deno.test("Čo používate: only the feed, the feed with delivery, or n of 5", (
   assertEquals(partsSummary(ALL), { kind: "some", n: 5 });
 });
 
-Deno.test("every text of the feed in sk, hu and en, with the same placeholders", () => {
+Deno.test("every text of the board in sk, hu and en, with the same placeholders", () => {
   const names = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(",");
-  for (const k of FEED_KEYS) {
+  for (const k of [...BOARD_KEYS, "seg_on_the_way", "board_columns"]) {
     const [a, b, c] = [sk.food, hu.food, en.food].map((f) => (f as Record<string, string>)[k]);
     assert(a && b && c, `food.${k} in every language`);
     assertEquals(names(b), names(a), `hu food.${k}`);
     assertEquals(names(c), names(a), `en food.${k}`);
   }
-  for (const k of ["feed_view_label", "feed_view_feed", "feed_view_columns"]) {
-    assert((sk.food as Record<string, string>)[k] && (hu.food as Record<string, string>)[k] && (en.food as Record<string, string>)[k], k);
+  // the feed's own texts are gone
+  for (const k of ["feed_view_label", "feed_view_feed", "feed_view_columns", "feed_active", "feed_finish", "feed_pause"]) {
+    assert(!(k in sk.food) && !(k in hu.food) && !(k in en.food), `food.${k} removed`);
   }
 });
 
-Deno.test("the view switch's boot script: the device's choice (or ?view=) before the first paint, storage may fail", () => {
-  assert(FOOD_VIEW_BOOT.includes(FOOD_VIEW_KEY));
-  assert(FOOD_VIEW_BOOT.startsWith("(function(){try{") && FOOD_VIEW_BOOT.includes("}catch(e){}"));
-  assert(FOOD_VIEW_BOOT.includes("data-food-view"));
-});
-
-Deno.test("the feed screen stays out of the shop page and keeps the swipe off buttons and links", async () => {
+Deno.test("no feed: the board is the only view, its swipe stays off buttons and links, the bar is a container query", async () => {
   const root = new URL("../../", import.meta.url);
-  const feed = await Deno.readTextFile(new URL("src/components/owner/FoodFeed.tsx", root));
-  assert(feed.includes('closest("button, a, input, select, textarea, label, summary")'), "a swipe never starts on a button or a link");
-  assert(feed.includes("swipeOutcome("), "one threshold rule");
-  const css = await Deno.readTextFile(new URL("src/app/globals.css", root));
+  const read = (p: string) => Deno.readTextFile(new URL(p, root));
+  const exists = (p: string) => Deno.stat(new URL(p, root)).then(() => true, () => false);
+  assert(!(await exists("src/components/owner/FoodFeed.tsx")), "FoodFeed is gone");
+  assert(!(await exists("src/components/owner/FoodViewSwitch.tsx")), "the view switch is gone");
+  const page = await read("src/app/[lang]/(account)/dashboard/assistant/orders/page.tsx");
+  assert(!page.includes("FOOD_VIEW") && !page.includes("data-food-view"), "no view boot");
+  assert(page.includes("<FoodBar") && page.includes("data-food-board"), "the bar and the board");
+  const swipe = await read("src/components/owner/BoardSwipe.tsx");
+  assert(swipe.includes('closest("a, button, input, select, textarea, label")'), "a swipe never starts on a button or a link");
+  assert(swipe.includes("swipeOutcome("), "one threshold rule");
+  const bar = await read("src/components/owner/FoodBar.tsx");
+  assert(bar.includes("@container") && bar.includes("@[56rem]:flex-row"), "one row from 56 rem of its own width");
+  const css = await read("src/app/globals.css");
+  assert(!css.includes("data-food-view"), "no view rules");
   assert(/\.ppi-feed-card \{[^}]*touch-action: pan-y/.test(css), "the page still scrolls up and down");
   assert(/prefers-reduced-motion: reduce\) \{\s*\.ppi-feed-card \{\s*transition: none;/.test(css), "no fly-out with reduced motion");
-  const shop = await Deno.readTextFile(new URL("src/app/[lang]/shops/[slug]/ShopView.tsx", root));
-  assert(!shop.includes("FoodFeed"));
+  assert(css.includes('[data-food-board-wrap]:has(input[value="new"]:checked) [data-board-col="new"]'), "the phone's columns by CSS");
+  const shop = await read("src/app/[lang]/shops/[slug]/ShopView.tsx");
+  assert(!shop.includes("FoodBar") && !shop.includes("FoodFinish"));
 });
 
 Deno.test("Nastavenia and the assistant follow the parts: greyed switches keep their choice, no method without Platby", async () => {

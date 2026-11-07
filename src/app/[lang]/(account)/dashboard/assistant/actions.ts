@@ -52,15 +52,15 @@ const optionalId = (formData: FormData, name: string) => {
   return UUID.test(v) ? v : null;
 };
 
-/** "Automatické správy": the reminder (on, 2 h before or the evening before), the alert e-mail, SMS on owner changes. */
+/**
+ * Rezervácie → Nastavenia: the alert e-mail ONLY (update 89: owner_save_crm_settings changes only the keys it gets). The
+ * booking SMS switches are saved on "SMS a Telegram" (2026-11-07) and never sent from here.
+ */
 export async function saveCrmSettings(formData: FormData) {
   const { session, shopId, back } = await start(formData);
   const { error } = await session.supabase.rpc("owner_save_crm_settings", {
     p_shop_id: shopId,
-    p_reminder_on: formData.get("reminder_on") === "on",
-    p_reminder_offset: formData.get("reminder_offset") === "2h" ? "2h" : "day_before_18",
-    p_alert_email: text(formData, "alert_email", 254) || null,
-    p_notify_on_owner_change: formData.get("notify_on_owner_change") === "on",
+    p_settings: { alert_email: text(formData, "alert_email", 254) },
   });
   back(error ? { err: reason(error.message) } : { ok: "ok_saved" });
 }

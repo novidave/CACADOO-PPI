@@ -1,15 +1,15 @@
 import Link from "next/link";
 import type { Dictionary } from "@/i18n/dictionaries";
 import { t } from "@/i18n/dictionaries";
-import type { FoodOrder, FoodOrders, OpenState } from "@/lib/foodOwner";
+import type { FoodOrder } from "@/lib/foodOwner";
 import { money, nextSteps, plural, type OrderStatus } from "@/lib/foodRules";
-import { orderStep as stepAction, pauseOrders } from "./actions";
+import { orderStep as stepAction } from "./actions";
 import { buttonClass, ghostClass } from "@/components/owner/ui";
 import { itemTabs, PageHead } from "@/components/owner/PageHead";
 import type { MyShop } from "@/lib/myShops";
 import { ShopSwitcher } from "../../shared";
 
-/** Shared parts of Asistent → Objednávky (boards 11–13): the state strip, an order card, the notices, small helpers. */
+/** Shared parts of Objednávky jedla (boards 11–13): an order card, the notices, the head, small helpers (the green bar is @/components/owner/FoodBar). */
 
 // back-end layout L3: the shared 52 px buttons (@/components/owner/ui)
 export const btn = buttonClass;
@@ -38,61 +38,6 @@ export function mainStep(f: Dictionary["food"], o: Pick<FoodOrder, "kind" | "sta
   return { to, label: labels[`to_${to}`] ?? to };
 }
 
-/** "Prijímame objednávky · Odber 20 min · donáška 45 min · do 21:30" + "Pozastaviť" / "Spustiť objednávky". */
-export function StateStrip({
-  f,
-  state,
-  settings,
-  timeZone,
-  hidden,
-  canWrite,
-  sound,
-}: {
-  f: Dictionary["food"];
-  state: OpenState;
-  settings: FoodOrders["settings"];
-  timeZone: string;
-  hidden: (extra?: Record<string, string>) => React.ReactNode;
-  canWrite: boolean;
-  sound?: React.ReactNode;
-}) {
-  const labels = f as Record<string, string>;
-  const parts = [
-    settings?.pickup_on ? t(f.times_pickup, { n: settings.prep_minutes }) : null,
-    settings?.delivery_on ? t(f.times_delivery, { n: settings.delivery_minutes }) : null,
-    state.last_order_at ? t(f.times_until, { time: hhmm(state.last_order_at, timeZone) }) : null,
-  ].filter(Boolean);
-  const paused = Boolean(settings?.paused);
-  return (
-    <div
-      className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 ${state.accepting ? "border-[#1E9E5A] bg-[#F1FBF5]" : "border-line"}`}
-      data-food-state={state.accepting ? "accepting" : state.reason ?? "off"}
-    >
-      <div className="flex min-w-0 flex-col">
-        <span className="flex items-center gap-2 font-bold">
-          <span
-            aria-hidden="true"
-            className={`inline-block size-3 flex-none rounded-full ring-2 ring-white ring-offset-1 ${state.accepting ? "bg-[#1E9E5A] ring-offset-[#146C37]" : paused ? "bg-[#F2B705] ring-offset-[#B7860B]" : "bg-[#D64545] ring-offset-[#9B2C2C]"}`}
-          />
-          {state.accepting ? f.accepting : labels[`not_accepting_${state.reason ?? "off"}`] ?? f.not_accepting_off}
-        </span>
-        {parts.length > 0 && <span className="text-sm text-muted">{parts.join(" · ")}</span>}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {sound}
-        {canWrite && settings?.enabled && (
-          <form action={pauseOrders}>
-            {hidden({ paused: paused ? "0" : "1" })}
-            <button type="submit" className={paused ? btn : btnGhost} data-food-pause={paused ? "resume" : "pause"}>
-              {paused ? f.resume : f.pause}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /** One order as a card (board 11): number, name, total, times, items, how and how paid, the main step and "Detail". */
 export function OrderCard({
   f,
@@ -104,6 +49,7 @@ export function OrderCard({
   canWrite,
   compact = false,
   payments = true,
+  finish,
 }: {
   f: Dictionary["food"];
   o: FoodOrder;
@@ -115,6 +61,8 @@ export function OrderCard({
   compact?: boolean;
   /** update 81: "Platby v Cacaduu" — off = no pay chip */
   payments?: boolean;
+  /** 2026-11-07: the finishing step's button (@/components/owner/FoodFinish: the payment / courier dialog first) */
+  finish?: React.ReactNode;
 }) {
   const tz = o.timezone;
   const items = o.lines
@@ -148,6 +96,12 @@ export function OrderCard({
         <li className="rounded-full bg-[#EEF1F5] px-2.5 py-1">
           {o.kind === "delivery" ? `${f.kind_delivery}${o.address && !compact ? ` · ${o.address.split(",")[0]}` : ""}` : f.kind_pickup}
         </li>
+        {/* update 87: the delivery zone the customer picked */}
+        {o.kind === "delivery" && o.zone_name && (
+          <li className="rounded-full bg-[#EEF1F5] px-2.5 py-1" data-food-zone>
+            {o.zone_name}
+          </li>
+        )}
         {payments && o.pay_method && (
           <li className="rounded-full bg-[#EEF1F5] px-2.5 py-1">
             {o.paid_at ? t(f.paid_short, { method: payText(f, o.pay_method) }) : o.cash_given_cents && o.pay_method === "cash"
@@ -160,12 +114,15 @@ export function OrderCard({
         {o.courier_name && <li className="rounded-full border border-[#D6D6D6] px-2.5 py-1" data-order-courier-chip>{t(f.cr_by, { name: o.courier_name })}</li>}
         {o.problem && <li className="rounded-full border border-[#D64545] px-2.5 py-1 text-[#B42318]" data-order-problem-chip>{t(f.cr_problem, { reason: o.problem })}</li>}
       </ul>
-      <StepRow f={f} o={o} detailHref={detailHref} hidden={hidden} stepId={stepId} canWrite={canWrite} />
+      <StepRow f={f} o={o} detailHref={detailHref} hidden={hidden} stepId={stepId} canWrite={canWrite} finish={finish} />
     </article>
   );
 }
 
-/** The card's buttons: the main step (a delivered / picked-up step and a payment are on the detail page) and "Detail". */
+/**
+ * The card's buttons: the main step and "Detail". A delivered / picked-up step is the board's finish button (the payment
+ * dialog first, 2026-11-07) when the page gives one, else it is on the order's page.
+ */
 function StepRow({
   f,
   o,
@@ -173,6 +130,7 @@ function StepRow({
   hidden,
   stepId,
   canWrite,
+  finish,
 }: {
   f: Dictionary["food"];
   o: FoodOrder;
@@ -180,9 +138,20 @@ function StepRow({
   hidden: (extra?: Record<string, string>) => React.ReactNode;
   stepId: string;
   canWrite: boolean;
+  finish?: React.ReactNode;
 }) {
   const step = mainStep(f, o);
   const finishing = step && (step.to === "delivered" || step.to === "picked_up");
+  if (canWrite && finishing && finish) {
+    return (
+      <div className="flex gap-2">
+        {finish}
+        <Link href={detailHref} className={btnGhost}>
+          {f.detail}
+        </Link>
+      </div>
+    );
+  }
   return (
     <div className="flex gap-2">
       {canWrite && step && !finishing && (

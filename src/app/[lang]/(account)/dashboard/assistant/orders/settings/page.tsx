@@ -62,7 +62,6 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
   const s = res.data as FoodSettings;
   const hidden = (extra: Record<string, string> = {}) => hiddenFields(lang, shop)({ back: "settings", ...extra });
   const canWrite = s.has_plan;
-  const quota = s.sms?.order;
   const kinds: FoodZone["kind"][] = ["town", "postcode", "radius_km"];
   const kindText = (k: FoodZone["kind"]) => (f as Record<string, string>)[`s_zone_kind_${k}`];
 
@@ -196,10 +195,12 @@ export default async function OrderSettingsPage({ params, searchParams }: PagePr
           <Toggle name="alert_sound" label={f.s_alert_sound} defaultChecked={s.alert_sound} />
           <Toggle name="alert_email" label={f.s_alert_email} defaultChecked={s.alert_email} />
           <Toggle name="alert_telegram" label={f.s_alert_telegram} hint={f.s_alert_telegram_hint} defaultChecked={s.alert_telegram} />
-          <Toggle name="sms_on_the_way" label={f.s_sms_way} defaultChecked={s.sms_on_the_way} />
-          <p className="text-sm text-muted">
-            {f.s_sms_hint}
-            {quota ? ` ${t(f.s_sms_quota, { used: quota.used, limit: quota.limit })}` : ""}
+          {/* 2026-11-07: "Objednávka je na ceste" moved to "SMS a Telegram" (one place per setting) */}
+          <p className="text-sm text-muted" data-moved-sms>
+            {f.s_sms_moved}{" "}
+            <Link href={`/${lang}/dashboard/sms-telegram?${new URLSearchParams({ shop: shop.slug, tab: "sms" })}#food-sms`} className="font-semibold underline underline-offset-4">
+              {dict.nav.sms_tg}
+            </Link>
           </p>
         </section>
 

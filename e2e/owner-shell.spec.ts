@@ -178,7 +178,28 @@ for (const size of SIZES) {
       });
       await sameTabRow(page, "crm", `/sk/dashboard/crm${q}`);
       await sameTabRow(page, "assistant", `/sk/dashboard/assistant${q}`);
+      // 2026-11-07: "SMS a Telegram" — SMS and Telegram at the same box
+      await sameTabRow(page, "smstg", `/sk/dashboard/sms-telegram${q}`);
       await cancelStartedCount(page);
+    });
+
+    test("the menu names SMS a Telegram and Súkromné priečinky a MCP; their pages answer to them", async ({ page }) => {
+      const small = size.name !== "computer";
+      await page.goto(`/sk/dashboard/sms-telegram${q}`);
+      if (small) await page.locator("[data-owner-menu-button]").click();
+      const item = (key: string) => page.locator(small ? `[data-owner-panel] [data-panel-item="${key}"]` : `#owner-menu [data-nav-item="${key}"]`);
+      await expect(item("sms_tg")).toContainText(sk.nav.sms_tg);
+      await expect(item("sms_tg")).toHaveAttribute("aria-current", "page");
+      await expect(item("ai")).toContainText(sk.nav.ai);
+      await expect(page.locator(`[data-owner-panel] [data-panel-item="hours_sms"], #owner-menu [data-nav-item="hours_sms"]`)).toHaveCount(0);
+      if (small) await page.keyboard.press("Escape");
+      await expect(page.locator("h1").first()).toHaveText(sk.nav.sms_tg);
+      await page.goto(`/sk/dashboard/ai${q}`);
+      await expect(page.locator("h1").first()).toHaveText(sk.nav.ai);
+      await expect(page).toHaveTitle(new RegExp(sk.nav.ai));
+      await expect(page.locator("[data-private-folders-card]")).toBeVisible();
+      await expect(page.locator("[data-telegram]"), "no Telegram on this page any more").toHaveCount(0);
+      await noSideways(page);
     });
 
     test("SMS tento mesiac is right under the tabs on Kontakty, above Nový kontakt", async ({ page }) => {

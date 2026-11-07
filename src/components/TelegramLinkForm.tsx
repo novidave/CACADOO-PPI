@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import type { Dictionary } from "@/i18n/dictionaries";
-import type { TelegramLinkState } from "@/app/[lang]/(account)/dashboard/ai/actions";
+import type { TelegramLinkState } from "@/app/[lang]/(account)/dashboard/sms-telegram/telegramActions";
 
 /**
  * "Prepojte svoj Telegram" (database update 66): a one-time link (10 minutes, once) as a button and a QR code for
