@@ -243,7 +243,8 @@ black 52 px, `ghostClass`, `cardClass` 1 px #E4E4E4 / radius 16 / padding 18, `T
 `Segmented`, `Chip`, `StatusDot`) and `@/components/owner/SaveBar` (sticky "Neuložené zmeny: n" · Zrušiť · Uložiť ≥ 180
 px; `saveLabels()`), never its own copies (`inputClass`, `SubmitButton`, `PendingButton`, `DashboardSection`, the Sklad and
 food `btn`/`card` are these parts); `PageTitle` 28 px on every page and `PageHead` (28 px title, 56 px tabs) on every page with
-tabs — one look, no compact head. Môj obchod: two columns from 1024 px + the save bar; its plan box lives on Predplatné a doména.
+tabs — one look, no compact head. Môj obchod: artboard 9 (below, "Shop page and My shop"); its plan box lives on
+Predplatné a doména.
 
 ## The kind of shop and "Nastavenie obchodu" (update 79, 2026-11-05, the owner's OK for the shop type rule)
 
@@ -1602,6 +1603,24 @@ PPI's sitemap leaves those pages out.
   in `localStorage` `ppi.dashboard.open`; `?at=`/`#` opens one). `RecentImports`: the last 10 `stock_imports` rows as
   cards; a tap opens the quick view (a `<dialog>` slideshow of the full reports, "Súbor n z 10", Novší/Starší, ← → keys,
   swipe, Esc).
+- **Môj obchod `/dashboard` = artboard 9** (2026-11-07, "Stránka obchodu" phase 1; only the look and the place changed —
+  every action, rule and RPC as before): the head = "Môj obchod" + the live status line (`ShopStatusLine` with
+  `statusInput(shop, loadCalendars(…))`, the shop's time zone) + the ghost link "Mimoriadne dni a sviatky" (`#holidays`);
+  "Nastavenie obchodu" (`SetupCard`) above everything while not finished; then ONE form (`ShopForm`, `saveShop`) in two
+  columns from 1024 px (1.15fr | 1fr, gap 18; one column below in the same order): LEFT the card "Údaje obchodu" — Názov,
+  Ulica | Mesto, Telefón | E-mail, Web | Facebook, the logo row (64 px preview, "PNG, JPG alebo WebP", "Vybrať obrázok"
+  — `LogoInput` with `form=` the hidden `uploadLogo` form beside it, uploads at once), then what the artboard does not
+  show in today's order: PSČ, Krajina, Časová zóna, the company line (→ Právne informácie), Odkaz na rezervácie,
+  "Tlačidlá na stránke obchodu" (one Krátke | Dlhé row per contact button, update 51), Poloha na mape and "Typ obchodu"
+  (`KindChoice` / confirm / button with `form=` the hidden `setShopKind` form); RIGHT the card "Otváracie hodiny"
+  ("ťuknite na čas"; `@/components/HoursEditor`: one 52 px row per day, a pill per range "8:00–12:00" 44 px radius 22,
+  "+ prestávka" dashed for one range, "+ čas" for two or three, a closed day = the grey pill "Zatvorené"; a tap opens a
+  small `<dialog>` — Od / Do, Zatvorené, Odstrániť, Zavrieť, Hotovo, Esc — that changes only that range; the hidden
+  `opening_hours` JSON as before, `sanitizeHours` / `valid_week_hours` decide) and the card of switches (Platba kartou,
+  Toaleta, Bidetová sprška, "Viditeľný pre zákazníkov"; `Toggle`, 56 px rows); ONE `SaveBar` ("Neuložené zmeny: n" —
+  a hidden field counts when it carries `data-initial`, so the hours count; "Zrušiť" resets every field and the hours).
+  Under the columns, as before: "Logo v hlavičke webu", "Mimoriadne dni a sviatky" (`#holidays`, with the hours-by-SMS
+  line) and "Vymazať obchod" (`DashboardSection`s). e2e `e2e/owner-pages.spec.ts` (1180×820, 820×1180, 390×844).
 
 ## Contact buttons on the shop page (update 51)
 

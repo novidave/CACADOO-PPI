@@ -9,7 +9,9 @@ import { buttonClass, ghostClass } from "./ui";
 function changed(el: Element): boolean {
   if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) && !el.name) return false;
   if (el instanceof HTMLInputElement) {
-    if (el.type === "hidden" || el.type === "submit" || el.type === "button") return false;
+    // a hidden field counts only when it says what it started as (`data-initial`, e.g. the opening hours' pills)
+    if (el.type === "hidden") return el.dataset.initial !== undefined && el.value !== el.dataset.initial;
+    if (el.type === "submit" || el.type === "button") return false;
     if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
     return el.value !== el.defaultValue;
   }
