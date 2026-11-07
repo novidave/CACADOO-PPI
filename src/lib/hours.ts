@@ -69,10 +69,10 @@ export function openingHoursSpecification(hours: OpeningHours | null | undefined
 }
 
 /** Day name in the visitor's language: "pondelok", "hétfő", "Monday". */
-export function dayName(day: DayKey, locale: string): string {
+export function dayName(day: DayKey, locale: string, width: "long" | "short" = "long"): string {
   // 2024-01-01 was a Monday.
   const date = new Date(Date.UTC(2024, 0, 1 + DAYS.indexOf(day), 12));
-  return new Intl.DateTimeFormat(locale, { weekday: "long", timeZone: "UTC" }).format(date);
+  return new Intl.DateTimeFormat(locale, { weekday: width, timeZone: "UTC" }).format(date).replace(/\.$/, "");
 }
 
 /** Clean opening hours from a form: only well-formed ranges per known day (at most 4). */

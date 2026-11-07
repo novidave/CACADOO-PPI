@@ -390,7 +390,17 @@
     "welcome_list_insert": "Insert {zoznam} into the welcome message",
     "welcome_list_hint": "{zoznam} shows the shopper a blue bubble with the number of pieces in their shopping list; a tap puts it into the chat. Tap the tag or drag it into the text.",
     "shopper_in_menu": "On the menu",
-    "file_status_food": "Last stock change: {time}"
+    "file_status_food": "Last stock change: {time}",
+    "special_days_link": "Special days and holidays",
+    "logo_types": "PNG, JPG or WebP",
+    "buttons_title": "Buttons on the shop page",
+    "hours_tap": "tap a time",
+    "hours_add_break": "+ break",
+    "hours_from": "From",
+    "hours_to": "To",
+    "hours_done": "Done",
+    "hours_close": "Close",
+    "hours_edit": "Edit time"
   },
   "items_bulk": {
     "pick": "Select",

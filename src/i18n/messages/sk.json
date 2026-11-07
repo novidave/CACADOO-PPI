@@ -390,7 +390,17 @@
     "welcome_list_insert": "Vložiť {zoznam} do uvítacej správy",
     "welcome_list_hint": "{zoznam} ukáže zákazníkovi modrú bublinu s počtom kusov v jeho nákupnom zozname; ťuknutím ho vloží do chatu. Ťuknite na značku alebo ju potiahnite do textu.",
     "shopper_in_menu": "V menu",
-    "file_status_food": "Posledná zmena zásoby: {time}"
+    "file_status_food": "Posledná zmena zásoby: {time}",
+    "special_days_link": "Mimoriadne dni a sviatky",
+    "logo_types": "PNG, JPG alebo WebP",
+    "buttons_title": "Tlačidlá na stránke obchodu",
+    "hours_tap": "ťuknite na čas",
+    "hours_add_break": "+ prestávka",
+    "hours_from": "Od",
+    "hours_to": "Do",
+    "hours_done": "Hotovo",
+    "hours_close": "Zavrieť",
+    "hours_edit": "Upraviť čas"
   },
   "items_bulk": {
     "pick": "Označiť",

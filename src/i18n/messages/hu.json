@@ -390,7 +390,17 @@
     "welcome_list_insert": "{zoznam} beillesztése az üdvözlő üzenetbe",
     "welcome_list_hint": "A {zoznam} a vásárlónak egy kék buborékot mutat a bevásárlólistája darabszámával; koppintással beilleszti a csevegésbe. Koppintson a címkére, vagy húzza a szövegbe.",
     "shopper_in_menu": "A menüben",
-    "file_status_food": "Utolsó készletváltozás: {time}"
+    "file_status_food": "Utolsó készletváltozás: {time}",
+    "special_days_link": "Rendkívüli napok és ünnepek",
+    "logo_types": "PNG, JPG vagy WebP",
+    "buttons_title": "Gombok az üzlet oldalán",
+    "hours_tap": "koppintson az időre",
+    "hours_add_break": "+ szünet",
+    "hours_from": "Ettől",
+    "hours_to": "Eddig",
+    "hours_done": "Kész",
+    "hours_close": "Bezárás",
+    "hours_edit": "Idő módosítása"
   },
   "items_bulk": {
     "pick": "Kijelölés",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 const MAX_SIDE = 512;
@@ -44,12 +44,15 @@ async function pngCopy(file: File): Promise<File | null> {
 /**
  * One button for the logo: it opens the picture window and, once a picture is
  * chosen, shrinks it and uploads it straight away (no second click).
- * Must be placed inside the logo <form>.
+ * Inside the logo <form>, or anywhere with `form` = that form's id.
  */
-export function LogoInput({ label, busy }: { label: string; busy: string }) {
+export function LogoInput({ label, busy, form, className }: { label: string; busy: string; form?: string; className?: string }) {
   const input = useRef<HTMLInputElement>(null);
   const png = useRef<HTMLInputElement>(null);
-  const { pending } = useFormStatus();
+  const { pending: inForm } = useFormStatus();
+  // with `form` (the inputs belong to a form elsewhere on the page) the form's status is not ours to read: busy once sent
+  const [sent, setSent] = useState(false);
+  const pending = inForm || sent;
 
   async function chosen(event: React.ChangeEvent<HTMLInputElement>) {
     const field = event.currentTarget;
@@ -66,19 +69,20 @@ export function LogoInput({ label, busy }: { label: string; busy: string }) {
         png.current.files = twin.files;
       }
     }
+    if (form) setSent(true);
     field.form?.requestSubmit();
   }
 
   return (
     <>
-      <input ref={input} name="logo" type="file" accept="image/*" onChange={chosen} className="sr-only" tabIndex={-1} />
-      <input ref={png} name="logo_png" type="file" accept="image/png" className="hidden" tabIndex={-1} aria-hidden="true" />
+      <input ref={input} name="logo" type="file" accept="image/*" onChange={chosen} className="sr-only" tabIndex={-1} form={form} />
+      <input ref={png} name="logo_png" type="file" accept="image/png" className="hidden" tabIndex={-1} aria-hidden="true" form={form} />
       {/* Blue and underlined like a link, as the owner asked: the one coloured text on the site. */}
       <button
         type="button"
         disabled={pending}
         onClick={() => input.current?.click()}
-        className="self-start text-blue-700 underline underline-offset-4 hover:text-blue-900 disabled:text-muted disabled:no-underline"
+        className={className ?? "self-start text-blue-700 underline underline-offset-4 hover:text-blue-900 disabled:text-muted disabled:no-underline"}
       >
         {pending ? busy : label}
       </button>

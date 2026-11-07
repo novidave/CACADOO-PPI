@@ -99,7 +99,7 @@ test("contact buttons: short / long saved in Môj obchod shows on the shop page 
     await expect(page.locator(`[data-width-toggle="cb_${key}"] input[value="${width}"]`)).toBeChecked();
   };
   const save = async () => {
-    await page.locator("#details form").first().locator('button[type="submit"]').first().tap();
+    await page.locator('#details [data-save-bar] button[type="submit"]').tap();
     await expect(page).toHaveURL(/ok=details|err=/, { timeout: 30_000 });
     expect(page.url()).toContain("ok=details");
   };

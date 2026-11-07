@@ -4,7 +4,9 @@ import { isLocale } from "@/i18n/config";
 import { getDictionary, t } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
 import { forwardUrl, movedFrom, sectionUrl } from "@/lib/dashboardPages";
-import { addressLine } from "@/lib/format";
+import { requestTime } from "@/lib/requestTime";
+import { statusInput, loadCalendars } from "@/lib/shopCalendar";
+import { ShopStatusLine } from "@/components/ShopStatusLine";
 import type { MyShop } from "@/lib/myShops";
 import { DashboardSection } from "@/components/DashboardSection";
 import { DbError } from "@/components/DbError";
@@ -109,96 +111,136 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
 
   // One line per section while it is closed.
   const summaries = {
-    details: addressLine(shop.address, shop.city) || shop.name,
     holidays: holidaysSummary(holidays, dict),
-    logo: shop.logo_url ? d.summary_logo : d.summary_no_logo,
     header: siteLogoSummary(header, dict),
   };
 
+  // the live status line under the title (the shop's time zone, holidays and special days as on the shop page)
+  const calendars = await loadCalendars(supabase, [shop.id]);
+  const detailsNotice = notice("details") ?? notice("logo");
+  const kindForm = "shop-kind-form";
+  const logoForm = "shop-logo-form";
+
   return (
-    <div className="flex max-w-5xl flex-col gap-6">
-      {/* artboard 9: "Môj obchod" + the shop's name; the shop switcher and "+ Pridať obchod" are the menu's */}
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex w-full max-w-[1180px] flex-col gap-[18px]">
+      {/* artboard 9: "Môj obchod", the live status, "Mimoriadne dni a sviatky" on the right */}
+      <header className="flex flex-wrap items-start justify-between gap-3" data-page-head="shop">
+        <div className="flex min-w-0 flex-col gap-1">
           <PageTitle>{dict.nav.shop}</PageTitle>
-          <a href="#holidays" className={ghostClass} data-holidays-link>
-            {dict.holidays.title}
-          </a>
-        </div>
-        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px]">
-          <strong>{shop.name}</strong>
-          {shop.is_active && (
-            <Link href={`/${lang}/shops/${shop.slug}`} className="underline underline-offset-4">
-              {d.view_public}
-            </Link>
-          )}
-        </p>
-        {needsFile && (
-          <div className="flex flex-col gap-1 border border-foreground p-3" data-needs-file>
-            <p className="font-semibold">{dict.reset.upload_new_title}</p>
-            <p className="text-sm">{dict.reset.upload_new_text}</p>
-            <Link href={sectionUrl(lang, "export", { shop: shop.slug })} className="self-start text-sm underline underline-offset-4">
-              {dict.reset.upload_new_link}
-            </Link>
-          </div>
-        )}
-        {ok === "created" ? (
-          // update 79: the next steps are the setup card below (the stock file's steps or a restaurant's)
-          <p className="border border-foreground p-3 font-semibold" role="status">
-            {o.created}
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]" data-shop-status>
+            <ShopStatusLine input={statusInput(shop, calendars)} labels={dict.status} lang={lang} renderedAt={requestTime()} className="font-bold" />
+            {shops.length > 1 && <span className="text-muted">· {shop.name}</span>}
+            {shop.is_active && (
+              <Link href={`/${lang}/shops/${shop.slug}`} className="text-muted underline underline-offset-4">
+                {d.view_public}
+              </Link>
+            )}
           </p>
-        ) : (
-          ok && !at && <p className="border border-foreground p-3 font-medium">{okText}</p>
-        )}
-        {err && !at && <p className="border border-line p-3">{errorText(dict, err)}</p>}
+        </div>
+        <a href="#holidays" className={ghostClass} data-holidays-link>
+          {d.special_days_link}
+        </a>
       </header>
+      {needsFile && (
+        <div className="flex flex-col gap-1 rounded-2xl border border-foreground p-3" data-needs-file>
+          <p className="font-semibold">{dict.reset.upload_new_title}</p>
+          <p className="text-sm">{dict.reset.upload_new_text}</p>
+          <Link href={sectionUrl(lang, "export", { shop: shop.slug })} className="self-start text-sm underline underline-offset-4">
+            {dict.reset.upload_new_link}
+          </Link>
+        </div>
+      )}
+      {ok === "created" ? (
+        // update 79: the next steps are the setup card below (the stock file's steps or a restaurant's)
+        <p className="rounded-xl border border-foreground p-3 font-semibold" role="status">
+          {o.created}
+        </p>
+      ) : (
+        ok && !at && <p className="rounded-xl border border-foreground p-3 font-medium">{okText}</p>
+      )}
+      {err && !at && <p className="rounded-xl border border-line p-3">{errorText(dict, err)}</p>}
+      {detailsNotice}
 
       {setup && !setup.finished && (
         <SetupCard state={setup} shop={shop} lang={lang} dict={dict} preview={shop.is_active ? shopHref(sites, lang, shop.slug, shop.country) : null} />
       )}
 
+      {/* the logo and "Typ obchodu" have their own forms; their fields sit in the details card through form= */}
+      <form id={logoForm} action={uploadLogo} hidden>
+        {hidden({ at: "logo" })}
+      </form>
+      <form id={kindForm} action={setShopKind} hidden>
+        {hidden({ at: "details" })}
+      </form>
+      <div id="details" className="scroll-mt-4">
+        <ShopForm
+          dict={dict}
+          lang={lang}
+          shop={shop}
+          defaults={{ country: "", timezone: "" }}
+          action={saveShop}
+          submitLabel={dict.account.save}
+          companyElsewhere={{
+            href: `/${lang}/dashboard/legal?${new URLSearchParams({ shop: shop.slug })}#company`,
+            label: dict.shop_legal.admin_title,
+            hint: dict.shop_legal.company_moved,
+          }}
+          logo={
+            <div id="logo" className="flex scroll-mt-4 items-center gap-3.5" data-shop-logo>
+              {shop.logo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element -- logo from Supabase Storage
+                <img src={shop.logo_url} alt="" width={64} height={64} className="size-16 flex-none rounded-[14px] border border-[#D6D6D6] object-contain" />
+              ) : (
+                <span aria-hidden="true" className="flex size-16 flex-none items-center justify-center rounded-[14px] border border-[#D6D6D6] text-xl font-bold">
+                  {shop.name.trim().charAt(0).toUpperCase()}
+                </span>
+              )}
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <strong className="text-base">{d.logo_title}</strong>
+                <span className="text-sm text-muted">{d.logo_types}</span>
+              </span>
+              <LogoInput
+                label={d.upload}
+                busy={o.uploading}
+                form={logoForm}
+                className="inline-flex min-h-[52px] flex-none items-center rounded-xl border border-[#D6D6D6] bg-white px-4 font-bold text-[#1D4ED8] disabled:text-muted"
+              />
+            </div>
+          }
+          kind={
+            // "Typ obchodu" (update 79): nothing is deleted by a change, the owner confirms it first
+            <div id="kind" className="flex scroll-mt-4 flex-col gap-2 border-t border-[#E4E4E4] pt-3.5" data-shop-kind={kind}>
+              <span className="text-sm font-semibold">{s.kind_title}</span>
+              <p className="text-base font-bold">{t(s.kind_now, { kind: kind === "food" ? s.kind_food : s.kind_goods })}</p>
+              <details className="group">
+                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold underline underline-offset-4" data-kind-change>
+                  {s.kind_change}
+                </summary>
+                <div className="flex flex-col gap-3 pt-2">
+                  <KindChoice value={kind} labels={s} form={kindForm} />
+                  <p className="text-sm">{s.kind_change_intro}</p>
+                  <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+                    <li>{s.kind_to_food}</li>
+                    <li>{s.kind_to_goods}</li>
+                  </ul>
+                  <label className="flex min-h-11 items-center gap-3 text-sm font-semibold">
+                    <input type="checkbox" name="confirm" required form={kindForm} className="h-6 w-6 flex-none accent-[#111]" />
+                    {s.kind_confirm}
+                  </label>
+                  <button type="submit" form={kindForm} className={`${buttonClass} self-start`} data-kind-save>
+                    {s.kind_save}
+                  </button>
+                </div>
+              </details>
+            </div>
+          }
+        />
+      </div>
+
+      {/* under the columns, as before: the site's header logo, the special days and holidays, deleting the shop */}
       <div className="flex flex-col gap-3">
-        <DashboardSection {...section("details")} title={d.details_title} summary={summaries.details}>
-          {notice("details")}
-          {/* "Typ obchodu" (update 79): nothing is deleted by a change, the owner confirms it first */}
-          <div id="kind" className="flex scroll-mt-4 flex-col gap-2 rounded-2xl border border-[#E4E4E4] p-4" data-shop-kind={kind}>
-            <span className="text-sm font-semibold">{s.kind_title}</span>
-            <p className="text-base font-bold">{t(s.kind_now, { kind: kind === "food" ? s.kind_food : s.kind_goods })}</p>
-            <details className="group">
-              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold underline underline-offset-4" data-kind-change>
-                {s.kind_change}
-              </summary>
-              <form action={setShopKind} className="flex flex-col gap-3 pt-2">
-                {hidden({ at: "details" })}
-                <KindChoice value={kind} labels={s} />
-                <p className="text-sm">{s.kind_change_intro}</p>
-                <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
-                  <li>{s.kind_to_food}</li>
-                  <li>{s.kind_to_goods}</li>
-                </ul>
-                <label className="flex min-h-11 items-center gap-3 text-sm font-semibold">
-                  <input type="checkbox" name="confirm" required className="h-6 w-6 flex-none accent-[#111]" />
-                  {s.kind_confirm}
-                </label>
-                <button type="submit" className={`${buttonClass} self-start`} data-kind-save>
-                  {s.kind_save}
-                </button>
-              </form>
-            </details>
-          </div>
-          <ShopForm
-            dict={dict}
-            lang={lang}
-            shop={shop}
-            defaults={{ country: "", timezone: "" }}
-            action={saveShop}
-            submitLabel={dict.account.save}
-            companyElsewhere={{
-              href: `/${lang}/dashboard/legal?${new URLSearchParams({ shop: shop.slug })}#company`,
-              label: dict.shop_legal.admin_title,
-              hint: dict.shop_legal.company_moved,
-            }}
-          />
+        <DashboardSection {...section("header")} title={dict.sections.site_logo_title} summary={summaries.header}>
+          <SiteLogoPanel data={header} shopName={shop.name} dict={dict} hidden={hidden} notice={notice("header")} />
         </DashboardSection>
 
         <DashboardSection {...section("holidays")} title={dict.holidays.title} summary={summaries.holidays}>
@@ -217,23 +259,6 @@ export default async function DashboardPage({ params, searchParams }: PageProps<
             notice={notice("holidays")}
             editDate={/^\d{4}-\d{2}-\d{2}$/.test(first(sp.date) ?? "") ? first(sp.date)! : null}
           />
-        </DashboardSection>
-
-        <DashboardSection {...section("logo")} title={d.logo_title} summary={summaries.logo}>
-          <form action={uploadLogo} className="flex flex-col gap-3">
-            {hidden({ at: "logo" })}
-            {notice("logo")}
-            {shop.logo_url && (
-              // eslint-disable-next-line @next/next/no-img-element -- logo from Supabase Storage
-              <img src={shop.logo_url} alt="" width={64} height={64} className="h-16 w-16 border border-line object-contain" />
-            )}
-            <LogoInput label={d.upload} busy={o.uploading} />
-            <p className="text-sm text-muted">{d.logo_hint}</p>
-          </form>
-        </DashboardSection>
-
-        <DashboardSection {...section("header")} title={dict.sections.site_logo_title} summary={summaries.header}>
-          <SiteLogoPanel data={header} shopName={shop.name} dict={dict} hidden={hidden} notice={notice("header")} />
         </DashboardSection>
 
         <DashboardSection {...section("delete")} title={o.delete_title} summary={o.delete_summary}>

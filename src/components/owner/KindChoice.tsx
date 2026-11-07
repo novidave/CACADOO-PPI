@@ -22,12 +22,15 @@ export function KindChoice({
   value,
   labels,
   required = true,
+  form,
 }: {
   name?: string;
   /** The kind chosen now (none = nothing chosen yet). */
   value?: "goods" | "food" | null;
   labels: KindLabels;
   required?: boolean;
+  /** the id of the form the radios belong to, when they sit inside another form's markup */
+  form?: string;
 }) {
   const cards = [
     { kind: "goods", title: labels.kind_goods, line: labels.kind_goods_line },
@@ -41,7 +44,7 @@ export function KindChoice({
           className="flex min-h-[76px] cursor-pointer items-center gap-3.5 rounded-2xl border-[1.5px] border-[#E4E4E4] bg-white p-4 has-[:checked]:border-[#111] has-[:checked]:bg-[#F7F7F7] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#2563EB]"
           data-kind-card={c.kind}
         >
-          <input type="radio" name={name} value={c.kind} defaultChecked={value === c.kind} required={required} className="sr-only" />
+          <input type="radio" name={name} value={c.kind} defaultChecked={value === c.kind} required={required} form={form} className="sr-only" />
           <span className="flex size-12 flex-none items-center justify-center rounded-xl bg-[#F4F4F4]" aria-hidden="true">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" focusable="false">
               <path d={ICONS[c.kind]} />
