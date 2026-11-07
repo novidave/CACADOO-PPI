@@ -270,6 +270,17 @@ OPEN
    d) Check: Admin → SMS shows "Prijímanie SMS: … Infobip". From your verified owner phone, text the number
       "Po-Pi 9-17" — you get the confirmation SMS and the shop page shows the new hours.
 
+35. Try a customer project once with your own phone (update 95)
+   Why: the SMS code for a customer's project can only be tried with a real phone.
+   Steps:
+   a) CRM → Kontakty → open your own contact (your mobile number) → tab "Projekt".
+   b) If it says the number is not verified: press "Poslať zákazníkovi overovací kód", type the code from the SMS.
+   c) Write a line in "Stav projektu", press "Uložiť stav", switch on "Zákazník sa môže pýtať asistenta na svoj projekt".
+   d) Optional: "Prepojiť priečinok na počítači" (Edge or Chrome) and pick a folder with one PDF.
+   e) On the shop page ask the assistant "Ako je na tom môj projekt?", type your number, then the SMS code: the answer
+      should tell your status. Then "Nová konverzácia" and ask again: it must ask for the code again.
+   f) Switch the project off again if you do not need it.
+
 DONE
 ----
 6. Fix the project address in the Vault — done 2026-11-01 (every job answers 200 again)

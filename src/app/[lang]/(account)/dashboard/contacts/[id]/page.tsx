@@ -18,11 +18,12 @@ import { hiddenFields } from "../../shared";
 import { deleteContact, saveContact } from "../actions";
 import { ContactFields, Notice } from "../parts";
 import { conversationHref } from "@/lib/dashboardPages";
+import { ProjectTab, type ProjectState } from "@/components/owner/ProjectTab";
 
 export const metadata: Metadata = { robots: { index: false } };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TABS = ["overview", "conversations", "bookings", "messages"] as const;
+const TABS = ["overview", "conversations", "bookings", "messages", "project"] as const;
 type Tab = (typeof TABS)[number];
 
 interface Contact {
@@ -77,7 +78,7 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
       </div>
     );
   }
-  const [shopsRes, plan, conversations, messages, templates, config, bookingsRes, sms, waiting] = await Promise.all([
+  const [shopsRes, plan, conversations, messages, templates, config, bookingsRes, sms, waiting, projectRes] = await Promise.all([
     supabase.rpc("my_shops"),
     supabase.rpc("shop_has_plan", { p_shop_id: contact.shop_id }),
     supabase
@@ -105,6 +106,8 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
     tab === "messages" ? loadSmsUsage(supabase, contact.shop_id) : Promise.resolve(null),
     // CRM's head: the new conversations badge on Konverzácie, as on every CRM tab
     crmBadgeCount(supabase, contact.shop_id),
+    // The customer's project (database update 95; the tab says so before it exists)
+    tab === "project" ? supabase.rpc("owner_project", { p_contact_id: id }) : Promise.resolve({ data: null, error: null }),
   ]);
   const shops = (shopsRes.data ?? []) as MyShop[];
   const shop = shops.find((s) => s.id === contact.shop_id);
@@ -115,8 +118,14 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
   const convRows = (conversations.data ?? []) as { id: string; started_at: string; shopper_lang: string | null; page_lang: string; message_count: number; first_question: string | null }[];
   const sent = (messages.data ?? []) as Sent[];
   const bookingRows = (bookingsRes.error ? [] : bookingsRes.data ?? []) as { id: string; starts_at: string; ends_at: string; status: string; service_name: string | null }[];
-  const counts: Record<Tab, number | null> = { overview: null, conversations: convRows.length, bookings: bookingRows.length, messages: sent.length };
-  const labels: Record<Tab, string> = { overview: c.tab_overview, conversations: c.tab_conversations, bookings: c.tab_bookings, messages: c.tab_messages };
+  const counts: Record<Tab, number | null> = { overview: null, conversations: convRows.length, bookings: bookingRows.length, messages: sent.length, project: null };
+  const labels: Record<Tab, string> = {
+    overview: c.tab_overview,
+    conversations: c.tab_conversations,
+    bookings: c.tab_bookings,
+    messages: c.tab_messages,
+    project: dict.project.tab,
+  };
   const title = contact.name || contact.phone || contact.email || c.no_name;
   const statusText: Record<Sent["status"], string> = { sent: c.status_sent, failed: c.status_failed, test: c.status_test, queued: c.status_queued };
 
@@ -241,6 +250,15 @@ export default async function ContactPage({ params, searchParams }: PageProps<"/
           </Link>
         </section>
       )}
+
+      {tab === "project" &&
+        (projectRes.error || !projectRes.data ? (
+          <section data-tab-panel="project">
+            <p className="text-sm text-muted">{dict.project.unavailable}</p>
+          </section>
+        ) : (
+          <ProjectTab initial={projectRes.data as ProjectState} lang={lang} labels={dict.project} />
+        ))}
 
       {tab === "messages" && (
         <section className="flex flex-col gap-4" data-tab-panel="messages">

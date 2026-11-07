@@ -25,6 +25,16 @@ export function kbFileKind(name: string): KbFileKind | null | undefined {
   return null;
 }
 
+/** A customer's project folder (update 95) also takes plain text notes (.txt, .md). */
+export type ProjectFileKind = KbFileKind | "text";
+const TEXT = /\.(txt|md)$/i;
+
+export function projectFileKind(name: string): ProjectFileKind | null | undefined {
+  const kind = kbFileKind(name);
+  if (kind === null && TEXT.test(name)) return "text";
+  return kind;
+}
+
 export interface KbEntry {
   name: string;
   size: number;
@@ -63,10 +73,16 @@ export interface KbPlan {
 }
 
 /** One check's plan from the folder's files and what this browser saw last time. */
-export function planCheck(entries: KbEntry[], seen: Record<string, KbSeen>, now: number, settleMs = KB_SETTLE_MS): KbPlan {
+export function planCheck(
+  entries: KbEntry[],
+  seen: Record<string, KbSeen>,
+  now: number,
+  settleMs = KB_SETTLE_MS,
+  kindOf: (name: string) => string | null | undefined = kbFileKind,
+): KbPlan {
   const plan: KbPlan = { present: [], read: [], unchanged: [], waiting: [], unsupported: [] };
   for (const e of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
-    const kind = kbFileKind(e.name);
+    const kind = kindOf(e.name);
     if (kind === undefined) continue;
     if (kind === null) {
       plan.unsupported.push(e.name);

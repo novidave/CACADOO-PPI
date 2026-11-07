@@ -8,6 +8,7 @@ import { formatDateTime } from "@/lib/format";
 import { DbError } from "@/components/DbError";
 import { PendingButton } from "@/components/PendingButton";
 import { SmsUsage } from "@/components/SmsUsage";
+import { DetachedProjects, type DetachedProject } from "@/components/owner/DetachedProjects";
 import { loadSmsUsage } from "@/lib/smsUsage";
 import { CrmHead, crmBadgeCount } from "../AssistantTabs";
 import { countText } from "../Conversations";
@@ -58,7 +59,7 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
   const page = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   const conversation = first(sp.conversation) ?? "";
 
-  const [plan, list, tags, templates, sms, waiting] = await Promise.all([
+  const [plan, list, tags, templates, sms, waiting, detached] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     view === "contacts"
       ? supabase.rpc("owner_contacts", { p_shop_id: shop.id, p_q: q || null, p_tag: tag || null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE })
@@ -70,6 +71,8 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
     // "SMS tento mesiac" (database update 58; none before it).
     loadSmsUsage(supabase, shop.id),
     crmBadgeCount(supabase, shop.id),
+    // projects whose contact was deleted (database update 95; none before it)
+    view === "contacts" ? supabase.rpc("owner_projects_detached", { p_shop_id: shop.id }) : Promise.resolve({ data: [], error: null }),
   ]);
   const hasPlan = !plan.error && plan.data === true;
   const unavailable = Boolean(list.error || templates.error);
@@ -198,6 +201,9 @@ export default async function ContactsPage({ params, searchParams }: PageProps<"
             </>
           )}
         </section>
+      )}
+      {view === "contacts" && !detached.error && ((detached.data ?? []) as DetachedProject[]).length > 0 && (
+        <DetachedProjects projects={detached.data as DetachedProject[]} lang={lang} labels={dict.project} />
       )}
       </div>
     </div>

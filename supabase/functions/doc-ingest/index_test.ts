@@ -26,6 +26,8 @@ interface Setup {
   removeError?: string;
   /** shop_document_pages rows (update 24). */
   pages?: { page: number; storage_path: string; uploaded: boolean }[];
+  /** contact_project_docs row (update 95). */
+  projectDoc?: Record<string, unknown> | null;
 }
 
 /** Fakes for the caller's client and the service-role client; every call is logged in order. */
@@ -85,6 +87,10 @@ function fakes(setup: Setup = {}) {
             const rows = (setup.pages ?? []).filter((r) => r.uploaded === where.uploaded && values.includes(r[column as "page"]));
             return Promise.resolve(ok(rows));
           },
+          maybeSingle: () => {
+            log.push(`service read ${table}`);
+            return Promise.resolve(ok(table === "contact_project_docs" && setup.projectDoc?.id === where.id ? setup.projectDoc : null));
+          },
         };
         return chain;
       },
@@ -112,6 +118,10 @@ function fakes(setup: Setup = {}) {
         createSignedUrl: (path: string, seconds: number) => {
           log.push(`storage sign ${path}`);
           return Promise.resolve(ok({ signedUrl: `https://signed/${path}?s=${seconds}` }));
+        },
+        createSignedUploadUrl: (path: string) => {
+          log.push(`storage upload-sign ${bucket} ${path}`);
+          return Promise.resolve(ok({ token: "up-token", path }));
         },
         createSignedUrls: (paths: string[], seconds: number) =>
           Promise.resolve(ok(paths.map((p) => ({ signedUrl: `https://signed/${p}?s=${seconds}` })))),
@@ -392,4 +402,62 @@ Deno.test("Pages uploaded: only pictures really in storage and at most 5 MB coun
   eq(log.find((l) => l.startsWith("service docs_pages_uploaded")), `service docs_pages_uploaded {"p_document_id":"${DOC}","p_pages":[1]}`, "only page 1");
   const other = fakes({ member: false });
   eq((await call(other.deps, { action: "pages_uploaded", document_id: DOC, pages: [1] }))[0], 403, "not the owner");
+});
+
+// ---------------------------------------------------------------- update 95: a customer's project folder
+
+const CONTACT = "66666666-2222-4333-8444-555555555555";
+const PDOC = "77777777-2222-4333-8444-555555555555";
+const PROJECT = "88888888-2222-4333-8444-555555555555";
+const PPATH = `${SHOP}/${CONTACT}/${PDOC}.pdf`;
+
+Deno.test("Project register: the caller's own id goes to SQL, its refusals come back, then a signed upload into contact-docs", async () => {
+  const { deps, log } = fakes({
+    service: (name) => name === "project_doc_register" ? { data: { doc_id: PDOC, path: PPATH }, error: null } : { data: null, error: null },
+  });
+  const body = { action: "project_register", contact_id: CONTACT, kind: "pdf", name: "navrh.pdf", hash: "ab".repeat(32), bytes: 1000, pages: 2 };
+  const [status, answer] = await call(deps, body);
+  eq([status, answer], [200, { doc_id: PDOC, path: PPATH, token: "up-token", bucket: "contact-docs" }], "registered");
+  eq(log.some((l) => l.startsWith("service project_doc_register") && l.includes('"p_user_id":"u1"')), true, "the caller's id");
+  eq(log.includes(`storage upload-sign contact-docs ${PPATH}`), true, "signed into contact-docs");
+  eq((await call(deps, { ...body, hash: "xyz" }))[0], 400, "a bad hash");
+  eq((await call(deps, { ...body, kind: "exe" }))[0], 400, "a bad kind");
+  const limit = fakes({ service: () => ({ data: null, error: { message: "limit_bytes", code: "P0001" } }) });
+  const [ls, la] = await call(limit.deps, body);
+  eq([ls, la.error], [409, "limit_bytes"], "50 MB per contact");
+  const other = fakes({ service: () => ({ data: null, error: { message: "Not your shop", code: "42501" } }) });
+  eq((await call(other.deps, body))[0], 403, "another shop's contact");
+  eq((await call(deps, body, "nobody"))[0], 401, "a login");
+});
+
+Deno.test("Project text: only a member's uploaded file, the excerpts as written; a larger stored file is removed", async () => {
+  const projectDoc = { id: PDOC, shop_id: SHOP, status: "uploading", storage_path: PPATH, bytes: 1000, pages: 2 };
+  const { deps, log } = fakes({ projectDoc, files: { [PPATH]: 1000 } });
+  const [status] = await call(deps, { action: "project_text", doc_id: PDOC, pages: [{ page: 1, text: "Doska dub" }, { page: 9, text: "x" }] });
+  eq(status, 200, "saved");
+  const saved = log.find((l) => l.startsWith("service project_doc_text"))!;
+  eq([saved.includes("Doska dub"), saved.includes('"page":9')], [true, false], "pages the file does not have are dropped");
+  const missing = fakes({ projectDoc, files: {} });
+  eq((await call(missing.deps, { action: "project_text", doc_id: PDOC, pages: [] }))[0], 409, "not uploaded");
+  const big = fakes({ projectDoc, files: { [PPATH]: 900_000 } });
+  eq((await call(big.deps, { action: "project_text", doc_id: PDOC, pages: [] }))[0], 413, "larger than announced");
+  eq(big.log.some((l) => l.startsWith(`storage remove ${PPATH}`)), true, "removed");
+  const stranger = fakes({ projectDoc, member: false, files: { [PPATH]: 1000 } });
+  eq((await call(stranger.deps, { action: "project_text", doc_id: PDOC, pages: [] }))[0], 403, "another shop");
+});
+
+Deno.test("Project delete and purge: the owner's SQL check first, the stored files, then the rows", async () => {
+  const { deps, log } = fakes({
+    caller: (name) => ({ data: name === "owner_project_remove_doc" ? { path: PPATH } : { paths: [PPATH] }, error: null }),
+  });
+  eq((await call(deps, { action: "project_delete", doc_id: PDOC, reason: "replaced" }))[0], 200, "deleted");
+  const order = log.filter((l) => l.startsWith("caller owner_project") || l.startsWith("storage remove") || l.startsWith("service project_doc_delete"));
+  eq(order.map((l) => l.split(" ").slice(0, 2).join(" ")), ["caller owner_project_remove_doc", "storage remove", "service project_doc_delete"], "the order");
+  eq((await call(deps, { action: "project_purge", project_id: PROJECT }))[0], 200, "purged");
+  eq(log.some((l) => l.startsWith("service project_delete")), true, "the project row");
+  const refused = fakes({ caller: () => ({ data: null, error: { message: "Not your shop" } }) });
+  eq((await call(refused.deps, { action: "project_delete", doc_id: PDOC }))[0], 403, "another shop");
+  eq(refused.log.some((l) => l.startsWith("storage remove")), false, "nothing removed");
+  const kept = fakes({ caller: () => ({ data: null, error: { message: "not_detached" } }) });
+  eq((await call(kept.deps, { action: "project_purge", project_id: PROJECT }))[0], 409, "the contact still exists");
 });

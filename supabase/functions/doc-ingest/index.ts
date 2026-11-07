@@ -24,6 +24,12 @@
 //   open_file          {kind: document | picture, id} → {url}: a 10-minute address of the
 //                      owner's own PDF or picture (Môj obchod "Open")
 //   delete             {kind: "document" | "picture", id}   files first, then text and rows
+//   update 95 — a verified customer's project folder (bucket "contact-docs/<shop>/<contact>/", no storage policies):
+//   project_register   {contact_id, kind: pdf | picture | text, name, hash, bytes, pages} → {doc_id, path, token}
+//                      (≤ 200 files and 50 MB per contact, decided in SQL; then the browser uploads with the token)
+//   project_text       {doc_id, pages: [{page, text}]}  the uploaded file's text as written → excerpts (ready)
+//   project_delete     {doc_id, reason?: owner | replaced}  the stored file first, then the row
+//   project_purge      {project_id}   a project whose contact was deleted: every file, then the project
 // The browser does the PDF reading because Edge Functions get only 2 seconds of CPU per
 // request; here there is only light work and waiting for the AI.
 // PPI never changes the owner's files or text and never translates them: the text is
@@ -40,6 +46,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk@0.131.0";
 
 export const BUCKET = "shop-docs";
+export const PROJECT_BUCKET = "contact-docs";
 const DEFAULT_MODEL = "claude-haiku-5-5";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
@@ -305,6 +312,8 @@ export interface Deps {
   limits: Limits;
   /** null when no ANTHROPIC_API_KEY is set: pictures wait. */
   look: Looker | null;
+  /** The signed-in caller (set by ingest after checking the login). */
+  userId?: string;
 }
 
 type Body = Record<string, unknown>;
@@ -358,9 +367,9 @@ async function ownDocument(deps: Deps, id: unknown): Promise<DocumentRow | null>
 }
 
 /** The stored file's size, or null when it is not in storage. */
-async function storedSize(db: SupabaseClient, path: string): Promise<number | null> {
+async function storedSize(db: SupabaseClient, path: string, bucket = BUCKET): Promise<number | null> {
   const slash = path.lastIndexOf("/");
-  const { data, error } = await db.storage.from(BUCKET).list(path.slice(0, slash), {
+  const { data, error } = await db.storage.from(bucket).list(path.slice(0, slash), {
     search: path.slice(slash + 1),
     limit: 10,
   });
@@ -688,6 +697,137 @@ async function remove(body: Body, deps: Deps) {
   return reply(200, { deleted: files.length });
 }
 
+// ---------------------------------------------------------------- update 95: a customer's project folder
+
+const PROJECT_KINDS = ["pdf", "picture", "text"];
+const PROJECT_ERRORS: Record<string, [number, string]> = {
+  no_plan: [409, "This shop has no paid plan"],
+  no_project: [409, "Link the project's folder first"],
+  limit_files: [409, "A project may have at most 200 files"],
+  limit_bytes: [409, "A project may have at most 50 MB"],
+  kind: [400, "PDF, pictures or text files only"],
+  name: [400, "A file name is required"],
+  hash: [400, "A SHA-256 is required"],
+  "Not your shop": [403, "Only this shop's owners can do this"],
+};
+
+function projectError(error: { message?: string } | null) {
+  const known = PROJECT_ERRORS[error?.message ?? ""];
+  if (known) return reply(known[0], { error: error?.message === "Not your shop" ? "not_member" : error?.message, message: known[1] });
+  return reply(500, { error: "database", message: "Not saved" });
+}
+
+interface ProjectDocRow {
+  id: string;
+  shop_id: string;
+  status: string;
+  storage_path: string;
+  bytes: number;
+  pages: number;
+}
+
+/** A project file of a shop the caller is a member of, or null. */
+async function ownProjectDoc(deps: Deps, id: unknown): Promise<ProjectDocRow | null> {
+  const docId = uuidOrNull(id);
+  if (!docId) return null;
+  const { data } = await deps.db
+    .from("contact_project_docs")
+    .select("id, shop_id, status, storage_path, bytes, pages")
+    .eq("id", docId)
+    .maybeSingle();
+  const row = (data as ProjectDocRow | null) ?? null;
+  return row && (await isMember(deps, row.shop_id)) ? row : null;
+}
+
+async function projectRegister(body: Body, deps: Deps) {
+  const contactId = uuidOrNull(body.contact_id);
+  const kind = PROJECT_KINDS.includes(String(body.kind)) ? String(body.kind) : null;
+  const name = clean(body.name, 255);
+  const hash = typeof body.hash === "string" && /^[0-9a-f]{64}$/.test(body.hash) ? body.hash : null;
+  const bytes = Number(body.bytes);
+  const pages = Number(body.pages ?? 0);
+  if (!contactId || !kind || !name || !hash || !(bytes > 0) || !Number.isInteger(pages) || pages < 0 || pages > 5000) {
+    return reply(400, { error: "bad_request", message: "contact_id, kind, name, hash and bytes are required" });
+  }
+  if (bytes > MAX_PDF_BYTES) return reply(413, { error: "too_big", message: "A file may have at most 20 MB" });
+  const { data, error } = await deps.db.rpc("project_doc_register", {
+    p_contact_id: contactId,
+    p_user_id: deps.userId,
+    p_kind: kind,
+    p_name: name,
+    p_hash: hash,
+    p_bytes: bytes,
+    p_pages: pages,
+  });
+  if (error) return projectError(error);
+  const row = data as { doc_id: string; path: string };
+  const { data: signed, error: signError } = await deps.db.storage.from(PROJECT_BUCKET).createSignedUploadUrl(row.path);
+  if (signError || !signed?.token) {
+    await deps.db.rpc("project_doc_delete", { p_doc_id: row.doc_id });
+    return reply(502, { error: "storage", message: "The upload could not start" });
+  }
+  return reply(200, { doc_id: row.doc_id, path: row.path, token: signed.token, bucket: PROJECT_BUCKET });
+}
+
+async function projectText(body: Body, deps: Deps) {
+  const doc = await ownProjectDoc(deps, body.doc_id);
+  if (!doc) return notMember();
+  if (doc.status !== "uploading") return reply(409, { error: "document", message: "This file takes no more text" });
+  const size = await storedSize(deps.db, doc.storage_path, PROJECT_BUCKET);
+  if (size === null) return reply(409, { error: "not_uploaded", message: "The file is not in storage" });
+  if (size > MAX_PDF_BYTES || size > doc.bytes * 1.01 + 1024) {
+    await deps.db.storage.from(PROJECT_BUCKET).remove([doc.storage_path]);
+    await deps.db.rpc("project_doc_delete", { p_doc_id: doc.id });
+    return reply(413, { error: "too_big", message: "The stored file is larger than announced" });
+  }
+  const raw = Array.isArray(body.pages) ? body.pages : [];
+  if (raw.length > 5000) return reply(413, { error: "too_big", message: "Too many pages" });
+  const pages: PageText[] = [];
+  let chars = 0;
+  for (const item of raw as Body[]) {
+    const page = Number(item?.page);
+    const text = typeof item?.text === "string" ? item.text : "";
+    if (!Number.isInteger(page) || page < 1 || page > Math.max(doc.pages, 1)) continue;
+    chars += text.length;
+    pages.push({ page, text });
+  }
+  if (chars > MAX_TEXT_CHARS) return reply(413, { error: "too_big", message: "Too much text" });
+  const { data, error } = await deps.db.rpc("project_doc_text", { p_doc_id: doc.id, p_chunks: chunkPages(pages) });
+  if (error) return reply(500, { error: "database", message: "Not saved" });
+  return reply(200, { chunks: data });
+}
+
+async function projectDelete(body: Body, deps: Deps) {
+  const docId = uuidOrNull(body.doc_id);
+  if (!docId) return reply(400, { error: "bad_request", message: "doc_id is required" });
+  const { data, error } = await deps.asCaller.rpc("owner_project_remove_doc", {
+    p_doc_id: docId,
+    p_reason: body.reason === "replaced" ? "replaced" : "owner",
+  });
+  if (error) return notMember();
+  const path = String((data as { path?: string })?.path ?? "");
+  if (path) {
+    const { error: storageError } = await deps.db.storage.from(PROJECT_BUCKET).remove([path]);
+    if (storageError) return reply(502, { error: "storage", message: "The file could not be deleted" });
+  }
+  await deps.db.rpc("project_doc_delete", { p_doc_id: docId });
+  return reply(200, { deleted: path ? 1 : 0 });
+}
+
+async function projectPurge(body: Body, deps: Deps) {
+  const projectId = uuidOrNull(body.project_id);
+  if (!projectId) return reply(400, { error: "bad_request", message: "project_id is required" });
+  const { data, error } = await deps.asCaller.rpc("owner_project_purge", { p_project_id: projectId });
+  if (error) return error.message === "not_detached" ? reply(409, { error: "not_detached", message: "The contact still exists" }) : notMember();
+  const paths = (((data as { paths?: unknown[] })?.paths ?? []) as unknown[]).filter((p): p is string => typeof p === "string" && p !== "");
+  for (let i = 0; i < paths.length; i += 100) {
+    const { error: storageError } = await deps.db.storage.from(PROJECT_BUCKET).remove(paths.slice(i, i + 100));
+    if (storageError) return reply(502, { error: "storage", message: "The files could not be deleted" });
+  }
+  await deps.db.rpc("project_delete", { p_project_id: projectId });
+  return reply(200, { deleted: paths.length });
+}
+
 const ACTIONS: Record<string, (body: Body, deps: Deps) => Promise<Response>> = {
   register_document: registerDocument,
   document_uploaded: documentUploaded,
@@ -701,6 +841,10 @@ const ACTIONS: Record<string, (body: Body, deps: Deps) => Promise<Response>> = {
   links,
   open_file: openFile,
   delete: remove,
+  project_register: projectRegister,
+  project_text: projectText,
+  project_delete: projectDelete,
+  project_purge: projectPurge,
 };
 
 export async function ingest(req: Request, deps: Deps): Promise<Response> {
@@ -717,7 +861,7 @@ export async function ingest(req: Request, deps: Deps): Promise<Response> {
   const action = ACTIONS[String(body?.action ?? "")];
   if (!action) return reply(400, { error: "bad_request", message: "Unknown action" });
   try {
-    return await action(body, deps);
+    return await action(body, { ...deps, userId: auth.user.id });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("doc-ingest:", body.action, message);
