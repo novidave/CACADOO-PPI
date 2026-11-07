@@ -118,7 +118,7 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(sectionPath("sk", "export"), "/sk/sync", "export stays");
   eq(sectionId("private"), "folders", "Súkromné priečinky = AI asistent's folders tab (back-end layout L2)");
   eq(sectionId("sections"), "content", "Sekcie stránky (PDF) → Obsah stránky");
-  eq(sectionUrl("sk", "cloud", { shop: "davide", ok: "cloud_connected" }), "/sk/dashboard/crm?shop=davide&ok=cloud_connected&at=cloud#cloud", "cloud (CRM since L2)");
+  eq(sectionUrl("sk", "cloud", { shop: "davide", ok: "cloud_connected" }), "/sk/dashboard/crm?shop=davide&ok=cloud_connected&at=overview#cloud", "cloud (CRM → Prehľad since 2026-11-07)");
   eq(movedFrom("sync", "imports"), false, "/sync?at=imports stays");
   eq(movedFrom("assistant", "imports"), true, "the old address on Asistent is forwarded");
   eq(forwardUrl("sk", "imports", { shop: "davide", at: "imports" }), "/sk/sync?shop=davide&at=imports#imports", "imports → /sync");
@@ -157,9 +157,9 @@ Deno.test("Môj obchod: each section has one page; old addresses are forwarded w
   eq(forwardUrl("sk", "docs", { shop: "davide", at: "docs" }), "/sk/dashboard/assistant/documents?shop=davide&at=docs#docs", "docs → documents");
   eq(sectionUrl("sk", "docs", { shop: "davide", ok: "doc_saved" }), "/sk/dashboard/assistant/documents?shop=davide&ok=doc_saved&at=docs#docs", "the documents' forms come back");
   eq(sectionUrl("sk", "folders", { shop: "davide", ok: "x" }), "/sk/dashboard/assistant/folders?shop=davide&ok=x&at=folders#folders", "the folders' forms come back");
-  // back-end layout L2: Prehľad and Konverzácie are CRM's tabs
-  eq(assistantTabUrl("sk", "overview", "davide"), "/sk/dashboard/crm?shop=davide", "Prehľad");
-  eq(assistantTabUrl("sk", "conversations", "davide"), "/sk/dashboard/crm?shop=davide&at=conversations", "Konverzácie");
+  // back-end layout L2: Prehľad and Konverzácie are CRM's tabs (2026-11-07: Konverzácie first, Prehľad ?at=overview)
+  eq(assistantTabUrl("sk", "overview", "davide"), "/sk/dashboard/crm?shop=davide&at=overview", "Prehľad");
+  eq(assistantTabUrl("sk", "conversations", "davide"), "/sk/dashboard/crm?shop=davide", "Konverzácie");
   eq(assistantTabUrl("sk", "contacts", "davide"), "/sk/dashboard/contacts?shop=davide", "Kontakty");
   eq(assistantTabUrl("sk", "templates", "davide"), "/sk/dashboard/contacts?shop=davide&view=templates", "Šablóny");
   eq(assistantTabUrl("hu", "bookings", "davide"), "/hu/dashboard/bookings?shop=davide", "Rezervácie");

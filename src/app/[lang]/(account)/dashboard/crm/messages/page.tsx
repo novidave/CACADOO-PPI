@@ -12,7 +12,7 @@ import { SmsUsage } from "@/components/SmsUsage";
 import type { ComposerTemplate } from "@/components/MessageComposer";
 import { MessageCenter } from "@/components/owner/MessageCenter";
 import { fieldClass, ghostClass } from "@/components/owner/ui";
-import { CrmHead, waitingCount } from "../../AssistantTabs";
+import { CrmHead, crmBadgeCount } from "../../AssistantTabs";
 import { ProOnly } from "../../shared";
 import { chooseShop, ContactFields } from "../../contacts/parts";
 
@@ -69,7 +69,7 @@ export default async function CrmMessagesPage({ params, searchParams }: PageProp
   const [plan, sms, waiting, templates, config, log, initial] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     loadSmsUsage(supabase, shop.id),
-    waitingCount(supabase, shop.id),
+    crmBadgeCount(supabase, shop.id),
     supabase.from("shop_email_templates").select("id, name, channel, subject, body").eq("shop_id", shop.id).order("name"),
     supabase.functions.invoke<{ email?: boolean; sms_live?: boolean }>("crm-messages", { body: { action: "config" } }),
     supabase.rpc("owner_messages_log", { p_shop_id: shop.id, p_channel: channel || null, p_status: status || null, p_q: q || null, p_limit: PAGE, p_offset: (page - 1) * PAGE }),
@@ -93,7 +93,7 @@ export default async function CrmMessagesPage({ params, searchParams }: PageProp
         shops={chosen.shops}
         shop={shop}
         current="messages"
-        waiting={waiting}
+        badge={waiting}
         switchHref={(slug) => `/${lang}/dashboard/crm/messages?shop=${slug}`}
       />
       <div className="flex max-w-3xl flex-col gap-5">

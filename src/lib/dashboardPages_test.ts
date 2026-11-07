@@ -7,6 +7,7 @@ import {
   assistantTabUrl,
   bookingPartUrl,
   forwardUrl,
+  crmForward,
   hoursSmsForward,
   isBareScreen,
   ITEM_TABS,
@@ -142,8 +143,9 @@ Deno.test("old addresses forward with every query parameter (sections that moved
   assert(!movedFrom("sync", "export"));
   assert(!movedFrom("crm", "conversations"));
   assert(!movedFrom("folders", "folders"));
-  assertEquals(sectionUrl("sk", "cloud", { shop: "davide" }), "/sk/dashboard/crm?shop=davide&at=cloud#cloud");
-  assertEquals(sectionUrl("sk", "conversations", { shop: "davide" }), "/sk/dashboard/crm?shop=davide&at=conversations#conversations");
+  // 2026-11-07: the cloud folder is Prehľad's last card; Konverzácie is CRM itself
+  assertEquals(sectionUrl("sk", "cloud", { shop: "davide" }), "/sk/dashboard/crm?shop=davide&at=overview#cloud");
+  assertEquals(sectionUrl("sk", "conversations", { shop: "davide", ok: "1" }), "/sk/dashboard/crm?shop=davide&ok=1");
 });
 
 Deno.test("the items' tabs (L2): Rezervácie's booking parts, CRM, AI asistent, Objednávky jedla; the old Asistent tabs", () => {
@@ -157,8 +159,9 @@ Deno.test("the items' tabs (L2): Rezervácie's booking parts, CRM, AI asistent, 
   assertEquals(bookingPartUrl("sk", "calendar", { shop: "davide" }), "/sk/dashboard/bookings?shop=davide&tab=settings&part=calendar#calendar");
   assertEquals(bookingPartUrl("sk", "messages", { shop: "davide" }), "/sk/dashboard/bookings?shop=davide&tab=settings&part=messages#messages");
   // links that still name an old Asistent tab land on its new place
-  assertEquals(assistantTabUrl("sk", "overview", "davide"), "/sk/dashboard/crm?shop=davide");
-  assertEquals(assistantTabUrl("sk", "conversations", "davide"), "/sk/dashboard/crm?shop=davide&at=conversations");
+  // 2026-11-07: CRM opens on Konverzácie, Prehľad is ?at=overview
+  assertEquals(assistantTabUrl("sk", "overview", "davide"), "/sk/dashboard/crm?shop=davide&at=overview");
+  assertEquals(assistantTabUrl("sk", "conversations", "davide"), "/sk/dashboard/crm?shop=davide");
   assertEquals(assistantTabUrl("sk", "bookings", "davide"), "/sk/dashboard/bookings?shop=davide");
   assertEquals(assistantTabUrl("sk", "settings", "davide"), "/sk/dashboard/assistant?shop=davide");
   // every tab of a tabbed item is owned by that item — except Objednávky jedla's Menu, which a restaurant reaches from
@@ -236,4 +239,15 @@ Deno.test("Súkromné priečinky a MCP keeps /dashboard/ai and its item", () => 
   const item = OWNER_MENU.find((m) => m.key === "ai")!;
   assertEquals(item.path, "/dashboard/ai");
   assertEquals(menuItemFor("/dashboard/ai")?.key, "ai");
+});
+
+Deno.test("CRM (2026-11-07): Konverzácie first, Prehľad last; the old addresses forward with their query", () => {
+  assertEquals(ITEM_TABS.crm.map((t) => t.key), ["conversations", "contacts", "templates", "messages", "overview"]);
+  assertEquals(tabHref("sk", "crm", "conversations", "davide"), "/sk/dashboard/crm?shop=davide");
+  assertEquals(tabHref("sk", "crm", "overview", "davide"), "/sk/dashboard/crm?shop=davide&at=overview");
+  assertEquals(crmForward("sk", { shop: "davide", at: "conversations", cq: "ral" }), "/sk/dashboard/crm?shop=davide&cq=ral");
+  assertEquals(crmForward("sk", { shop: "davide", at: "cloud", ok: "1" }), "/sk/dashboard/crm?shop=davide&ok=1&at=overview#cloud");
+  assertEquals(crmForward("sk", { shop: "davide", at: "overview" }), null);
+  assertEquals(crmForward("sk", { shop: "davide" }), null);
+  assertEquals(menuItemFor("/dashboard/conversations/x0")?.key, "crm", "the old conversation page still belongs to CRM");
 });

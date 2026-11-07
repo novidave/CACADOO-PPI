@@ -1,13 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { sectionUrl } from "@/lib/dashboardPages";
+import { conversationHref, sectionUrl } from "@/lib/dashboardPages";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession } from "@/lib/auth";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The list's own address parameters (filters and page) a form may carry back. */
-const LIST_KEYS = ["cq", "cfrom", "cto", "cstatus", "cstar", "cna", "cfiles", "clang", "cpage"];
+/** (2026-11-07: + the inbox's segment `f` and the open conversation `c`) */
+const LIST_KEYS = ["cq", "cfrom", "cto", "cstatus", "cstar", "cna", "cfiles", "clang", "cpage", "f", "c"];
 const MARKS = ["read", "new", "archive", "unarchive", "star", "unstar"];
 /** At most this many conversations are deleted in one go (each through the archive function). */
 const MAX_DELETE = 100;
@@ -25,7 +26,7 @@ async function start(formData: FormData) {
   const list = Object.fromEntries(LIST_KEYS.flatMap((k) => (kept.get(k) ? [[k, kept.get(k)!.slice(0, 100)]] : [])));
   const back = (query: Record<string, string>) =>
     redirect(sectionUrl(lang, "conversations", { shop: slug, ...list, ...query }));
-  return { lang, session, shopId, back };
+  return { lang, session, shopId, slug, back };
 }
 
 /** Deletes one conversation with its files and PDF (the assistant-archive function checks the owner's login). */
@@ -52,12 +53,13 @@ async function logDeleted(session: NonNullable<Awaited<ReturnType<typeof getSess
  * with the owner's own login (RLS) that it belongs to one of their shops.
  */
 export async function deleteConversation(formData: FormData) {
-  const { lang, session, shopId, back } = await start(formData);
+  const { lang, session, shopId, slug } = await start(formData);
   const id = String(formData.get("conversation_id") ?? "");
-  if (!UUID.test(id) || formData.get("confirm") !== "on") redirect(`/${lang}/dashboard/conversations/${id}?err=confirm`);
-  if (!(await removeOne(session, id))) redirect(`/${lang}/dashboard/conversations/${id}?err=delete`);
+  if (!UUID.test(id) || formData.get("confirm") !== "on") redirect(conversationHref(lang, slug, id, { err: "confirm" }));
+  if (!(await removeOne(session, id))) redirect(conversationHref(lang, slug, id, { err: "delete" }));
   await logDeleted(session, shopId, 1, 0);
-  back({ ok: "conversation_deleted" });
+  // the list without the deleted one (the inbox then opens its default)
+  redirect(sectionUrl(lang, "conversations", { shop: slug, ok: "conversation_deleted" }));
 }
 
 /**
@@ -106,10 +108,11 @@ export async function saveConversationNote(formData: FormData) {
   const session = await getSession();
   if (!session) redirect(`/${lang}/login`);
   const id = String(formData.get("conversation_id") ?? "");
+  const slug = String(formData.get("shop_slug") ?? "");
   if (!UUID.test(id)) redirect(`/${lang}/dashboard`);
   const note = String(formData.get("note") ?? "").slice(0, 2000);
   const { error } = await session.supabase.rpc("owner_conversation_note", { p_id: id, p_note: note });
-  redirect(`/${lang}/dashboard/conversations/${id}?${error ? "err=note" : "ok=note"}#note`);
+  redirect(conversationHref(lang, slug, id, error ? { err: "note" } : { ok: "note" }));
 }
 
 /** "Označiť ako nové" / archive from the conversation's own page. */
@@ -124,14 +127,16 @@ export async function markConversation(formData: FormData) {
   const op = String(formData.get("op") ?? "");
   if (!UUID.test(id) || !UUID.test(shopId) || !MARKS.includes(op)) redirect(`/${lang}/dashboard`);
   const { error } = await session.supabase.rpc("owner_conversations_mark", { p_shop_id: shopId, p_ids: [id], p_action: op });
-  // "Označiť ako nové" goes back to the list (opening it again would mark it read).
-  if (!error && op === "new") redirect(sectionUrl(lang, "conversations", { shop: slug, ok: "conversations_marked", n: "1" }));
-  redirect(`/${lang}/dashboard/conversations/${id}${error ? "?err=mark" : ""}`);
+  // "Označiť ako neprečítané" keeps it open without reading it again (`unread`); everything else comes back to it.
+  if (error) redirect(conversationHref(lang, slug, id, { err: "mark" }));
+  redirect(conversationHref(lang, slug, id, op === "new" ? { unread: "1" } : {}));
 }
 
 /** "Zákazníci si môžu stiahnuť svoju konverzáciu (PDF)": on or off (database update 24). */
 export async function saveShopperPdf(formData: FormData) {
-  const { session, shopId, back } = await start(formData);
+  const { lang, session, shopId, slug } = await start(formData);
+  // a card of CRM → Prehľad (2026-11-07)
+  const back = (query: Record<string, string>) => redirect(sectionUrl(lang, "overview", { shop: slug, ...query }));
   if (!UUID.test(shopId)) back({ err: "invalid" });
   const { error } = await session.supabase.rpc("owner_set_shopper_pdf", { p_shop_id: shopId, p_on: formData.get("shopper_pdf") === "on" });
   back(error ? { err: error.message } : { ok: "shopper_pdf" });

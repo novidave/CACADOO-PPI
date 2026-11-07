@@ -126,7 +126,7 @@ the shop assistant's cards and its copied list — shows only the dot, whose `la
 ("na sklade" / "vypredané" / "zásoba neznáma", `stock.dot_*`; `STOCK_WORDS`); in listings `StockLine listing` shows
 only how fresh the data are and nothing for stale data. The API/MCP `availability_text` and the AI's tool data keep it.
 The **shop page's "Produkty / Zoznam"** colours (below), the main page chat's small pin `public/brand/cacaduu-pin.svg` and its **thinking dots in Cacaduu yellow #FFC531** (Prompt 10),
-the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), the blue "GDPR" link of the shop assistant (`AssistantHeading`), the **contact buttons' colours** and their orange
+the blue "Select picture" link for shop logos and the same blue "Vybrať súbor" link of page sections (`SectionUploader`) and "Vybrať súbory" of the private folders (`DocUpload`), the blue "GDPR" link of the shop assistant (`AssistantHeading`), **CRM → Konverzácie's** open row #EDFFE1 and its waiting tag #CFEDFF and the blue grammar icon (`GrammarVortex`) with its button line #BFD5FB (the owner's request, 2026-11-07), the **contact buttons' colours** and their orange
 check (`CONTACT_COLORS` in `@/lib/contactButtons`, `@/components/CheckLoop`; pale backgrounds, no shadows; 2026-10-28),
 and the shop **status dots** — open #1E9E5A, break #2F6FED, closed
 #D64545, holiday #F2B705, no hours #9AA5B1, white outline + thin dark ring, **always next to the status in words**, never
@@ -188,7 +188,7 @@ model):** `@/components/owner/PageHead` is the FIRST block of the content area a
 and on the pages under them (h1 28 px in a 52 px row with the item's actions, then only what is the same on every tab
 — the shop switcher —, then the 56 px tab row; no compact variant): Sklad = `SkladShell` (`wide` for Predaj, the
 Príjemka editor, Inventúra counting, the QR payment page), Objednávky jedla = `FoodHead` (Objednávky, Kuriéri, Menu,
-Nastavenia and the order detail), CRM = `CrmHead` (Prehľad, Konverzácie, Kontakty, Šablóny, a contact, a conversation),
+Nastavenia and the order detail), CRM = `CrmHead` (Konverzácie, Kontakty, Šablóny, Správy, Prehľad, a contact; the badge = new conversations),
 AI asistent and Rezervácie their `PageHead`; each page = an outer `w-full` column, the head, then its own max width.
 **Nothing that differs between tabs sits above the tabs** (messages after a save, plan boxes, banners, state strips,
 "Pozastaviť", filters, the kitchen board, SMS usage) and every tab passes the same badges. "SMS tento mesiac"
@@ -206,8 +206,10 @@ after a pick, a tap outside and Esc (all three sizes); the pomocník item opens
 its page; `e2e/crm-messages.spec.ts` (the three sizes: search, "+ Nový kontakt" selects it, a tag, Náhľad, a test-mode
 send). **L2 (moves):** each item's tabs are
 `ITEM_TABS` (`tabHref()`), drawn by `@/components/owner/PageHead` (h1 28 px, tabs 56 px, active #111 + 3 px line, `data-item-tabs`):
-**CRM** = `/dashboard/crm` (Prehľad, `?at=conversations` with the cloud folder) + Kontakty / Šablóny (`/dashboard/contacts`)
-+ Správy (`/dashboard/crm/messages`, update 76), the conversation page goes back there; **Rezervácie** = `/dashboard/bookings?tab=` calendar | services | resources | rules
+**CRM** (2026-11-07 order) = Konverzácie (`/dashboard/crm`, no `at`: the two-pane inbox, below) + Kontakty / Šablóny
+(`/dashboard/contacts`) + Správy (`/dashboard/crm/messages`, update 76) + Prehľad (`?at=overview`, the cloud folder its last
+card); `?at=conversations` → the plain address, `?at=cloud` / `#cloud` → Prehľad (`crmForward`, `crmCloudScript`),
+`/dashboard/conversations/<id>` → `?c=<id>` (`conversationHref`); **Rezervácie** = `/dashboard/bookings?tab=` calendar | services | resources | rules
 | blocks | settings (update 63's booking parts of `AssistantSettings`, `only=`; settings = messages + calendar;
 `bookingPartUrl()` is every booking form's way back; `?view=settings` and `/dashboard/assistant?at=settings&part=…`
 forward there); **AI asistent** = `/dashboard/assistant` (texts, the food-ordering card, the folders card),
@@ -911,6 +913,53 @@ goes to `shop_activity` (`conversation_retention`, `conversations_marked`, `conv
 `conversations_exported`). Exports: PDF (as before), TXT per conversation, CSV per date range (BOM, ";", formula
 guard, ≤ 50 000 rows, shop's time zone). Before update 55 the list falls back to `owner_assistant_conversations`.
 
+**The two-pane inbox (update 90, 2026-11-07; canvas "Cacaduu – webová aplikácia (Môj obchod)", artboards 8 = SMS reply,
+8b = e-mail reply):** `supabase/sql/90_crm_inbox.sql` + `crm/page.tsx` + `crm/Inbox.tsx` (server) + `@/components/owner/InboxParts`
+(`InboxFrame`, `InboxList`, `MessagesScroll`, `DialogButton`) + `@/components/owner/ReplyBox` + `crm/draftActions.ts` +
+`/api/owner/drafts` (sendBeacon) + `@/lib/crmInbox` (no imports; `crmInbox_test.ts` in `npm run test:conversations`).
+CRM opens on Konverzácie. **≥ 1024 px** the inbox fills the width and the height under the tabs (`InboxFrame` measures
+its top: `max(560px, 100dvh − top − 20px)`), two panes scrolling inside themselves: the LIST (320 px, a 1 px #E4E4E4
+line on its right) and the open conversation `c`; without `c` the newest waiting conversation, else the newest
+(`defaultOpen`; it is NOT marked read — only a conversation the owner chose is); an empty shop = "Zatiaľ žiadna
+konverzácia". **Below 1024 px** one pane at a time: the list, or with `c` the conversation and "‹ Konverzácie" (48 px,
+the same filters). Every row is a real `<a href>` (the list's query + `c`; `inboxHref`); the list keeps its scroll per
+shop (sessionStorage `ppi.crm.listScroll.<shop>`). **The list:** "Hľadať meno, číslo alebo text" (52 px, `cq`), the
+segmented links Všetky · Čaká n · Rezerv. (`f` = '' | waiting | booked), "Filtre" (`<details>`: update 55's days,
+status, star, no answer, files, language and the CSV of a date range); a row (min 84 px, padding 12×14, radius 12): the
+name 16/700 ("Bez kontaktu" grey) + the time in the shop's zone (today HH:MM / "včera" / the date, `timeWord`), the last
+message on one line (≤ 140, the Slovak version) or "**Koncept:** <first words>" (`draftWords`), the tags (`rowTags`: "Čaká
+na odpoveď" with a #111 line, "Rezervácia pi 10:30", the shopper's language when not the shop's, ★, "Nová", the dashed
+"Koncept"); the open row #EDFFE1 with `aria-current="true"`, its waiting tag #CFEDFF; "Zobraziť ďalšie" (`cpage`);
+"Vybrať" = round circles (24 px, 2 px #2563EB ring, a white check; real checkboxes of the bulk form) and "Vybrať všetko
+· Stiahnuť (each conversation its own PDF) · Archivovať · Vymazať (asks) · Hotovo", Esc leaves. **Waiting** =
+`crm_conversation_waiting()` (a callback not done, or an unanswered question without a callback, not archived, with no
+owner reply yet). **The conversation:** the head (name 18/700 + "+421 905 ··· 418" — `crm_phone_masked()` in SQL — ·
+"overené SMS" · "n konverzácie" → the contact; "Stiahnuť PDF" when ready, else its state; "Rezervácia" → Rezervácie
+`?new=1&contact=<id>`, nothing saved before the owner confirms there; "⋯" = Hviezdička · Označiť ako neprečítané (stays
+open, `unread=1`) · Archivovať · Poznámka (a dialog) · Stiahnuť TXT · Prepojiť s kontaktom · the cloud copy's state with
+"Uložiť znova" · Vymazať (confirm)), the callback strip while it waits ("Vybavené"), the messages (shopper right, max 75 %,
+#F2F2F2, radius 16 16 4 16; the assistant left without a bubble; the owner left, white, 1 px #111, radius 16 16 16 4,
+"Vy · SMS · 14:10") with centred event pills only from real data (`owner_conversation_head().events`: "Kontakt uložený ·
+upozornenie poslané", "Rezervácia potvrdená pi 10:30", "Objednávka č. 12", "Prístupový kľúč použitý"), the cards, files,
+unanswered marks and Slovak versions as before. **The reply** (`ReplyBox`, only with a contact that has a phone or an
+e-mail — else "Zákazník nenechal kontakt – odpovedať sa nedá."; without the plan the words + "Predplatné"): row 1 = SMS |
+E-mail (220 px, only the contact's channels) · the grammar icon (48 × 48, `aria-label` "Opraviť gramatiku", white, 1 px
+#BFD5FB) · "Vybrať šablónu" (fills the text / subject, then resets; never sends; hidden without a template of that
+channel); SMS = the field (3 rows, ≤ 6) with "Odoslať SMS" at its bottom and "✓ Koncept uložený 14:12 · SMS: 88/100"
+(the owner quota left); E-mail = Predmet + Správa (260 px, resizable) + "Koncept uložený" left, "Odoslať e-mail" right;
+switching keeps the text; "Premenné" (closed); "Náhľad" only with a variable; each step its own `<form key>`; a sent
+reply is a message of role owner (crm-messages `reply`) and marks the conversation answered. **Drafts** (one per
+conversation and owner: `owner_conversation_drafts`, no grants, only `owner_draft_save` / `_get` / `_clear`, members;
+empty clears; no activity log): saved 1 s after typing stops, at once on blur, on leaving (visibilitychange, pagehide →
+sendBeacon to `/api/owner/drafts`), "Ukladá sa…" / "✓ Koncept uložený HH:MM" (`aria-live`); offline → localStorage
+`ppi.crm.draft.<id>` (the newer copy wins); opening fills the composer (the channel too); a send clears it, a failure
+keeps it; never sent to a customer, never in an export, PDF or the archive. SQL: `owner_conversations_inbox(…, p_filter)`
+(update 55's filters + waiting / booked, the last message, the next live booking, the contact's name and count, the
+masked phone, the caller's own draft), `owner_conversations_inbox_counts`, `owner_conversation_head` — members only;
+update 55's `owner_conversations` stays for the exports and the MCP. The cloud folder and "Zákazníci si môžu stiahnuť
+svoju konverzáciu" moved to CRM → Prehľad. Texts `crm_inbox`. Tests: DB block "update 90", `npm run test:conversations`,
+e2e `e2e/crm-inbox.spec.ts` (1180×820, 820×1180, 390×844).
+
 ## "Kontakty" (paid, update 56, CRM phase 2)
 
 `supabase/sql/56_contacts.sql` + `supabase/functions/crm-messages` (one file, Verify JWT off) + `dashboard/contacts`
@@ -1168,7 +1217,11 @@ focus or a long press; a click or Tab + Enter puts it at the cursor of the field
 the selection (`insertToken`: a space where it would touch a word), a drag drops it at the drop point (the browser's
 own drop); stored as plain text, shown as pills in the live line under the field (`tagPieces`), an unknown one named
 "Neznáma premenná {xyz}" (`unknownVariables`); crm_render() fills them as before. **"Opraviť gramatiku"** (e-mail and
-SMS, messages and templates; paid; hidden without `ANTHROPIC_API_KEY`): `owner_grammar_hit` first (members with the
+SMS, messages and templates; paid; hidden without `ANTHROPIC_API_KEY`; its icon is `@/components/owner/GrammarVortex`
+everywhere — CRM's reply, Správy, Šablóny, the blog editor's AI — since 2026-11-07: arms turning in 3 s on hover, a
+720° spin in 0.95 s scaling to 0.8 with the middle star's pop and three twinkles on a click, 0.9 s turns + blinking
+while busy, a hue-rotating rainbow while turning and blue at rest, nothing moves with prefers-reduced-motion;
+`useGrammarFix` in MessageTools is the one engine for the text button and the inbox's icon-only one): `owner_grammar_hit` first (members with the
 plan, `owner_ai_settings.grammar_daily_limit` per shop and shop day, default 30, 0 = off — admin "AI pre majiteľov"),
 then Claude (`aiModel()`, structured output `{text, subject, language}`, the text is data) fixes spelling, grammar and
 punctuation in the text's language; the result is used ONLY when every variable and line break came back exactly

@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Locale } from "@/i18n/config";
 import { t, type Dictionary } from "@/i18n/dictionaries";
 import { localMidnight, shopToday } from "@/lib/bookingTools";
-import { assistantTabUrl } from "@/lib/dashboardPages";
+import { assistantTabUrl, conversationHref } from "@/lib/dashboardPages";
 import { formatDateTime, formatTime } from "@/lib/format";
 import { loadCallbacks, type CallbackRow } from "./Callbacks";
 import { cardClass } from "@/components/owner/ui";
@@ -71,7 +71,7 @@ export function AssistantOverview({
   timeZone: string;
 }) {
   const a = dict.asst;
-  const conversation = (id: string) => `/${lang}/dashboard/conversations/${id}?${new URLSearchParams({ shop })}`;
+  const conversation = (id: string) => conversationHref(lang, shop, id);
   const tiles: { n: number | null; label: string; href: string }[] = [
     { n: data.today.conversations, label: a.today_conversations, href: assistantTabUrl(lang, "conversations", shop) },
     { n: data.today.bookings, label: a.today_bookings, href: assistantTabUrl(lang, "bookings", shop) },

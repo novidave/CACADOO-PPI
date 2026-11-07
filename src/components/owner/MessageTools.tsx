@@ -5,6 +5,7 @@ import { fixGrammar } from "@/app/[lang]/(account)/dashboard/contacts/messageAct
 import { smsParts } from "@/lib/crm";
 import { insertToken, MESSAGE_TAGS, smsCompare, tagPieces, unknownVariables, withoutAccents, wordDiff } from "@/lib/messageTags";
 import { ghostClass } from "./ui";
+import { GrammarVortex } from "./GrammarVortex";
 
 /** The composer's and the templates' texts (the page passes `dict.contacts`). */
 export type ToolTexts = Record<string, string>;
@@ -143,11 +144,14 @@ const partsText = (texts: ToolTexts, text: string) => {
 };
 
 /**
- * "Opraviť gramatiku": the text (and an e-mail's subject) to Claude through the server (the shop's daily limit, the
- * plan), then before → after with the changed words marked, and for an SMS the parts before and after ("Bez
- * diakritiky" when the accents would cost more SMS). "Použiť" puts the text into the field; nothing is sent or saved.
+ * "Opraviť gramatiku" as a hook (2026-11-07): `run` (the button's click; the star vortex spins, `busy` while the AI
+ * works) and `panel` (before → after), so a screen can put the button and the panel in different places (the CRM
+ * reply: the icon in the first row, the panel above the text field). The text (and an e-mail's subject) goes to Claude
+ * through the server (the shop's daily limit, the plan), then before → after with the changed words marked, and for an
+ * SMS the parts before and after ("Bez diakritiky" when the accents would cost more SMS). "Použiť" puts the text into
+ * the field; nothing is sent or saved.
  */
-export function GrammarFix({
+export function useGrammarFix({
   shopId,
   channel,
   texts,
@@ -161,11 +165,14 @@ export function GrammarFix({
   apply: (text: string, subject: string | null) => void;
 }) {
   const [pending, start] = useTransition();
+  const [spin, setSpin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [review, setReview] = useState<{ before: string; after: string; subjectBefore: string | null; subjectAfter: string | null; left: number | null } | null>(null);
   const run = () => {
     const now = read();
     setError(null);
+    setSpin(true);
+    window.setTimeout(() => setSpin(false), 950);
     start(async () => {
       const out = await fixGrammar({ shopId, text: now.text, subject: channel === "email" ? now.subject : null, channel });
       if (!out.ok) {
@@ -178,11 +185,10 @@ export function GrammarFix({
   };
   const same = review && review.before === review.after && (review.subjectBefore ?? "") === (review.subjectAfter ?? "");
   const cmp = review && channel === "sms" ? smsCompare(review.before, review.after) : null;
-  return (
-    <div className="flex flex-col gap-2" data-grammar>
-      <button type="button" onClick={run} disabled={pending} className={`${ghostClass} self-start`} data-grammar-run>
-        {pending ? texts.grammar_working : texts.grammar}
-      </button>
+  /** The button's own marks: the vortex spins on a click and keeps turning while the AI works. */
+  const marks = { ...(spin ? { "data-spin": "" } : {}), ...(pending ? { "data-busy": "" } : {}) };
+  const panel = (
+    <>
       {error && (
         <p role="alert" className="text-sm font-semibold" data-grammar-error>
           {error}
@@ -261,6 +267,27 @@ export function GrammarFix({
           </div>
         </section>
       )}
+    </>
+  );
+  return { run, pending, marks, panel, open: Boolean(review || error) };
+}
+
+/** "Opraviť gramatiku" with its words (Správy, a contact's Správy, Šablóny): the vortex icon + the text, the panel under it. */
+export function GrammarFix(props: {
+  shopId: string;
+  channel: "sms" | "email";
+  texts: ToolTexts;
+  read: () => { text: string; subject: string | null };
+  apply: (text: string, subject: string | null) => void;
+}) {
+  const g = useGrammarFix(props);
+  return (
+    <div className="flex flex-col gap-2" data-grammar>
+      <button type="button" onClick={g.run} disabled={g.pending} className={`${ghostClass} ppi-gv self-start`} {...g.marks} data-grammar-run>
+        <GrammarVortex />
+        {g.pending ? props.texts.grammar_working : props.texts.grammar}
+      </button>
+      {g.panel}
     </div>
   );
 }

@@ -614,3 +614,267 @@ body:has([data-admin-shell]) > [data-site-footer] {
     transition: none;
   }
 }
+
+/*
+ * "Opraviť gramatiku"'s star vortex (@/components/owner/GrammarVortex, 2026-11-07): `.ppi-gv` on the button. Hover:
+ * the arms turn slowly (3 s); a click (`data-spin`, set for 0.95 s): the arms spin 720° shrinking to 0.8, the middle
+ * star is pulled in and pops back, the small stars twinkle one after another; `data-busy` (the AI works): the arms keep
+ * turning (0.9 s) and the stars blink. While it turns the icon runs through the rainbow; at rest it is blue. The CRM
+ * reply's button: white, 1 px #BFD5FB, hover #F5F9FF.
+ */
+.ppi-gv .ppi-gv-arms,
+.ppi-gv .ppi-gv-mid {
+  transform-origin: 12px 12px;
+  transform-box: view-box;
+}
+.ppi-gv .ppi-gv-star {
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.ppi-gv-btn {
+  background: #fff;
+  border: 1px solid #bfd5fb;
+  color: #2563eb;
+}
+.ppi-gv-btn:hover {
+  background: #f5f9ff;
+}
+.ppi-gv:hover .ppi-gv-arms {
+  animation: ppi-gv-idle 3s linear infinite;
+}
+.ppi-gv:hover .ppi-gv-svg {
+  animation: ppi-gv-hue 3s linear infinite;
+}
+.ppi-gv[data-spin] .ppi-gv-arms {
+  animation: ppi-gv-spin 0.95s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ppi-gv[data-spin] .ppi-gv-mid {
+  animation: ppi-gv-pop 0.95s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ppi-gv[data-spin] .ppi-gv-star {
+  animation: ppi-gv-twinkle 0.95s ease-out;
+}
+.ppi-gv[data-spin] .ppi-gv-svg {
+  animation: ppi-gv-hue 0.95s linear;
+}
+.ppi-gv[data-busy] .ppi-gv-arms {
+  animation: ppi-gv-idle 0.9s linear infinite;
+}
+.ppi-gv[data-busy] .ppi-gv-star {
+  animation: ppi-gv-blink 0.9s ease-in-out infinite;
+}
+.ppi-gv[data-busy] .ppi-gv-svg {
+  animation: ppi-gv-hue 0.9s linear infinite;
+}
+.ppi-gv .ppi-gv-star.b {
+  animation-delay: 0.08s;
+}
+.ppi-gv .ppi-gv-star.c {
+  animation-delay: 0.16s;
+}
+@keyframes ppi-gv-hue {
+  0% {
+    filter: hue-rotate(0deg) saturate(1.6);
+  }
+  100% {
+    filter: hue-rotate(360deg) saturate(1.6);
+  }
+}
+@keyframes ppi-gv-idle {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ppi-gv-spin {
+  0% {
+    transform: rotate(0) scale(1);
+  }
+  40% {
+    transform: rotate(300deg) scale(0.8);
+  }
+  100% {
+    transform: rotate(720deg) scale(1);
+  }
+}
+@keyframes ppi-gv-pop {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  35% {
+    transform: scale(0.4) rotate(-90deg);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes ppi-gv-twinkle {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0);
+  }
+  70% {
+    transform: scale(1.6);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes ppi-gv-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ppi-gv .ppi-gv-arms,
+  .ppi-gv .ppi-gv-mid,
+  .ppi-gv .ppi-gv-star,
+  .ppi-gv .ppi-gv-svg {
+    animation: none !important;
+  }
+}
+
+/*
+ * CRM → Konverzácie, the two-pane inbox (2026-11-07; @/components/owner/InboxParts). ≥ 1024 px: the list (320 px, a
+ * 1 px #E4E4E4 line on its right) and the open conversation fill the height under the tabs, each scrolling inside itself
+ * (the page does not; `--inbox-top` is measured). Below: one pane at a time — the list, or with `?c=` the conversation.
+ * Rows: min 84 px, the open one #EDFFE1 and its waiting tag #CFEDFF (the owner's colour exceptions); "Vybrať" shows the
+ * round select circles (24 px, 2 px #2563EB ring, filled with a white check).
+ */
+.ppi-inbox {
+  display: flex;
+  border-top: 1px solid #e4e4e4;
+}
+.ppi-inbox-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ppi-inbox-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ppi-inbox-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.ppi-inbox-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+@media (min-width: 1024px) {
+  .ppi-inbox {
+    height: max(560px, calc(100dvh - var(--inbox-top, 220px) - 20px));
+  }
+  .ppi-inbox-list {
+    flex: none;
+    width: 320px;
+    border-right: 1px solid #e4e4e4;
+  }
+  .ppi-inbox-back {
+    display: none !important;
+  }
+}
+@media (max-width: 1023.98px) {
+  .ppi-inbox {
+    flex-direction: column;
+  }
+  .ppi-inbox[data-open] .ppi-inbox-list,
+  .ppi-inbox:not([data-open]) .ppi-inbox-pane {
+    display: none;
+  }
+  .ppi-inbox[data-open] .ppi-inbox-pane {
+    min-height: calc(100dvh - var(--inbox-top, 220px));
+  }
+}
+.ppi-inbox-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 84px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff;
+  color: #111;
+  text-decoration: none;
+}
+.ppi-inbox-row:hover {
+  background: #f7f7f7;
+}
+.ppi-inbox-row:has(> a[aria-current="true"]) {
+  background: #edffe1;
+}
+.ppi-inbox-row:has(> a[aria-current="true"]) [data-row-tag="waiting"] {
+  background: #cfedff;
+}
+.ppi-inbox-row > a {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+}
+.ppi-inbox-row > a:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+.ppi-inbox-tick {
+  display: none;
+}
+[data-selecting] .ppi-inbox-tick {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 0 12px;
+  cursor: pointer;
+}
+[data-selecting] .ppi-inbox-row {
+  padding-left: 48px;
+}
+.ppi-inbox-tick input {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 2px solid #2563eb;
+  background: #fff;
+  margin: 0;
+}
+.ppi-inbox-tick input:checked {
+  background: #2563eb
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E")
+    center / 16px no-repeat;
+}
+.ppi-inbox-tick input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+[data-selecting] .ppi-inbox-row > a {
+  pointer-events: none;
+}

@@ -17098,4 +17098,144 @@ end $$;
 reset role;
 delete from public.shops where slug = 'crm-keys';
 
+create temporary table inbox_test (k text primary key, v uuid);
+grant all on inbox_test to public;
+\echo '--- update 90: the CRM inbox — masked phone, Čaká / Rezerv. filters, last message, drafts (save, get, clear, empty clears, own only), no grants'
+do $$
+declare
+  v_shop uuid;
+  v_other uuid;
+  v_k uuid;
+  v_c1 uuid;
+  v_c2 uuid;
+  v_c3 uuid;
+  v_cx uuid;
+begin
+  assert public.crm_phone_masked('+421905123418', 'SK') = '+421 905 ··· 418', public.crm_phone_masked('+421905123418', 'SK');
+  assert public.crm_phone_masked('+36301234567', 'HU') = '+36 301 ··· 567', public.crm_phone_masked('+36301234567', 'HU');
+  assert public.crm_phone_masked('+421905123418', 'HU') = '+421 905 ··· 418', 'another country: the first three digits';
+  assert public.crm_phone_masked(null, 'SK') is null and public.crm_phone_masked('12', 'SK') is null;
+
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'crm-inbox', 'CRM Inbox', address, city, 'SK', timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'crm-inbox-b', 'CRM Inbox B', address, city, 'SK', timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_other;
+  insert into public.shop_members (shop_id, user_id) values (v_other, '00000000-0000-0000-0000-00000000000b');
+
+  insert into public.shop_contacts (shop_id, name, phone, phone_verified_at, source)
+  values (v_shop, 'Ján Novák', '+421905123418', now(), 'chat') returning id into v_k;
+  -- 1: a callback waits; 2: unanswered but the shop already replied; 3: a booking made in it
+  insert into public.assistant_conversations (shop_id, token_hash, message_count, contact_id, callback_at, unanswered, last_message_at)
+  values (v_shop, 'x', 2, v_k, now() - interval '5 minutes', true, now() - interval '5 minutes') returning id into v_c1;
+  insert into public.assistant_conversations (shop_id, token_hash, message_count, unanswered, last_message_at)
+  values (v_shop, 'x', 3, true, now() - interval '1 hour') returning id into v_c2;
+  insert into public.assistant_conversations (shop_id, token_hash, message_count, contact_id, last_message_at)
+  values (v_shop, 'x', 2, v_k, now() - interval '2 hours') returning id into v_c3;
+  insert into public.assistant_conversations (shop_id, token_hash, message_count) values (v_other, 'x', 2) returning id into v_cx;
+  insert into public.assistant_messages (conversation_id, shop_id, role, body, body_owner, lang)
+  values (v_c1, v_shop, 'shopper', 'Viete namiešať RAL 7016?', null, 'sk'),
+         (v_c1, v_shop, 'assistant', 'To   neviem   potvrdiť.', null, 'sk'),
+         (v_c2, v_shop, 'shopper', 'Van fehér festék?', 'Máte bielu farbu?', 'hu'),
+         (v_c2, v_shop, 'owner', 'Áno, máme.', null, 'sk');
+  insert into public.shop_bookings (shop_id, contact_id, conversation_id, starts_at, ends_at, status, service_name, name, phone,
+                                    consent_at, consent_version, token_hash, confirmed_at)
+  values (v_shop, v_k, v_c3, now() + interval '2 days', now() + interval '2 days 30 minutes', 'confirmed', 'Miešanie', 'Ján',
+          '+421905123418', now(), 'v', 'x', now());
+  insert into inbox_test values ('c1', v_c1), ('c2', v_c2), ('c3', v_c3), ('cx', v_cx), ('shop', v_shop), ('other', v_other);
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select v from inbox_test where k = 'shop');
+  v_c1 uuid := (select v from inbox_test where k = 'c1');
+  v_c2 uuid := (select v from inbox_test where k = 'c2');
+  v_c3 uuid := (select v from inbox_test where k = 'c3');
+  v_cx uuid := (select v from inbox_test where k = 'cx');
+  v_counts jsonb;
+  v_head jsonb;
+  v_at timestamptz;
+  r record;
+begin
+  -- the list: newest activity first, the last message (spaces folded, the SK version), the masked phone, waiting
+  assert (select array_agg(id order by ord) from (select id, row_number() over () as ord
+          from public.owner_conversations_inbox(v_shop)) x) = array[v_c1, v_c2, v_c3], 'newest first';
+  select * into r from public.owner_conversations_inbox(v_shop) where id = v_c1;
+  assert r.waiting and r.last_text = 'To neviem potvrdiť.' and r.last_role = 'assistant', r.last_text;
+  assert r.contact_name = 'Ján Novák' and r.phone_masked = '+421 905 ··· 418' and r.phone_verified and r.contact_conversations = 2;
+  assert r.next_booking_at is not null, 'the contact''s next booking';
+  select * into r from public.owner_conversations_inbox(v_shop) where id = v_c2;
+  assert not r.waiting, 'the shop replied: not waiting';
+  assert r.last_text = 'Áno, máme.' and r.contact_name is null and r.phone_masked is null;
+  -- the filters
+  assert (select array_agg(id) from public.owner_conversations_inbox(v_shop, p_filter => 'waiting')) = array[v_c1];
+  assert (select array_agg(id) from public.owner_conversations_inbox(v_shop, p_filter => 'booked')) = array[v_c3];
+  v_counts := public.owner_conversations_inbox_counts(v_shop);
+  assert (v_counts ->> 'all')::int = 3 and (v_counts ->> 'waiting')::int = 1 and (v_counts ->> 'booked')::int = 1, v_counts::text;
+  -- the head: events only from its own data
+  v_head := public.owner_conversation_head(v_c1);
+  assert v_head ->> 'phone_masked' = '+421 905 ··· 418' and (v_head ->> 'waiting')::boolean and (v_head ->> 'has_phone')::boolean;
+  assert jsonb_array_length(v_head -> 'events') = 1 and v_head -> 'events' -> 0 ->> 'kind' = 'contact_left';
+  assert public.owner_conversation_head(v_c3) -> 'events' -> 0 ->> 'kind' = 'booking_confirmed';
+
+  -- drafts: save, get, the row shows it, clear, an empty text clears
+  v_at := public.owner_draft_save(v_c1, 'email', 'Predmet', 'Dobrý deň, RAL 7016 namiešame.');
+  assert v_at is not null;
+  assert public.owner_draft_get(v_c1) ->> 'channel' = 'email' and public.owner_draft_get(v_c1) ->> 'subject' = 'Predmet';
+  assert (select draft_text from public.owner_conversations_inbox(v_shop) where id = v_c1) = 'Dobrý deň, RAL 7016 namiešame.';
+  perform public.owner_draft_save(v_c1, 'sms', null, 'Druhá verzia');
+  assert public.owner_draft_get(v_c1) ->> 'body' = 'Druhá verzia' and public.owner_draft_get(v_c1) ->> 'channel' = 'sms', 'one per conversation';
+  v_at := public.owner_draft_save(v_c1, 'sms', '', '   ');
+  assert v_at is null, 'empty: no time';
+  assert public.owner_draft_get(v_c1) is null, 'empty clears';
+  perform public.owner_draft_save(v_c2, 'sms', null, 'Koncept');
+  perform public.owner_draft_clear(v_c2);
+  assert public.owner_draft_get(v_c2) is null;
+  perform public.owner_draft_save(v_c3, 'sms', null, 'Zostáva pre majiteľa a');
+  -- another shop's conversation: refused
+  begin perform public.owner_draft_save(v_cx, 'sms', null, 'x'); raise exception 'saved into another shop';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_conversation_head(v_cx); raise exception 'read another shop''s head';
+  exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.owner_conversations_inbox((select v from inbox_test where k = 'other')));
+  -- no direct grants
+  begin perform 1 from public.owner_conversation_drafts; raise exception 'read the drafts table';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_draft_shop(v_c1); raise exception 'called the helper';
+  exception when insufficient_privilege then null; end;
+end $$;
+
+-- another owner of the same shop never sees owner a's draft
+reset role;
+insert into public.shop_members (shop_id, user_id)
+values ((select v from inbox_test where k = 'shop'), '00000000-0000-0000-0000-00000000000c');
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000c';
+do $$
+declare
+  v_c3 uuid := (select v from inbox_test where k = 'c3');
+begin
+  assert public.owner_draft_get(v_c3) is null, 'not my draft';
+  assert (select draft_text from public.owner_conversations_inbox((select v from inbox_test where k = 'shop')) where id = v_c3) is null;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+set role anon;
+do $$
+begin
+  perform public.owner_draft_get((select v from inbox_test where k = 'c1')); raise exception 'a visitor read a draft';
+exception when insufficient_privilege then null;
+end $$;
+reset role;
+delete from public.shops where slug in ('crm-inbox', 'crm-inbox-b');
+delete from public.shop_members where user_id = '00000000-0000-0000-0000-00000000000c'
+  and shop_id not in (select id from public.shops);
+drop table inbox_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'

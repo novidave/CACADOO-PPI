@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { sectionUrl } from "@/lib/dashboardPages";
+import { conversationHref, sectionUrl } from "@/lib/dashboardPages";
 import { isLocale, type Locale } from "@/i18n/config";
 import { getSession, requestOrigin } from "@/lib/auth";
 import { functionFailure } from "@/lib/functionError";
@@ -114,7 +114,7 @@ export async function retryCloudExport(formData: FormData) {
   if (!UUID.test(id)) back(errQuery("failed"));
   const { code } = await cloudCall(session, { action: "retry", conversation_id: id });
   if (formData.get("from") === "detail") {
-    redirect(`/${lang}/dashboard/conversations/${id}?${new URLSearchParams(code ? errQuery(code) : { ok: "cloud_retry" })}`);
+    redirect(conversationHref(lang, String(formData.get("shop_slug") ?? ""), id, code ? errQuery(code) : { ok: "cloud_retry" }));
   }
   back(code ? errQuery(code) : { ok: "cloud_retry" });
 }
