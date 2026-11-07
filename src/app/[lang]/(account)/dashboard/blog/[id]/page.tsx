@@ -53,11 +53,16 @@ export default async function BlogEditorPage({ params, searchParams }: PageProps
   if (id !== "new") {
     const { data, error } = await supabase.rpc("owner_blog_post", { p_post_id: id });
     if (error || !data) notFound();
-    const row = data as Omit<EditorPost, "photos"> & { shop_id: string; photos: { id: string; kind: "photo" | "video"; status: string; small: string | null }[] };
+    const row = data as Omit<EditorPost, "photos"> & {
+      shop_id: string;
+      photos: { id: string; kind: "photo" | "video"; status: string; small: string | null; width: number | null; height: number | null }[];
+    };
     shop = shops.find((s) => s.id === row.shop_id) ?? notFound();
     post = {
       ...row,
-      photos: row.photos.filter((p) => p.status === "ready" && p.small).map((p) => ({ id: p.id, kind: p.kind, src: photoSrc(p.small!) })),
+      photos: row.photos
+        .filter((p) => p.status === "ready" && p.small)
+        .map((p) => ({ id: p.id, kind: p.kind, src: photoSrc(p.small!), width: p.width ?? null, height: p.height ?? null })),
     };
   }
 

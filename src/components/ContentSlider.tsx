@@ -285,7 +285,7 @@ export function ContentSlider({
       const expanded = open && i === current && article;
       return (
         <article className="ppi-slide-frame" style={frame} data-slide-frame data-slide-kind="post" data-slide-video={video ? "" : undefined}>
-          {view.image ? <Picture image={view.image} alt="" load={load} priority={first && i === 0} position={cropPosition("center")} /> : <span className="absolute inset-0 bg-[#2A2A2A]" data-slide-no-photo />}
+          {view.image ? <Picture image={view.image} alt="" load={load} priority={first && i === 0} position={cropPosition(view.crop ?? "center")} /> : <span className="absolute inset-0 bg-[#2A2A2A]" data-slide-no-photo />}
           <span className="ppi-slide-shade" aria-hidden="true" />
           {video && (
             <a

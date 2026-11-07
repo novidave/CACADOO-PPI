@@ -32,6 +32,7 @@ import {
   webhookVerifyToken,
   youtubeId,
   youtubePictures,
+  replacedPath,
 } from "./index.ts";
 
 function eq(actual: unknown, expected: unknown, label: string) {
@@ -46,6 +47,7 @@ function assert(condition: unknown, label: string) {
 
 const SHOP = "11111111-2222-4333-8444-555555555555";
 const POST = "22222222-2222-4333-8444-555555555555";
+const IMPORTED = "88888888-2222-4333-8444-555555555555";
 const OWNER = "33333333-2222-4333-8444-555555555555";
 const STRANGER = "44444444-2222-4333-8444-555555555555";
 const PAGE = "1234567890";
@@ -367,6 +369,14 @@ function world(o: { facebook?: boolean; posts?: FbPost[]; expired?: boolean } = 
         log.push(`stored ${args.p_size} ${args.p_width}${args.p_last ? " last" : ""}`);
         return ok(null);
       }
+      case "blog_photo_swapped": {
+        const p = photos.get(String(args.p_photo_id))!;
+        const old = (args.p_size === 1600 ? p.path_large : p.path_small) as string;
+        if (args.p_size === 1600) p.path_large = args.p_path;
+        else p.path_small = args.p_path;
+        log.push(`swapped ${args.p_size}`);
+        return ok(old);
+      }
       case "blog_photo_failed":
         log.push(`photo failed ${args.p_error}`);
         return ok(null);
@@ -442,7 +452,12 @@ function world(o: { facebook?: boolean; posts?: FbPost[]; expired?: boolean } = 
         if (name === "is_shop_member") return Promise.resolve(ok(user === OWNER && args.p_shop_id === SHOP));
         if (name === "is_admin") return Promise.resolve(ok(false));
         if (name === "owner_blog_post") {
-          return Promise.resolve(user === OWNER ? ok({ id: args.p_post_id, shop_id: SHOP, source: "cacaduu", status: "published" }) : { data: null, error: { message: "Not your shop" } });
+          const source = args.p_post_id === IMPORTED ? "facebook" : "cacaduu";
+          return Promise.resolve(user === OWNER ? ok({ id: args.p_post_id, shop_id: SHOP, source, status: "published" }) : { data: null, error: { message: "Not your shop" } });
+        }
+        if (name === "owner_blog_photos_take") {
+          log.push(`take ${args.p_post_id}`);
+          return Promise.resolve(user === OWNER ? ok(true) : { data: null, error: { message: "Not your shop" } });
         }
         throw new Error(`unexpected caller rpc ${name}`);
       },
@@ -719,6 +734,31 @@ Deno.test("The owner's photos: checked by their bytes and width, stored under th
   const webp = Uint8Array.from([...enc.encode("RIFF"), 0, 0, 0, 0, ...enc.encode("WEBPVP8X"), 10, 0, 0, 0, 0, 0, 0, 0, 0x3f, 0x06, 0, 0x2b, 0x04, 0]);
   w.photos.get(id)!.status = "uploading";
   eq((await send(800, webp)).status, 400, "1600 px is too wide for the 800 slot");
+});
+
+Deno.test("Vymeniť (update 93): the same photo row and id, a new file name, the old file deleted; never another owner's", async () => {
+  const w = world();
+  const id = "66666666-2222-4333-8444-555555555555";
+  const old = `${SHOP}/${POST}/${id}-1600.jpg`;
+  w.photos.set(id, { id, post_id: POST, shop_id: SHOP, status: "ready", kind: "photo", path_large: old });
+  w.files.set(old, SMALL_JPEG);
+  const send = (auth = "Bearer owner", photo = id) =>
+    handle(new Request(`https://proj.supabase.co/functions/v1/shop-blog?action=photo&photo_id=${photo}&size=1600&replace=1`, { method: "POST", headers: { Authorization: auth }, body: SMALL_JPEG as BodyInit }), w.deps);
+  eq((await send("Bearer stranger")).status, 403, "another owner's photo is refused");
+  const res = await send();
+  eq(res.status, 200, "replaced");
+  const path = String(w.photos.get(id)!.path_large);
+  assert(new RegExp(`^${SHOP}/${POST}/${id}-1600-[0-9a-z]{8}\\.jpg$`).test(path), `a new name: ${path}`);
+  assert(w.files.has(path) && !w.files.has(old), "the new file stored, the old one deleted");
+  assert(w.log.includes("swapped 1600") && w.log.includes(`remove ${old}`), "swapped in the same row");
+  // an uploading photo is no replace; a photo of an imported post becomes the owner's first
+  w.photos.set(id, { ...w.photos.get(id)!, status: "uploading" });
+  eq((await send()).status, 403, "only a ready photo");
+  const fbPhoto = "77777777-2222-4333-8444-555555555555";
+  w.photos.set(fbPhoto, { id: fbPhoto, post_id: IMPORTED, shop_id: SHOP, status: "ready", kind: "photo", path_large: `${SHOP}/${IMPORTED}/${fbPhoto}-1600.jpg` });
+  eq((await send("Bearer owner", fbPhoto)).status, 200, "an imported post's photo");
+  assert(w.log.includes(`take ${IMPORTED}`), "its photos became the owner's");
+  eq(replacedPath(SHOP, POST, id, 800, "webp").replace(/-[0-9a-z]{8}\.webp$/, ""), `${SHOP}/${POST}/${id}-800`, "the name");
 });
 
 // ---------------------------------------------------------------- webhook, IndexNow

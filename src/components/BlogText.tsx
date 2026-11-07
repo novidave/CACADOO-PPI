@@ -1,4 +1,4 @@
-import { formatBlocks, type Inline } from "@/lib/blogMarks";
+import { formatBlocks, ratioValue, type Inline } from "@/lib/blogMarks";
 
 /** One of this post's photos, ready to draw where the text places it ([[foto:<id>]]). */
 export interface TextPhoto {
@@ -33,7 +33,18 @@ function Parts({ parts }: { parts: Inline[] }) {
  * `formatted` (written in Cacaduu, or the owner's own text — update 77) the safe format's marks are drawn as
  * subheadings, lists, quotes, bold and this post's photos (`@/lib/blogMarks`); every text stays text, never HTML.
  */
-export function BlogText({ body, formatted = false, photos = [] }: { body: string; formatted?: boolean; photos?: TextPhoto[] }) {
+export function BlogText({
+  body,
+  formatted = false,
+  photos = [],
+  onPhoto,
+}: {
+  body: string;
+  formatted?: boolean;
+  photos?: TextPhoto[];
+  /** The editor's live preview (2026-11-07): a tap on a photo in the text opens its toolbar (a real button). */
+  onPhoto?: { open: (id: string) => void; label: string };
+}) {
   const blocks = formatBlocks(body, { formatted, photoIds: photos.map((p) => p.id) });
   if (!blocks.length) return null;
   const photoOf = new Map(photos.map((p) => [p.id.toLowerCase(), p]));
@@ -76,9 +87,20 @@ export function BlogText({ body, formatted = false, photos = [] }: { body: strin
           const photo = photoOf.get(block.id);
           if (!photo) return null;
           const wide = (photo.width ?? 0) > 800;
+          // 2026-11-07: a ratio + crop from the photo line ("[[foto:id|1:1|hore]]"); orig = the photo's own, uncut
+          const ratio = ratioValue(block.ratio);
+          const cut = ratio
+            ? { aspectRatio: String(ratio), width: "100%", height: "auto", objectFit: "cover" as const, objectPosition: `center ${block.crop}` }
+            : undefined;
           return (
-            <figure key={i} className="ppi-blog-fig" data-blog-photo={photo.id}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- blog photos are already 800/1600 px (srcset) */}
+            <figure key={i} className="ppi-blog-fig" data-blog-photo={photo.id} data-photo-ratio={block.ratio} data-photo-crop={block.crop}>
+              {onPhoto ? (
+                <button type="button" className="block w-full" onClick={() => onPhoto.open(photo.id)} aria-label={onPhoto.label} data-photo-open={photo.id}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- the editor's preview */}
+                  <img src={photo.small} width={photo.width ?? undefined} height={photo.height ?? undefined} alt="" style={cut} />
+                </button>
+              ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- blog photos are already 800/1600 px (srcset)
               <img
                 src={wide ? photo.small : photo.large}
                 srcSet={wide ? `${photo.small} 800w, ${photo.large} ${photo.width}w` : undefined}
@@ -88,7 +110,9 @@ export function BlogText({ body, formatted = false, photos = [] }: { body: strin
                 alt=""
                 loading="lazy"
                 decoding="async"
+                style={cut}
               />
+              )}
             </figure>
           );
         }

@@ -48,6 +48,8 @@ export type SlideView =
       image: SlideImage | null;
       /** A video post (update 39): where its ▶ leads; `facebook` = to the post on Facebook. */
       video: { href: string; external: boolean; facebook: boolean } | null;
+      /** Update 93: the cover's crop. */
+      crop?: Crop;
     }
   | {
       kind: "pdf";

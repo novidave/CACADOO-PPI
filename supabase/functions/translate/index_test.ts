@@ -6,6 +6,8 @@ import {
   type Ai,
   batches,
   checkBeautified,
+  cropLoss,
+  orientationOf,
   cleanWords,
   type Deps,
   DESCRIBE_PROMPT,
@@ -325,6 +327,19 @@ Deno.test("Skrášliť článok: only this post's photos (not the cover), each o
   eq(checkBeautified(BODY, pretty + " https://iny.sk", [P2], ""), null, "a new link");
   eq(checkBeautified(BODY, pretty + " " + "slovo ".repeat(60), [P2], ""), null, "too long");
   eq(numbersOf("1. krok\n2. krok za 5 €"), ["5"], "a numbered list's numbers are structure");
+
+  // 2026-11-07: a photo line's ratio + crop kept unless it cuts away more than 20 % (then the plain line)
+  const portrait = { id: P2, width: 800, height: 1200 };
+  const landscape = { id: P3, width: 1600, height: 900 };
+  const lined = (a: string, b: string) => `Akrylove farby su tu.\n\n${a}\n\n${b}\n\nOd 3. 11. za 12,50 €, viac na https://farby.sk/akcia`;
+  eq(checkBeautified(BODY, lined(`[[foto:${P2}|16:9]]`, `[[foto:${P3}|16:9|hore]]`), [portrait, landscape], ""),
+    lined(`[[foto:${P2}]]`, `[[foto:${P3}|16:9|hore]]`), "a portrait photo in 16:9 becomes plain; a landscape one keeps 16:9 and hore");
+  eq(checkBeautified(BODY, lined(`[[foto:${P2}|3:4|stred]]`, `[[foto:${P3}|9:7]]`), [portrait, landscape], ""),
+    lined(`[[foto:${P2}|3:4]]`, `[[foto:${P3}]]`), "3:4 of a 2:3 photo cuts ~11 %: kept (stred is the default); an unknown ratio is plain");
+  eq(cropLoss(800, 1200, "16:9"), 1 - (800 / 1200) / (16 / 9), "the loss of a portrait photo in 16:9");
+  eq(orientationOf(1600, 900), "landscape", "landscape");
+  eq(orientationOf(1000, 1000), "square", "square");
+  eq(orientationOf(800, 1200), "portrait", "portrait");
 
   let seen: unknown[] = [];
   const ai: Ai = (system, user) => {

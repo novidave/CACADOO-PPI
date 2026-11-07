@@ -17427,4 +17427,123 @@ delete from public.subscriptions where shop_id in (select v from style_test);
 delete from public.shops where slug in ('style-goods', 'style-food');
 drop table style_test;
 
+\echo '--- update 93: blog photos — the cover belongs to the post (another shop''s photo refused), the cover first in blog_photo_list with its focus, an imported post whose photos the owner took keeps them on the next import, a replaced file keeps the photo''s id'
+create temporary table t93 (k text primary key, v text);
+grant all on t93 to public;
+set role service_role;
+do $$
+declare
+  v_a uuid := (select id from public.shops where slug = 'potraviny-centrum');
+  v_r jsonb;
+  v_post uuid;
+  v_p1 uuid;
+  v_p2 uuid;
+  v_other uuid;
+  v_list jsonb;
+begin
+  v_r := public.blog_import_post(v_a, '123456789_9301', 'Fotky', 'Dve fotky', now() - interval '1 day', now() - interval '1 day', null, '[]',
+    '[{"kind": "photo", "fb_media_id": "9301001", "source_url": "https://scontent.example/a.jpg"},
+      {"kind": "photo", "fb_media_id": "9301002", "source_url": "https://scontent.example/b.jpg"}]');
+  v_post := (v_r ->> 'post_id')::uuid;
+  select id into v_p1 from public.blog_photos where post_id = v_post and fb_media_id = '9301001';
+  select id into v_p2 from public.blog_photos where post_id = v_post and fb_media_id = '9301002';
+  perform public.blog_photo_stored(v_p1, 1600, v_a || '/' || v_post || '/' || v_p1 || '-1600.webp', 'webp', 1600, 900, true);
+  perform public.blog_photo_stored(v_p2, 1600, v_a || '/' || v_post || '/' || v_p2 || '-1600.webp', 'webp', 800, 1200, true);
+  -- another shop's photo (for the refusal)
+  insert into public.blog_posts (shop_id, slug, title, body, source, status, publish_at)
+  values ((select id from public.shops where slug <> 'potraviny-centrum' order by slug limit 1), 'iny-93', 'Iný', 'x', 'cacaduu', 'draft', now())
+  returning id into v_other;
+  -- before a choice: the first photo is the cover (center)
+  v_list := public.blog_photo_list(v_post);
+  assert (v_list -> 0 ->> 'id')::uuid = v_p1 and (v_list -> 0 ->> 'cover')::boolean and v_list -> 0 ->> 'focus' = 'center', v_list::text;
+  insert into t93 values ('post', v_post), ('p1', v_p1), ('p2', v_p2), ('shop', v_a);
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_post uuid := (select v::uuid from t93 where k = 'post');
+  v_p1 uuid := (select v::uuid from t93 where k = 'p1');
+  v_p2 uuid := (select v::uuid from t93 where k = 'p2');
+begin
+  -- the cover: a photo of THIS post, top
+  perform public.owner_blog_set_cover(v_post, v_p2, 'top');
+  begin perform public.owner_blog_set_cover(v_post, gen_random_uuid(), 'top'); raise exception 'a photo of no post';
+  exception when invalid_parameter_value then assert sqlerrm = 'photo'; end;
+  begin perform public.owner_blog_set_cover(v_post, v_p1, 'left'); raise exception 'a bad focus';
+  exception when invalid_parameter_value then assert sqlerrm = 'focus'; end;
+  -- the AI's door knows the sizes and the cover
+  assert (select (public.owner_blog_ai_hit(v_post) ->> 'cover_photo_id')::uuid) = v_p2;
+  -- reordering an imported post's photos makes them the owner's (logged once)
+  assert not (select photos_by_owner from public.blog_posts where id = v_post);
+  perform public.owner_blog_photo_order(v_post, array[v_p2, v_p1]);
+  assert (select photos_by_owner from public.blog_posts where id = v_post);
+  assert (select count(*) from public.shop_activity where action = 'blog_photos_owned' and details ->> 'post_id' = v_post::text) = 1;
+  perform public.owner_blog_photos_take(v_post);
+  assert (select count(*) from public.shop_activity where action = 'blog_photos_owned' and details ->> 'post_id' = v_post::text) = 1, 'once';
+end $$;
+reset role;
+
+-- another owner: no cover, no taking
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin perform public.owner_blog_set_cover((select v::uuid from t93 where k = 'post'), null, 'center'); raise exception 'another owner set a cover';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_blog_photos_take((select v::uuid from t93 where k = 'post')); raise exception 'another owner took photos';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role service_role;
+do $$
+declare
+  v_a uuid := (select v::uuid from t93 where k = 'shop');
+  v_post uuid := (select v::uuid from t93 where k = 'post');
+  v_p1 uuid := (select v::uuid from t93 where k = 'p1');
+  v_p2 uuid := (select v::uuid from t93 where k = 'p2');
+  v_r jsonb;
+  v_old text;
+  v_list jsonb := public.blog_photo_list((select v::uuid from t93 where k = 'post'));
+begin
+  -- the chosen cover first, with its focus
+  assert (v_list -> 0 ->> 'id')::uuid = v_p2 and v_list -> 0 ->> 'focus' = 'top' and v_list -> 1 ->> 'cover' is null, v_list::text;
+  -- the next import with other photos: the owner's photos stay (ids, order, cover)
+  v_r := public.blog_import_post(v_a, '123456789_9301', 'Fotky', 'Dve fotky', now() - interval '1 day', now(), null, '[]',
+    '[{"kind": "photo", "fb_media_id": "9301999", "source_url": "https://scontent.example/c.jpg"}]');
+  assert v_r ->> 'result' = 'same', v_r::text;
+  assert (select array_agg(id order by position) from public.blog_photos where post_id = v_post) = array[v_p2, v_p1];
+  assert (select cover_photo_id from public.blog_posts where id = v_post) = v_p2;
+  -- a text edit on Facebook still comes, the photos still stay
+  v_r := public.blog_import_post(v_a, '123456789_9301', 'Fotky', 'Dve fotky – opravené', now() - interval '1 day', now(), null, '[]',
+    '[{"kind": "photo", "fb_media_id": "9301999", "source_url": "https://scontent.example/c.jpg"}]');
+  assert v_r ->> 'result' = 'updated' and v_r -> 'removed' = '[]'::jsonb, v_r::text;
+  assert (select count(*) from public.blog_photos where post_id = v_post) = 2;
+  -- "Vymeniť": the new file into the same row, the old one returned for deletion
+  v_old := public.blog_photo_swapped(v_p1, 1600, v_a || '/' || v_post || '/' || v_p1 || '-1600-ab12cd34.webp', 'webp', 1200, 1200, true);
+  assert v_old = v_a || '/' || v_post || '/' || v_p1 || '-1600.webp', v_old;
+  assert (select path_large ~ '-ab12cd34\.webp$' and width = 1200 from public.blog_photos where id = v_p1);
+  begin perform public.blog_photo_swapped(v_p1, 1600, 'bad/path.webp', 'webp', 10, 10); raise exception 'a bad path';
+  exception when check_violation then null; end;
+  -- deleting the cover photo: the first photo is the cover again
+  perform public.blog_photo_delete(v_p2);
+  assert (select cover_photo_id from public.blog_posts where id = v_post) is null;
+  assert (public.blog_photo_list(v_post) -> 0 ->> 'id')::uuid = v_p1;
+  delete from public.blog_posts where id = v_post or slug = 'iny-93';
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.blog_photo_list((select v::uuid from t93 where k = 'post')); raise exception 'a visitor read the list directly';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_blog_set_cover((select v::uuid from t93 where k = 'post'), null, 'top'); raise exception 'a visitor set a cover';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+drop table t93;
+
 \echo 'ALL DATABASE CHECKS PASSED'

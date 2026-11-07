@@ -74,6 +74,7 @@ export function slideViews(
         dateTime: p.publish_at,
         excerpt: cardExcerpt(ctx.texts?.get("blog_body", p.id) && !ctx.texts.original ? ctx.texts.get("blog_body", p.id)!.text : p.excerpt),
         image: postImage(p.photo),
+        crop: slideCrop(p.photo?.focus),
         video: videoSlide(p.video, content.video_target ?? "post", blogPath(ctx.lang, ctx.place, ctx.onSite, p.slug)),
       });
       continue;

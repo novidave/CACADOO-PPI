@@ -21,6 +21,9 @@ export interface BlogPhoto {
   small_height: number | null;
   /** A video stays on Facebook: its picture links there. */
   link: string | null;
+  /** Update 93: the post's cover (always the first photo) and its crop. */
+  cover?: boolean;
+  focus?: "top" | "center" | "bottom";
 }
 
 export interface BlogLink {
