@@ -10,7 +10,7 @@ import type { MyShop } from "@/lib/myShops";
 import { DbError } from "@/components/DbError";
 import { itemTabs, PageHead } from "@/components/owner/PageHead";
 import { SaveBar } from "@/components/owner/SaveBar";
-import { cardClass, fieldClass, ghostClass } from "@/components/owner/ui";
+import { cardClass, fieldClass, ghostClass, Segmented } from "@/components/owner/ui";
 import { WelcomeField } from "@/components/owner/WelcomeField";
 import { ASSISTANT_PARTS, AssistantSettings } from "../AssistantSettings";
 import { hiddenFields, messages, ProOnly, ShopSwitcher } from "../shared";
@@ -56,7 +56,7 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
   const shop = shops.find((s) => s.slug === first(sp.shop)) ?? shops[0];
 
   const kind = shop.kind === "food" ? "food" : "goods";
-  const [hasPlan, food, flagsRes, tgRes, bookingRes, docsRes, foldersRes] = await Promise.all([
+  const [hasPlan, food, flagsRes, tgRes, bookingRes, docsRes, foldersRes, styleRes] = await Promise.all([
     supabase.rpc("shop_has_plan", { p_shop_id: shop.id }),
     // the switch of "Objednávky jedla v asistentovi" (database update 74)
     foodTab(supabase, shop.id),
@@ -68,7 +68,10 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
     supabase.rpc("owner_booking_setup", { p_shop_id: shop.id }),
     supabase.from("shop_documents").select("id, name, folder_id, status, created_at", { count: "exact" }).eq("shop_id", shop.id).order("created_at", { ascending: false }).limit(5),
     supabase.from("shop_folders").select("id, is_public").eq("shop_id", shop.id),
+    // "Štýl asistenta" and "Meno asistenta" (database update 92)
+    supabase.rpc("owner_assistant_style", { p_shop_id: shop.id }),
   ]);
+  const style = (styleRes.error ? null : styleRes.data) as { style: "plain" | "friendly" | "waiter"; name: string | null } | null;
   const planActive = !hasPlan.error && hasPlan.data === true;
   const m = messages(dict, sp);
   const hidden = hiddenFields(lang, shop);
@@ -149,6 +152,40 @@ export default async function AssistantPage({ params, searchParams }: PageProps<
                       hint={d.welcome_list_hint}
                     />
                     <p className="text-[13px] text-muted">{d.assistant_hint}</p>
+                    {style && (
+                      // update 92: a fixed choice of how the assistant talks (never free text) + an optional name
+                      <div className="group/style flex flex-col gap-2" data-assistant-style>
+                        <input type="hidden" name="has_style" value="1" />
+                        <input type="hidden" name="was_style" value={style.style} />
+                        <input type="hidden" name="was_assistant_name" value={style.name ?? ""} />
+                        <Segmented
+                          name="assistant_style"
+                          label={a.style_label}
+                          value={style.style}
+                          options={[
+                            { value: "plain", label: a.style_plain },
+                            { value: "friendly", label: a.style_friendly },
+                            // "Čašník" only for a restaurant (the database refuses it otherwise: not_food)
+                            ...(kind === "food" ? [{ value: "waiter", label: a.style_waiter }] : []),
+                          ]}
+                        />
+                        {(["plain", "friendly", "waiter"] as const).map((key) => (
+                          <p
+                            key={key}
+                            className={`hidden text-sm ${key === "plain" ? "group-has-[input[value=plain]:checked]/style:block" : key === "friendly" ? "group-has-[input[value=friendly]:checked]/style:block" : "group-has-[input[value=waiter]:checked]/style:block"}`}
+                            data-style-sample={key}
+                          >
+                            {a[`style_sample_${key}`]}
+                          </p>
+                        ))}
+                        <p className="text-[13px] text-muted">{a.style_hint}</p>
+                        <label className="mt-1 flex flex-col gap-1.5">
+                          <span className="text-sm font-semibold">{a.name_label}</span>
+                          <input name="assistant_name" maxLength={20} defaultValue={style.name ?? ""} placeholder={a.name_placeholder} className={fieldClass} data-assistant-name />
+                          <span className="text-[13px] text-muted">{a.name_hint}</span>
+                        </label>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <ProOnly dict={dict} href={planUrl} />

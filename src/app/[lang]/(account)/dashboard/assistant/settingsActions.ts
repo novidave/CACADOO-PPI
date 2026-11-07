@@ -16,6 +16,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  *   tg_callback      owner_telegram_save_prefs (update 66; the shop's prefs read again, only `callback` changes)
  *   bookings         owner_save_booking_rules (update 63; the rules read again, only `enabled` changes)
  *   food             owner_food_save_settings {enabled} (update 73/81; a shop of kind food)
+ *   assistant_style,
+ *   assistant_name   owner_set_assistant_style (update 92; paid; "Čašník" only for food — not_food)
  * The first refusal stops and comes back as ?err=; otherwise ?ok=saved.
  */
 export async function saveAssistantPage(formData: FormData) {
@@ -45,6 +47,19 @@ export async function saveAssistantPage(formData: FormData) {
       if (error) back({ err: error.message === "no_plan" ? "no_plan" : "err_failed" });
       const saved = (data ?? {}) as { label?: string | null; welcome?: string | null };
       cleaned = label.trim().slice(0, 40) !== (saved.label ?? "") || welcome.trim().slice(0, 300) !== (saved.welcome ?? "");
+    }
+  }
+
+  // "Štýl asistenta" + "Meno asistenta" (update 92): one call when either changed
+  if (present("style")) {
+    const style = String(formData.get("assistant_style") ?? "");
+    const name = String(formData.get("assistant_name") ?? "").trim().slice(0, 40);
+    if (style !== String(formData.get("was_style") ?? "") || name !== String(formData.get("was_assistant_name") ?? "")) {
+      const { error } = await supabase.rpc("owner_set_assistant_style", { p_shop_id: shopId, p_style: style, p_name: name });
+      if (error) {
+        const code = error.message;
+        back({ err: code === "no_plan" ? "no_plan" : code === "not_food" ? "err_not_food" : code === "name" ? "err_name" : "err_failed" });
+      }
     }
   }
 

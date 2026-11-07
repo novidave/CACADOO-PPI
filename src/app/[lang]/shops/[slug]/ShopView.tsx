@@ -7,7 +7,7 @@ import { notFound } from "next/navigation";
 import type { Locale } from "@/i18n/config";
 import { getDictionary, t, type Dictionary } from "@/i18n/dictionaries";
 import { siteLang, sitePath, siteShopUrl } from "@/lib/customDomain";
-import { getShop, getShopCalendars, getShopItems, searchShopItems, shopHasPlan, shopCompany, shopContactButtons, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
+import { getShop, getShopCalendars, getShopItems, searchShopItems, shopHasPlan, shopCompany, shopContactButtons, shopAssistantName, shopperPdfAllowed, shopSiteHost, shopStockResetting, type PublicShop } from "@/lib/data";
 import { archiveEnabled } from "@/lib/assistantArchive";
 import { blogCount, getBlogPost, photoSrc } from "@/lib/blog";
 import { placedPhotos } from "@/lib/blogMarks";
@@ -111,7 +111,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
   const requestedPage = Math.max(1, Math.floor(Number(first(sp.page)) || 1));
   // Everything that needs only the shop, at once (no waterfall). The AI assistant is a paid feature: shown only when
   // the database says the shop has the plan.
-  const [host, langs, { items, total, kind }, assistant, shopperPdf, calendars, content, posts, company, widths, menu] = await Promise.all([
+  const [host, langs, { items, total, kind }, assistant, shopperPdf, calendars, content, posts, company, widths, menu, assistantName] = await Promise.all([
     shopSiteHost(shop.slug).catch(() => null),
     getShopLanguages(shop.slug, shop.country),
     // With words the forgiving search (update 54): exact hits first, then close ones, else the most similar names.
@@ -133,6 +133,8 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
     shopContactButtons(shop.slug).catch(() => ({})),
     // A restaurant's Menu (database update 80): null for every other shop (and before update 80).
     getShopMenu(shop.slug).catch(() => null),
+    // "Meno asistenta" (database update 92): the chat's header title when the owner set one (never translated).
+    shopChatEnabled() ? shopAssistantName(shop.slug).catch(() => null) : Promise.resolve(null),
   ]);
   // A restaurant (update 84): its dishes in the same box — the search's dishes (?q= without JavaScript), and
   // "Objednať" from a dish's page (?order=<menu item>) while ordering in the assistant is on.
@@ -342,7 +344,7 @@ export async function ShopView({ lang, slug, sp, onSite }: { lang: Locale; slug:
           timeZone={shop.timezone}
           keys={docsKeysEnabled()}
           labels={dict.chat}
-          buttonLabel={assistantLabel}
+          buttonLabel={assistantName ?? assistantLabel}
           welcome={assistantWelcome}
           archive={archiveEnabled()}
           shopperPdf={shopperPdf}

@@ -17328,4 +17328,103 @@ reset role;
 delete from public.shops where slug in ('flags-a', 'flags-b');
 drop table flags_test;
 
+\echo '--- update 92: "Štýl asistenta" — waiter only for food, a new restaurant defaults to waiter, existing ones stay plain, name ≤ 20 plain text, plan needed, kind change to goods falls back to plain'
+create temporary table style_test (k text primary key, v uuid);
+grant all on style_test to public;
+do $$
+declare
+  v_goods uuid;
+  v_food uuid;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'style-goods', 'Style Goods', address, city, 'SK', timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_goods;
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active, kind)
+  select 'style-food', 'Style Food', address, city, 'SK', timezone, location, phone, opening_hours, true, 'food'
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_food;
+  insert into public.shop_members (shop_id, user_id) values (v_goods, '00000000-0000-0000-0000-00000000000a'), (v_food, '00000000-0000-0000-0000-00000000000a');
+  insert into style_test values ('goods', v_goods), ('food', v_food);
+  -- the one rule
+  assert public.assistant_style_of(null, 'goods') = 'plain';
+  assert public.assistant_style_of(null, 'food') = 'waiter', 'a new restaurant talks as a waiter';
+  assert public.assistant_style_of('waiter', 'goods') = 'plain', 'waiter only for food';
+  assert public.assistant_style_of('friendly', 'food') = 'friendly';
+  assert public.shop_assistant_persona('style-food') = '{"style": "waiter", "name": null}'::jsonb, public.shop_assistant_persona('style-food')::text;
+  assert public.shop_assistant_persona('style-goods') ->> 'style' = 'plain';
+  assert public.shop_assistant_persona('no-such-shop') is null;
+end $$;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_goods uuid := (select v from style_test where k = 'goods');
+begin
+  -- without the plan: refused
+  begin perform public.owner_set_assistant_style(v_goods, 'friendly', null); raise exception 'saved without the plan';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+insert into public.subscriptions (shop_id, status, plan, current_period_end, stripe_subscription_id)
+select v, 'active', 'pro', now() + interval '30 days', 'sub_style_' || k from style_test
+on conflict (shop_id) do update set status = 'active', current_period_end = now() + interval '30 days';
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_goods uuid := (select v from style_test where k = 'goods');
+  v_food uuid := (select v from style_test where k = 'food');
+  v jsonb;
+  v_msg text;
+begin
+  assert public.owner_assistant_style(v_food) ->> 'style' = 'waiter';
+  -- waiter only for a restaurant
+  begin perform public.owner_set_assistant_style(v_goods, 'waiter', null); raise exception 'waiter for a goods shop';
+  exception when invalid_parameter_value then
+    get stacked diagnostics v_msg = message_text;
+    assert v_msg = 'not_food', v_msg;
+  end;
+  begin perform public.owner_set_assistant_style(v_goods, 'pirate', null); raise exception 'an unknown style';
+  exception when invalid_parameter_value then null; end;
+  -- the name: ≤ 20 characters, plain text, empty = none
+  begin perform public.owner_set_assistant_style(v_food, 'waiter', 'Marco Polo the Great Waiter'); raise exception 'a long name';
+  exception when invalid_parameter_value then null; end;
+  v := public.owner_set_assistant_style(v_food, 'waiter', '  <b>Marco</b> ');
+  assert v = '{"style": "waiter", "name": "Marco"}'::jsonb, v::text;
+  assert exists (select 1 from public.shop_activity where shop_id = v_food and action = 'assistant_style_changed');
+  v := public.owner_set_assistant_style(v_goods, 'friendly', '');
+  assert v = '{"style": "friendly", "name": null}'::jsonb, v::text;
+  -- the table itself is not written by owners
+  begin update public.shop_assistant_settings set style = 'waiter' where shop_id = v_goods; raise exception 'wrote the table';
+  exception when insufficient_privilege then null; end;
+  -- the restaurant becomes a goods shop: its waiter talks plain from then on
+  perform public.owner_set_shop_kind(v_food, 'goods');
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+do $$
+declare
+  v_food uuid := (select v from style_test where k = 'food');
+begin
+  assert (select style from public.shop_assistant_settings where shop_id = v_food) = 'plain', 'kind change fell back to plain';
+  assert public.shop_assistant_persona('style-food') = '{"style": "plain", "name": "Marco"}'::jsonb, public.shop_assistant_persona('style-food')::text;
+  assert public.shop_assistant_persona('style-goods') = '{"style": "friendly", "name": null}'::jsonb;
+end $$;
+set role anon;
+do $$
+begin
+  assert public.shop_assistant_persona('style-goods') ->> 'style' = 'friendly', 'a visitor reads the persona';
+  begin perform public.owner_assistant_style((select v from style_test where k = 'goods')); raise exception 'a visitor read the owner view';
+  exception when insufficient_privilege then null; end;
+  begin perform (select style from public.shop_assistant_settings limit 1); raise exception 'a visitor read the table';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+delete from public.subscriptions where shop_id in (select v from style_test);
+delete from public.shops where slug in ('style-goods', 'style-food');
+drop table style_test;
+
 \echo 'ALL DATABASE CHECKS PASSED'

@@ -261,6 +261,13 @@ export async function shopContactButtons(slug: string): Promise<unknown> {
   return !error && data && typeof data === "object" ? data : {};
 }
 
+/** The assistant's name the owner chose (database update 92; null without one or before it): the chat's header title, never translated. */
+export async function shopAssistantName(slug: string): Promise<string | null> {
+  const { data, error } = await (await client()).rpc("shop_assistant_persona", { p_slug: slug });
+  const name = !error && data && typeof data === "object" ? (data as { name?: unknown }).name : null;
+  return typeof name === "string" && name.trim() ? name.trim().slice(0, 20) : null;
+}
+
 export async function shopStockResetting(slug: string): Promise<boolean> {
   const { data, error } = await (await client()).rpc("shop_stock_resetting", { p_slug: slug });
   return !error && data === true;
