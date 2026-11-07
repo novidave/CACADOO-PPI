@@ -21,6 +21,7 @@ import { SectionUploader } from "@/components/SectionUploader";
 import { deleteItem, setItemState, updateItem } from "../sectionActions";
 import { hiddenFields, inputClass, messages, ShopSwitcher } from "../shared";
 import { PageTitle } from "@/components/owner/PageHead";
+import { ghostClass } from "@/components/owner/ui";
 
 export async function generateMetadata({ params }: PageProps<"/[lang]/dashboard/content">): Promise<Metadata> {
   const { lang } = await params;
@@ -132,15 +133,31 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
   const m = messages(dict, sp);
   const hidden = hiddenFields(lang, shop);
   const planUrl = `/${lang}/dashboard/plan?${new URLSearchParams({ shop: shop.slug })}`;
-  const header = (
-    <header className="flex flex-col gap-2">
-      <PageTitle>{dict.account.content_page}</PageTitle>
+  // artboard 10: "Obsah stránky", "Slider na stránke obchodu · 6 z 10 slotov · zostávajú 4", "+ Nahrať PDF alebo obrázok"
+  const headLine = (line: string | null) => (
+    <header className="flex flex-col gap-2" data-page-head="content">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <PageTitle>{dict.account.content_page}</PageTitle>
+          {line && (
+            <p className="text-[15px] text-muted" data-content-line>
+              {line}
+            </p>
+          )}
+        </div>
+        {line && (
+          <a href={`/${lang}/dashboard/content?${new URLSearchParams({ shop: shop.slug, at: "library" })}#item-add`} className={ghostClass} data-content-upload>
+            {c.upload_button}
+          </a>
+        )}
+      </div>
       <ShopSwitcher shops={shops} current={shop} label={d.shop} href={(slug) => `/${lang}/dashboard/content?${new URLSearchParams({ shop: slug })}`} />
-      <p className="text-muted">{shop.name}</p>
+      {shops.length > 1 && <p className="text-muted">{shop.name}</p>}
       <p className="text-sm">{c.page_intro}</p>
       {m.top}
     </header>
   );
+  const header = headLine(null);
   // Before database update 38 this page has nothing to show yet.
   if (contentResult.error || !contentResult.data) {
     return (
@@ -201,19 +218,22 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
     `/${lang}/dashboard/content?${new URLSearchParams({ shop: shop.slug, at: "library", ...query })}`;
   const counts = { pdf: data.items.filter((i) => i.kind === "pdf").length, picture: data.items.filter((i) => i.kind === "picture").length };
   const summaries = {
-    content: t(c.summary, { n: shown.length, max: limits.maxSlides }),
     library: data.items.length ? t(c.library_summary, { pdf: counts.pdf, pictures: counts.picture, max: limits.maxItems }) : c.library_none,
   };
 
+  const slotsLeft = Math.max(0, limits.maxSlides - data.slots.length);
+  const leftForm = new Intl.PluralRules(lang).select(slotsLeft);
+  const leftWords = t(leftForm === "one" ? c.left_one : leftForm === "few" ? c.left_few : c.left_other, { n: slotsLeft });
+  const line = `${c.slider_title} · ${t(c.slots_of, { n: data.slots.length, max: limits.maxSlides })} · ${leftWords.charAt(0).toLocaleLowerCase(lang) + leftWords.slice(1)}`;
+
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      {header}
+    <div className="flex w-full max-w-[1180px] flex-col gap-[18px]">
+      {headLine(line)}
 
       <div className="flex flex-col gap-3" data-content-sections>
-        {/* 1. The slider: title, look, slots, order, live preview */}
-        <DashboardSection {...m.section("content")} first title={c.slider_title} summary={summaries.content}>
+        {/* 1. The slider (artboard 10): its settings, the slots, the live preview, one save bar */}
+        <section id="content" className="flex scroll-mt-4 flex-col gap-3" aria-label={c.slider_title}>
           {m.notice("content")}
-          <p className="text-sm text-muted">{c.slider_intro}</p>
           <ContentEditor
             shopId={shop.id}
             settings={{ title: data.title, showTitle: data.show_title, display: data.display, videoTarget: data.video_target, ratio: data.ratio }}
@@ -225,7 +245,7 @@ export default async function ContentPage({ params, searchParams }: PageProps<"/
             lang={lang}
             planUrl={planUrl}
           />
-        </DashboardSection>
+        </section>
 
         {/* 2. The library: the shop's PDFs and pictures */}
         <DashboardSection {...m.section("library")} title={c.library_title} summary={summaries.library}>

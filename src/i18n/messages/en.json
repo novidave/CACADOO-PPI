@@ -2440,7 +2440,19 @@
     "close_article": "Close article",
     "article": "Article",
     "all_news_done": "Opened",
-    "slide_of": "Slide {n} of {total}"
+    "slide_of": "Slide {n} of {total}",
+    "ratio_short": "Aspect ratio",
+    "drag_handle": "Drag to move",
+    "slot_crop": "crop: {crop}",
+    "empty_slots_new": "No slots yet. Add the first one with “+ Add slot”.",
+    "add_slot": "+ Add slot",
+    "preview_device": "Device",
+    "preview_phone": "Phone",
+    "preview_drag_hint": "Drag slots by ⠿ or use the arrows.",
+    "order_changed": "Order changed",
+    "unsaved_n": "Unsaved changes: {n}",
+    "slots_of": "{n} of {max} slots",
+    "upload_button": "+ Upload a PDF or picture"
   },
   "languages": {
     "button": "Language",

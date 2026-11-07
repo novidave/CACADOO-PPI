@@ -2440,7 +2440,19 @@
     "close_article": "Zavrieť článok",
     "article": "Článok",
     "all_news_done": "Otvorené",
-    "slide_of": "Snímka {n} z {total}"
+    "slide_of": "Snímka {n} z {total}",
+    "ratio_short": "Pomer strán",
+    "drag_handle": "Presunúť ťahaním",
+    "slot_crop": "výrez: {crop}",
+    "empty_slots_new": "Zatiaľ žiadne sloty. Pridajte prvý tlačidlom „+ Pridať slot“.",
+    "add_slot": "+ Pridať slot",
+    "preview_device": "Zariadenie",
+    "preview_phone": "Telefón",
+    "preview_drag_hint": "Ťahajte sloty za ⠿ alebo použite šípky.",
+    "order_changed": "Poradie zmenené",
+    "unsaved_n": "Neuložené zmeny: {n}",
+    "slots_of": "{n} z {max} slotov",
+    "upload_button": "+ Nahrať PDF alebo obrázok"
   },
   "languages": {
     "button": "Jazyk",
