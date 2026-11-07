@@ -153,6 +153,9 @@ export function toolError(message: string): string {
     booking: "The booking link must be an https address.",
     phone: "That phone number is not valid.",
     slot_taken: "That time is already booked.",
+    // update 88: the owner removed this product on "Ignorované produkty"; no file brings it back until restored
+    ignored:
+      "The owner removed this product from the page and ignores it (Môj obchod → Priečinok s exportom → Nebezpečná zóna – sklad → Ignorované produkty): no stock file brings it back and update_stock cannot change it until the owner restores it there.",
     // update 67: while "Sklad v Cacaduu" is the stock source, only its movements change the stock
     sklad_active:
       "This shop keeps its stock in \"Sklad v Cacaduu\": quantities change only as movements (receipt, issue, write-off, transfer, correction) in Môj obchod → Sklad, so update_stock cannot change them.",

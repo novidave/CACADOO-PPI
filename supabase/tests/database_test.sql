@@ -417,7 +417,7 @@ begin
     {"source_code":"","name":"no code, ignored","quantity":1,"price":1},
     {"source_code":"P003","name":"Mlieko polotučné 1 l","quantity":40,"price":1.09}
   ]', '2026-10-04 08:15:00+00', '[{"KOD":"P001"}]');
-  assert v_result = '{"items": 3, "zeroed": 4}'::jsonb, format('unexpected result %s', v_result);
+  assert v_result = '{"items": 3, "zeroed": 4, "ignored": 0}'::jsonb, format('unexpected result %s', v_result);
   assert (select quantity || '/' || price from public.inventory i join public.shop_items si on si.id = i.shop_item_id
           where si.shop_id = v_shop and si.source_code = 'P001') = '7/19.5';
   assert (select quantity || ' ' || currency from public.inventory i join public.shop_items si on si.id = i.shop_item_id
@@ -16742,5 +16742,295 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 drop table t87;
+
+\echo '--- update 88: ignored products — removed by the owner, skipped by every import (file, translations, agent) until restored; not errors, never the half rule; members only'
+do $$
+declare
+  v_shop uuid;
+begin
+  insert into public.shops (slug, name, address, city, country, timezone, location, phone, opening_hours, is_active)
+  select 'farby-ignore', 'Farby Ignore', address, city, country, timezone, location, phone, opening_hours, true
+  from public.shops where slug = 'potraviny-centrum'
+  returning id into v_shop;
+  insert into public.shop_members (shop_id, user_id) values (v_shop, '00000000-0000-0000-0000-00000000000a');
+  insert into public.sync_sources (shop_id, file_format, field_mapping, mapping_status, last_file_name, file_columns)
+  values (v_shop, 'csv', '{"source_code":"Kód","name":"Názov","quantity":"Mn","price":"Cena"}', 'confirmed', 'sklad.csv',
+          array['Kód', 'Názov', 'Mn', 'Cena']);
+  perform public.apply_stock_file(v_shop, '[
+    {"source_code":"I1","name":"Farba biela 5 l","ean":"8580000008801","quantity":4,"price":29.9},
+    {"source_code":"I2","name":"Farba modrá 1 l","quantity":2,"price":9.9},
+    {"source_code":"I3","name":"Štetec 50 mm","ean":"8580000008801","quantity":7,"price":3.5},
+    {"source_code":"I4","name":"Valček 25 cm","quantity":1,"price":6},
+    {"source_code":"I5","name":"Riedidlo 1 l","quantity":0,"price":4}
+  ]', now() - interval '10 minutes', null);
+  insert into public.content_translations (shop_id, kind, ref, lang, text, status, source_hash)
+  select v_shop, 'item_name', si.id::text, 'hu', 'Fehér festék 5 l', 'manual', md5('Farba biela 5 l')
+  from public.shop_items si where si.shop_id = v_shop and si.source_code = 'I1';
+end $$;
+
+-- another owner, a visitor and the owner's direct writes: refused
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000b';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+begin
+  begin perform public.owner_ignore_items(v_shop, null, null, null); raise exception 'B ignored';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_ignore_candidates(v_shop); raise exception 'B listed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_ignored_items(v_shop); raise exception 'B read the ignored list';
+  exception when insufficient_privilege then null; end;
+  begin perform public.owner_unignore_items(v_shop, null, null); raise exception 'B restored';
+  exception when insufficient_privilege then null; end;
+  assert not exists (select 1 from public.shop_ignored_items), 'B reads nothing';
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin perform public.owner_ignore_items((select id from public.public_shops where slug = 'farby-ignore'), null, null, null);
+    raise exception 'anon ignored';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+  v_other uuid := (select si.id from public.shop_items si join public.shops s on s.id = si.shop_id
+                   where s.slug <> 'farby-ignore' order by si.id limit 1);
+  v_ids uuid[];
+  v_c jsonb;
+  v_r jsonb;
+begin
+  begin
+    insert into public.shop_ignored_items (shop_id, key_value) values (v_shop, 'I9');
+    raise exception 'owner wrote the table';
+  exception when insufficient_privilege then null; end;
+  v_c := public.owner_ignore_candidates(v_shop);
+  assert (v_c ->> 'total')::int = 5 and v_c ->> 'source' = 'file' and v_c ->> 'refusal' is null, v_c::text;
+  v_c := public.owner_ignore_candidates(v_shop, 'farba');
+  assert (v_c ->> 'matched')::int = 2 and v_c ->> 'kind' = 'match', v_c::text;
+  -- the screen showed 3: something changed, nothing removed
+  begin perform public.owner_ignore_items(v_shop, null, 'farba', 3); raise exception 'changed passed';
+  exception when raise_exception then assert sqlerrm = 'changed', sqlerrm; end;
+  assert (select count(*) from public.shop_items where shop_id = v_shop) = 5;
+  -- I1, I2 ticked + another shop's product (left out)
+  select array_agg(si.id order by si.source_code) into v_ids from public.shop_items si
+  where si.shop_id = v_shop and si.source_code in ('I1', 'I2');
+  v_r := public.owner_ignore_items(v_shop, v_ids || v_other, null, 2);
+  assert (v_r ->> 'count')::int = 2 and v_r -> 'keys' = '["I1", "I2"]'::jsonb, v_r::text;
+  perform set_config('ppi.ign_reset', v_r ->> 'reset_id', false);
+  assert exists (select 1 from public.shop_items where id = v_other), 'another shop''s product untouched';
+  assert (select count(*) from public.shop_items where shop_id = v_shop) = 3;
+  assert (select count(*) from public.shop_ignored_items where shop_id = v_shop) = 2, 'members read the keys';
+  assert (select action from public.shop_activity where shop_id = v_shop order by at desc limit 1) = 'items_ignored';
+  v_r := public.owner_inventory_state(v_shop);
+  assert (v_r ->> 'resets_left')::int = 3 and jsonb_array_length(v_r -> 'resets') = 0 and (v_r ->> 'ignored')::int = 2,
+    'an ignore is not a reset: ' || v_r::text;
+  v_r := public.owner_ignored_items(v_shop);
+  assert (v_r ->> 'total')::int = 2 and (v_r -> 'items' -> 0 ->> 'by_me')::boolean, v_r::text;
+end $$;
+reset role;
+
+-- at once: not public, not searched (shop and all shops)
+set role anon;
+do $$
+begin
+  assert not exists (select 1 from public.public_stock where shop_slug = 'farby-ignore' and item_name like 'Farba%');
+  assert not exists (select 1 from public.shop_item_search('farby-ignore', 'farba', 10, 0) where kind <> 'similar');
+  assert not exists (select 1 from public.item_search('farba biela', null, null, null, false, 50) where shop_slug = 'farby-ignore' and item_name like 'Farba%');
+end $$;
+reset role;
+
+-- the same file again: still out, counted as ignored (not errors); a direct insert is skipped by the guard
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+  v_t timestamptz := now() - interval '5 minutes';
+  v_r jsonb;
+  v_imp bigint;
+begin
+  v_r := public.apply_stock_file(v_shop, '[
+    {"source_code":"I1","name":"Farba biela 5 l","ean":"8580000008801","quantity":4,"price":29.9},
+    {"source_code":" I2 ","name":"Farba modrá 1 l","quantity":2,"price":9.9},
+    {"source_code":"I3","name":"Štetec 50 mm","ean":"8580000008801","quantity":7,"price":3.5},
+    {"source_code":"I4","name":"Valček 25 cm","quantity":1,"price":6},
+    {"source_code":"I5","name":"Riedidlo 1 l","quantity":0,"price":4}
+  ]', v_t, '[{"Kód":"I1","Názov":"Farba biela 5 l"},{"Kód":"I3","Názov":"Štetec 50 mm"}]');
+  assert (v_r ->> 'items')::int = 3 and (v_r ->> 'ignored')::int = 2 and (v_r ->> 'zeroed')::int = 0, v_r::text;
+  assert not exists (select 1 from public.shop_items where shop_id = v_shop and source_code in ('I1', 'I2'));
+  assert (select jsonb_array_length(sample_rows) = 1 from public.sync_sources where shop_id = v_shop), 'the example rows leave it out';
+  v_imp := public.record_stock_import(v_shop, 'sklad.csv', v_t, 'ok', 5, 3, 0, 0, null,
+    '[{"Kód":"I1","Názov":"Farba biela 5 l"},{"Kód":"I3","Názov":"Štetec 50 mm"}]');
+  assert (select ignored_count = 2 and status = 'ok' and jsonb_array_length(preview) = 1 from public.stock_imports where id = v_imp);
+  -- a report of a file that was not applied carries no ignored count
+  v_imp := public.record_stock_import(v_shop, 'x.csv', now(), 'waiting', 5, 0, 0, 0, null, '[]');
+  assert (select ignored_count = 0 from public.stock_imports where id = v_imp);
+  insert into public.shop_items (shop_id, source_code, name) values (v_shop, 'I1', 'Farba biela 5 l');
+  assert not exists (select 1 from public.shop_items where shop_id = v_shop and source_code = 'I1'), 'the guard';
+  -- a file in another language: I1's row is skipped (not matched to I3 by the same EAN, not "unmatched")
+  v_r := public.apply_shop_translations(v_shop, 'de', '[{"source_code":"I1","ean":"8580000008801","name":"Weiße Farbe"},
+                                                       {"source_code":"I4","name":"Rolle 25 cm"}]');
+  assert (v_r ->> 'ignored')::int = 1 and (v_r ->> 'matched')::int = 1 and (v_r ->> 'unmatched_count')::int = 0, v_r::text;
+  assert not exists (select 1 from public.content_translations where shop_id = v_shop and lang = 'de' and text = 'Weiße Farbe');
+end $$;
+
+-- the toast's "Späť" only by its own call; update 43's restore never brings an ignore back
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+  v_r jsonb;
+begin
+  begin perform public.owner_inventory_restore(current_setting('ppi.ign_reset')::bigint); raise exception 'restored an ignore';
+  exception when raise_exception then assert sqlerrm = 'restore_ignored', sqlerrm; end;
+  -- the undo after a newer file: refused (the file was applied without them)
+  begin perform public.owner_ignore_undo(current_setting('ppi.ign_reset')::bigint); raise exception 'undo after a file';
+  exception when raise_exception then assert sqlerrm = 'restore_newer_upload', sqlerrm; end;
+  assert (select count(*) from public.shop_ignored_items where shop_id = v_shop) = 2, 'the refused undo changed nothing';
+  -- restore I2 from the list: back only with the next file
+  v_r := public.owner_unignore_items(v_shop, array['I2'], 1);
+  assert (v_r ->> 'count')::int = 1 and v_r ->> 'source' = 'file', v_r::text;
+  assert not exists (select 1 from public.shop_items where shop_id = v_shop and source_code = 'I2'), 'not from the trash';
+  assert (select action from public.shop_activity where shop_id = v_shop order by at desc limit 1) = 'items_unignored';
+  begin perform public.owner_unignore_items(v_shop, null, 5); raise exception 'changed passed';
+  exception when raise_exception then assert sqlerrm = 'changed', sqlerrm; end;
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+  v_r jsonb;
+begin
+  -- the next file brings I2 back (with its old translations by code); I1 stays out
+  v_r := public.apply_stock_file(v_shop, '[
+    {"source_code":"I1","name":"Farba biela 5 l","quantity":4,"price":29.9},
+    {"source_code":"I2","name":"Farba modrá 1 l","quantity":2,"price":9.9},
+    {"source_code":"I3","name":"Štetec 50 mm","quantity":7,"price":3.5}
+  ]', now() - interval '1 minute', null);
+  assert (v_r ->> 'items')::int = 2 and (v_r ->> 'ignored')::int = 1, v_r::text;
+  assert exists (select 1 from public.shop_items where shop_id = v_shop and source_code = 'I2');
+  assert not exists (select 1 from public.shop_items where shop_id = v_shop and source_code = 'I1');
+  assert (select reattached_at is not null from public.inventory_trash where shop_id = v_shop and source_code = 'I2');
+end $$;
+
+-- unignore I1: it comes back with its Hungarian name
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform public.owner_unignore_items((select id from public.shops where slug = 'farby-ignore'), null, 1);
+end $$;
+reset role;
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+begin
+  perform public.apply_stock_file(v_shop, '[{"source_code":"I1","name":"Farba biela 5 l","quantity":4,"price":29.9},
+    {"source_code":"I2","name":"Farba modrá 1 l","quantity":2,"price":9.9}]', now(), null);
+  assert (select name_i18n ->> 'hu' from public.shop_items where shop_id = v_shop and source_code = 'I1') = 'Fehér festék 5 l',
+    'the old translation came back with the product';
+end $$;
+
+-- the undo within 10 minutes, before a newer file: exactly back, keys gone
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+  v_r jsonb;
+  v_id uuid := (select id from public.shop_items where shop_id = (select id from public.shops where slug = 'farby-ignore')
+                and source_code = 'I1');
+begin
+  v_r := public.owner_ignore_items(v_shop, array[v_id], null, 1);
+  assert not exists (select 1 from public.shop_items where id = v_id);
+  v_r := public.owner_ignore_undo((v_r ->> 'reset_id')::bigint);
+  assert (v_r ->> 'count')::int = 1, v_r::text;
+  assert exists (select 1 from public.shop_items where id = v_id), 'the same id';
+  assert not exists (select 1 from public.shop_ignored_items where shop_id = v_shop);
+  -- "Vymazať všetko" of the search "farba": the shop's name is not needed in SQL; the count must match
+  v_r := public.owner_ignore_items(v_shop, null, 'farba', 2);
+  assert (v_r ->> 'count')::int = 2, v_r::text;
+end $$;
+reset role;
+
+-- the POS agent: ignored rows never make a snapshot "fewer than half", and are counted in the report
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+  v_dev uuid;
+  s1 uuid := gen_random_uuid();
+  v_r jsonb;
+begin
+  insert into public.connector_devices (shop_id, name, token_hash) values (v_shop, 'Pokladňa', repeat('e', 64)) returning id into v_dev;
+  insert into public.shop_stock_source (shop_id, source, agent_product_count) values (v_shop, 'agent', 4)
+  on conflict (shop_id) do update set source = 'agent', agent_product_count = 4;
+  assert public.stock_source_of(v_shop) = 'agent';
+  insert into public.connector_snapshots (shop_id, id, device_id, source_id, source_time, product_count, content_hash, state, preview)
+  values (v_shop, s1, v_dev, 'pos', now(), 5, repeat('8', 64), 'processing', '[{"source_code":"I1","name":"Farba biela 5 l"}]');
+  -- 5 rows, 2 ignored: 3 counted; 3 * 2 >= 4 → applied (without the rule's fix, 5 - 0 would also pass, so compare with 7)
+  update public.shop_stock_source set agent_product_count = 7 where shop_id = v_shop;
+  v_r := public.connector_snapshot_settle(v_shop, s1, '[
+    {"source_code":"I1","name":"Farba biela 5 l","price":29.9,"currency":"EUR","quantity":4},
+    {"source_code":"I2","name":"Farba modrá 1 l","price":9.9,"currency":"EUR","quantity":2},
+    {"source_code":"I3","name":"Štetec 50 mm","price":3.5,"currency":"EUR","quantity":7},
+    {"source_code":"I4","name":"Valček 25 cm","price":6,"currency":"EUR","quantity":1},
+    {"source_code":"I5","name":"Riedidlo 1 l","price":4,"currency":"EUR","quantity":0}]', '{}', '{"products":5,"skipped":0}', false);
+  assert v_r ->> 'state' = 'held' and v_r ->> 'reason' = 'shrinking', 'only 3 count: 3 * 2 < 7 ' || v_r::text;
+  update public.shop_stock_source set agent_product_count = 6 where shop_id = v_shop;
+  update public.connector_snapshots set state = 'processing' where id = s1;
+  v_r := public.connector_snapshot_settle(v_shop, s1, '[
+    {"source_code":"I1","name":"Farba biela 5 l","price":29.9,"currency":"EUR","quantity":4},
+    {"source_code":"I2","name":"Farba modrá 1 l","price":9.9,"currency":"EUR","quantity":2},
+    {"source_code":"I3","name":"Štetec 50 mm","price":3.5,"currency":"EUR","quantity":7},
+    {"source_code":"I4","name":"Valček 25 cm","price":6,"currency":"EUR","quantity":1},
+    {"source_code":"I5","name":"Riedidlo 1 l","price":4,"currency":"EUR","quantity":0}]', '{}', '{"products":5,"skipped":0}', false);
+  assert v_r ->> 'state' = 'applied' and (v_r -> 'result' ->> 'ignored')::int = 2 and (v_r -> 'result' ->> 'imported')::int = 3, v_r::text;
+  assert not exists (select 1 from public.shop_items where shop_id = v_shop and source_code in ('I1', 'I2'));
+  assert (select agent_product_count from public.shop_stock_source where shop_id = v_shop) = 3;
+  assert exists (select 1 from public.stock_imports where shop_id = v_shop and source = 'agent' and ignored_count = 2
+                 and status = 'ok' and preview = '[]'::jsonb);
+  -- ignoring while the agent is the source lowers the count the next snapshot is compared with
+  update public.connector_devices set revoked_at = now() where id = v_dev;
+end $$;
+
+-- an ignored product keeps its photo past update 78's 30 days; a product only gone loses it
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+begin
+  insert into public.product_photos (item_id, shop_id, source_code, path_large, path_small, width, height, source, updated_at)
+  values (gen_random_uuid(), v_shop, 'I1', 'x/ignored-large.webp', 'x/ignored-small.webp', 1600, 1200, 'owner', now() - interval '40 days'),
+         (gen_random_uuid(), v_shop, 'GONE', 'x/gone-large.webp', 'x/gone-small.webp', 1600, 1200, 'owner', now() - interval '40 days');
+  perform public.product_photo_tidy(10);
+  assert exists (select 1 from public.product_photos where shop_id = v_shop and source_code = 'I1'), 'the ignored one keeps it';
+  assert not exists (select 1 from public.product_photos where shop_id = v_shop and source_code = 'GONE'), 'gone 30 days: removed';
+  delete from public.product_photos where shop_id = v_shop;
+end $$;
+
+-- a shop that keeps its stock in "Sklad v Cacaduu": refused
+do $$
+begin
+  insert into public.shop_stock_source (shop_id, source) values ((select id from public.shops where slug = 'farby-ignore'), 'sklad')
+  on conflict (shop_id) do update set source = 'sklad';
+end $$;
+set role authenticated;
+set request.jwt.claim.sub = '00000000-0000-0000-0000-00000000000a';
+do $$
+declare
+  v_shop uuid := (select id from public.shops where slug = 'farby-ignore');
+begin
+  assert public.owner_ignore_candidates(v_shop) ->> 'refusal' = 'sklad_source';
+  begin perform public.owner_ignore_items(v_shop, null, null, null); raise exception 'sklad shop ignored';
+  exception when raise_exception then assert sqlerrm = 'sklad_source', sqlerrm; end;
+end $$;
+reset role;
+reset request.jwt.claim.sub;
+delete from public.shops where slug = 'farby-ignore';
 
 \echo 'ALL DATABASE CHECKS PASSED'

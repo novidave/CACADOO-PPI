@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Locale } from "@/i18n/config";
 import { formatDateTime } from "@/lib/format";
+import { missingColumn } from "@/lib/missingColumn";
 import type { ImportView } from "@/components/RecentImports";
 
 /** One stock file report (public.stock_imports, written only by stock-pull). */
@@ -15,6 +16,8 @@ interface ImportRow {
   imported: number;
   zeroed: number;
   skipped: number;
+  /** update 88: rows of products the owner ignores (not errors). */
+  ignored_count?: number;
   error: string | null;
   columns: string[] | null;
   preview: Record<string, unknown>[] | null;
@@ -29,15 +32,20 @@ export async function loadImports(
   shop: { id: string; timezone: string },
   lang: Locale,
 ): Promise<{ imports: ImportView[]; latest: { status: ImportRow["status"]; received_at: string } | null } | null> {
-  const { data, error } = await supabase
-    .from("stock_imports")
-    .select("id, file_name, file_time, received_at, status, total_rows, imported, zeroed, skipped, error, columns, preview")
-    .eq("shop_id", shop.id)
-    .order("received_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(10);
+  const read = (columns: string) =>
+    supabase
+      .from("stock_imports")
+      .select(columns)
+      .eq("shop_id", shop.id)
+      .order("received_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(10);
+  const base = "id, file_name, file_time, received_at, status, total_rows, imported, zeroed, skipped, error, columns, preview";
+  let { data, error } = await read(`${base}, ignored_count`);
+  // before database update 88 there is no ignored count
+  if (error && missingColumn(error, "ignored_count")) ({ data, error } = await read(base));
   if (error) return null;
-  const rows = (data ?? []) as ImportRow[];
+  const rows = (data ?? []) as unknown as ImportRow[];
   return {
     imports: rows.map((row) => ({
       id: row.id,
@@ -49,6 +57,7 @@ export async function loadImports(
       imported: row.imported,
       zeroed: row.zeroed,
       skipped: row.skipped,
+      ignored: row.ignored_count ?? 0,
       error: row.error,
       columns: row.columns ?? [],
       preview: Array.isArray(row.preview) ? row.preview : [],

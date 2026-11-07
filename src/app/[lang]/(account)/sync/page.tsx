@@ -26,6 +26,7 @@ import type { ConnectorCommand, ConnectorSnapshot, ConnectorState, StockSource }
 import { BackupDownload, DeleteFilesButton, InventoryResetOptions } from "@/components/InventoryDangerZone";
 import { PendingButton } from "@/components/PendingButton";
 import { RecentImports } from "@/components/RecentImports";
+import { IgnoredItems } from "@/components/IgnoredItems";
 import { ColumnsForm, columnsSummary } from "../dashboard/Inventory";
 import { LanguagesForm, type LanguageSettings } from "../dashboard/LanguagesForm";
 import { hiddenFields, messages, recentlyText, ShopSwitcher } from "../dashboard/shared";
@@ -208,7 +209,7 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
   };
   const activityText = (a: { action: string; details: Record<string, unknown> }) =>
     t((r as Record<string, string>)[`activity_${a.action}`] ?? a.action, {
-      items: Number(a.details.items ?? 0),
+      items: Number(a.details.items ?? a.details.count ?? 0),
       files: Number(a.details.files ?? 0),
     });
 
@@ -407,11 +408,25 @@ export default async function SyncPage({ params, searchParams }: PageProps<"/[la
 
         {/* "Nebezpečná zóna – sklad" (update 43): closed until the owner opens it; needs database update 43. */}
         {state && preview && (
-          <DashboardSection {...m.section("danger")} collapsed title={r.danger_title} summary={r.danger_summary}>
+          <DashboardSection {...m.section("danger")} forceOpen={at === "danger" || at === "ignored"} collapsed title={r.danger_title} summary={r.danger_summary}>
             {m.notice("danger")}
             {justBackedUp && <BackupDownload href={backupHref(backupId)} label={r.backup_ready} link={r.backup_download} />}
             <p className="text-sm">{r.danger_intro}</p>
             <InventoryResetOptions preview={preview} hidden={hidden} labels={r} action={resetInventory} />
+
+            {/* C. "Ignorované produkty" (update 88): removed products no later file brings back, until restored */}
+            <section id="ignored" className="flex min-w-0 scroll-mt-20 flex-col gap-2" data-ignored-section>
+              <h3 className="font-semibold">{dict.ignored.title}</h3>
+              <IgnoredItems
+                shopId={shop.id}
+                slug={shop.slug}
+                lang={lang}
+                timeZone={shop.timezone}
+                labels={dict.ignored}
+                skladHref={`/${lang}/dashboard/sklad/products?${new URLSearchParams({ shop: shop.slug })}`}
+                menuHref={`/${lang}/dashboard/assistant/orders/menu?${new URLSearchParams({ shop: shop.slug })}`}
+              />
+            </section>
 
             <section className="flex flex-col gap-2" data-restore>
               <h3 className="font-semibold">{r.restore_title}</h3>
